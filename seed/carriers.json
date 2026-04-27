@@ -1,0 +1,60 @@
+[
+  {
+    "id": "transamerica",
+    "name": "Transamerica",
+    "products": [
+      {"name": "Whole Life", "type": "WL", "default_first_year_comm_pct": 105, "renewal_pct": 5},
+      {"name": "Term", "type": "TERM", "default_first_year_comm_pct": 90, "renewal_pct": 2},
+      {"name": "Final Expense", "type": "FE", "default_first_year_comm_pct": 110, "renewal_pct": 5}
+    ]
+  },
+  {
+    "id": "ethos",
+    "name": "Ethos",
+    "products": [
+      {"name": "Whole Life", "type": "WL", "default_first_year_comm_pct": 100, "renewal_pct": 4},
+      {"name": "Term", "type": "TERM", "default_first_year_comm_pct": 85, "renewal_pct": 2}
+    ]
+  },
+  {
+    "id": "fg",
+    "name": "Fidelity & Guaranty (F&G)",
+    "products": [
+      {"name": "Everlast", "type": "IUL", "default_first_year_comm_pct": 100, "renewal_pct": 3},
+      {"name": "Child IUL", "type": "IUL", "default_first_year_comm_pct": 95, "renewal_pct": 3}
+    ]
+  },
+  {
+    "id": "mutual_omaha",
+    "name": "Mutual of Omaha",
+    "products": [
+      {"name": "Living Promise", "type": "FE", "default_first_year_comm_pct": 110, "renewal_pct": 6},
+      {"name": "Term Life Express", "type": "TERM", "default_first_year_comm_pct": 95, "renewal_pct": 2}
+    ]
+  },
+  {
+    "id": "americo",
+    "name": "Americo",
+    "products": [
+      {"name": "HMS Term", "type": "TERM", "default_first_year_comm_pct": 100, "renewal_pct": 2},
+      {"name": "Eagle Premier", "type": "FE", "default_first_year_comm_pct": 115, "renewal_pct": 5},
+      {"name": "Term Super 10", "type": "TERM", "default_first_year_comm_pct": 100, "renewal_pct": 2}
+    ]
+  },
+  {
+    "id": "foresters",
+    "name": "Foresters Financial",
+    "products": [
+      {"name": "PlanRight", "type": "FE", "default_first_year_comm_pct": 110, "renewal_pct": 5},
+      {"name": "Your Term", "type": "TERM", "default_first_year_comm_pct": 95, "renewal_pct": 2}
+    ]
+  },
+  {
+    "id": "ag",
+    "name": "American General (AIG / Corebridge)",
+    "products": [
+      {"name": "Select-a-Term", "type": "TERM", "default_first_year_comm_pct": 95, "renewal_pct": 2},
+      {"name": "Quality of Life", "type": "IUL", "default_first_year_comm_pct": 90, "renewal_pct": 3}
+    ]
+  }
+]

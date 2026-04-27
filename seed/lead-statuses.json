@@ -1,0 +1,35 @@
+{
+  "lead_status_enum": [
+    {"key": "new", "label": "New", "color": "blue", "next_states": ["contacted", "no_answer", "wrong_number", "do_not_call"]},
+    {"key": "contacted", "label": "Contacted", "color": "blue", "next_states": ["interested", "callback", "not_interested", "no_answer"]},
+    {"key": "callback", "label": "Callback Scheduled", "color": "yellow", "next_states": ["contacted", "no_answer", "interested", "appointment"]},
+    {"key": "no_answer", "label": "No Answer", "color": "gray", "next_states": ["contacted", "no_answer", "do_not_call"]},
+    {"key": "wrong_number", "label": "Wrong Number", "color": "red", "next_states": []},
+    {"key": "do_not_call", "label": "Do Not Call", "color": "red", "next_states": []},
+    {"key": "interested", "label": "Interested", "color": "green", "next_states": ["appointment", "quoted", "not_interested"]},
+    {"key": "appointment", "label": "Appointment Set", "color": "green", "next_states": ["quoted", "no_show", "not_interested"]},
+    {"key": "no_show", "label": "No Show", "color": "yellow", "next_states": ["appointment", "not_interested"]},
+    {"key": "quoted", "label": "Quoted", "color": "blue", "next_states": ["application", "not_interested"]},
+    {"key": "application", "label": "Application Submitted", "color": "green", "next_states": ["converted_to_deal", "not_interested"]},
+    {"key": "converted_to_deal", "label": "Converted to Deal", "color": "green", "terminal": true, "creates_deal": true},
+    {"key": "not_interested", "label": "Not Interested", "color": "red", "terminal": true}
+  ],
+  "deal_status_enum": [
+    {"key": "draft", "label": "Draft", "color": "gray"},
+    {"key": "submitted", "label": "Submitted", "color": "blue"},
+    {"key": "underwriting", "label": "Underwriting", "color": "yellow"},
+    {"key": "approved", "label": "Approved", "color": "green"},
+    {"key": "issued", "label": "Issued", "color": "green"},
+    {"key": "paid", "label": "Issue Paid", "color": "green", "credits_kpi": "issue_paid"},
+    {"key": "declined", "label": "Declined", "color": "red", "terminal": true},
+    {"key": "lapsed", "label": "Lapsed", "color": "red"},
+    {"key": "chargeback", "label": "Chargeback", "color": "red"},
+    {"key": "free_look_cancel", "label": "Free-Look Cancel", "color": "red", "terminal": true}
+  ],
+  "follow_up_triggers": [
+    {"key": "underwriting_14d", "description": "Deal stuck in Underwriting for 14+ days", "match": {"deal.status": "underwriting", "deal.submitted_at": "<= now() - 14 days"}, "action": {"type": "create_followup", "assignee": "deal.agent_id", "priority": "high", "note": "Stuck in UW — call carrier"}},
+    {"key": "lead_no_answer_24h", "description": "Lead in no_answer status for 24h", "match": {"lead.status": "no_answer", "lead.last_activity_at": "<= now() - 24 hours"}, "action": {"type": "create_activity", "kind": "call", "note": "Auto-retry — generated"}},
+    {"key": "callback_due", "description": "Callback time passed", "match": {"lead.callback_at": "<= now()", "lead.status": "callback"}, "action": {"type": "create_activity", "kind": "call_now", "priority": "urgent"}},
+    {"key": "issued_no_deposit_30d", "description": "Issued deal without deposit logged in 30 days", "match": {"deal.status": "issued", "deal.deposit_at": "is_null", "deal.issued_at": "<= now() - 30 days"}, "action": {"type": "create_followup", "note": "Verify carrier paid commission"}}
+  ]
+}

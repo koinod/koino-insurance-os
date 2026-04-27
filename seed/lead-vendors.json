@@ -1,0 +1,10 @@
+[
+  {"id": "goat_aged_fex_181", "name": "Goat — Aged FEX 181+ Days", "type": "aged", "vertical": "FE", "typical_cost_per_lead_cents": 75, "delivery": "csv_email"},
+  {"id": "life_jacket_vet", "name": "Life Jacket — Vet", "type": "real_time", "vertical": "TERM", "typical_cost_per_lead_cents": 1500, "delivery": "webhook"},
+  {"id": "referral", "name": "Referral", "type": "organic", "vertical": "ANY", "typical_cost_per_lead_cents": 0, "delivery": "manual"},
+  {"id": "facebook_ads_self", "name": "Facebook Ads — In-house", "type": "real_time", "vertical": "ANY", "typical_cost_per_lead_cents": 800, "delivery": "webhook"},
+  {"id": "lifeline_direct", "name": "Lifeline Direct", "type": "real_time", "vertical": "FE", "typical_cost_per_lead_cents": 1200, "delivery": "webhook"},
+  {"id": "ghf", "name": "GHF Aged Internet", "type": "aged", "vertical": "TERM", "typical_cost_per_lead_cents": 50, "delivery": "csv_email"},
+  {"id": "hometown_quotes", "name": "Hometown Quotes", "type": "real_time", "vertical": "TERM", "typical_cost_per_lead_cents": 1800, "delivery": "webhook"},
+  {"id": "google_sheet_manual", "name": "Manual Spreadsheet (Google Sheets sync)", "type": "manual", "vertical": "ANY", "typical_cost_per_lead_cents": 0, "delivery": "google_sheets_pull"}
+]
