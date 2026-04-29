@@ -1,210 +1,154 @@
+"use client";
+
+import { useState } from "react";
+import { DEMO_DEALS } from "@/lib/mock-data";
+import { AiInsightBanner, AiInsight } from "@/components/AiInsightBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
-import { serverSupabase } from "@/lib/supabase";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
-import Link from "next/link";
+import { formatCurrency } from "@/lib/format";
 
-const TIME_FILTERS = [
-  { key: "day", label: "Day", days: 1 },
-  { key: "week", label: "Week", days: 7 },
-  { key: "month", label: "Month", days: 30 },
-  { key: "ytd", label: "YTD", days: -1 },
-  { key: "all", label: "All Time", days: 0 },
-] as const;
+const INSIGHTS: AiInsight[] = [
+  {
+    type: "warning",
+    headline: "3 deals in Underwriting 7+ days",
+    detail:
+      "Carriers typically need 5-7 days. These are overdue — call for status. A missing document is the most common cause.",
+    action: "See Underwriting",
+  },
+  {
+    type: "opportunity",
+    headline: "Shea Scott has $48K in Underwriting — no recent contact",
+    detail:
+      "High risk of lapse. Consider assigning a check-in or having the agent call today.",
+    action: "Assign Follow-up",
+  },
+  {
+    type: "info",
+    headline: "Isaiah Auman's deals close in avg 4.2 days",
+    detail:
+      "Fastest on the team. Consider having him document his carrier follow-up process.",
+    action: "View Isaiah",
+  },
+];
 
-interface DealRow {
-  id: string;
-  agent_name: string | null;
-  client_name: string;
-  source: string | null;
-  carrier_name: string | null;
-  product_name: string | null;
-  annual_premium: number | null;
-  expected_commission: number | null;
-  status: string;
-  policy_number: string | null;
-  submitted_at: string | null;
-  draft_date: string | null;
-  deposits: number | null;
-  outstanding: number | null;
-}
+const STATUS_FILTERS = ["All Time", "Day", "Week", "Month", "YTD"] as const;
 
-function fromDate(filter: string): string | null {
-  if (filter === "all") return null;
-  if (filter === "ytd") return new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const days = TIME_FILTERS.find((f) => f.key === filter)?.days ?? 30;
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-}
+const STATUS_COLORS: Record<string, string> = {
+  Issued: "bg-emerald-400/10 text-emerald-400",
+  Approved: "bg-blue-400/10 text-blue-400",
+  Underwriting: "bg-purple-400/10 text-purple-400",
+  Pending: "bg-amber-400/10 text-amber-400",
+  Submitted: "bg-sky-400/10 text-sky-400",
+  Declined: "bg-red-400/10 text-red-400",
+};
 
-async function loadDeals(filter: string): Promise<DealRow[]> {
-  try {
-    const supa = await serverSupabase();
-    let q = supa
-      .from("deals")
-      .select(`id, annual_premium, expected_commission, deposits, outstanding,
-               status, policy_number, submitted_at, draft_date,
-               clients ( full_name, source ),
-               agents ( full_name ),
-               carriers ( name ),
-               products ( name )`)
-      .order("submitted_at", { ascending: false })
-      .limit(500);
-    const since = fromDate(filter);
-    if (since) q = q.gte("submitted_at", since);
-    const { data } = await q;
-    return (data ?? []).map((d: any) => ({
-      id: d.id,
-      agent_name: d.agents?.full_name ?? null,
-      client_name: d.clients?.full_name ?? "—",
-      source: d.clients?.source ?? null,
-      carrier_name: d.carriers?.name ?? null,
-      product_name: d.products?.name ?? null,
-      annual_premium: d.annual_premium,
-      expected_commission: d.expected_commission,
-      status: d.status,
-      policy_number: d.policy_number,
-      submitted_at: d.submitted_at,
-      draft_date: d.draft_date,
-      deposits: d.deposits,
-      outstanding: d.outstanding,
-    }));
-  } catch {
-    return [];
-  }
-}
+export default function DealsPage() {
+  const [activeFilter, setActiveFilter] = useState<string>("All Time");
 
-function statusPill(status: string) {
-  const map: Record<string, string> = {
-    submitted: "stage-new",
-    underwriting: "stage-underwriting",
-    approved: "stage-approved",
-    issued: "stage-delivered",
-    declined: "stage-lapsed",
-    withdrawn: "stage-lapsed",
-  };
-  return map[status] ?? "stage-new";
-}
+  const deals = DEMO_DEALS;
 
-export default async function DealsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ filter?: string }>;
-}) {
-  const params = await searchParams;
-  const filter = params.filter ?? "month";
-  const deals = await loadDeals(filter);
-
-  const summary = deals.reduce(
-    (acc, d) => {
-      acc.activeDeals += d.status !== "declined" && d.status !== "withdrawn" ? 1 : 0;
-      acc.issuedPaid += d.status === "issued" ? 1 : 0;
-      acc.totalAP += d.annual_premium ?? 0;
-      acc.totalCommission += d.expected_commission ?? 0;
-      acc.deposits += d.deposits ?? 0;
-      acc.outstanding += d.outstanding ?? 0;
-      return acc;
-    },
-    { activeDeals: 0, issuedPaid: 0, totalAP: 0, totalCommission: 0, deposits: 0, outstanding: 0 },
-  );
+  const totalAP = deals.reduce((s, d) => s + d.ap, 0);
+  const totalCommission = deals.reduce((s, d) => s + d.commission, 0);
+  const totalDeposits = deals.reduce((s, d) => s + d.deposits, 0);
+  const issuedCount = deals.filter((d) => d.status === "Issued").length;
 
   return (
-    <>
-      <PageHeader
-        title="Deals"
-        subtitle={`${deals.length} deals · ${TIME_FILTERS.find((f) => f.key === filter)?.label}`}
-        actions={
-          <button type="button" className="btn-primary">+ New Deal</button>
-        }
-      />
+    <div>
+      <PageHeader title="Deals" sub="All active and closed deals across the agency" />
 
-      {/* Time filter tabs */}
-      <div className="flex gap-1 mb-5">
-        {TIME_FILTERS.map((f) => (
-          <Link
-            key={f.key}
-            href={`/deals?filter=${f.key}`}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              filter === f.key
-                ? "bg-accent text-bg"
-                : "bg-bg-card text-ink-mute hover:text-ink"
-            }`}
-          >
-            {f.label}
-          </Link>
-        ))}
+      <AiInsightBanner insights={INSIGHTS} />
+
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <StatCard label="Total AP" value={formatCurrency(totalAP)} highlight />
+        <StatCard label="Total Commission" value={formatCurrency(totalCommission)} />
+        <StatCard label="Deposits Collected" value={formatCurrency(totalDeposits)} />
+        <StatCard label="Issued" value={String(issuedCount)} sub="policies issued" />
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <StatCard label="Active Deals" value={formatNumber(summary.activeDeals)} />
-        <StatCard label="Issued / Paid" value={formatNumber(summary.issuedPaid)} />
-        <StatCard
-          label="Total AP"
-          value={formatCurrency(summary.totalAP, { abbreviate: true })}
-          highlight
-        />
-        <StatCard
-          label="Expected Commission"
-          value={formatCurrency(summary.totalCommission, { abbreviate: true })}
-        />
-        <StatCard label="Deposits" value={formatCurrency(summary.deposits, { abbreviate: true })} />
-        <StatCard
-          label="Outstanding"
-          value={formatCurrency(summary.outstanding, { abbreviate: true })}
-        />
+      <div className="flex items-center gap-1 mb-4">
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f}
+            onClick={() => setActiveFilter(f)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              activeFilter === f
+                ? "bg-accent text-bg"
+                : "bg-bg-card text-ink-mute hover:text-ink border border-line"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
       </div>
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-bg-elev border-b border-line text-ink-mute text-[11px] uppercase tracking-wider">
-            <tr>
-              <th className="text-left px-4 py-3 font-semibold">Agent</th>
-              <th className="text-left px-4 py-3 font-semibold">Client</th>
-              <th className="text-left px-4 py-3 font-semibold">Source</th>
-              <th className="text-left px-4 py-3 font-semibold">Carrier</th>
-              <th className="text-left px-4 py-3 font-semibold">Product</th>
-              <th className="text-right px-4 py-3 font-semibold">AP</th>
-              <th className="text-right px-4 py-3 font-semibold">Est. Comm.</th>
-              <th className="text-left px-4 py-3 font-semibold">Status</th>
-              <th className="text-left px-4 py-3 font-semibold">Policy #</th>
-              <th className="text-left px-4 py-3 font-semibold">Submitted</th>
-              <th className="text-left px-4 py-3 font-semibold">Draft</th>
+          <thead>
+            <tr className="border-b border-line text-ink-dim text-xs uppercase tracking-wider">
+              <th className="text-left px-4 py-3">Client</th>
+              <th className="text-left px-4 py-3">Agent</th>
+              <th className="text-left px-4 py-3">Carrier</th>
+              <th className="text-left px-4 py-3">Product</th>
+              <th className="text-right px-4 py-3">AP</th>
+              <th className="text-right px-4 py-3">Commission</th>
+              <th className="text-left px-4 py-3">Status</th>
+              <th className="text-right px-4 py-3">AI Close %</th>
+              <th className="text-left px-4 py-3 max-w-xs">Next Action</th>
             </tr>
           </thead>
           <tbody>
-            {deals.length === 0 && (
-              <tr>
-                <td colSpan={11} className="px-4 py-12 text-center text-ink-dim">
-                  No deals in this time range. Adjust the filter or add your first deal.
+            {deals.map((deal) => (
+              <tr
+                key={deal.id}
+                className="border-b border-line last:border-0 hover:bg-bg-hover transition-colors"
+              >
+                <td className="px-4 py-3 font-medium text-ink">{deal.client}</td>
+                <td className="px-4 py-3 text-ink-mute">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-bg-hover text-ink-dim text-[10px] font-bold flex items-center justify-center">
+                      {deal.agent_initials}
+                    </span>
+                    {deal.agent.split(" ")[0]}
+                  </div>
                 </td>
-              </tr>
-            )}
-            {deals.map((d) => (
-              <tr key={d.id} className="border-b border-line/50 hover:bg-bg-hover/30 transition-colors">
-                <td className="px-4 py-3 text-ink-mute text-xs">{d.agent_name ?? "—"}</td>
-                <td className="px-4 py-3 font-semibold">{d.client_name}</td>
-                <td className="px-4 py-3 text-ink-mute text-xs">{d.source ?? "—"}</td>
-                <td className="px-4 py-3 text-ink-mute text-xs">{d.carrier_name ?? "—"}</td>
-                <td className="px-4 py-3 text-ink-mute text-xs">{d.product_name ?? "—"}</td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold text-accent">
-                  {formatCurrency(d.annual_premium)}
+                <td className="px-4 py-3 text-ink-mute">{deal.carrier}</td>
+                <td className="px-4 py-3 text-ink-mute">{deal.product}</td>
+                <td className="px-4 py-3 text-right font-semibold text-accent">
+                  {formatCurrency(deal.ap)}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-ink-mute text-xs">
-                  {formatCurrency(d.expected_commission)}
+                <td className="px-4 py-3 text-right text-ink-mute">
+                  {formatCurrency(deal.commission)}
                 </td>
                 <td className="px-4 py-3">
-                  <span className={statusPill(d.status)}>{d.status}</span>
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      STATUS_COLORS[deal.status] ?? "bg-bg-hover text-ink-mute"
+                    }`}
+                  >
+                    {deal.status}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-ink-mute font-mono text-[11px]">
-                  {d.policy_number ?? "—"}
+                <td className="px-4 py-3 text-right">
+                  <span
+                    className={`text-xs font-bold ${
+                      deal.ai_close_prob >= 80
+                        ? "text-emerald-400"
+                        : deal.ai_close_prob >= 60
+                        ? "text-amber-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {deal.ai_close_prob}%
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-ink-mute text-xs">{formatDate(d.submitted_at)}</td>
-                <td className="px-4 py-3 text-ink-mute text-xs">{formatDate(d.draft_date)}</td>
+                <td className="px-4 py-3 text-xs text-ink-mute max-w-xs leading-relaxed">
+                  {deal.ai_next_action}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   );
 }

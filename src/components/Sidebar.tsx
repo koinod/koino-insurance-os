@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRole, Role } from "@/lib/role-context";
 import {
   LayoutDashboard,
   Kanban,
@@ -38,8 +39,10 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { role, setRole } = useRole();
+
   return (
-    <aside className="w-60 shrink-0 bg-bg-elev border-r border-line h-screen sticky top-0 overflow-y-auto">
+    <aside className="w-60 shrink-0 bg-bg-elev border-r border-line h-screen sticky top-0 overflow-y-auto flex flex-col">
       <div className="px-5 py-5 border-b border-line">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
@@ -54,9 +57,29 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="py-3">
+      <div className="px-5 py-3 border-b border-line">
+        <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-2">View As</div>
+        <div className="flex rounded-lg overflow-hidden border border-line">
+          {(["owner", "manager", "rep"] as Role[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRole(r)}
+              className={`flex-1 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                role === r
+                  ? "bg-accent text-bg"
+                  : "bg-bg-card text-ink-mute hover:text-ink"
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <nav className="py-3 flex-1">
         {NAV.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const active =
+            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
             <Link
@@ -75,7 +98,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="px-5 py-4 mt-auto border-t border-line text-[11px] text-ink-dim">
+      <div className="px-5 py-4 border-t border-line text-[11px] text-ink-dim">
         v0.1.0 · {new Date().getFullYear()}
       </div>
     </aside>
