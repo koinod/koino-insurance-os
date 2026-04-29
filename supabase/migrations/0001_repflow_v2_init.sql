@@ -35,6 +35,9 @@ drop table if exists public.expenses cascade;
 drop table if exists public.sequences cascade;
 drop table if exists public.revenue cascade;
 drop table if exists public.knowledge_base cascade;
+drop function if exists public.get_user_agency_id() cascade;
+drop function if exists public.is_superadmin() cascade;
+drop function if exists public.rls_auto_enable() cascade;
 
 ------------------------------------------------------------------------------
 -- 1. Reps — producers/agents on the floor
