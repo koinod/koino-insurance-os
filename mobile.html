@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1920"/>
+<title>Repflow Mobile — rep app screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+<link rel="stylesheet" href="mobile-styles.css"/>
+<style>
+  body { background: #0c0d11; }
+  .canvas-host { width: 100vw; height: 100vh; }
+  .nav-back {
+    position: fixed; top: 14px; left: 14px; z-index: 100;
+    height: 32px; padding: 0 12px;
+    background: rgba(20,22,28,0.7);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 999px;
+    color: #ddd; font-size: 12px; font-family: var(--font-ui);
+    display: inline-flex; align-items: center; gap: 6px;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+<a class="nav-back" href="/">← Desktop</a>
+<div id="root" class="canvas-host"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="mobile-screens.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+function Phone({ children, dark = true, time = "9:41" }) {
+  return (
+    <IOSDevice width={402} height={874} dark={dark} hasBottomBar={false} statusBar={<IOSStatusBar dark={dark} time={time}/>}>
+      <div style={{ width: "100%", height: "100%", background: "var(--bg-base)" }}>{children}</div>
+    </IOSDevice>
+  );
+}
+
+// Interactive flow phone — clickable nav between screens
+function FlowPhone() {
+  const [view, setView] = useState({ name: "home", lead: null });
+  const back = () => setView({ name: "queue", lead: null });
+  const nav = (n) => setView({ name: n, lead: null });
+  let screen;
+  if (view.name === "home") screen = <MScreenToday onNav={nav}/>;
+  else if (view.name === "queue") screen = <MScreenQueue onNav={nav} onCall={(l) => setView({ name: "call", lead: l })} onLead={(l) => setView({ name: "lead", lead: l })}/>;
+  else if (view.name === "call") screen = <MScreenCall lead={view.lead} onEnd={back}/>;
+  else if (view.name === "lead") screen = <MScreenLead lead={view.lead} onBack={back} onCall={() => setView({ name: "call", lead: view.lead })}/>;
+  else if (view.name === "lb") screen = <MScreenLeaderboard onNav={nav}/>;
+  else if (view.name === "comm") screen = <MScreenComm onNav={nav}/>;
+  return <Phone>{screen}</Phone>;
+}
+
+function App() {
+  return (
+    <DCViewport>
+      <DCSection id="rep-screens" title="Repflow Mobile · Rep" subtitle="iPhone screens for the producer in the field — designed for one-handed use between dials">
+        <DCArtboard id="today" label="01 · Today (home)" width={420} height={894}>
+          <Phone><MScreenToday onNav={() => {}}/></Phone>
+        </DCArtboard>
+        <DCArtboard id="queue" label="02 · Dial Queue" width={420} height={894}>
+          <Phone><MScreenQueue onNav={() => {}} onCall={() => {}} onLead={() => {}}/></Phone>
+        </DCArtboard>
+        <DCArtboard id="call" label="03 · In-Call" width={420} height={894}>
+          <Phone dark={true}><MScreenCall onEnd={() => {}}/></Phone>
+        </DCArtboard>
+        <DCArtboard id="lead" label="04 · Lead Detail" width={420} height={894}>
+          <Phone><MScreenLead onBack={() => {}} onCall={() => {}}/></Phone>
+        </DCArtboard>
+        <DCArtboard id="lb" label="05 · Leaderboard" width={420} height={894}>
+          <Phone><MScreenLeaderboard onNav={() => {}}/></Phone>
+        </DCArtboard>
+        <DCArtboard id="comm" label="06 · Commissions" width={420} height={894}>
+          <Phone><MScreenComm onNav={() => {}}/></Phone>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="flow" title="Tap-through flow" subtitle="Live prototype — tap the FAB or any lead to dial; ESC or End to return">
+        <DCArtboard id="prototype" label="Interactive · start on Today" width={420} height={894}>
+          <FlowPhoneStart/>
+        </DCArtboard>
+      </DCSection>
+    </DCViewport>
+  );
+}
+
+function FlowPhoneStart() {
+  const [view, setView] = useState({ name: "home", lead: null });
+  const nav = (n) => {
+    if (n === "home") setView({ name: "home", lead: null });
+    else if (n === "queue") setView({ name: "queue", lead: null });
+    else if (n === "lb") setView({ name: "lb", lead: null });
+    else if (n === "comm") setView({ name: "comm", lead: null });
+  };
+  let screen;
+  if (view.name === "home") screen = <MScreenToday onNav={nav}/>;
+  else if (view.name === "queue") screen = <MScreenQueue onNav={nav} onCall={(l) => setView({ name: "call", lead: l })} onLead={(l) => setView({ name: "lead", lead: l })}/>;
+  else if (view.name === "call") screen = <MScreenCall lead={view.lead} onEnd={() => setView({ name: "queue", lead: null })}/>;
+  else if (view.name === "lead") screen = <MScreenLead lead={view.lead} onBack={() => setView({ name: "queue", lead: null })} onCall={() => setView({ name: "call", lead: view.lead })}/>;
+  else if (view.name === "lb") screen = <MScreenLeaderboard onNav={nav}/>;
+  else if (view.name === "comm") screen = <MScreenComm onNav={nav}/>;
+  return <Phone>{screen}</Phone>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

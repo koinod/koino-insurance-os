@@ -1,0 +1,179 @@
+/* Pages: Operations (Connections, Hardware, Agents, Workflows) + simple stubs */
+function PageConnections() {
+  const { CONNECTIONS } = AppData;
+  const grouped = CONNECTIONS.reduce((a, c) => { (a[c.category] ||= []).push(c); return a; }, {});
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div><div className="page-title">Connections</div><div className="page-sub">Your connected services · carrier-agnostic · {CONNECTIONS.length} active</div></div>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> Add connection</button>
+      </div>
+      {Object.entries(grouped).map(([cat, items]) => (
+        <div key={cat} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 8 }}>{cat}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            {items.map(c => (
+              <div key={c.id} className="panel" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--bg-raised)", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--text-secondary)" }}>{c.name[0]}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{c.category}</div>
+                  </div>
+                  <span className={`dot dot-${c.status === "ok" ? "live" : "warn"}`}></span>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.meta}</div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Test</button>
+                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Rotate</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PageHardware() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div><div className="page-title">Hardware</div><div className="page-sub">Customer-owned nodes running Repflow agents · Tesla-clean tiles, real ops</div></div>
+        <button className="btn" style={{ marginLeft: "auto" }}><Icons.Calendar size={13}/> Schedule call with ops</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+        {AppData.HARDWARE.map(h => (
+          <div key={h.id} className="panel" style={{ padding: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Icons.Server size={16} style={{ color: "var(--text-secondary)" }}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{h.name}</div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{h.kind} · last sync {h.last}</div>
+              </div>
+              <span className={`dot dot-${h.status === "ok" ? "live" : "warn"}`} style={{ width: 8, height: 8 }}></span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: h.status === "ok" ? "var(--accent-money)" : "var(--state-warning)" }}>{h.status === "ok" ? "Healthy" : "Attention"}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 16 }}>
+              <div><div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>UPTIME</div><div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 500 }}>{h.uptime}</div></div>
+              <div><div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>LOAD</div><div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 500, color: h.load > 60 ? "var(--state-warning)" : undefined }}>{h.load}%</div></div>
+              <div><div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>AGENTS</div><div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 500 }}>{h.agents}</div></div>
+            </div>
+            <div style={{ marginTop: 14, height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${h.load}%`, height: "100%", background: h.load > 60 ? "var(--state-warning)" : "var(--accent-money)" }}></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PageAgents() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div><div className="page-title">Agents</div><div className="page-sub">{AppData.AGENTS.length} agents running · read-only · request changes via chat</div></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+        {AppData.AGENTS.map(a => (
+          <div key={a.id} className="panel" style={{ padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <Icons.Cpu size={14} style={{ color: "var(--accent-money)", marginTop: 2 }}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{a.name}</div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>host: {a.host} · last run {a.last}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{a.desc}</div>
+              </div>
+              <span className="chip chip-money">v2.4</span>
+            </div>
+            <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11 }}>
+              <span style={{ color: "var(--text-tertiary)" }}>Reqs: <span className="tabular" style={{ color: "var(--text-primary)" }}>{a.reqs}</span></span>
+              <span style={{ color: "var(--text-tertiary)" }}>Success: <span className="tabular" style={{ color: a.success >= 99 ? "var(--accent-money)" : "var(--accent-status)" }}>{a.success}%</span></span>
+              <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "3px 8px", fontSize: 11 }}><Icons.MessageSquare size={11}/> Request change</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PageWorkflows() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div><div className="page-title">Workflows</div><div className="page-sub">Read-only graphs · request changes in chat · ops fulfills, you approve diff</div></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h"><h3>Active workflows</h3><span className="meta">{AppData.WORKFLOWS.length}</span></div>
+          <div className="list">
+            {AppData.WORKFLOWS.map(w => (
+              <div key={w.id} className="row" style={{ gridTemplateColumns: "1fr 90px 90px 30px", height: 44 }}>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{w.name}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>last run {w.lastRun}</div>
+                </div>
+                <div className="tabular" style={{ color: "var(--text-secondary)" }}>{w.runs}</div>
+                <div><span className="chip chip-money">healthy</span></div>
+                <button className="icon-btn"><Icons.ChevronRight size={12}/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><Icons.Workflow size={13}/><h3>FB Lead → Med Supp queue</h3><span className="meta">read-only graph</span></div>
+          <div style={{ padding: 18, background: "repeating-linear-gradient(0deg, var(--bg-raised) 0 1px, transparent 1px 24px), repeating-linear-gradient(90deg, var(--bg-raised) 0 1px, transparent 1px 24px)" }}>
+            <svg viewBox="0 0 360 240" style={{ width: "100%", height: 240 }}>
+              {[
+                { x: 20, y: 20, l: "FB Lead form", c: "var(--state-info)" },
+                { x: 140, y: 20, l: "Enrich", c: "var(--accent-money)" },
+                { x: 260, y: 20, l: "T65 check", c: "var(--accent-money)" },
+                { x: 140, y: 110, l: "LeadiD verify", c: "var(--accent-money)" },
+                { x: 20, y: 200, l: "Speed-route < 60s", c: "var(--accent-status)" },
+                { x: 200, y: 200, l: "Vapi call back", c: "var(--accent-money)" },
+              ].map((n, i) => (
+                <g key={i} transform={`translate(${n.x},${n.y})`}>
+                  <rect width="80" height="36" rx="6" fill="var(--bg-elevated)" stroke={n.c} strokeWidth="1"/>
+                  <text x="40" y="22" textAnchor="middle" fontSize="10.5" fill="var(--text-primary)" fontFamily="var(--font-ui)">{n.l}</text>
+                </g>
+              ))}
+              <path d="M100 38 L140 38" stroke="var(--text-tertiary)" fill="none"/>
+              <path d="M220 38 L260 38" stroke="var(--text-tertiary)" fill="none"/>
+              <path d="M180 56 L180 110" stroke="var(--text-tertiary)" fill="none"/>
+              <path d="M180 146 L60 200" stroke="var(--text-tertiary)" fill="none"/>
+              <path d="M180 146 L240 200" stroke="var(--text-tertiary)" fill="none"/>
+            </svg>
+          </div>
+          <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-subtle)", display: "flex", gap: 8 }}>
+            <input className="airail-input" placeholder="Request a change: 'add an SMS step after Vapi voicemail drop'"/>
+            <button className="btn btn-primary"><Icons.Send size={11}/></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PageStub({ title, sub }) {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div><div className="page-title">{title}</div><div className="page-sub">{sub}</div></div>
+      </div>
+      <div className="panel" style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Sparkles size={20} style={{ color: "var(--accent-money)", marginBottom: 8 }}/>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>This surface follows the same pattern — explore Today, Pipeline, Dial Queue, Leaderboard, Team Board, Coaching, P&L, and Org Tree for the worked examples.</div>
+      </div>
+    </div>
+  );
+}
+
+window.PageConnections = PageConnections;
+window.PageHardware = PageHardware;
+window.PageAgents = PageAgents;
+window.PageWorkflows = PageWorkflows;
+window.PageStub = PageStub;

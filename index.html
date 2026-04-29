@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1440"/>
+<title>Repflow — operator-grade for life & health distribution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<div id="root"></div>
+
+<a href="/mobile.html" style="position:fixed; top:14px; right:14px; z-index:100; height:32px; padding:0 12px; background:rgba(20,22,28,0.7); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.1); border-radius:999px; color:#ddd; font-size:12px; font-family:Inter,system-ui,sans-serif; display:inline-flex; align-items:center; gap:6px; text-decoration:none;">📱 Mobile →</a>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="shared.jsx"></script>
+<script type="text/babel" src="page-today.jsx"></script>
+<script type="text/babel" src="page-pipeline.jsx"></script>
+<script type="text/babel" src="page-queue.jsx"></script>
+<script type="text/babel" src="page-leaderboard.jsx"></script>
+<script type="text/babel" src="page-manager.jsx"></script>
+<script type="text/babel" src="page-owner.jsx"></script>
+<script type="text/babel" src="page-ops.jsx"></script>
+<script type="text/babel" src="page-mobile.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "role": "owner",
+  "page": "pnl",
+  "density": "comfortable",
+  "aiRail": false,
+  "aepMode": true,
+  "mobile": false
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const { role, page, density, aiRail, aepMode, mobile } = tweaks;
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+
+  // Auto-correct page if role changes and page doesn't exist for that role
+  useEffect(() => {
+    const validPages = [...Shared.NAV[role].map(i => i.id), ...Shared.NAV.ops.map(i => i.id)];
+    if (!validPages.includes(page)) {
+      setTweak("page", Shared.NAV[role][0].id);
+    }
+  }, [role]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdkOpen(o => !o); }
+      if (e.key === "Escape") { setCmdkOpen(false); setCallOpen(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const pageEl = useMemo(() => {
+    if (mobile) return <MobileRep/>;
+    switch (page) {
+      case "today": return <PageToday aep={aepMode}/>;
+      case "pipeline": return <PagePipeline/>;
+      case "queue": return <PageQueue onCall={() => setCallOpen(true)}/>;
+      case "leaderboard": return <PageLeaderboard/>;
+      case "team": return <PageTeam/>;
+      case "coaching": return <PageCoaching/>;
+      case "pnl": return <PagePnL/>;
+      case "tree": return <PageOrgTree/>;
+      case "connections": return <PageConnections/>;
+      case "hardware": return <PageHardware/>;
+      case "agents": return <PageAgents/>;
+      case "workflows": return <PageWorkflows/>;
+      case "calls": return <PageStub title="Calls" sub="Recorded calls — Gong-style cards with waveform, transcript, AI score"/>;
+      case "commissions": return <PageStub title="Commissions" sub="Statements · expected vs paid · NIGO/chargeback alerts"/>;
+      case "training": return <PageStub title="Training" sub="Notion-simple courses, scripts, certifications"/>;
+      case "vault": return <PageStub title="Compliance Vault" sub="Recordings, SOAs, consent — auditor-ready · 6/10y retention"/>;
+      case "tiering": return <PageStub title="Tiering Console" sub="Manual overrides · configurable criteria · tier-gated privileges"/>;
+      case "book": return <PageStub title="Book Analytics" sub="Persistency · lapse · cross-sell pathway · carrier mix"/>;
+      case "recruiting": return <PageStub title="Recruiting Funnel" sub="Applied → Contracted → First-app → Producing"/>;
+      default: return <PageStub title="Page" sub=""/>;
+    }
+  }, [page, mobile, aepMode]);
+
+  const crumbs = useMemo(() => {
+    const role_ = { rep: "Rep", manager: "Manager", owner: "Owner" }[role];
+    const item = [...Shared.NAV[role], ...Shared.NAV.ops].find(i => i.id === page);
+    return ["Atlas IMO", role_, item?.label || page];
+  }, [role, page]);
+
+  return (
+    <div className="app" data-rail={aiRail && !mobile ? "on" : "off"} data-mobile={mobile ? "on" : "off"} data-density={density}>
+      {!mobile && (
+        <Shared.Sidebar
+          role={role}
+          setRole={(r) => setTweak("role", r)}
+          page={page}
+          setPage={(p) => setTweak("page", p)}
+          openCmdK={() => setCmdkOpen(true)}
+        />
+      )}
+      <main className="workspace">
+        {!mobile && (
+          <Shared.Topbar
+            crumbs={crumbs}
+            aep={aepMode}
+            openCmdK={() => setCmdkOpen(true)}
+            toggleRail={() => setTweak("aiRail", !aiRail)}
+            railOn={aiRail}
+          />
+        )}
+        <div className="page">{pageEl}</div>
+      </main>
+      {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
+
+      <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)}/>
+      {callOpen && <InCall onClose={() => setCallOpen(false)}/>}
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="View"/>
+        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"}]} onChange={(v) => setTweak("role", v)}/>
+        <TweakSelect label="Page" value={page} options={[
+          ...Shared.NAV[role].map(i => ({ value: i.id, label: i.label })),
+          ...Shared.NAV.ops.map(i => ({ value: i.id, label: `Ops · ${i.label}` }))
+        ]} onChange={(v) => setTweak("page", v)}/>
+        <TweakToggle label="Mobile rep view" value={mobile} onChange={(v) => setTweak("mobile", v)}/>
+        <TweakSection label="Density & UI"/>
+        <TweakRadio label="Density" value={density} options={[{value:"comfortable",label:"Comfy"},{value:"compact",label:"Compact"}]} onChange={(v) => setTweak("density", v)}/>
+        <TweakToggle label="AI co-pilot rail" value={aiRail} onChange={(v) => setTweak("aiRail", v)}/>
+        <TweakToggle label="AEP surge mode" value={aepMode} onChange={(v) => setTweak("aepMode", v)}/>
+        <TweakSection label="Try"/>
+        <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
+        <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
