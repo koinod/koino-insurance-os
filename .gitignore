@@ -3,9 +3,7 @@ node_modules
 out
 .env
 .env.local
-.env*.local
-.DS_Store
+.env.*.local
 *.log
+.DS_Store
 .vercel
-.turbo
-*.tsbuildinfo
