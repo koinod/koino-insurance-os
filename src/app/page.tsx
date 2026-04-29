@@ -1,215 +1,531 @@
 "use client";
 
+import React, { useState } from "react";
 import { useRole } from "@/lib/role-context";
-import { DEMO_AGENTS, DEMO_CLIENTS, DEMO_DEALS } from "@/lib/mock-data";
-import { PageHeader } from "@/components/PageHeader";
-import { StatCard } from "@/components/StatCard";
-import { AiInsightBanner, AiInsight } from "@/components/AiInsightBanner";
+import { DEMO_AGENTS, DEMO_DEALS } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/format";
 
-const OWNER_INSIGHTS: AiInsight[] = [
-  {
-    type: "warning",
-    headline: "Shea Scott is silent — 48 hours, no activity",
-    detail:
-      "2 deals in Underwriting at risk of going cold. Draft a coaching message or call directly.",
-    action: "Coach Shea",
-  },
-  {
-    type: "warning",
-    headline: "Kenji Yamamoto deal stuck in Pending — 3 days",
-    detail:
-      "AI close probability dropped from 82% → 54%. Carrier may need a nudge.",
-    action: "View Deal",
-  },
-  {
-    type: "opportunity",
-    headline: "Referral leads closing at 3.2x your aged leads",
-    detail:
-      "Isaiah and Evan's referral pipeline is outperforming by 220%. Consider shifting budget.",
-    action: "See Analytics",
-  },
-  {
-    type: "warning",
-    headline: "Nick Paolella conversion rate is 31% vs team avg 58%",
-    detail:
-      "2nd month of underperformance. Needs structured coaching or territory reassignment.",
-    action: "Coach Nick",
-  },
-  {
-    type: "info",
-    headline: "Isaiah Auman on pace for $110K AP this month",
-    detail:
-      "Top of team by 37%. No action needed — recognition opportunity.",
-    action: "View Stats",
-  },
-];
+// ─────────────────────────────────────────────
+// Shared primitives
+// ─────────────────────────────────────────────
 
-function statusPill(status: string) {
-  const map: Record<string, string> = {
-    active: "bg-emerald-400/10 text-emerald-400",
-    silent: "bg-amber-400/10 text-amber-400",
-    at_risk: "bg-red-400/10 text-red-400",
-  };
-  const labels: Record<string, string> = {
-    active: "Active",
-    silent: "Silent",
-    at_risk: "At Risk",
-  };
+function Sparkle({ className = "" }: { className?: string }) {
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[status] ?? ""}`}>
-      {labels[status] ?? status}
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={`w-3.5 h-3.5 ${className}`}
+    >
+      <path d="M12 2l2.4 7.6H22l-6.4 4.6 2.4 7.8L12 17.4 6 22l2.4-7.8L2 9.6h7.6z" />
+    </svg>
+  );
+}
+
+function ScoreChip({ score }: { score: number }) {
+  const cls =
+    score >= 80
+      ? "bg-emerald-400/15 text-emerald-400"
+      : score >= 65
+      ? "bg-amber-400/15 text-amber-400"
+      : "bg-red-400/15 text-red-400";
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${cls}`}>
+      <Sparkle /> {score}
     </span>
   );
 }
 
-function OwnerDashboard() {
-  const totalAP = DEMO_AGENTS.reduce((s, a) => s + a.ap_30d, 0);
-  const totalCommission = Math.round(totalAP * 0.125);
-  const issuedDeals = DEMO_DEALS.filter((d) => d.status === "Issued").length;
+function TrendChip({
+  you,
+  avg,
+}: {
+  you: number;
+  avg: number;
+}) {
+  const pct = avg === 0 ? 0 : Math.round(((you - avg) / avg) * 100);
+  const up = pct >= 0;
+  return (
+    <span
+      className={`text-xs font-bold ${up ? "text-emerald-400" : "text-red-400"}`}
+    >
+      {up ? "↑" : "↓"}&thinsp;{Math.abs(pct)}% vs avg
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Morning Briefing — Rep view
+// ─────────────────────────────────────────────
+
+const ACTION_CARDS = [
+  {
+    priority: 1,
+    client: "Leila Saadi",
+    context: "Score 91 · Qualified · $2,400 AP",
+    why: "High score, hasn't been contacted since qualifying call 3 days ago. Window closing.",
+    message:
+      "Hey Leila — great talking last week. I pulled the numbers on that F&G policy. For your coverage amount you're looking at $124/mo with day-1 benefits. Want to get the application in today?",
+    tags: ["Referral", "$2,400 AP"],
+  },
+  {
+    priority: 2,
+    client: "Kenji Yamamoto",
+    context: "Score 82 · Pending · $4,800 AP",
+    why: "Application in Pending 3 days. Carrier likely waiting on a doc. AI close prob dropped 82% → 54%.",
+    message:
+      "Hi Kenji — following up on the application we submitted last week. Your coverage would start the 1st of next month. Just need to confirm your draft date — are we good with the 15th?",
+    tags: ["Pending 3d", "$4,800 AP"],
+  },
+  {
+    priority: 3,
+    client: "Roy Tillman",
+    context: "Score 74 · Quoted · $840 AP",
+    why: "Quote sent 5 days ago with no response. Follow-up or lose the lead.",
+    message:
+      "Roy — following up on the Final Expense quote I sent. This Transamerica policy locks in your rate regardless of future health changes. Does today or tomorrow work for a quick 10-minute call?",
+    tags: ["Aged FEX Lead", "$840 AP"],
+  },
+  {
+    priority: 4,
+    client: "Priya Venkatesh",
+    context: "Score 88 · App Started · $3,600 AP",
+    why: "Started application 2 days ago, not submitted. Usually means a question or hesitation.",
+    message:
+      "Hey Priya — saw you started the application earlier this week. Super common to have questions at this stage. What's the one thing holding you back? I can usually clear it up in 5 minutes.",
+    tags: ["Referral", "$3,600 AP"],
+  },
+  {
+    priority: 5,
+    client: "Henry Okafor",
+    context: "Score 69 · Contacted · $960 AP",
+    why: "2 contact attempts, no answer. AI recommends SMS at this stage — higher open rate.",
+    message:
+      "Henry, this is Isaiah from KOINO. I tried calling a couple times and wanted to reach out here — is there a better time to connect about the coverage we discussed?",
+    tags: ["Live Transfer", "$960 AP"],
+  },
+];
+
+const LEAD_SOURCES = [
+  { name: "Referral", close_rate: 34, cpa: 0, avg_ap: 2100, width: 100 },
+  { name: "Live Transfer", close_rate: 22, cpa: 45, avg_ap: 1600, width: 65 },
+  { name: "Direct Mail", close_rate: 11, cpa: 82, avg_ap: 1200, width: 32 },
+  { name: "Aged FEX Lead", close_rate: 4, cpa: 47, avg_ap: 900, width: 12 },
+  { name: "Web Form", close_rate: 3, cpa: 38, avg_ap: 750, width: 9 },
+];
+
+function ActionCard({ card, index }: { card: typeof ACTION_CARDS[0]; index: number }) {
+  const [done, setDone] = useState(false);
+  const [skipped, setSkipped] = useState(false);
+
+  if (done)
+    return (
+      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-4 mb-4 flex items-center gap-3">
+        <span className="text-emerald-400 text-lg">✓</span>
+        <span className="text-sm text-emerald-400 font-semibold">
+          {card.client} marked done
+        </span>
+      </div>
+    );
+
+  if (skipped) return null;
 
   return (
-    <div>
-      <PageHeader title="Agency Overview" sub="Owner view — all agents, all deals" />
+    <div
+      className="relative rounded-2xl border border-amber-400/25 mb-4 overflow-hidden"
+      style={{ background: "linear-gradient(135deg, rgba(251,191,36,0.06) 0%, rgba(26,31,46,0) 60%)" }}
+    >
+      {/* priority stripe */}
+      <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl bg-amber-400/60" />
 
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          5 Things That Need Your Attention
-        </h2>
-        <AiInsightBanner insights={OWNER_INSIGHTS} />
-      </section>
-
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Team This Month
-        </h2>
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-dim text-xs uppercase tracking-wider">
-                <th className="text-left px-4 py-3">Agent</th>
-                <th className="text-right px-4 py-3">AP</th>
-                <th className="text-right px-4 py-3">Deals</th>
-                <th className="text-right px-4 py-3">Win %</th>
-                <th className="text-left px-4 py-3">Status</th>
-                <th className="text-left px-4 py-3">Last Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DEMO_AGENTS.sort((a, b) => b.ap_30d - a.ap_30d).map((agent, i) => (
-                <tr
-                  key={agent.id}
-                  className="border-b border-line last:border-0 hover:bg-bg-hover transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-ink">{agent.name}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-accent">
-                    {formatCurrency(agent.ap_30d)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-ink-mute">{agent.deals_30d}</td>
-                  <td className="px-4 py-3 text-right text-ink-mute">
-                    {Math.round(agent.win_rate * 100)}%
-                  </td>
-                  <td className="px-4 py-3">{statusPill(agent.status)}</td>
-                  <td className="px-4 py-3 text-ink-mute text-xs">{agent.last_active}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="pl-5 pr-5 pt-4 pb-5">
+        {/* header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Sparkle className="text-amber-400" />
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400">
+              Priority {card.priority}
+            </span>
+          </div>
+          <div className="flex gap-1.5">
+            {card.tags.map((t) => (
+              <span
+                key={t}
+                className="text-[10px] bg-bg-hover text-ink-dim px-2 py-0.5 rounded-full font-medium"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
         </div>
-      </section>
 
-      <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Revenue Snapshot
-        </h2>
-        <div className="grid grid-cols-3 gap-4">
-          <StatCard label="Total AP (30d)" value={formatCurrency(totalAP)} highlight />
-          <StatCard
-            label="Expected Commission"
-            value={formatCurrency(totalCommission)}
-            sub="est. based on blended rate"
-          />
-          <StatCard
-            label="Issued This Month"
-            value={String(issuedDeals)}
-            sub="policies delivered"
-          />
+        {/* client + context */}
+        <div className="text-xl font-extrabold text-ink tracking-tight mb-0.5">
+          {card.client}
         </div>
-      </section>
+        <div className="text-xs text-ink-dim mb-1">{card.context}</div>
+        <div className="text-sm text-ink-mute mb-4 leading-snug">
+          <span className="text-amber-400/80 font-semibold">Why now: </span>
+          {card.why}
+        </div>
+
+        {/* AI message */}
+        <div className="rounded-xl bg-bg border border-line/60 p-4 mb-4">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-400 mb-2">
+            <Sparkle />
+            AI-drafted opener
+          </div>
+          <p className="text-sm text-ink leading-relaxed">&ldquo;{card.message}&rdquo;</p>
+        </div>
+
+        {/* action buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDone(true)}
+            className="flex-1 py-3 rounded-xl bg-emerald-400/15 text-emerald-400 font-bold text-sm hover:bg-emerald-400/25 transition-colors active:scale-95"
+          >
+            📞 Call
+          </button>
+          <button
+            onClick={() => setDone(true)}
+            className="flex-1 py-3 rounded-xl bg-amber-400/15 text-amber-400 font-bold text-sm hover:bg-amber-400/25 transition-colors active:scale-95"
+          >
+            💬 Text
+          </button>
+          <button
+            onClick={() => setDone(true)}
+            className="flex-1 py-3 rounded-xl bg-bg border border-line text-ink-mute font-semibold text-sm hover:bg-bg-hover transition-colors active:scale-95"
+          >
+            📧 Email
+          </button>
+          <button
+            onClick={() => setSkipped(true)}
+            className="px-4 py-3 rounded-xl text-ink-dim text-sm hover:text-ink-mute transition-colors"
+          >
+            Skip
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function ManagerDashboard() {
-  const [expanded, setExpanded] = React.useState<string | null>(null);
+function LeadIntelligence() {
+  return (
+    <section className="mb-8">
+      <div className="flex items-center gap-2 mb-5">
+        <Sparkle className="text-amber-400" />
+        <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink">
+          Lead Intelligence
+        </h2>
+      </div>
 
-  const coachingAgents = DEMO_AGENTS.filter((a) => a.coaching_note);
+      {/* Big comparison */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div
+          className="rounded-2xl border border-emerald-400/25 p-5 text-center"
+          style={{ background: "rgba(34,197,94,0.06)" }}
+        >
+          <div className="text-5xl font-extrabold text-emerald-400 mb-1 tracking-tight">
+            34%
+          </div>
+          <div className="text-sm font-bold text-ink mb-1">Referral Close Rate</div>
+          <div className="text-xs text-ink-dim">avg $2,100 AP · $0 cost</div>
+        </div>
+        <div
+          className="rounded-2xl border border-red-400/25 p-5 text-center"
+          style={{ background: "rgba(239,68,68,0.06)" }}
+        >
+          <div className="text-5xl font-extrabold text-red-400 mb-1 tracking-tight">
+            4%
+          </div>
+          <div className="text-sm font-bold text-ink mb-1">Paid Lead Close Rate</div>
+          <div className="text-xs text-ink-dim">avg $900 AP · $47 cost</div>
+        </div>
+      </div>
 
-  const VELOCITY = [
-    { name: "Isaiah Auman", deals: 12, ap: 92400, avgDays: 4.2 },
-    { name: "Evan Scott", deals: 9, ap: 67200, avgDays: 6.8 },
-    { name: "Shea Scott", deals: 7, ap: 48000, avgDays: 11.3 },
-    { name: "Jason Rittman", deals: 5, ap: 34800, avgDays: 5.9 },
-    { name: "Nick Paolella", deals: 2, ap: 12000, avgDays: 14.1 },
+      {/* Source bars */}
+      <div className="rounded-2xl border border-line bg-bg-card p-5 mb-4">
+        <div className="text-xs font-bold uppercase tracking-wider text-ink-dim mb-4">
+          Close Rate by Source
+        </div>
+        <div className="space-y-3">
+          {LEAD_SOURCES.map((src) => (
+            <div key={src.name}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-ink">{src.name}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-ink-dim">
+                    CPA: {src.cpa === 0 ? "Free" : `$${src.cpa}`}
+                  </span>
+                  <span className="text-sm font-bold text-ink tabular-nums w-10 text-right">
+                    {src.close_rate}%
+                  </span>
+                </div>
+              </div>
+              <div className="h-2 rounded-full bg-bg-hover overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-amber-400 transition-all"
+                  style={{ width: `${src.width}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* AI recommendation */}
+      <div
+        className="rounded-2xl border border-amber-400/25 p-5"
+        style={{ background: "rgba(251,191,36,0.04)" }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkle className="text-amber-400" />
+          <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
+            AI Recommendation
+          </span>
+        </div>
+        <p className="text-sm text-ink leading-relaxed mb-4">
+          Ask your last 3 delivered clients for referrals. You have{" "}
+          <strong className="text-ink">Patricia Holloway, Maria Castillo, and Eloise Park</strong>
+          {" "}— all issued in the last 30 days. A single referral from any of them is
+          worth 8× a paid lead based on your close rates.
+        </p>
+        <button className="py-3 px-6 rounded-xl bg-amber-400 text-bg font-bold text-sm hover:bg-amber-300 transition-colors active:scale-95">
+          ✦ Generate Referral Messages
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function RepNumbers() {
+  const myAgent = DEMO_AGENTS.find((a) => a.id === "a1")!;
+  const teamAvgAP = Math.round(
+    DEMO_AGENTS.reduce((s, a) => s + a.ap_30d, 0) / DEMO_AGENTS.length
+  );
+  const teamAvgWin = Math.round(
+    (DEMO_AGENTS.reduce((s, a) => s + a.win_rate, 0) / DEMO_AGENTS.length) * 100
+  );
+  const teamAvgCalls = Math.round(
+    DEMO_AGENTS.reduce((s, a) => s + a.calls_30d, 0) / DEMO_AGENTS.length
+  );
+  const teamAvgDeals = Math.round(
+    DEMO_AGENTS.reduce((s, a) => s + a.deals_30d, 0) / DEMO_AGENTS.length
+  );
+
+  const myComm = Math.round(myAgent.ap_30d * 0.125);
+
+  const metrics = [
+    { label: "AP This Month", value: formatCurrency(myAgent.ap_30d), you: myAgent.ap_30d, avg: teamAvgAP },
+    { label: "Est. Commission", value: formatCurrency(myComm), you: myComm, avg: Math.round(teamAvgAP * 0.125) },
+    { label: "Win Rate", value: `${Math.round(myAgent.win_rate * 100)}%`, you: Math.round(myAgent.win_rate * 100), avg: teamAvgWin },
+    { label: "Calls Made", value: String(myAgent.calls_30d), you: myAgent.calls_30d, avg: teamAvgCalls },
   ];
 
-  const COACHING_MESSAGES: Record<string, string> = {
-    a3: "Hey Shea — noticed you haven't logged activity in a couple days. Wanted to check in. Your Underwriting deals are still live — a quick status call to the carrier could keep them moving. Let me know if you need anything from my end.",
-    a5: "Hey Nick — I pulled your numbers for this week. Your contact rate is solid but close rate is running low. I want to do a 30-min call review with you — pick any time on my calendar. I think there are 2-3 objection patterns we can tighten up fast.",
-  };
+  return (
+    <section className="mb-8">
+      <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink mb-4">
+        Your Numbers
+      </h2>
+      <div className="grid grid-cols-2 gap-3">
+        {metrics.map((m) => (
+          <div
+            key={m.label}
+            className="rounded-2xl border border-line bg-bg-card p-5"
+          >
+            <div className="text-xs text-ink-dim uppercase tracking-wider mb-2 font-medium">
+              {m.label}
+            </div>
+            <div className="text-3xl font-extrabold text-ink tracking-tight mb-2">
+              {m.value}
+            </div>
+            <TrendChip you={m.you} avg={m.avg} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RepView() {
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      {/* Greeting */}
+      <div className="mb-7">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkle className="text-amber-400 w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">
+            Personal Briefing
+          </span>
+        </div>
+        <h1 className="text-3xl font-extrabold text-ink tracking-tight">
+          {greeting}, Isaiah.
+        </h1>
+        <p className="text-ink-mute mt-1">
+          Here&apos;s your day — {ACTION_CARDS.length} follow-ups prioritized, AI messages ready.
+        </p>
+      </div>
+
+      {/* Action cards */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink">
+            Your Morning Briefing
+          </h2>
+          <span className="text-xs text-ink-dim">{ACTION_CARDS.length} actions today</span>
+        </div>
+        {ACTION_CARDS.map((card, i) => (
+          <ActionCard key={card.client} card={card} index={i} />
+        ))}
+      </section>
+
+      <LeadIntelligence />
+      <RepNumbers />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Manager view
+// ─────────────────────────────────────────────
+
+const COACHING_MSGS: Record<string, string> = {
+  a3: "Hey Shea — noticed you haven't logged activity in a couple of days. Your Underwriting deals are still live and that window won't stay open forever. A quick status call to the carrier takes 5 minutes. Let me know if you need anything from my end.",
+  a5: "Hey Nick — pulled your numbers. Contact rate looks good, close rate is the gap. I want to block 30 minutes this week for a call review — I think there are 2-3 objection patterns we can close fast. Pick a slot on my calendar.",
+};
+
+const TEAM_VELOCITY = [
+  { name: "Isaiah Auman", deals: 12, ap: 92400, avgDays: 4.2, trend: "↑" },
+  { name: "Evan Scott", deals: 9, ap: 67200, avgDays: 6.8, trend: "→" },
+  { name: "Jason Rittman", deals: 5, ap: 34800, avgDays: 5.9, trend: "↑" },
+  { name: "Shea Scott", deals: 7, ap: 48000, avgDays: 11.3, trend: "↓" },
+  { name: "Nick Paolella", deals: 2, ap: 12000, avgDays: 14.1, trend: "↓" },
+];
+
+function ManagerView() {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [sent, setSent] = useState<Set<string>>(new Set());
+
+  const atRisk = DEMO_AGENTS.filter(
+    (a) => a.status === "silent" || a.status === "at_risk"
+  );
 
   return (
     <div>
-      <PageHeader title="Team Dashboard" sub="Manager view — your agents and pipeline" />
+      {/* Header */}
+      <div className="mb-7">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkle className="text-amber-400 w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">
+            Manager Briefing
+          </span>
+        </div>
+        <h1 className="text-3xl font-extrabold text-ink tracking-tight">
+          Your Team&apos;s Morning.
+        </h1>
+        <p className="text-ink-mute mt-1">
+          {atRisk.length} agent{atRisk.length !== 1 ? "s" : ""} need attention today.
+        </p>
+      </div>
 
+      {/* Team status */}
       <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Your Team Today
+        <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink mb-4">
+          Team Status
         </h2>
-        <div className="grid grid-cols-1 gap-3">
-          {DEMO_AGENTS.map((agent) => {
-            const dotColor =
+        <div className="space-y-3">
+          {DEMO_AGENTS.sort((a, b) => b.ap_30d - a.ap_30d).map((agent) => {
+            const dotCls =
               agent.status === "active"
                 ? "bg-emerald-400"
                 : agent.status === "silent"
                 ? "bg-amber-400"
                 : "bg-red-400";
+            const isOpen = expanded === agent.id;
+
             return (
-              <div key={agent.id} className="card px-5 py-4">
+              <div
+                key={agent.id}
+                className={`rounded-2xl border p-4 transition-all ${
+                  agent.status !== "active"
+                    ? "border-amber-400/25 bg-amber-400/[0.03]"
+                    : "border-line bg-bg-card"
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`w-2.5 h-2.5 rounded-full ${dotColor}`} />
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotCls}`}
+                    />
                     <div>
-                      <div className="font-semibold text-ink text-sm">{agent.name}</div>
+                      <div className="font-bold text-ink text-sm">{agent.name}</div>
                       <div className="text-xs text-ink-dim">{agent.last_active}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-5">
                     <div className="text-right">
-                      <div className="text-xs text-ink-dim">AP</div>
-                      <div className="text-sm font-semibold text-accent">
+                      <div className="text-[10px] text-ink-dim">AP</div>
+                      <div className="text-sm font-bold text-accent">
                         {formatCurrency(agent.ap_30d)}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-ink-dim">Deals</div>
-                      <div className="text-sm font-semibold text-ink">{agent.deals_30d}</div>
+                      <div className="text-[10px] text-ink-dim">Deals</div>
+                      <div className="text-sm font-bold text-ink">{agent.deals_30d}</div>
                     </div>
-                    {agent.coaching_note && (
+                    <div className="text-right">
+                      <div className="text-[10px] text-ink-dim">Win%</div>
+                      <div className="text-sm font-bold text-ink">
+                        {Math.round(agent.win_rate * 100)}%
+                      </div>
+                    </div>
+                    {COACHING_MSGS[agent.id] && (
                       <button
                         onClick={() =>
-                          setExpanded(expanded === agent.id ? null : agent.id)
+                          setExpanded(isOpen ? null : agent.id)
                         }
-                        className="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+                        className="py-2 px-4 rounded-xl bg-amber-400/15 text-amber-400 text-xs font-bold hover:bg-amber-400/25 transition-colors"
                       >
-                        Coach →
+                        {isOpen ? "Close" : "Coach →"}
                       </button>
                     )}
                   </div>
                 </div>
-                {expanded === agent.id && agent.coaching_note && (
-                  <div className="mt-3 pt-3 border-t border-line">
-                    <p className="text-xs text-amber-400/80 italic">{agent.coaching_note}</p>
+
+                {isOpen && COACHING_MSGS[agent.id] && (
+                  <div className="mt-4 pt-4 border-t border-line/50">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-2">
+                      <Sparkle />
+                      AI-Drafted Coaching Message
+                    </div>
+                    <div className="rounded-xl bg-bg border border-line p-4 mb-3">
+                      <p className="text-sm text-ink leading-relaxed">
+                        &ldquo;{COACHING_MSGS[agent.id]}&rdquo;
+                      </p>
+                    </div>
+                    {sent.has(agent.id) ? (
+                      <span className="text-sm text-emerald-400 font-semibold">
+                        ✓ Sent to {agent.name.split(" ")[0]}
+                      </span>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            setSent((prev) => new Set([...prev, agent.id]))
+                          }
+                          className="py-3 px-6 rounded-xl bg-amber-400 text-bg font-bold text-sm hover:bg-amber-300 transition-colors"
+                        >
+                          Send to {agent.name.split(" ")[0]}
+                        </button>
+                        <button className="py-3 px-4 rounded-xl border border-line text-ink-mute text-sm hover:bg-bg-hover transition-colors">
+                          Edit
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -218,262 +534,320 @@ function ManagerDashboard() {
         </div>
       </section>
 
+      {/* Deal velocity */}
       <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Coaching Alerts
+        <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink mb-4">
+          Deal Velocity
         </h2>
-        <div className="grid grid-cols-1 gap-4">
-          {coachingAgents.map((agent) => (
-            <div key={agent.id} className="card px-5 py-4 border-l-4 border-l-amber-400">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="font-semibold text-ink text-sm">{agent.name}</div>
-                  <div className="text-xs text-amber-400 mt-0.5">{agent.coaching_note}</div>
-                </div>
-                <span className="text-[10px] uppercase tracking-wider bg-amber-400/10 text-amber-400 px-2 py-0.5 rounded-full font-semibold">
-                  Coaching Alert
+        <div className="space-y-2">
+          {TEAM_VELOCITY.map((row) => (
+            <div
+              key={row.name}
+              className="rounded-xl border border-line bg-bg-card px-5 py-3.5 flex items-center justify-between"
+            >
+              <span className="font-medium text-sm text-ink w-36">{row.name}</span>
+              <span className="text-sm font-bold text-accent w-24 text-right">
+                {formatCurrency(row.ap)}
+              </span>
+              <span className="text-xs text-ink-mute w-20 text-right">
+                {row.deals} deals
+              </span>
+              <div className="flex items-center gap-1 w-28 text-right justify-end">
+                <span
+                  className={`text-sm ${
+                    row.trend === "↑"
+                      ? "text-emerald-400"
+                      : row.trend === "↓"
+                      ? "text-red-400"
+                      : "text-ink-dim"
+                  }`}
+                >
+                  {row.trend}
                 </span>
+                <span className="text-xs text-ink-mute">{row.avgDays}d avg</span>
               </div>
-              <div className="bg-bg rounded-lg p-3 border border-line mb-3">
-                <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1">
-                  AI-Drafted Message
-                </div>
-                <p className="text-sm text-ink-mute italic leading-relaxed">
-                  &ldquo;{COACHING_MESSAGES[agent.id]}&rdquo;
-                </p>
-              </div>
-              <button className="btn-primary text-xs py-1.5 px-4">
-                Send to {agent.name.split(" ")[0]}
-              </button>
             </div>
           ))}
         </div>
       </section>
 
+      {/* Lead ROI for team */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Deal Velocity
-        </h2>
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-dim text-xs uppercase tracking-wider">
-                <th className="text-left px-4 py-3">Agent</th>
-                <th className="text-right px-4 py-3">Deals (30d)</th>
-                <th className="text-right px-4 py-3">AP</th>
-                <th className="text-right px-4 py-3">Avg Days to Close</th>
-              </tr>
-            </thead>
-            <tbody>
-              {VELOCITY.map((row) => (
-                <tr
-                  key={row.name}
-                  className="border-b border-line last:border-0 hover:bg-bg-hover transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-ink">{row.name}</td>
-                  <td className="px-4 py-3 text-right text-ink-mute">{row.deals}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-accent">
-                    {formatCurrency(row.ap)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-ink-mute">{row.avgDays}d</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkle className="text-amber-400" />
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink">
+            Lead ROI — Team View
+          </h2>
+        </div>
+        <div
+          className="rounded-2xl border border-amber-400/25 p-5"
+          style={{ background: "rgba(251,191,36,0.04)" }}
+        >
+          <p className="text-sm text-ink leading-relaxed mb-4">
+            Referral leads are closing at <strong className="text-emerald-400">8.5×</strong> the
+            rate of aged leads across your team. Isaiah and Evan generate 73% of all referrals.
+            Shea and Nick have zero referrals in the last 30 days.
+          </p>
+          <div className="flex items-center gap-2 text-sm text-amber-400 font-semibold">
+            <Sparkle />
+            Recommendation: Run a referral challenge this week — first agent to bring in 3
+            referrals wins $200.
+          </div>
         </div>
       </section>
     </div>
   );
 }
 
-function RepDashboard() {
-  const myAgent = DEMO_AGENTS.find((a) => a.id === "a1")!;
-  const myClients = DEMO_CLIENTS.filter((c) => c.agent_id === "a1");
+// ─────────────────────────────────────────────
+// Owner view — 45-person org pulse
+// ─────────────────────────────────────────────
 
-  const FOLLOW_UPS = [
-    {
-      client: "Kenji Yamamoto",
-      stage: "Pending",
-      ap: 4800,
-      score: 82,
-      message:
-        "Hi Kenji — following up on the application we submitted last week. Your coverage would start on the 1st of next month. I just need to confirm your draft date — are we good with the 15th?",
-    },
-    {
-      client: "Leila Saadi",
-      stage: "Qualified",
-      ap: 2400,
-      score: 91,
-      message:
-        "Hey Leila — great talking last week. I ran the numbers on the F&G policy we discussed. For your coverage amount, you're looking at $124/mo. Want to move forward with the application today?",
-    },
-    {
-      client: "Roy Tillman",
-      stage: "Quoted",
-      ap: 840,
-      score: 74,
-      message:
-        "Roy, following up on the Final Expense quote. This Transamerica policy locks in your rate regardless of future health changes. Ready to get you started — does today or tomorrow work for a quick call?",
-    },
-  ];
+const ATTENTION_ITEMS = [
+  {
+    type: "warning" as const,
+    icon: "⚠",
+    headline: "11 agents haven't logged activity in 48+ hours",
+    detail:
+      "24% of your team is dark. That's $127K in pipeline at risk of going cold before end of week.",
+    action: "View Silent Agents",
+    color: "amber",
+  },
+  {
+    type: "warning" as const,
+    icon: "⚠",
+    headline: "Paid lead ROI dropped 31% this month",
+    detail:
+      "Aged FEX lead cost-per-acquisition is now $1,847 vs $1,241 last month. Quality shift detected — recommend pausing and redirecting budget to referral incentives.",
+    action: "See Lead Analysis",
+    color: "red",
+  },
+  {
+    type: "opportunity" as const,
+    icon: "✦",
+    headline: "Top 5 agents drive 68% of all AP",
+    detail:
+      "Isaiah, Evan, Shea, Jason, and Marcus are carrying the team. The bottom 20 agents produced $0 in issues this month. Structural coaching problem.",
+    action: "View Distribution",
+    color: "amber",
+  },
+  {
+    type: "info" as const,
+    icon: "→",
+    headline: "Team on pace for $2.1M AP — record month",
+    detail:
+      "If current velocity holds through month-end, you'll beat last month ($1.84M) by 14%. Referral pipeline is the driver — 34% close rate vs 4% paid.",
+    action: "See Forecast",
+    color: "emerald",
+  },
+  {
+    type: "warning" as const,
+    icon: "⚠",
+    headline: "7 new recruits in onboarding — 3 haven't started training",
+    detail:
+      "Onboarding dropout is highest in weeks 1-2. Recruits Ethan W., Fatima A., and Garrett P. haven't opened the training portal. Automated reminder fired — no response.",
+    action: "Contact Recruits",
+    color: "amber",
+  },
+];
 
-  const HOT_LEADS = DEMO_CLIENTS.filter((c) => c.agent_id === "a1")
-    .sort((a, b) => b.ai_score - a.ai_score)
-    .slice(0, 4);
+const ORG_LEAD_SOURCES = [
+  { name: "Referral", close: 34, cpa: 0, ap: 2100, share: 22 },
+  { name: "Live Transfer", close: 22, cpa: 45, ap: 1600, share: 18 },
+  { name: "Direct Mail", close: 11, cpa: 82, ap: 1200, share: 15 },
+  { name: "Aged FEX Lead", close: 4, cpa: 47, ap: 900, share: 31 },
+  { name: "Web Form / FB Ad", close: 3, cpa: 38, ap: 750, share: 14 },
+];
 
-  const TEAM_AVG = {
-    ap: Math.round(
-      DEMO_AGENTS.reduce((s, a) => s + a.ap_30d, 0) / DEMO_AGENTS.length
-    ),
-    win_rate: Math.round(
-      (DEMO_AGENTS.reduce((s, a) => s + a.win_rate, 0) / DEMO_AGENTS.length) * 100
-    ),
-    calls: Math.round(
-      DEMO_AGENTS.reduce((s, a) => s + a.calls_30d, 0) / DEMO_AGENTS.length
-    ),
-    deals: Math.round(
-      DEMO_AGENTS.reduce((s, a) => s + a.deals_30d, 0) / DEMO_AGENTS.length
-    ),
-  };
-
-  function scoreBadge(score: number) {
-    const color =
-      score >= 80 ? "bg-emerald-400/15 text-emerald-400" : score >= 60 ? "bg-amber-400/15 text-amber-400" : "bg-red-400/15 text-red-400";
-    return (
-      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color}`}>
-        {score}
-      </span>
-    );
-  }
+function OwnerView() {
+  const totalAP = 2143600;
+  const totalComm = Math.round(totalAP * 0.125);
+  const issuedDeals = 47;
+  const teamSize = 45;
+  const activeAgents = 34;
 
   return (
     <div>
-      <PageHeader title="Your Day" sub="Rep view · Isaiah Auman" />
+      {/* Greeting */}
+      <div className="mb-7">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkle className="text-amber-400 w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">
+            Organization Pulse
+          </span>
+        </div>
+        <h1 className="text-3xl font-extrabold text-ink tracking-tight">
+          Morning, Ian.
+        </h1>
+        <p className="text-ink-mute mt-1">
+          {teamSize} agents · {activeAgents} active today · {teamSize - activeAgents} need attention
+        </p>
+      </div>
 
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Follow-Ups Due Today
-        </h2>
-        <div className="grid grid-cols-1 gap-4">
-          {FOLLOW_UPS.map((fu, i) => (
-            <div key={i} className="card px-5 py-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold text-ink text-sm">{fu.client}</span>
-                  <span className="text-xs bg-bg-hover text-ink-mute px-2 py-0.5 rounded">
-                    {fu.stage}
-                  </span>
-                  <span className="text-xs font-semibold text-accent">
-                    {formatCurrency(fu.ap)} AP
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-ink-dim">Score:</span>
-                  {scoreBadge(fu.score)}
-                </div>
-              </div>
-              <div className="bg-bg rounded-lg p-3 border border-line mb-3">
-                <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1">
-                  AI-Drafted Message
-                </div>
-                <p className="text-sm text-ink-mute italic leading-relaxed">
-                  &ldquo;{fu.message}&rdquo;
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button className="btn-primary text-xs py-1.5 px-4">Mark Done</button>
-                <button className="btn-ghost text-xs py-1.5 px-4">Edit</button>
-              </div>
+      {/* Org KPIs — big, clean, no table */}
+      <div className="grid grid-cols-3 gap-3 mb-8">
+        {[
+          { label: "Team AP (30d)", value: formatCurrency(totalAP, { abbreviate: true }), sub: "+14% vs last month", accent: true },
+          { label: "Est. Commission", value: formatCurrency(totalComm, { abbreviate: true }), sub: "blended 12.5%" },
+          { label: "Issued This Month", value: String(issuedDeals), sub: "policies delivered" },
+        ].map((m) => (
+          <div
+            key={m.label}
+            className={`rounded-2xl border p-5 ${
+              m.accent
+                ? "border-amber-400/30 bg-amber-400/[0.06]"
+                : "border-line bg-bg-card"
+            }`}
+          >
+            <div className="text-xs text-ink-dim uppercase tracking-wider mb-2 font-medium">
+              {m.label}
             </div>
-          ))}
+            <div
+              className={`text-4xl font-extrabold tracking-tight mb-1 ${
+                m.accent ? "text-amber-400" : "text-ink"
+              }`}
+            >
+              {m.value}
+            </div>
+            <div className="text-xs text-ink-dim">{m.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 5 attention items */}
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-5">
+          <Sparkle className="text-amber-400" />
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink">
+            5 Things That Need Your Attention
+          </h2>
+        </div>
+
+        <div className="space-y-4">
+          {ATTENTION_ITEMS.map((item, i) => {
+            const borderCls =
+              item.color === "amber"
+                ? "border-amber-400/25"
+                : item.color === "red"
+                ? "border-red-400/25"
+                : "border-emerald-400/25";
+            const iconCls =
+              item.color === "amber"
+                ? "text-amber-400"
+                : item.color === "red"
+                ? "text-red-400"
+                : "text-emerald-400";
+            const bgCls =
+              item.color === "amber"
+                ? "rgba(251,191,36,0.04)"
+                : item.color === "red"
+                ? "rgba(239,68,68,0.04)"
+                : "rgba(34,197,94,0.04)";
+
+            return (
+              <div
+                key={i}
+                className={`rounded-2xl border ${borderCls} p-5`}
+                style={{ background: bgCls }}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-sm ${iconCls}`}>{item.icon}</span>
+                      <span className="font-bold text-ink text-sm">{item.headline}</span>
+                    </div>
+                    <p className="text-sm text-ink-mute leading-relaxed">{item.detail}</p>
+                  </div>
+                  <button
+                    className={`flex-shrink-0 py-2 px-4 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
+                      item.color === "amber"
+                        ? "bg-amber-400/15 text-amber-400 hover:bg-amber-400/25"
+                        : item.color === "red"
+                        ? "bg-red-400/15 text-red-400 hover:bg-red-400/25"
+                        : "bg-emerald-400/15 text-emerald-400 hover:bg-emerald-400/25"
+                    }`}
+                  >
+                    {item.action}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Your Hot Leads
-        </h2>
-        <div className="grid grid-cols-2 gap-3">
-          {HOT_LEADS.map((lead) => (
-            <div key={lead.id} className="card px-4 py-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-semibold text-ink text-sm">{lead.name}</div>
-                  <div className="text-xs text-ink-mute mt-0.5">{lead.source}</div>
-                </div>
-                {scoreBadge(lead.ai_score)}
-              </div>
-              <div className="flex items-center gap-3 mt-2">
-                <span className="text-xs bg-bg-hover text-ink-mute px-2 py-0.5 rounded capitalize">
-                  {lead.stage.replace("_", " ")}
-                </span>
-                <span className="text-xs font-semibold text-accent">
-                  {formatCurrency(lead.ap)} AP
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
+      {/* Lead ROI */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim mb-3">
-          Your Stats vs Team
-        </h2>
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-dim text-xs uppercase tracking-wider">
-                <th className="text-left px-4 py-3">Metric</th>
-                <th className="text-right px-4 py-3 text-accent">You</th>
-                <th className="text-right px-4 py-3">Team Avg</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-line hover:bg-bg-hover transition-colors">
-                <td className="px-4 py-3 text-ink-mute">AP This Month</td>
-                <td className="px-4 py-3 text-right font-semibold text-accent">
-                  {formatCurrency(myAgent.ap_30d)}
-                </td>
-                <td className="px-4 py-3 text-right text-ink-mute">
-                  {formatCurrency(TEAM_AVG.ap)}
-                </td>
-              </tr>
-              <tr className="border-b border-line hover:bg-bg-hover transition-colors">
-                <td className="px-4 py-3 text-ink-mute">Win Rate</td>
-                <td className="px-4 py-3 text-right font-semibold text-accent">
-                  {Math.round(myAgent.win_rate * 100)}%
-                </td>
-                <td className="px-4 py-3 text-right text-ink-mute">{TEAM_AVG.win_rate}%</td>
-              </tr>
-              <tr className="border-b border-line hover:bg-bg-hover transition-colors">
-                <td className="px-4 py-3 text-ink-mute">Calls Made</td>
-                <td className="px-4 py-3 text-right font-semibold text-accent">
-                  {myAgent.calls_30d}
-                </td>
-                <td className="px-4 py-3 text-right text-ink-mute">{TEAM_AVG.calls}</td>
-              </tr>
-              <tr className="hover:bg-bg-hover transition-colors">
-                <td className="px-4 py-3 text-ink-mute">Deals Active</td>
-                <td className="px-4 py-3 text-right font-semibold text-accent">
-                  {myAgent.deals_30d}
-                </td>
-                <td className="px-4 py-3 text-right text-ink-mute">{TEAM_AVG.deals}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="flex items-center gap-2 mb-5">
+          <Sparkle className="text-amber-400" />
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink">
+            Lead ROI — Where the Money Really Comes From
+          </h2>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-bg-card p-5 mb-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-ink-dim mb-5">
+            Close rate vs budget share
+          </div>
+          <div className="space-y-4">
+            {ORG_LEAD_SOURCES.map((src) => (
+              <div key={src.name}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-ink w-32">{src.name}</span>
+                    <span className="text-xs text-ink-dim">{src.share}% of budget</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="text-ink-dim">CPA: {src.cpa === 0 ? "Free" : `$${src.cpa}`}</span>
+                    <span className="font-bold text-ink w-10 text-right">{src.close}%</span>
+                  </div>
+                </div>
+                <div className="relative h-2.5 rounded-full bg-bg-hover overflow-hidden">
+                  {/* close rate bar */}
+                  <div
+                    className="absolute left-0 top-0 h-full rounded-full bg-amber-400"
+                    style={{ width: `${(src.close / 34) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl border border-amber-400/25 p-5"
+          style={{ background: "rgba(251,191,36,0.04)" }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkle className="text-amber-400" />
+            <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
+              AI Recommendation
+            </span>
+          </div>
+          <p className="text-sm text-ink leading-relaxed mb-4">
+            You&apos;re spending 31% of lead budget on Aged FEX at a 4% close rate while Referrals
+            close at 34% for <strong className="text-emerald-400">$0 cost</strong>.
+            Reallocating $2,000/month from Aged FEX to a referral incentive program
+            (e.g. $50/qualified referral) would generate an estimated{" "}
+            <strong className="text-amber-400">$38,000 in additional AP</strong> per month.
+          </p>
+          <button className="py-3 px-6 rounded-xl bg-amber-400 text-bg font-bold text-sm hover:bg-amber-300 transition-colors">
+            ✦ Build Referral Program
+          </button>
         </div>
       </section>
     </div>
   );
 }
 
-import React from "react";
+// ─────────────────────────────────────────────
+// Root
+// ─────────────────────────────────────────────
 
 export default function HomePage() {
   const { role } = useRole();
 
-  if (role === "manager") return <ManagerDashboard />;
-  if (role === "rep") return <RepDashboard />;
-  return <OwnerDashboard />;
+  if (role === "manager") return <ManagerView />;
+  if (role === "owner") return <OwnerView />;
+  return <RepView />;
 }
