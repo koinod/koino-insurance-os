@@ -534,29 +534,34 @@ export const DEMO_DEALS: DemoDeal[] = [
   },
 ];
 
-export const MOCK_PIPELINE = {
-  stages: [
-    { label: 'New', count: 4, ap: 6360 },
-    { label: 'Underwriting', count: 5, ap: 7800 },
-    { label: 'Approved', count: 3, ap: 9240 },
-    { label: 'Delivered', count: 3, ap: 11280 },
-    { label: 'Lapsed', count: 1, ap: 720 },
-  ],
-  total_ap: 35400,
-  total_clients: 16,
-};
+// MOCK_PIPELINE — array format expected by leads/page.tsx
+export const MOCK_PIPELINE = [
+  { id: 'p1', name: 'Cassandra Reeves', source: 'Aged FEX Lead', stage: 'New', agent: 'Isaiah Auman', attempts: 0, est_ap_cents: 120000, last_touch: '2026-04-27' },
+  { id: 'p2', name: 'Henry Okafor', source: 'Live Transfer', stage: 'Contacted', agent: 'Evan Scott', attempts: 2, est_ap_cents: 96000, last_touch: '2026-04-26' },
+  { id: 'p3', name: 'Leila Saadi', source: 'Referral', stage: 'Qualified', agent: 'Isaiah Auman', attempts: 3, est_ap_cents: 240000, last_touch: '2026-04-26' },
+  { id: 'p4', name: 'Roy Tillman', source: 'Aged FEX Lead', stage: 'Quoted', agent: 'Nick Paolella', attempts: 4, est_ap_cents: 84000, last_touch: '2026-04-25' },
+  { id: 'p5', name: 'Imani Brooks', source: 'Live Transfer', stage: 'App Started', agent: 'Shea Scott', attempts: 5, est_ap_cents: 144000, last_touch: '2026-04-25' },
+  { id: 'p6', name: 'Marcus Wenz', source: 'Referral', stage: 'Submitted', agent: 'Evan Scott', attempts: 6, est_ap_cents: 312000, last_touch: '2026-04-24' },
+  { id: 'p7', name: 'Olusegun Adeyemi', source: 'Aged FEX Lead', stage: 'Contacted', agent: 'Jason Rittman', attempts: 1, est_ap_cents: 108000, last_touch: '2026-04-27' },
+  { id: 'p8', name: 'Annika Sjoberg', source: 'Web Form', stage: 'New', agent: '—', attempts: 0, est_ap_cents: 180000, last_touch: '2026-04-27' },
+  { id: 'p9', name: 'Devontae Marsh', source: 'Aged FEX Lead', stage: 'Quoted', agent: 'Nick Paolella', attempts: 4, est_ap_cents: 72000, last_touch: '2026-04-26' },
+  { id: 'p10', name: 'Priya Venkatesh', source: 'Referral', stage: 'App Started', agent: 'Shea Scott', attempts: 3, est_ap_cents: 360000, last_touch: '2026-04-25' },
+];
 
-export const MOCK_RECRUITING = {
-  candidates: [
-    { name: 'Derek Townsend', stage: 'Interview', source: 'LinkedIn', date: '2026-04-20' },
-    { name: 'Maria Elena Cruz', stage: 'Onboarding', source: 'Referral', date: '2026-04-15' },
-    { name: 'James Whitfield', stage: 'Applied', source: 'Indeed', date: '2026-04-24' },
-  ],
-};
+export const MOCK_RECRUITING = [
+  { id: 'r1', name: 'Andre Whitlock', stage: 'Invited', source: 'Indeed', state: 'TX', recruiter: 'Isaiah Auman', invited_at: '2026-04-26', next_step: 'Send onboarding link' },
+  { id: 'r2', name: 'Brittany Holcomb', stage: 'Onboarding', source: 'Referral', state: 'FL', recruiter: 'Jason Rittman', invited_at: '2026-04-24', next_step: 'Complete e-sign contract' },
+  { id: 'r3', name: 'Caleb Donatello', stage: 'Contracted', source: 'LinkedIn', state: 'GA', recruiter: 'Evan Scott', invited_at: '2026-04-21', next_step: 'Submit license/NPN' },
+  { id: 'r4', name: 'Daniela Ferrer', stage: 'Licensed', source: 'Referral', state: 'TX', recruiter: 'Isaiah Auman', invited_at: '2026-04-18', next_step: 'Carrier appointment: Transamerica' },
+  { id: 'r5', name: 'Ethan Wakefield', stage: 'Appointed', source: 'Indeed', state: 'OH', recruiter: 'Jason Rittman', invited_at: '2026-04-15', next_step: 'First call shadow' },
+];
 
+// MOCK_LEAD_VENDORS — field shapes expected by leads/page.tsx
 export const MOCK_LEAD_VENDORS = [
-  { vendor: 'LeadConcepts', type: 'Aged FEX', cost_per: 8, leads_30d: 120, close_rate: 0.12, roi: 2.4 },
-  { vendor: 'LiveTransfers.com', type: 'Live Transfer', cost_per: 35, leads_30d: 44, close_rate: 0.31, roi: 4.1 },
-  { vendor: 'TargetLeads', type: 'Direct Mail', cost_per: 18, leads_30d: 60, close_rate: 0.19, roi: 2.9 },
-  { vendor: 'Nectar', type: 'Web Form', cost_per: 22, leads_30d: 35, close_rate: 0.14, roi: 1.8 },
+  { id: 'lv1', name: 'Aged FEX 181+ Days', type: 'Aged', cost_per_lead_cents: 75, leads_30d: 412, closed_30d: 38, ap_30d_cents: 4200000, active: true },
+  { id: 'lv2', name: 'Life Jacket Vet', type: 'Live Transfer', cost_per_lead_cents: 4500, leads_30d: 88, closed_30d: 19, ap_30d_cents: 2880000, active: true },
+  { id: 'lv3', name: 'Referral', type: 'Referral', cost_per_lead_cents: 0, leads_30d: 31, closed_30d: 14, ap_30d_cents: 3360000, active: true },
+  { id: 'lv4', name: 'Direct Mail – FEX Q2', type: 'Direct Mail', cost_per_lead_cents: 8200, leads_30d: 22, closed_30d: 6, ap_30d_cents: 540000, active: true },
+  { id: 'lv5', name: 'KOINO Web Form', type: 'Web Form', cost_per_lead_cents: 0, leads_30d: 17, closed_30d: 3, ap_30d_cents: 384000, active: true },
+  { id: 'lv6', name: 'FB Lead Ad — Final Expense', type: 'Web Form', cost_per_lead_cents: 1850, leads_30d: 64, closed_30d: 8, ap_30d_cents: 720000, active: false },
 ];
