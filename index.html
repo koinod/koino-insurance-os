@@ -32,6 +32,7 @@
 <script type="text/babel" src="page-extras.jsx?v=4"></script>
 <script type="text/babel" src="page-recruiting.jsx?v=4"></script>
 <script type="text/babel" src="page-attribution.jsx?v=4"></script>
+<script type="text/babel" src="page-ops-depth.jsx?v=4"></script>
 <script type="text/babel" src="page-auth.jsx?v=4"></script>
 <script type="text/babel" src="page-mobile.jsx?v=4"></script>
 
@@ -109,6 +110,10 @@ function App() {
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
+      case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
+      case "carriers":    return (() => { const P = window.PageCarriers;    return P ? <P role={role}/> : null; })();
+      case "scrubbers":   return (() => { const P = window.PageScrubbers;   return P ? <P role={role}/> : null; })();
+      case "forecast":    return (() => { const P = window.PageForecast;    return P ? <P role={role}/> : null; })();
       default:            return <PageStub title="Page" sub=""/>;
     }
   }, [page, mobile, aepMode, role]);

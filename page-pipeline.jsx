@@ -13,6 +13,13 @@ function PagePipeline({ role = "owner" }) {
   const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
   const [drag, setDrag] = React.useState(null);
   const [openLead, setOpenLead] = React.useState(null);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkAction, setBulkAction] = React.useState("stage");
+  const [bulkValue, setBulkValue] = React.useState("Contacted");
+  const [savedViews, setSavedViews] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem("repflow.pipeline.views") || "[]"); } catch { return []; }
+  });
+  const [activeViewIdx, setActiveViewIdx] = React.useState(-1);
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
@@ -42,6 +49,37 @@ function PagePipeline({ role = "owner" }) {
   };
   const moveTo = (id, stage) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), stage } });
   const reassign = (id, owner) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), owner } });
+
+  const applyBulk = () => {
+    const next = { ...overrides };
+    sel.forEach(id => {
+      next[id] = { ...(next[id] || {}), [bulkAction === "stage" ? "stage" : "owner"]: bulkValue };
+    });
+    setOverrides(next);
+    setBulkOpen(false);
+    setSel(new Set());
+  };
+
+  const saveView = () => {
+    const name = prompt("Name this view:");
+    if (!name) return;
+    const view = { name, filters: { ...filters } };
+    const next = [...savedViews, view];
+    setSavedViews(next);
+    localStorage.setItem("repflow.pipeline.views", JSON.stringify(next));
+    setActiveViewIdx(next.length - 1);
+  };
+  const loadView = (idx) => {
+    if (idx < 0 || !savedViews[idx]) return;
+    setFilters(savedViews[idx].filters);
+    setActiveViewIdx(idx);
+  };
+  const deleteView = (idx) => {
+    const next = savedViews.filter((_, i) => i !== idx);
+    setSavedViews(next);
+    localStorage.setItem("repflow.pipeline.views", JSON.stringify(next));
+    if (activeViewIdx === idx) setActiveViewIdx(-1);
+  };
   const activeFilters = Object.entries(filters).filter(([k, v]) => v !== "all" && k !== "maxDays").length + (filters.maxDays < 30 ? 1 : 0);
 
   const subtitle = role === "rep"
@@ -69,6 +107,25 @@ function PagePipeline({ role = "owner" }) {
         </div>
       </div>
 
+      {(savedViews.length > 0 || sel.size > 0) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", flexWrap: "wrap" }}>
+          {savedViews.map((v, i) => (
+            <span key={i} className={`chip ${activeViewIdx === i ? "chip-money" : ""}`} style={{ cursor: "pointer", display: "inline-flex", gap: 4 }} onClick={() => loadView(i)}>
+              <span style={{ fontWeight: 500 }}>{v.name}</span>
+              <button className="icon-btn" style={{ width: 14, height: 14, padding: 0, color: "var(--text-quaternary)" }} onClick={(e) => { e.stopPropagation(); deleteView(i); }}><Icons.X size={9}/></button>
+            </span>
+          ))}
+          <button className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={saveView}><Icons.Plus size={11}/> Save view</button>
+          {sel.size > 0 && (
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{sel.size} selected</span>
+              <button className="btn" onClick={() => setBulkOpen(true)}><Icons.Workflow size={11}/> Bulk action</button>
+              <button className="btn btn-ghost" onClick={() => setSel(new Set())}>Clear</button>
+            </span>
+          )}
+        </div>
+      )}
+
       {view === "list" && (
         <div className="panel">
           <div className="list">
@@ -85,7 +142,13 @@ function PagePipeline({ role = "owner" }) {
               <div></div>
             </div>
             {filtered.map(p => (
-              <div key={p.id} className={`row ${sel.has(p.id) ? "sel" : ""}`} style={{ gridTemplateColumns: cols }} onClick={() => setOpenLead(p)}>
+              <div key={p.id} className={`row ${sel.has(p.id) ? "sel" : ""}`} style={{ gridTemplateColumns: cols }} onClick={(e) => {
+                if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                  const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n);
+                } else {
+                  setOpenLead(p);
+                }
+              }}>
                 <span className="dot" style={{ background: heatColor(p.heat) }}></span>
                 <div className="cell-truncate" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500 }}>{p.lead}<span style={{ color: "var(--text-quaternary)", fontWeight: 400, fontSize: 11 }}>· {p.product}</span></div>
                 <div className="cell-truncate tabular" style={{ color: "var(--text-tertiary)" }}>{p.age} · {p.state}</div>
@@ -191,6 +254,22 @@ function PagePipeline({ role = "owner" }) {
       )}
 
       {openLead && <LeadDetail lead={openLead} role={role} onClose={() => setOpenLead(null)} onMove={(stage) => moveTo(openLead.id, stage)} onReassign={(o) => reassign(openLead.id, o)}/>}
+
+      {bulkOpen && (
+        <Shared.Modal title={`Bulk action · ${sel.size} leads`} onClose={() => setBulkOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setBulkOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={applyBulk}><Icons.Check size={11}/> Apply to {sel.size}</button>
+          </>
+        }>
+          <Shared.Field label="Action">
+            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : REPS[0].id); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
+          </Shared.Field>
+          <Shared.Field label="Value">
+            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : REPS.map(r => ({ v: r.id, l: r.name }))}/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
