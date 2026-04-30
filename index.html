@@ -47,10 +47,12 @@ function App() {
   const { role, page, density, aiRail, aepMode, mobile } = tweaks;
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Auto-correct page if role changes and page doesn't exist for that role
   useEffect(() => {
-    const validPages = [...Shared.NAV[role].map(i => i.id), ...Shared.NAV.ops.map(i => i.id)];
+    const validPages = [...Shared.NAV[role].map(i => i.id), ...Shared.NAV.ops.map(i => i.id), "settings"];
     if (!validPages.includes(page)) {
       setTweak("page", Shared.NAV[role][0].id);
     }
@@ -59,11 +61,14 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdkOpen(o => !o); }
-      if (e.key === "Escape") { setCmdkOpen(false); setCallOpen(false); }
+      else if (e.key === "?" && !cmdkOpen && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault(); setHelpOpen(h => !h);
+      }
+      else if (e.key === "Escape") { setCmdkOpen(false); setCallOpen(false); setNotifOpen(false); setHelpOpen(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [cmdkOpen]);
 
   const goto = (p) => { setTweak("page", p); setCmdkOpen(false); };
 
@@ -89,6 +94,7 @@ function App() {
       case "tiering":     return <PageTiering/>;
       case "book":        return <PageBook/>;
       case "recruiting":  return <PageRecruiting role={role}/>;
+      case "settings":    return <PageSettings role={role}/>;
       default:            return <PageStub title="Page" sub=""/>;
     }
   }, [page, mobile, aepMode, role]);
@@ -119,6 +125,9 @@ function App() {
             toggleRail={() => setTweak("aiRail", !aiRail)}
             railOn={aiRail}
             openMobile={() => setTweak("mobile", true)}
+            openNotifications={() => setNotifOpen(true)}
+            openSettings={() => goto("settings")}
+            notifCount={6}
           />
         )}
         <div className="page">{pageEl}</div>
@@ -126,6 +135,8 @@ function App() {
       {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
 
       <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
+      <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall onClose={() => setCallOpen(false)}/>}
 
       <TweaksPanel title="Tweaks">

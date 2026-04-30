@@ -164,14 +164,14 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
             <span>· Atlanta</span>
           </div>
         </div>
-        <button className="icon-btn"><Icons.Settings size={14}/></button>
+        <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
       </div>
     </nav>
   );
 };
 
 /* ───── Topbar ───── */
-const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile }) => (
+const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNotifications, openSettings, notifCount }) => (
   <div className="topbar">
     <div className="crumbs">
       {crumbs.map((c, i) => (
@@ -201,7 +201,15 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile }) => (
     <button className="icon-btn" onClick={toggleRail} title="Toggle AI co-pilot">
       <Icons.Sparkles size={15} style={{ color: railOn ? "var(--accent-money)" : undefined }}/>
     </button>
-    <button className="icon-btn"><Icons.Bell size={15}/></button>
+    <button className="icon-btn" onClick={openNotifications} title="Notifications" style={{ position: "relative" }}>
+      <Icons.Bell size={15}/>
+      {notifCount > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: "var(--accent-heat)", boxShadow: "0 0 0 2px var(--bg-base)" }}></span>}
+    </button>
+    {openSettings && (
+      <button className="icon-btn" onClick={openSettings} title="Settings">
+        <Icons.Settings size={15}/>
+      </button>
+    )}
   </div>
 );
 
@@ -232,6 +240,7 @@ const CMD_ITEMS = {
     { label: "Hardware",           icon: "Server",     nav: "hardware" },
     { label: "Agents",             icon: "Cpu",        nav: "agents" },
     { label: "Workflows",          icon: "Workflow",   nav: "workflows" },
+    { label: "Settings",           icon: "Settings",   nav: "settings" },
   ],
   "Ask Repflow": [
     { label: "Show leads I haven't touched in 7 days",            icon: "Sparkles", nav: "pipeline" },

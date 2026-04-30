@@ -1,5 +1,12 @@
-/* Page: Dial Queue + In-Call overlay */
-function PageQueue({ onCall }) {
+/* Page: Dial Queue (rep) / Dispatch (mgr) — role-aware
+   Rep view: their dial queue with TPMO + queue-health + compliance side panels.
+   Manager (Dispatch) view: routing-style queue with team capacity + spend strip. */
+function PageQueue({ onCall, role = "rep" }) {
+  if (role === "manager") return <DispatchView onCall={onCall}/>;
+  return <DialQueueView onCall={onCall}/>;
+}
+
+function DialQueueView({ onCall }) {
   const { QUEUE } = AppData;
   return (
     <div className="page-pad">
@@ -14,7 +21,14 @@ function PageQueue({ onCall }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+      <SpendStrip items={[
+        { l: "Cost / dial",     v: "$2.40" },
+        { l: "Comp / dial",      v: "$32.6", tone: "money" },
+        { l: "Connect rate",     v: "38%",   tone: "money" },
+        { l: "Quote rate",       v: "11%" },
+      ]}/>
+
+      <div className="queue-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
         <div className="panel">
           <div className="panel-h">
             <h3>Queue · Med Supp + FE</h3>
@@ -53,10 +67,10 @@ function PageQueue({ onCall }) {
             <div className="panel-h"><h3>Queue health</h3></div>
             <div style={{ padding: "12px 14px" }}>
               {[
-                { l: "< 30s SLA", v: "23", c: "var(--accent-money)" },
-                { l: "30 – 60s", v: "12", c: "var(--accent-status)" },
-                { l: "60 – 120s", v: "8", c: "var(--state-warning)" },
-                { l: "> 120s breach", v: "4", c: "var(--state-danger)" },
+                { l: "< 30s SLA",       v: "23", c: "var(--accent-money)" },
+                { l: "30 – 60s",         v: "12", c: "var(--accent-status)" },
+                { l: "60 – 120s",        v:  "8", c: "var(--state-warning)" },
+                { l: "> 120s breach",   v:  "4", c: "var(--state-danger)" },
               ].map((r, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
                   <span style={{ fontSize: 12, color: "var(--text-secondary)" }}><span className="dot" style={{ background: r.c, marginRight: 8 }}></span>{r.l}</span>
@@ -72,6 +86,105 @@ function PageQueue({ onCall }) {
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>SOA on Med Supp</span><span className="chip chip-status">Pre-call gate</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>Recording</span><span className="chip chip-money">All calls · 10y</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>State licenses</span><span className="chip">12 active</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DispatchView({ onCall }) {
+  const { QUEUE, REPS } = AppData;
+  const [picks, setPicks] = React.useState({});  // queueId -> repId
+  const [filter, setFilter] = React.useState({ heat: "all", product: "all" });
+
+  const setPick = (qid, rid) => setPicks({ ...picks, [qid]: rid });
+  const filtered = QUEUE.filter(q =>
+    (filter.heat === "all" || (filter.heat === "hot" ? q.elapsed < 30 : q.elapsed >= 30)) &&
+    (filter.product === "all" || q.product === filter.product)
+  );
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Dispatch</div>
+          <div className="page-sub">Route inbound queue across {REPS.filter(r => r.presence === "live").length} live producers · auto-suggested by capacity</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn"><Icons.Settings size={13}/> Routing rules</button>
+          <button className="btn btn-primary" onClick={onCall}><Icons.Phone size={13}/> Open in-call</button>
+        </div>
+      </div>
+
+      <SpendStrip items={[
+        { l: "Team CPA today", v: "$87",   tone: "money" },
+        { l: "Lead spend today", v: "$1,240" },
+        { l: "Avg dispatch SLA", v: "21s",  tone: "money" },
+        { l: "Breaches",         v: "4",    tone: "warn" },
+      ]}/>
+
+      <div className="dispatch-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h">
+            <h3>Inbound · awaiting dispatch</h3>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <Shared.Select value={filter.heat} onChange={(v) => setFilter({ ...filter, heat: v })} options={[{ v: "all", l: "All heat" }, { v: "hot", l: "Hot < 30s" }, { v: "cold", l: "≥ 30s" }]}/>
+              <Shared.Select value={filter.product} onChange={(v) => setFilter({ ...filter, product: v })} options={[{ v: "all", l: "All products" }, ...Array.from(new Set(QUEUE.map(q => q.product))).map(p => ({ v: p, l: p }))]}/>
+            </div>
+          </div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "16px 1.6fr 60px 1fr 72px 1.4fr 70px" }}>
+              <div></div><div>Lead</div><div>Age/St</div><div>Product</div><div className="tabular" style={{ textAlign: "right" }}>SLA</div><div>Assign to</div><div></div>
+            </div>
+            {filtered.map(q => {
+              const c = q.elapsed < 30 ? "var(--accent-money)" : q.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
+              const rid = picks[q.id] || REPS[0].id;
+              return (
+                <div key={q.id} className="row" style={{ gridTemplateColumns: "16px 1.6fr 60px 1fr 72px 1.4fr 70px" }}>
+                  <span className="dot" style={{ background: c }}></span>
+                  <div style={{ fontWeight: 500 }}>{q.lead}</div>
+                  <div className="tabular" style={{ color: "var(--text-tertiary)" }}>{q.age} · {q.state}</div>
+                  <div className="cell-truncate"><span className="chip">{q.product}</span></div>
+                  <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{q.elapsed}s</div>
+                  <div><Shared.Select value={rid} onChange={(v) => setPick(q.id, v)} options={REPS.map(r => ({ v: r.id, l: `${r.name} · ${r.presence === "live" ? "live" : "idle"} · ${r.appts}` }))}/></div>
+                  <button className="btn btn-primary" style={{ padding: "3px 8px" }} onClick={() => setPick(q.id, rid)}><Icons.Phone size={11}/> Send</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="panel">
+            <div className="panel-h"><Icons.Users size={13}/><h3>Producer capacity</h3></div>
+            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {REPS.slice(0, 6).map(r => {
+                const load = Math.min(100, (Object.values(picks).filter(rid => rid === r.id).length + r.appts) * 14);
+                return (
+                  <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px", gap: 8, fontSize: 12.5, alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Shared.Avatar rep={r} size={18}/>
+                      <span style={{ fontWeight: 500 }}>{r.name.split(" ")[0]}</span>
+                      <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
+                    </div>
+                    <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ width: `${load}%`, height: "100%", background: load > 80 ? "var(--state-warning)" : "var(--accent-money)" }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Routing rules</h3></div>
+            <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>• T65 list → Med Supp specialists</div>
+              <div>• FB FE creative → producer w/ &lt; 4 appts</div>
+              <div>• Inbound &lt; 30s → tier ≥ Gold</div>
+              <div>• Annuity → certified producer only</div>
+              <div>• Spanish — round-robin among bilingual</div>
             </div>
           </div>
         </div>
@@ -160,9 +273,9 @@ function InCall({ onClose }) {
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 10 }}>Live transcript</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { who: "You", t: "00:04", body: "Hi Cheryl, this is Marcus from Atlas. You filled out a form about Medicare Supplement?" },
+                { who: "You",    t: "00:04", body: "Hi Cheryl, this is Marcus from Atlas. You filled out a form about Medicare Supplement?" },
                 { who: "Cheryl", t: "00:09", body: "Yes — I'm 67 and I think I have Plan F? Or Advantage? I'm honestly not sure." },
-                { who: "You", t: "00:18", body: "That's super common, no problem at all. Walk me through your day — what's the morning look like with medications?" },
+                { who: "You",    t: "00:18", body: "That's super common, no problem at all. Walk me through your day — what's the morning look like with medications?" },
                 { who: "Cheryl", t: "00:34", body: "Well I take metformin, and a blood pressure pill, and now they want to add another one for cholesterol..." },
               ].map((m, i) => (
                 <div key={i}>
@@ -189,7 +302,7 @@ function InCall({ onClose }) {
             <button className="btn"><Icons.Mic size={12}/> Mute</button>
             <button className="btn"><Icons.MessageSquare size={12}/> Hold</button>
             <button className="btn"><Icons.Calendar size={12}/> Schedule SOA</button>
-            <button className="btn"><Icons.ListChecks size={12}/> Send app link</button>
+            <button className="btn"><Icons.Check size={12}/> Send app link</button>
             <div style={{ flex: 1 }}></div>
             <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}><Icons.Stop size={12}/> End call</button>
           </div>

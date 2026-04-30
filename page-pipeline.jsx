@@ -1,5 +1,5 @@
-/* Page: Pipeline (Attio-style dense list) — role-aware
-   Rep view: only their own deals. Manager/Owner: full org. */
+/* Page: Pipeline — Attio-style dense list + kanban drag-drop + lead detail.
+   Role-aware: rep view scopes to my deals; mgr/owner see the full org. */
 function PagePipeline({ role = "owner" }) {
   const { PIPELINE, REPS } = AppData;
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
@@ -10,6 +10,9 @@ function PagePipeline({ role = "owner" }) {
   const [filters, setFilters] = React.useState({ stage: "all", heat: "all", owner: "all", state: "all", source: "all", maxDays: 30 });
   const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0].id });
   const [extra, setExtra] = React.useState([]);
+  const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
+  const [drag, setDrag] = React.useState(null);
+  const [openLead, setOpenLead] = React.useState(null);
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
@@ -17,9 +20,8 @@ function PagePipeline({ role = "owner" }) {
   const states = Array.from(new Set(PIPELINE.map(p => p.state)));
   const heatColor = (h) => h === "hot" ? "var(--accent-heat)" : h === "warm" ? "var(--state-warning)" : h === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
 
-  // Rep view scopes to "their" deals; we use the first rep as a stand-in for the logged-in user.
   const meId = REPS[0].id;
-  const all = [...extra, ...PIPELINE];
+  const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
   const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
   const filtered = scoped.filter(p =>
     (filters.stage  === "all" || p.stage  === filters.stage) &&
@@ -38,6 +40,8 @@ function PagePipeline({ role = "owner" }) {
     setNewRow({ ...newRow, lead: "" });
     setNewOpen(false);
   };
+  const moveTo = (id, stage) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), stage } });
+  const reassign = (id, owner) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), owner } });
   const activeFilters = Object.entries(filters).filter(([k, v]) => v !== "all" && k !== "maxDays").length + (filters.maxDays < 30 ? 1 : 0);
 
   const subtitle = role === "rep"
@@ -81,9 +85,7 @@ function PagePipeline({ role = "owner" }) {
               <div></div>
             </div>
             {filtered.map(p => (
-              <div key={p.id} className={`row ${sel.has(p.id) ? "sel" : ""}`} style={{ gridTemplateColumns: cols }} onClick={() => {
-                const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n);
-              }}>
+              <div key={p.id} className={`row ${sel.has(p.id) ? "sel" : ""}`} style={{ gridTemplateColumns: cols }} onClick={() => setOpenLead(p)}>
                 <span className="dot" style={{ background: heatColor(p.heat) }}></span>
                 <div className="cell-truncate" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500 }}>{p.lead}<span style={{ color: "var(--text-quaternary)", fontWeight: 400, fontSize: 11 }}>· {p.product}</span></div>
                 <div className="cell-truncate tabular" style={{ color: "var(--text-tertiary)" }}>{p.age} · {p.state}</div>
@@ -100,7 +102,7 @@ function PagePipeline({ role = "owner" }) {
                   <Shared.Avatar rep={repById[p.owner]} size={18}/>
                   <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[p.owner].name.split(" ")[0]}</span>
                 </div>
-                <button className="icon-btn"><Icons.Dots size={13}/></button>
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n); }}><Icons.Dots size={13}/></button>
               </div>
             ))}
             {filtered.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No leads match these filters.</div>}
@@ -109,19 +111,26 @@ function PagePipeline({ role = "owner" }) {
       )}
 
       {view === "kanban" && (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: 10 }}>
+        <div className="kanban-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: 10 }}>
           {stages.map(s => {
             const items = filtered.filter(p => p.stage === s);
             const sum = items.reduce((a, b) => a + (b.ap || 0), 0);
             return (
-              <div key={s} className="panel">
+              <div key={s} className="panel"
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={(e) => { e.preventDefault(); if (drag != null) { moveTo(drag, s); setDrag(null); } }}>
                 <div className="panel-h">
                   <h3>{s}</h3>
                   <span className="meta tabular">{items.length} · ${sum.toLocaleString()}</span>
                 </div>
-                <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, minHeight: 200 }}>
+                <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, minHeight: 220 }}>
                   {items.map(p => (
-                    <div key={p.id} style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 10 }}>
+                    <div key={p.id}
+                      draggable
+                      onDragStart={() => setDrag(p.id)}
+                      onDragEnd={() => setDrag(null)}
+                      onClick={() => setOpenLead(p)}
+                      style={{ background: drag === p.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 10, cursor: "grab", opacity: drag === p.id ? 0.5 : 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 500 }}>
                         <span className="dot" style={{ background: heatColor(p.heat) }}></span>
                         {p.lead}
@@ -133,6 +142,9 @@ function PagePipeline({ role = "owner" }) {
                       </div>
                     </div>
                   ))}
+                  {items.length === 0 && drag != null && (
+                    <div style={{ padding: 14, border: "1px dashed var(--border-strong)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 11.5, textAlign: "center" }}>Drop to move to {s}</div>
+                  )}
                 </div>
               </div>
             );
@@ -175,6 +187,105 @@ function PagePipeline({ role = "owner" }) {
           {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={newRow.owner} onChange={(v) => setNewRow({ ...newRow, owner: v })} options={REPS.map(r => ({ v: r.id, l: r.name }))}/></Shared.Field>}
         </Shared.Modal>
       )}
+
+      {openLead && <LeadDetail lead={openLead} role={role} onClose={() => setOpenLead(null)} onMove={(stage) => moveTo(openLead.id, stage)} onReassign={(o) => reassign(openLead.id, o)}/>}
+    </div>
+  );
+}
+
+function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
+  const { REPS } = AppData;
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  const owner = repById[lead.owner];
+  const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
+  const heatColor = lead.heat === "hot" ? "var(--accent-heat)" : lead.heat === "warm" ? "var(--state-warning)" : lead.heat === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
+  const initials = lead.lead.split(" ").map(s => s[0]).join("");
+
+  return (
+    <div className="slideout-overlay" onClick={onClose}>
+      <aside className="slideout" onClick={(e) => e.stopPropagation()}>
+        <div className="slideout-h">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="avatar-xs" style={{ width: 36, height: 36, fontSize: 13, background: owner?.color || "linear-gradient(135deg,#5b86e5,#36d1dc)" }}>{initials}</div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "var(--font-display)" }}>{lead.lead}</div>
+              <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{lead.age} · {lead.state} · {lead.source}</div>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+        </div>
+
+        <div className="slideout-body">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span className="chip" style={{ background: "color-mix(in oklch, " + heatColor + " 14%, transparent)", color: heatColor, borderColor: "color-mix(in oklch, " + heatColor + " 30%, transparent)" }}>
+              <Icons.Flame size={11}/> {lead.heat}
+            </span>
+            <span className="chip">{lead.product}</span>
+            <span className={`chip ${lead.consent === "verified" ? "chip-money" : "chip-status"}`}>Consent {lead.consent}</span>
+          </div>
+
+          <div className="divider"></div>
+
+          <div className="field-l">Stage</div>
+          <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+            {stages.map(s => (
+              <button key={s} className={`btn ${lead.stage === s ? "btn-primary" : "btn-ghost"}`} style={{ padding: "4px 10px", fontSize: 11.5 }} onClick={() => onMove(s)}>{s}</button>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+            <Shared.Field label="AP"><div className="tabular" style={{ fontSize: 16, fontWeight: 500 }}>{lead.ap ? `$${lead.ap.toLocaleString()}` : "—"}</div></Shared.Field>
+            <Shared.Field label="Age in stage"><div className="tabular" style={{ fontSize: 16, fontWeight: 500, color: lead.days > 5 ? "var(--state-danger)" : "var(--text-primary)" }}>{lead.days}d</div></Shared.Field>
+            <Shared.Field label="Last touch"><div style={{ fontSize: 13 }}>{lead.last}</div></Shared.Field>
+            <Shared.Field label="Next action"><div style={{ fontSize: 13 }}>{lead.next}</div></Shared.Field>
+          </div>
+
+          <div className="divider"></div>
+
+          {role !== "rep" && (
+            <Shared.Field label="Owner">
+              <Shared.Select value={lead.owner} onChange={onReassign} options={REPS.map(r => ({ v: r.id, l: r.name }))}/>
+            </Shared.Field>
+          )}
+
+          <div className="divider"></div>
+
+          <div className="field-l">Compliance</div>
+          <div className="panel" style={{ padding: 12, marginTop: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
+              <span style={{ color: "var(--text-secondary)" }}>LeadiD</span><span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>9f8c-2a11…</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
+              <span style={{ color: "var(--text-secondary)" }}>TrustedForm</span><span className="chip chip-money">Captured</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5 }}>
+              <span style={{ color: "var(--text-secondary)" }}>SOA</span><span className={`chip ${lead.stage === "App In" || lead.stage === "Issued" ? "chip-money" : "chip-status"}`}>{lead.stage === "Issued" ? "Captured" : "Before quote"}</span>
+            </div>
+          </div>
+
+          <div className="divider"></div>
+
+          <div className="field-l">Activity</div>
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+            {[
+              { d: lead.last,    t: "Last touch",  s: lead.next },
+              { d: "Earlier",    t: "Quote sent",  s: lead.product },
+              { d: lead.days + "d ago", t: "Form filled",  s: lead.source + " · " + lead.state },
+            ].map((a, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 8, fontSize: 12.5 }}>
+                <span style={{ color: "var(--text-tertiary)" }}>{a.d}</span>
+                <div><strong>{a.t}</strong><div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.s}</div></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="slideout-foot">
+          <button className="btn"><Icons.Mail size={12}/> Email</button>
+          <button className="btn"><Icons.MessageSquare size={12}/> SMS</button>
+          <button className="btn btn-primary"><Icons.Phone size={12}/> Call now</button>
+        </div>
+      </aside>
     </div>
   );
 }

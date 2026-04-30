@@ -59,6 +59,7 @@ const Icons = {
   Kanban: (p) => <Ic {...p} d={<><rect x="3" y="3" width="6" height="14" rx="1"/><rect x="11" y="3" width="6" height="10" rx="1"/><rect x="19" y="3" width="2" height="6" rx="1"/></>}/>,
   Server: (p) => <Ic {...p} d={<><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></>}/>,
   Award: (p) => <Ic {...p} d={<><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></>}/>,
+  Copy: (p) => <Ic {...p} d={<><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>}/>,
 };
 
 window.Icons = Icons;

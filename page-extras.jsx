@@ -868,45 +868,404 @@ function PageStub({ title, sub }) {
   );
 }
 
-/* In-Call overlay (preserved from previous structure for the ⌘K trigger) */
-function InCall({ onClose }) {
+/* ─────────────────────────────────────────────────────────────────────────
+   8. Settings — role-aware (org / billing / integrations / API / routing /
+      notifications). Owner sees everything, mgr sees team-relevant
+      sections, rep sees only their profile.
+   ───────────────────────────────────────────────────────────────────────── */
+function PageSettings({ role = "owner" }) {
+  const TABS = role === "owner"
+    ? [["org","Organization"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["notifications","Notifications"],["profile","Profile"]]
+    : role === "manager"
+      ? [["routing","Routing rules"],["notifications","Notifications"],["profile","Profile"]]
+      : [["profile","Profile"],["notifications","Notifications"]];
+  const [tab, setTab] = React.useState(TABS[0][0]);
+
   return (
-    <div className="cmdk-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 520 }}>
-        <div className="modal-h">
-          <div className="modal-t"><Icons.Phone size={13}/> Live · Cheryl Hampton · 04:21</div>
-          <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Settings</div>
+          <div className="page-sub">{role === "owner" ? "Organization, billing, integrations, API, routing" : role === "manager" ? "Routing rules and team notifications" : "Your profile and notifications"}</div>
         </div>
-        <div className="modal-body">
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            <span className="chip chip-money">TPMO captured 0:08</span>
-            <span className="chip">No prior MS</span>
-            <span className="chip chip-info">Plan G eligible</span>
-          </div>
-          <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, lineHeight: 1.5 }}>
-            <strong style={{ color: "var(--text-primary)" }}>AI suggests now —</strong> Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <em>Plan G drug-free coverage gap</em>.
-          </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-            <button className="btn">Show script</button>
-            <button className="btn">Send SOA</button>
-            <button className="btn">Quote $145/mo</button>
-          </div>
+      </div>
+
+      <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14 }}>
+        <div className="panel" style={{ padding: 6 }}>
+          {TABS.map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)} className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "8px 10px", background: tab === k ? "var(--bg-raised)" : "transparent", color: tab === k ? "var(--text-primary)" : "var(--text-secondary)", fontWeight: tab === k ? 500 : 400 }}>{l}</button>
+          ))}
         </div>
-        <div className="modal-foot">
-          <button className="btn btn-ghost" onClick={onClose}>Mute</button>
-          <button className="btn btn-primary" onClick={onClose}><Icons.X size={11}/> End call</button>
+
+        <div>
+          {tab === "org"          && <SettingsOrg/>}
+          {tab === "billing"      && <SettingsBilling/>}
+          {tab === "integrations" && <SettingsIntegrations/>}
+          {tab === "api"          && <SettingsApi/>}
+          {tab === "routing"      && <SettingsRouting/>}
+          {tab === "notifications"&& <SettingsNotifications/>}
+          {tab === "profile"      && <SettingsProfile role={role}/>}
         </div>
       </div>
     </div>
   );
 }
 
-window.PageVault       = PageVault;
-window.PageTiering     = PageTiering;
-window.PageCommissions = PageCommissions;
-window.PageTraining    = PageTraining;
-window.PageRecruiting  = PageRecruiting;
-window.PageCalls       = PageCalls;
-window.PageBook        = PageBook;
-window.PageStub        = PageStub;
-window.InCall          = InCall;
+function SettingsOrg() {
+  const [name, setName]     = React.useState("Atlas Insurance Group");
+  const [legal, setLegal]   = React.useState("Atlas IMO LLC");
+  const [domain, setDomain] = React.useState("atlasimo.com");
+  const [npn, setNpn]       = React.useState("19384726");
+  return (
+    <div className="panel" style={{ padding: 16 }}>
+      <h3 style={{ margin: 0, marginBottom: 12 }}>Organization</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Shared.Field label="Display name"><input className="text-input" value={name} onChange={(e) => setName(e.target.value)}/></Shared.Field>
+        <Shared.Field label="Legal entity"><input className="text-input" value={legal} onChange={(e) => setLegal(e.target.value)}/></Shared.Field>
+        <Shared.Field label="Domain"><input className="text-input" value={domain} onChange={(e) => setDomain(e.target.value)}/></Shared.Field>
+        <Shared.Field label="NPN"><input className="text-input" value={npn} onChange={(e) => setNpn(e.target.value)}/></Shared.Field>
+      </div>
+      <div className="divider"></div>
+      <h3 style={{ margin: 0, marginBottom: 8 }}>Operating states</h3>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"].map(s => (
+          <span key={s} className="chip chip-money">{s}</span>
+        ))}
+        <button className="btn btn-ghost" style={{ padding: "3px 10px" }}><Icons.Plus size={11}/> Add</button>
+      </div>
+      <div className="divider"></div>
+      <button className="btn btn-primary"><Icons.Check size={12}/> Save organization</button>
+    </div>
+  );
+}
+
+function SettingsBilling() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 8 }}>Plan</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>Network · Annual</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>Up to 25 producers · all integrations · 24h support</div>
+          </div>
+          <button className="btn btn-ghost">Manage plan</button>
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 8 }}>Usage this month</h3>
+        {[
+          { l: "Active producers", v: "9 / 25",  w: 36 },
+          { l: "Voice AI minutes", v: "12,480 / 50,000", w: 25 },
+          { l: "Lead enrichment",  v: "1,840 / 5,000",   w: 37 },
+          { l: "Storage",           v: "412 GB / 1 TB",   w: 41 },
+        ].map((r, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 200px", padding: "8px 0", alignItems: "center", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0, fontSize: 12.5 }}>
+            <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
+            <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
+            <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
+              <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 8 }}>Payment method</h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text-secondary)" }}>
+          <span className="chip">VISA</span><span className="mono" style={{ fontSize: 12.5 }}>**** 4419</span><span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>· expires 09/27</span>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Update</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsIntegrations() {
+  const { CONNECTIONS } = AppData;
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>Connected services</h3><span className="meta">{CONNECTIONS.length} configured</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 100px" }}>
+          <div>Service</div><div>Category</div><div>Status</div><div>Detail</div><div></div>
+        </div>
+        {CONNECTIONS.map(c => (
+          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 100px" }}>
+            <div style={{ fontWeight: 500 }}>{c.name}</div>
+            <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
+            <div><span className={`chip ${c.status === "ok" ? "chip-money" : c.status === "warn" ? "chip-status" : "chip-danger"}`}>{c.status === "ok" ? "Connected" : c.status === "warn" ? "Action needed" : "Down"}</span></div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
+            <button className="btn btn-ghost">{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SettingsApi() {
+  const [revealed, setRevealed] = React.useState(false);
+  const KEY = "rfk_live_eyJhbGciOiJIUzI1NiJ9...QzfBn4xT2";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 8 }}>API keys</h3>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginBottom: 12 }}>Use this key to push leads or pull pipeline state via REST. Never commit keys to source control.</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>
+          <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? KEY : KEY.slice(0, 12) + "•••••••••••••••••••"}</span>
+          <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)}>{revealed ? "Hide" : "Reveal"}</button>
+          <button className="btn btn-ghost"><Icons.Copy size={12}/> Copy</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="btn btn-primary"><Icons.Plus size={12}/> Create new key</button>
+          <button className="btn">Rotate</button>
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 8 }}>Webhooks</h3>
+        <div className="list" style={{ marginTop: 8 }}>
+          {[
+            { url: "https://atlas.zapier.com/leads",      events: "lead.new · lead.assigned",        last: "2m ago" },
+            { url: "https://atlas.n8n.io/issued",         events: "deal.issued",                       last: "14m ago" },
+            { url: "https://atlas.app.n8n.cloud/nigo",    events: "deal.nigo",                          last: "yesterday" },
+          ].map((w, i) => (
+            <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px" }}>
+              <div className="cell-truncate mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{w.url}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.events}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.last}</div>
+              <button className="btn btn-ghost">Edit</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsRouting() {
+  const [rules, setRules] = React.useState([
+    { id: 1, src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60 },
+    { id: 2, src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90 },
+    { id: 3, src: "Annuity",             route: "Certified producer",    weight: 100 },
+    { id: 4, src: "Spanish",             route: "Bilingual round-robin", weight: 50 },
+  ]);
+  return (
+    <div className="panel" style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>Routing rules</h3>
+        <button className="btn btn-primary"><Icons.Plus size={12}/> New rule</button>
+      </div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 60px" }}>
+          <div>Source / trigger</div><div>Route to</div><div>Priority</div><div></div>
+        </div>
+        {rules.map(r => (
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 60px" }}>
+            <div style={{ fontWeight: 500 }}>{r.src}</div>
+            <div style={{ color: "var(--text-secondary)" }}>{r.route}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="range" min={0} max={100} value={r.weight} onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))} style={{ flex: 1 }}/>
+              <span className="tabular" style={{ width: 30, fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.weight}</span>
+            </div>
+            <button className="btn btn-ghost"><Icons.X size={11}/></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SettingsNotifications() {
+  const [prefs, setPrefs] = React.useState({
+    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
+  });
+  const t = (k, l, sub) => (
+    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
+      <span style={{ display: "inline-block", width: 32 }}>
+        <input type="checkbox" checked={prefs[k]} onChange={(e) => setPrefs({ ...prefs, [k]: e.target.checked })}/>
+      </span>
+      <div>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
+      </div>
+      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
+    </label>
+  );
+  return (
+    <div className="panel" style={{ padding: 16 }}>
+      <h3 style={{ margin: 0 }}>Notifications</h3>
+      <div style={{ marginTop: 8 }}>
+        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
+        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
+        {t("dealIssued",    "Deal issued",                   "Push immediately")}
+        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
+        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
+        {t("recruitingNew", "New applicant in funnel",        "Daily")}
+        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
+      </div>
+    </div>
+  );
+}
+
+function SettingsProfile({ role }) {
+  const me = AppData.REPS[0];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0 }}>Profile</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
+          <Shared.Avatar rep={me} size={48}/>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{me.name}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{me.handle} · Atlanta · {role}</div>
+          </div>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Change avatar</button>
+        </div>
+        <div className="divider"></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Shared.Field label="Display name"><input className="text-input" defaultValue={me.name}/></Shared.Field>
+          <Shared.Field label="Email"><input className="text-input" defaultValue="marcus@atlasimo.com"/></Shared.Field>
+          <Shared.Field label="Phone"><input className="text-input" defaultValue="+1 (404) 555-0142"/></Shared.Field>
+          <Shared.Field label="Time zone"><Shared.Select value="ET" onChange={() => {}} options={[{ v: "ET", l: "Eastern" }, { v: "CT", l: "Central" }, { v: "MT", l: "Mountain" }, { v: "PT", l: "Pacific" }]}/></Shared.Field>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0 }}>Licenses + appointments</h3>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          {["TX","FL","GA","NV","AZ"].map(s => <span key={s} className="chip chip-money">{s} · active</span>)}
+          {["NY"].map(s => <span key={s} className="chip chip-status">{s} · pending</span>)}
+        </div>
+        <div className="divider"></div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+          {["UHC","Humana","Aetna SRC","Mutual of Omaha","F&G Annuities"].map(c => (
+            <div key={c} className="chip">{c}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   9. Notifications panel (slide-out from Bell icon)
+   ───────────────────────────────────────────────────────────────────────── */
+function NotificationsPanel({ open, onClose, goto }) {
+  if (!open) return null;
+  const items = [
+    { kind: "lead",     t: "Hot inbound · Cheryl Hampton",    d: "14s",       sub: "FB T65 · score 92 · TX",                page: "queue" },
+    { kind: "issued",   t: "Deal issued · Naomi Reese",        d: "8m",        sub: "Aetna SRC Plan G · $1,780 AP",          page: "commissions" },
+    { kind: "nigo",     t: "NIGO returned · Linda Cho",         d: "1h",        sub: "Sigs missing · Plan N",                  page: "calls" },
+    { kind: "coaching", t: "New coaching card",                  d: "2h",        sub: "Open-ended Q drill assigned",            page: "coaching" },
+    { kind: "anomaly",  t: "Persistency drift · Tampa",          d: "3h",        sub: "FE 13-mo cohort -3.2pts WoW",           page: "book" },
+    { kind: "recruit",  t: "New applicant · Stacy V",            d: "yesterday", sub: "Already licensed in TX",                  page: "recruiting" },
+  ];
+  const colorOf = (k) => k === "lead" ? "var(--accent-money)" : k === "issued" ? "var(--accent-money)" : k === "nigo" ? "var(--state-danger)" : k === "anomaly" ? "var(--state-warning)" : "var(--accent-status)";
+  return (
+    <div className="slideout-overlay" onClick={onClose}>
+      <aside className="slideout" onClick={(e) => e.stopPropagation()} style={{ width: 380 }}>
+        <div className="slideout-h">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Icons.Bell size={14}/>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>Notifications</div>
+            <span className="chip chip-money">{items.length}</span>
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn btn-ghost">Mark read</button>
+            <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+          </div>
+        </div>
+        <div className="slideout-body" style={{ padding: 0 }}>
+          {items.map((n, i) => (
+            <div key={i} onClick={() => { goto && goto(n.page); onClose(); }} style={{ display: "flex", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}>
+              <span className="dot" style={{ background: colorOf(n.kind), marginTop: 6 }}></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{n.t}</div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 2 }}>{n.sub}</div>
+              </div>
+              <span style={{ color: "var(--text-quaternary)", fontSize: 11 }}>{n.d}</span>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   10. Keyboard shortcuts help (?)
+   ───────────────────────────────────────────────────────────────────────── */
+function ShortcutsHelp({ open, onClose }) {
+  if (!open) return null;
+  const groups = [
+    { title: "Global", items: [
+      ["⌘K / Ctrl+K", "Command palette"],
+      ["?",            "Shortcut help"],
+      ["Esc",           "Close any overlay"],
+    ]},
+    { title: "Navigation (in palette)", items: [
+      ["↑ ↓",  "Move selection"],
+      ["Enter", "Open page or run action"],
+    ]},
+    { title: "On a call", items: [
+      ["M",     "Mute / unmute"],
+      ["S",     "Send SOA"],
+      ["Space", "Pause transcript"],
+    ]},
+    { title: "Pipeline", items: [
+      ["F",   "Filter"],
+      ["N",   "New lead"],
+      ["1-5", "Move selected lead to stage"],
+    ]},
+  ];
+  return (
+    <Shared.Modal title="Keyboard shortcuts" width={520} onClose={onClose} actions={
+      <button className="btn btn-primary" onClick={onClose}>Got it</button>
+    }>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+        {groups.map(g => (
+          <div key={g.title}>
+            <div className="field-l" style={{ marginBottom: 6 }}>{g.title}</div>
+            {g.items.map(([k, l]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{l}</span>
+                <span className="kbd mono">{k}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Shared.Modal>
+  );
+}
+
+/* Stub fallback retained for unknown page IDs */
+function PageStub({ title, sub }) {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">{title}</div>
+          <div className="page-sub">{sub}</div>
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Sparkles size={20} style={{ color: "var(--accent-money)" }}/>
+        <div style={{ marginTop: 8, fontSize: 14, fontWeight: 500 }}>Page coming online</div>
+        <div style={{ fontSize: 12, marginTop: 4 }}>This view is wired in the data layer; UI ships in the next build.</div>
+      </div>
+    </div>
+  );
+}
+
+window.PageVault          = PageVault;
+window.PageTiering        = PageTiering;
+window.PageCommissions    = PageCommissions;
+window.PageTraining       = PageTraining;
+window.PageRecruiting     = PageRecruiting;
+window.PageCalls          = PageCalls;
+window.PageBook           = PageBook;
+window.PageSettings       = PageSettings;
+window.PageStub           = PageStub;
+window.NotificationsPanel = NotificationsPanel;
+window.ShortcutsHelp      = ShortcutsHelp;
