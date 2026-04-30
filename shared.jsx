@@ -317,50 +317,123 @@ const CmdK = ({ open, onClose, goto }) => {
   );
 };
 
-/* ───── AI Rail ───── */
+/* ───── AI Rail (functional — calls /api/copilot which proxies to Gemini) ───── */
+const SUGGESTIONS_BY_PAGE = {
+  pnl:          ["Which downline is dragging persistency below 80%?", "What's my biggest leak in the P&L this month?", "If I cut the worst-performing lead source, what's the net impact?"],
+  pipeline:     ["Show me leads I haven't touched in 7 days", "Which deals are most likely to close this week?", "Why is this deal stuck in 'App In'?"],
+  queue:        ["Which lead in the queue should I dial first and why?", "Draft a 30-second opener for the top scored lead", "Which producers are hottest right now?"],
+  leaderboard:  ["Compare my conversion vs Tony's last month", "What's the gap between #1 and #2 this month?"],
+  team:         ["Who's at risk of missing tier this month?", "Which producer needs a coaching nudge today?"],
+  coaching:     ["Top 3 issues across all producer calls this week", "Which coaching theme is moving the needle most?"],
+  vault:        ["Are any artifacts approaching retention expiry?", "Audit pack for Aetna SRC — what's missing?"],
+  tiering:      ["Who would qualify for Diamond if MTD threshold dropped to $45k?"],
+  recruiting:   ["Which campaign has the lowest cost per producer?", "Draft a follow-up DM for {{handle}} based on their reply"],
+  commissions:  ["Where's my biggest variance vs carrier statements this month?"],
+  book:          ["Which carrier mix segment has the best persistency?"],
+  default:       ["Summarize what's on this page", "What should I focus on right now?", "What changed since yesterday?"],
+};
+
+function pageKeyFromContext(context) {
+  if (!context) return "default";
+  const c = String(context).toLowerCase();
+  if (c.includes("p&l") || c.includes("pnl")) return "pnl";
+  if (c.includes("pipeline")) return "pipeline";
+  if (c.includes("queue") || c.includes("dispatch")) return "queue";
+  if (c.includes("leaderboard")) return "leaderboard";
+  if (c.includes("team")) return "team";
+  if (c.includes("coaching")) return "coaching";
+  if (c.includes("vault")) return "vault";
+  if (c.includes("tiering")) return "tiering";
+  if (c.includes("recruit")) return "recruiting";
+  if (c.includes("commission")) return "commissions";
+  if (c.includes("book")) return "book";
+  return "default";
+}
+
 const AIRail = ({ context }) => {
-  const [val, setVal] = useState("");
+  const [val, setVal]       = useState("");
+  const [history, setHist]  = useState([]); // [{role, text, ms}]
+  const [busy, setBusy]     = useState(false);
+  const bottomRef            = useRef();
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history.length, busy]);
+
+  const ask = async (prompt) => {
+    if (!prompt.trim() || busy) return;
+    setHist(h => [...h, { role: "user", text: prompt }]);
+    setVal("");
+    setBusy(true);
+    try {
+      const resp = await fetch("/api/copilot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, context })
+      });
+      const j = await resp.json();
+      if (!resp.ok) throw new Error(j.error + (j.detail ? " — " + j.detail.slice(0, 200) : ""));
+      setHist(h => [...h, { role: "assistant", text: j.text, ms: j.ms }]);
+    } catch (e) {
+      setHist(h => [...h, { role: "assistant", text: "Couldn't reach the model. " + (e.message || ""), ms: 0, err: true }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const suggestions = SUGGESTIONS_BY_PAGE[pageKeyFromContext(context)] || SUGGESTIONS_BY_PAGE.default;
+
   return (
     <aside className="airail">
       <div className="airail-h">
         <Icons.Sparkles size={14} style={{ color: "var(--accent-money)" }}/>
         <span className="title">Co-pilot</span>
         <span className="meta">{context}</span>
+        {history.length > 0 && <button className="icon-btn" onClick={() => setHist([])} title="Clear"><Icons.X size={12}/></button>}
       </div>
       <div className="airail-body">
-        <div className="ai-msg">
-          <div className="who"><Avatar rep={AppData.REPS[0]} size={16}/> You · 11:42a</div>
-          <div className="body">Why is Cheryl Hampton's quote $180 higher than Robert's same plan?</div>
-        </div>
-        <div className="ai-msg assistant">
-          <div className="who"><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow · 11:42a · 1.4s</div>
-          <div className="body">Cheryl is in <b>Travis County, TX</b> (zip 78704) where the carrier's Plan G base rate is 11% higher than Robert's <b>Pinellas County, FL</b>. She's also 3 years older — combined effect is +$184/yr.</div>
-          <div className="ai-trace">
-            <div className="step"><span className="ok">✓</span> tool: <span style={{ color: "var(--text-secondary)" }}>quote.lookup</span><span className="ms">142ms</span></div>
-            <div className="step"><span className="ok">✓</span> tool: <span style={{ color: "var(--text-secondary)" }}>rate.compare</span><span className="ms">221ms</span></div>
-            <div className="step"><span className="ok">✓</span> model: <span style={{ color: "var(--text-secondary)" }}>claude-haiku-4-5</span><span className="ms">980ms</span></div>
+        {history.length === 0 && (
+          <>
+            <div style={{ padding: 14, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+              Ask anything about <strong style={{ color: "var(--text-primary)" }}>{context}</strong>. I see your current page and can pull from your data.
+            </div>
+            <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+              {suggestions.map((s, i) => (
+                <button key={i} className="btn btn-ghost" style={{ justifyContent: "flex-start", padding: "8px 10px", fontSize: 12, textAlign: "left", whiteSpace: "normal", height: "auto", lineHeight: 1.4 }} onClick={() => ask(s)}>
+                  <Icons.Sparkles size={11} style={{ color: "var(--accent-money)", flex: "0 0 auto" }}/>
+                  <span>{s}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {history.map((m, i) => (
+          <div key={i} className={`ai-msg ${m.role === "assistant" ? "assistant" : ""}`}>
+            <div className="who">
+              {m.role === "user" ? <><Avatar rep={AppData.REPS[0]} size={16}/> You</> : <><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow{m.ms ? ` · ${(m.ms/1000).toFixed(1)}s` : ""}</>}
+            </div>
+            <div className="body" style={{ whiteSpace: "pre-wrap", color: m.err ? "var(--state-danger)" : undefined }}>{m.text}</div>
           </div>
-        </div>
-        <div className="ai-msg assistant">
-          <div className="who"><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Suggested artifact</div>
-          <div className="ai-artifact">
-            <div className="ai-artifact-h">
-              <Icons.MessageSquare size={11}/> Rebuttal · "It's more expensive than my Medicare Advantage"
-            </div>
-            <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55 }}>
-              "I hear you — and you're right that the monthly is higher. The trade is predictability. With your Plan G, your max out-of-pocket is the Part B deductible — $240 this year. With your Advantage plan, when you got that knee scoped last summer, what did you owe?"
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-              <button className="btn btn-primary"><Icons.Play size={11}/> Use in next call</button>
-              <button className="btn btn-ghost">Save</button>
+        ))}
+        {busy && (
+          <div className="ai-msg assistant">
+            <div className="who"><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow · thinking...</div>
+            <div className="body" style={{ display: "flex", gap: 4 }}>
+              <span className="ai-dot"></span><span className="ai-dot"></span><span className="ai-dot"></span>
             </div>
           </div>
-        </div>
+        )}
+        <div ref={bottomRef}></div>
       </div>
       <div className="airail-foot">
         <div style={{ display: "flex", gap: 6 }}>
-          <input className="airail-input" value={val} onChange={(e) => setVal(e.target.value)} placeholder="Ask anything, or hold ⌥ to dictate"/>
-          <button className="icon-btn" style={{ background: "var(--bg-raised)" }}><Icons.Mic size={14}/></button>
+          <input
+            className="airail-input"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder="Ask anything, or hold ⌥ to dictate"
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), ask(val))}
+            disabled={busy}
+          />
+          <button className="icon-btn" onClick={() => ask(val)} disabled={busy || !val.trim()} style={{ background: "var(--bg-raised)" }}><Icons.Send size={14}/></button>
         </div>
       </div>
     </aside>
