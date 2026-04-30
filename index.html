@@ -135,8 +135,8 @@ function App() {
       {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
 
       <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
-      <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>
-      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
+      {(() => { const NP = window.NotificationsPanel; return NP ? <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/> : null; })()}
+      {(() => { const SH = window.ShortcutsHelp;      return SH ? <SH open={helpOpen}  onClose={() => setHelpOpen(false)}/> : null; })()}
       {callOpen && <InCall onClose={() => setCallOpen(false)}/>}
 
       <TweaksPanel title="Tweaks">
