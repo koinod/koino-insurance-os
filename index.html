@@ -33,6 +33,7 @@
 <script type="text/babel" src="page-recruiting.jsx?v=4"></script>
 <script type="text/babel" src="page-attribution.jsx?v=4"></script>
 <script type="text/babel" src="page-ops-depth.jsx?v=4"></script>
+<script type="text/babel" src="polish.jsx?v=4"></script>
 <script type="text/babel" src="page-auth.jsx?v=4"></script>
 <script type="text/babel" src="page-mobile.jsx?v=4"></script>
 
@@ -154,6 +155,8 @@ function App() {
       {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
 
       <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
+      {(() => { const T = window.ToastHost; return T ? <T/> : null; })()}
+      {(() => { const O = window.OnboardingTour; return O ? <O/> : null; })()}
       <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall onClose={() => setCallOpen(false)}/>}

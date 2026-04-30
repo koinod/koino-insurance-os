@@ -20,6 +20,7 @@ function PagePipeline({ role = "owner" }) {
     try { return JSON.parse(localStorage.getItem("repflow.pipeline.views") || "[]"); } catch { return []; }
   });
   const [activeViewIdx, setActiveViewIdx] = React.useState(-1);
+  const [csvOpen, setCsvOpen] = React.useState(false);
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
@@ -47,8 +48,15 @@ function PagePipeline({ role = "owner" }) {
     setNewRow({ ...newRow, lead: "" });
     setNewOpen(false);
   };
-  const moveTo = (id, stage) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), stage } });
-  const reassign = (id, owner) => setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), owner } });
+  const moveTo = (id, stage) => {
+    setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), stage } });
+    window.toast && window.toast(`Moved to ${stage}`, "success");
+  };
+  const reassign = (id, owner) => {
+    setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), owner } });
+    const r = REPS.find(x => x.id === owner);
+    window.toast && window.toast(`Reassigned to ${r?.name || owner}`, "success");
+  };
 
   const applyBulk = () => {
     const next = { ...overrides };
@@ -57,6 +65,7 @@ function PagePipeline({ role = "owner" }) {
     });
     setOverrides(next);
     setBulkOpen(false);
+    window.toast && window.toast(`Updated ${sel.size} leads`, "success");
     setSel(new Set());
   };
 
@@ -103,6 +112,12 @@ function PagePipeline({ role = "owner" }) {
             <Icons.Filter size={13}/> Filter
             {activeFilters > 0 && <span className="chip chip-info" style={{ fontSize: 10, marginLeft: 4 }}>{activeFilters}</span>}
           </button>
+          <button className="btn" onClick={() => setCsvOpen(true)}><Icons.ArrowUpRight size={13}/> Import CSV</button>
+          <button className="btn" onClick={() => {
+            const headers = ["lead","age","state","stage","product","ap","days","source","owner"];
+            const rows = filtered.map(p => Object.fromEntries(headers.map(h => [h, p[h]])));
+            window.exportCSV && window.exportCSV(rows, "pipeline.csv");
+          }}><Icons.ArrowUpRight size={13}/> Export</button>
           <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={13}/> New lead</button>
         </div>
       </div>
@@ -254,6 +269,8 @@ function PagePipeline({ role = "owner" }) {
       )}
 
       {openLead && <LeadDetail lead={openLead} role={role} onClose={() => setOpenLead(null)} onMove={(stage) => moveTo(openLead.id, stage)} onReassign={(o) => reassign(openLead.id, o)}/>}
+
+      {csvOpen && (() => { const C = window.CSVImport; return C ? <C onClose={() => setCsvOpen(false)}/> : null; })()}
 
       {bulkOpen && (
         <Shared.Modal title={`Bulk action · ${sel.size} leads`} onClose={() => setBulkOpen(false)} actions={

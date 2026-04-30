@@ -44,7 +44,19 @@ function PageVault({ role = "owner" }) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
-          <button className="btn"><Icons.ArrowUpRight size={13}/> Export audit pack</button>
+          <button className="btn" onClick={() => {
+            const html = `
+              <h1>Compliance Audit Pack</h1>
+              <div class="meta">Atlas Insurance Group · Generated ${new Date().toLocaleDateString()}</div>
+              <p><strong>14,820 artifacts retained</strong> across the trailing 13 months. SOA capture rate 98.2%, TPMO compliance 100%, zero violations.</p>
+              <table>
+                <thead><tr><th>Kind</th><th>Lead</th><th>Producer</th><th>Captured</th><th>Status</th><th>Retention</th></tr></thead>
+                <tbody>
+                ${ARTIFACTS.map(a => { const rep = repById[a.repId]; return `<tr><td>${a.kind}</td><td>${a.lead}</td><td>${rep?.name || ""}</td><td>${a.date}</td><td>${a.status}</td><td>${a.retention}</td></tr>`; }).join("")}
+                </tbody>
+              </table>`;
+            window.exportPDF && window.exportPDF("Compliance Audit Pack", html);
+          }}><Icons.ArrowUpRight size={13}/> Export audit pack</button>
         </div>
       </div>
 
@@ -265,7 +277,18 @@ function CommissionsRep() {
           <div className="page-title">Commissions · Me</div>
           <div className="page-sub">Statement · advances vs as-earned · NIGO and chargeback alerts</div>
         </div>
-        <button className="btn" style={{ marginLeft: "auto" }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
+        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => {
+          const html = `
+            <h1>Statement · April</h1>
+            <div class="meta">Marcus Avila · Atlas Insurance Group · ${new Date().toLocaleDateString()}</div>
+            <table>
+              <thead><tr><th>Date</th><th>Lead</th><th>Carrier</th><th>Product</th><th style="text-align:right">AP</th><th style="text-align:right">Comp %</th><th style="text-align:right">Expected</th><th style="text-align:right">Paid</th><th>Status</th></tr></thead>
+              <tbody>
+              ${STATEMENT.map(r => `<tr><td>${r.date}</td><td>${r.lead}</td><td>${r.carrier}</td><td>${r.product}</td><td style="text-align:right">$${(r.ap || 0).toLocaleString()}</td><td style="text-align:right">${r.pct}%</td><td style="text-align:right">$${r.expected.toLocaleString()}</td><td style="text-align:right">$${r.paid.toLocaleString()}</td><td>${r.status}</td></tr>`).join("")}
+              </tbody>
+            </table>`;
+          window.exportPDF && window.exportPDF("Statement · April", html);
+        }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
       </div>
 
       <div className="kpi-row">
