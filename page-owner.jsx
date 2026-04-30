@@ -112,12 +112,14 @@ function PagePnL() {
 
 function PageOrgTree() {
   const { REPS } = AppData;
-  // build a fake tree: Atlas owner -> 2 regions -> reps
-  const layout = [
-    { id: "owner", x: 480, y: 40, name: "Atlas IMO", tier: "diamond", size: 22, label: "Owner" },
-    { id: "atl", x: 240, y: 160, name: "Atlanta region", tier: "platinum", size: 18, label: "Region" },
-    { id: "tpa", x: 720, y: 160, name: "Tampa region", tier: "platinum", size: 18, label: "Region" },
-    ...REPS.slice(0,5).map((r, i) => ({ id: r.id, x: 80 + i * 90, y: 290, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd })),
+  const [view, setView] = React.useState("tree");
+
+  // Hierarchical layout (Tree)
+  const tree = [
+    { id: "owner", x: 480, y: 40, name: "Atlas IMO", tier: "diamond", size: 22 },
+    { id: "atl",   x: 240, y: 160, name: "Atlanta region", tier: "platinum", size: 18 },
+    { id: "tpa",   x: 720, y: 160, name: "Tampa region",   tier: "platinum", size: 18 },
+    ...REPS.slice(0,5).map((r, i) => ({ id: r.id, x: 80  + i * 90, y: 290, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd })),
     ...REPS.slice(5).map((r, i) => ({ id: r.id, x: 560 + i * 90, y: 290, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd })),
   ];
   const links = [
@@ -125,75 +127,145 @@ function PageOrgTree() {
     ...REPS.slice(0,5).map(r => ["atl", r.id]),
     ...REPS.slice(5).map(r => ["tpa", r.id]),
   ];
+
+  // Radial layout — owner at center, regions at first ring, reps at outer ring
+  const cx = 480, cy = 220;
+  const radial = [
+    { id: "owner", x: cx, y: cy, name: "Atlas IMO", tier: "diamond", size: 22 },
+    ...["atl","tpa"].map((rid, i) => {
+      const a = (i / 2) * Math.PI * 2 - Math.PI / 2;
+      return { id: rid, x: cx + Math.cos(a) * 110, y: cy + Math.sin(a) * 110, name: rid === "atl" ? "Atlanta region" : "Tampa region", tier: "platinum", size: 18 };
+    }),
+    ...REPS.map((r, i) => {
+      const a = (i / REPS.length) * Math.PI * 2 - Math.PI / 2;
+      return { id: r.id, x: cx + Math.cos(a) * 200, y: cy + Math.sin(a) * 200, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd };
+    }),
+  ];
+  const radialLinks = [
+    ["owner","atl"],["owner","tpa"],
+    ...REPS.slice(0,5).map(r => ["atl", r.id]),
+    ...REPS.slice(5).map(r => ["tpa", r.id]),
+  ];
+
+  const layout = view === "radial" ? radial : tree;
+  const lk = view === "radial" ? radialLinks : links;
+
   const colorFor = (t) => ({ bronze:"#A97142", silver:"#C0C0C8", gold:"#D9A441", platinum:"#E5E4E2", diamond:"#B9F2FF" }[t]);
   const [hover, setHover] = React.useState("owner");
-  const sel = layout.find(n => n.id === hover);
+  const sel = layout.find(n => n.id === hover) || layout[0];
+
+  // Flat sortable rep table
+  const [sort, setSort] = React.useState({ key: "mtd", dir: "desc" });
+  const sortBy = (k) => setSort(s => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }));
+  const flatRows = [...REPS].sort((a, b) => {
+    const av = a[sort.key], bv = b[sort.key];
+    const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
+    return sort.dir === "desc" ? -cmp : cmp;
+  });
+  const SortH = ({ k, label, right }) => (
+    <div onClick={() => sortBy(k)} style={{ cursor: "pointer", textAlign: right ? "right" : "left", display: "flex", alignItems: "center", gap: 4, justifyContent: right ? "flex-end" : "flex-start" }}>
+      {label}{sort.key === k && <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{sort.dir === "desc" ? "↓" : "↑"}</span>}
+    </div>
+  );
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Organization</div>
-          <div className="page-sub">9 producers · 2 regions · click a node for scorecard</div>
+          <div className="page-sub">{REPS.length} producers · 2 regions · click a node for scorecard</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <div style={{ display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2 }}>
-            {["Tree","Radial","Flat"].map(p => (
-              <button key={p} className="btn btn-ghost" style={{ padding: "3px 10px", background: p === "Tree" ? "var(--bg-raised)" : "transparent", color: p === "Tree" ? "var(--text-primary)" : "var(--text-tertiary)" }}>{p}</button>
+            {[["tree","Tree"],["radial","Radial"],["flat","Flat"]].map(([k, l]) => (
+              <button key={k} onClick={() => setView(k)} className="btn btn-ghost" style={{ padding: "3px 10px", background: view === k ? "var(--bg-raised)" : "transparent", color: view === k ? "var(--text-primary)" : "var(--text-tertiary)" }}>{l}</button>
             ))}
           </div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
-        <div className="panel" style={{ height: 480 }}>
-          <div className="panel-h">
-            <h3>Atlas IMO → ...</h3>
-            <span className="meta">color = tier · size = book of business</span>
-          </div>
-          <svg viewBox="0 0 960 360" style={{ width: "100%", height: "calc(100% - 44px)" }}>
-            <defs>
-              {layout.map(n => (
-                <radialGradient key={`g-${n.id}`} id={`g-${n.id}`}>
-                  <stop offset="0%" stopColor={colorFor(n.tier)} stopOpacity="0.9"/>
-                  <stop offset="100%" stopColor={colorFor(n.tier)} stopOpacity="0.5"/>
-                </radialGradient>
-              ))}
-            </defs>
-            {links.map(([a,b], i) => {
-              const A = layout.find(n => n.id === a), B = layout.find(n => n.id === b);
-              return <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="var(--border-subtle)" strokeWidth="1"/>;
-            })}
-            {layout.map(n => (
-              <g key={n.id} transform={`translate(${n.x},${n.y})`} style={{ cursor: "pointer" }} onMouseEnter={() => setHover(n.id)}>
-                <circle r={n.size + 8} fill="none" stroke={colorFor(n.tier)} strokeOpacity={hover === n.id ? 0.5 : 0.15} strokeWidth={hover === n.id ? 2 : 1.5}/>
-                <circle r={n.size} fill={`url(#g-${n.id})`} stroke={colorFor(n.tier)} strokeWidth="1.2"/>
-                <text x="0" y={n.size + 18} textAnchor="middle" fill="var(--text-secondary)" fontSize="10.5" fontFamily="var(--font-ui)">{n.name}</text>
-              </g>
-            ))}
-          </svg>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h"><h3>{sel?.name}</h3><Shared.TierChip tier={sel?.tier || "platinum"}/></div>
-          <div style={{ padding: 14 }}>
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Book of business</div>
-            <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", marginTop: 4 }}>${(sel?.book || 1840000).toLocaleString()}</div>
-            <div style={{ fontSize: 11.5, color: "var(--accent-money)", marginTop: 2 }}><Icons.TrendingUp size={11}/> +18% trailing 30</div>
-
-            <div className="divider"></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-              <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Persistency</div><div className="tabular" style={{ fontWeight: 500 }}>91.4%</div></div>
-              <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>NIGO rate</div><div className="tabular" style={{ fontWeight: 500 }}>2.1%</div></div>
-              <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>3</div></div>
-              <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Override</div><div className="tabular" style={{ fontWeight: 500 }}>22%</div></div>
+      {view !== "flat" && (
+        <div className="org-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+          <div className="panel" style={{ height: 480 }}>
+            <div className="panel-h">
+              <h3>Atlas IMO {view === "radial" ? "· radial" : "→ regions → producers"}</h3>
+              <span className="meta">color = tier · size = book of business</span>
             </div>
+            <svg viewBox="0 0 960 440" style={{ width: "100%", height: "calc(100% - 44px)" }}>
+              <defs>
+                {layout.map(n => (
+                  <radialGradient key={`g-${view}-${n.id}`} id={`g-${view}-${n.id}`}>
+                    <stop offset="0%" stopColor={colorFor(n.tier)} stopOpacity="0.9"/>
+                    <stop offset="100%" stopColor={colorFor(n.tier)} stopOpacity="0.5"/>
+                  </radialGradient>
+                ))}
+              </defs>
+              {lk.map(([a, b], i) => {
+                const A = layout.find(n => n.id === a), B = layout.find(n => n.id === b);
+                if (!A || !B) return null;
+                return <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="var(--border-subtle)" strokeWidth="1"/>;
+              })}
+              {layout.map(n => (
+                <g key={n.id} transform={`translate(${n.x},${n.y})`} style={{ cursor: "pointer" }} onMouseEnter={() => setHover(n.id)}>
+                  <circle r={n.size + 8} fill="none" stroke={colorFor(n.tier)} strokeOpacity={hover === n.id ? 0.5 : 0.15} strokeWidth={hover === n.id ? 2 : 1.5}/>
+                  <circle r={n.size} fill={`url(#g-${view}-${n.id})`} stroke={colorFor(n.tier)} strokeWidth="1.2"/>
+                  <text x="0" y={n.size + 18} textAnchor="middle" fill="var(--text-secondary)" fontSize="10.5" fontFamily="var(--font-ui)">{n.name.split(" ")[0]}</text>
+                </g>
+              ))}
+            </svg>
+          </div>
 
-            <div className="divider"></div>
-            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
+          <div className="panel">
+            <div className="panel-h"><h3>{sel?.name}</h3><Shared.TierChip tier={sel?.tier || "platinum"}/></div>
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Book of business</div>
+              <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", marginTop: 4 }}>${(sel?.book || 1840000).toLocaleString()}</div>
+              <div style={{ fontSize: 11.5, color: "var(--accent-money)", marginTop: 2 }}><Icons.TrendingUp size={11}/> +18% trailing 30</div>
+
+              <div className="divider"></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Persistency</div><div className="tabular" style={{ fontWeight: 500 }}>91.4%</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>NIGO rate</div><div className="tabular" style={{ fontWeight: 500 }}>2.1%</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>3</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Override</div><div className="tabular" style={{ fontWeight: 500 }}>22%</div></div>
+              </div>
+
+              <div className="divider"></div>
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {view === "flat" && (
+        <div className="panel">
+          <div className="panel-h"><h3>All producers · sortable</h3><span className="meta">{REPS.length}</span></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 100px 80px 80px 80px" }}>
+              <SortH k="name"   label="Producer"/>
+              <SortH k="tier"   label="Tier"/>
+              <SortH k="mtd"    label="MTD" right/>
+              <SortH k="streak" label="Streak" right/>
+              <SortH k="dials"  label="Dials" right/>
+              <SortH k="appts"  label="Appts" right/>
+            </div>
+            {flatRows.map(r => (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 100px 80px 80px 80px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Shared.Avatar rep={r} size={22}/>
+                  <span style={{ fontWeight: 500 }}>{r.name}</span>
+                  <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{r.handle}</span>
+                </div>
+                <div><Shared.TierChip tier={r.tier} compact/></div>
+                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${r.mtd.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: r.streak > 10 ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.streak}d</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.appts}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

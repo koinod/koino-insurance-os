@@ -1,11 +1,37 @@
-/* Page: Manager — Team Board (dispatch) and Coaching */
+/* Page: Manager — Team Board (dispatch) and Coaching (role-aware) */
 function PageTeam() {
   const { REPS, QUEUE } = AppData;
   const [drag, setDrag] = React.useState(null);
   const [drop, setDrop] = React.useState(null);
   const [assigned, setAssigned] = React.useState({});
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkPicks, setBulkPicks] = React.useState({});  // queueId -> repId
 
   const visibleQueue = QUEUE.filter(q => !assigned[q.id]);
+
+  const suggestRep = (q) => {
+    // Auto-suggest: live presence > tier > available capacity (fewest assigned today)
+    const counts = REPS.reduce((acc, r) => ({ ...acc, [r.id]: 0 }), {});
+    Object.values(assigned).forEach(rid => counts[rid] = (counts[rid] || 0) + 1);
+    Object.values(bulkPicks).forEach(rid => counts[rid] = (counts[rid] || 0) + 1);
+    const ranked = [...REPS].sort((a, b) => {
+      if (a.presence !== b.presence) return a.presence === "live" ? -1 : 1;
+      if (a.tier !== b.tier) return ["diamond","platinum","gold","silver","bronze"].indexOf(a.tier) - ["diamond","platinum","gold","silver","bronze"].indexOf(b.tier);
+      return counts[a.id] - counts[b.id];
+    });
+    return ranked[0].id;
+  };
+
+  const openBulk = () => {
+    const picks = {};
+    visibleQueue.forEach(q => picks[q.id] = suggestRep(q));
+    setBulkPicks(picks);
+    setBulkOpen(true);
+  };
+  const commitBulk = () => {
+    setAssigned({ ...assigned, ...bulkPicks });
+    setBulkOpen(false);
+  };
 
   return (
     <div className="page-pad">
@@ -16,11 +42,11 @@ function PageTeam() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn"><Icons.Settings size={13}/> Routing rules</button>
-          <button className="btn btn-primary"><Icons.Plus size={13}/> Bulk assign</button>
+          <button className="btn btn-primary" onClick={openBulk} disabled={visibleQueue.length === 0}><Icons.Plus size={13}/> Bulk assign</button>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14 }}>
+      <div className="team-grid" style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14 }}>
         <div className="panel">
           <div className="panel-h"><Icons.Phone size={13}/><h3>Unassigned queue</h3><span className="meta">{visibleQueue.length}</span></div>
           <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -44,7 +70,7 @@ function PageTeam() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
           {REPS.slice(0, 6).map(r => (
             <div key={r.id} className="panel"
               onDragOver={(e) => { e.preventDefault(); setDrop(r.id); }}
@@ -96,22 +122,63 @@ function PageTeam() {
           ))}
         </div>
       </div>
+
+      {bulkOpen && (
+        <Shared.Modal title="Bulk assign queue" width={620} onClose={() => setBulkOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setBulkOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={commitBulk}><Icons.Check size={12}/> Assign {Object.keys(bulkPicks).length}</button>
+          </>
+        }>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10 }}>Auto-suggested by presence, tier, and current load. License + carrier appointment validated.</div>
+          <div className="list" style={{ border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 1fr 26px" }}>
+              <div>Lead</div><div>Source</div><div>Producer</div><div></div>
+            </div>
+            {visibleQueue.map(q => {
+              const rid = bulkPicks[q.id];
+              const r = REPS.find(x => x.id === rid);
+              return (
+                <div key={q.id} className="row" style={{ gridTemplateColumns: "1.4fr 100px 1fr 26px" }}>
+                  <div className="cell-truncate" style={{ fontWeight: 500 }}>{q.lead} <span style={{ color: "var(--text-tertiary)", fontWeight: 400, fontSize: 11 }}>· {q.product}</span></div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{q.source}</div>
+                  <div>
+                    <Shared.Select value={rid} onChange={(v) => setBulkPicks({ ...bulkPicks, [q.id]: v })} options={REPS.map(rr => ({ v: rr.id, l: `${rr.name} · ${rr.tier}` }))}/>
+                  </div>
+                  <button className="icon-btn" title="Skip" onClick={() => { const np = { ...bulkPicks }; delete np[q.id]; setBulkPicks(np); }}><Icons.X size={12}/></button>
+                </div>
+              );
+            })}
+          </div>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
 
-function PageCoaching() {
+/* ─────  Coaching · role-aware
+   - Manager view (default): existing card feed for all reps + waveform + scorecard
+   - Rep view: my coaching cards + drills
+   - Owner view: org-wide coach effectiveness — close-rate lift per coaching theme */
+function PageCoaching({ role = "manager" }) {
   const { REPS, RECORDINGS } = AppData;
+  if (role === "rep") return <CoachingRep/>;
+  if (role === "owner") return <CoachingOwner/>;
+  return <CoachingManager/>;
+}
+
+function CoachingManager() {
+  const { REPS } = AppData;
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Coaching</div>
+          <div className="page-title">Coaching · Team</div>
           <div className="page-sub">Virtual ridealong feed · one-thing-at-a-time per rep</div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+      <div className="cards-2col" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
           <div className="panel-h"><Icons.Activity size={13}/><h3>This week's coaching cards</h3></div>
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -144,7 +211,6 @@ function PageCoaching() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 11 }}>
                 <span className="mono">30:42</span>
                 <div style={{ flex: 1, height: 28, position: "relative", background: "var(--bg-raised)", borderRadius: 4, overflow: "hidden" }}>
-                  {/* fake waveform */}
                   <svg width="100%" height="28" viewBox="0 0 200 28" preserveAspectRatio="none">
                     {Array.from({ length: 60 }).map((_, i) => {
                       const h = 4 + Math.abs(Math.sin(i * 0.7)) * 18 + (i % 5 === 0 ? 4 : 0);
@@ -186,6 +252,88 @@ function PageCoaching() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoachingRep() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Coaching · Me</div>
+          <div className="page-sub">One thing at a time. Replay the moment, run the drill, log the rep.</div>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard label="Open cards" value="3" sub="2 due today"/>
+        <Shared.KpiCard label="Drills this week" value="7" sub="+2 vs last" trend="up"/>
+        <Shared.KpiCard label="Close-rate lift" value="+9.4%" prefix="" suffix="" sub="cohort baseline" trend="up"/>
+      </div>
+
+      <div className="panel" style={{ marginTop: 12 }}>
+        <div className="panel-h"><Icons.Activity size={13}/><h3>My coaching cards</h3></div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            { focus: "Ask 3 more open-ended questions per hour", evidence: "4 closed-ended in first 6 min of Cheryl Hampton call", drill: "Run 5-question rephrase drill", impact: "+12% close rate (cohort)" },
+            { focus: "Cut talk-listen from 52% → 45%", evidence: "Talked over Robert Mendez twice on his medication concern", drill: "30-sec silence drill x10", impact: "Persistency +6pts" },
+            { focus: "Lead with daily-routine question on T65", evidence: "Skipped on 7 of last 10 T65 dials", drill: "Watch top-3 Marcus opens", impact: "Quote-rate +18%" },
+          ].map((c, i) => (
+            <div key={i} style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
+              <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
+              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button className="btn btn-primary"><Icons.Play size={11}/> Replay moment</button>
+                <button className="btn"><Icons.Sparkles size={11}/> {c.drill}</button>
+                <span className="chip chip-money" style={{ alignSelf: "center" }}>Impact: {c.impact}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoachingOwner() {
+  const themes = [
+    { t: "Open-ended questions", reps: 6, lift: 12.4, n: 412 },
+    { t: "Talk-listen ratio",     reps: 4, lift:  6.9, n: 318 },
+    { t: "Plan-G anchor sequence",reps: 5, lift: 18.2, n: 244 },
+    { t: "Daily-routine open",    reps: 3, lift:  9.1, n: 196 },
+    { t: "Cross-sell on Issued",  reps: 7, lift:  4.4, n: 510 },
+  ];
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Coaching · Org effectiveness</div>
+          <div className="page-sub">Close-rate lift per coaching theme · sample size · adoption across producers</div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>Theme effectiveness · last 90 days</h3></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 90px 1fr" }}>
+            <div>Theme</div><div className="tabular" style={{ textAlign: "right" }}>Reps</div><div className="tabular" style={{ textAlign: "right" }}>Calls</div><div>Close-rate lift</div>
+          </div>
+          {themes.map((t, i) => (
+            <div key={i} className="row" style={{ gridTemplateColumns: "1.6fr 90px 90px 1fr" }}>
+              <div style={{ fontWeight: 500 }}>{t.t}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{t.reps}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{t.n}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(100, t.lift * 5)}%`, height: "100%", background: "var(--accent-money)" }}></div>
+                </div>
+                <span className="tabular" style={{ color: "var(--accent-money)", fontWeight: 600, fontSize: 12, minWidth: 52, textAlign: "right" }}>+{t.lift.toFixed(1)}%</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

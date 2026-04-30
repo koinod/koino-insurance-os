@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=1440"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Repflow — operator-grade for life & health distribution</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -11,8 +11,6 @@
 </head>
 <body>
 <div id="root"></div>
-
-<a href="/mobile.html" style="position:fixed; top:14px; right:14px; z-index:100; height:32px; padding:0 12px; background:rgba(20,22,28,0.7); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.1); border-radius:999px; color:#ddd; font-size:12px; font-family:Inter,system-ui,sans-serif; display:inline-flex; align-items:center; gap:6px; text-decoration:none;">📱 Mobile →</a>
 
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
@@ -29,6 +27,7 @@
 <script type="text/babel" src="page-manager.jsx"></script>
 <script type="text/babel" src="page-owner.jsx"></script>
 <script type="text/babel" src="page-ops.jsx"></script>
+<script type="text/babel" src="page-extras.jsx"></script>
 <script type="text/babel" src="page-mobile.jsx"></script>
 
 <script type="text/babel">
@@ -66,31 +65,33 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const goto = (p) => { setTweak("page", p); setCmdkOpen(false); };
+
   const pageEl = useMemo(() => {
     if (mobile) return <MobileRep/>;
     switch (page) {
-      case "today": return <PageToday aep={aepMode}/>;
-      case "pipeline": return <PagePipeline/>;
-      case "queue": return <PageQueue onCall={() => setCallOpen(true)}/>;
-      case "leaderboard": return <PageLeaderboard/>;
-      case "team": return <PageTeam/>;
-      case "coaching": return <PageCoaching/>;
-      case "pnl": return <PagePnL/>;
-      case "tree": return <PageOrgTree/>;
+      case "today":       return <PageToday aep={aepMode} role={role}/>;
+      case "pipeline":    return <PagePipeline role={role}/>;
+      case "queue":       return <PageQueue role={role} onCall={() => setCallOpen(true)}/>;
+      case "leaderboard": return <PageLeaderboard role={role}/>;
+      case "team":        return <PageTeam/>;
+      case "coaching":    return <PageCoaching role={role}/>;
+      case "pnl":         return <PagePnL/>;
+      case "tree":        return <PageOrgTree/>;
       case "connections": return <PageConnections/>;
-      case "hardware": return <PageHardware/>;
-      case "agents": return <PageAgents/>;
-      case "workflows": return <PageWorkflows/>;
-      case "calls": return <PageStub title="Calls" sub="Recorded calls — Gong-style cards with waveform, transcript, AI score"/>;
-      case "commissions": return <PageStub title="Commissions" sub="Statements · expected vs paid · NIGO/chargeback alerts"/>;
-      case "training": return <PageStub title="Training" sub="Notion-simple courses, scripts, certifications"/>;
-      case "vault": return <PageStub title="Compliance Vault" sub="Recordings, SOAs, consent — auditor-ready · 6/10y retention"/>;
-      case "tiering": return <PageStub title="Tiering Console" sub="Manual overrides · configurable criteria · tier-gated privileges"/>;
-      case "book": return <PageStub title="Book Analytics" sub="Persistency · lapse · cross-sell pathway · carrier mix"/>;
-      case "recruiting": return <PageStub title="Recruiting Funnel" sub="Applied → Contracted → First-app → Producing"/>;
-      default: return <PageStub title="Page" sub=""/>;
+      case "hardware":    return <PageHardware/>;
+      case "agents":      return <PageAgents/>;
+      case "workflows":   return <PageWorkflows/>;
+      case "calls":       return <PageCalls role={role}/>;
+      case "commissions": return <PageCommissions role={role}/>;
+      case "training":    return <PageTraining role={role}/>;
+      case "vault":       return <PageVault role={role}/>;
+      case "tiering":     return <PageTiering/>;
+      case "book":        return <PageBook/>;
+      case "recruiting":  return <PageRecruiting role={role}/>;
+      default:            return <PageStub title="Page" sub=""/>;
     }
-  }, [page, mobile, aepMode]);
+  }, [page, mobile, aepMode, role]);
 
   const crumbs = useMemo(() => {
     const role_ = { rep: "Rep", manager: "Manager", owner: "Owner" }[role];
@@ -105,7 +106,7 @@ function App() {
           role={role}
           setRole={(r) => setTweak("role", r)}
           page={page}
-          setPage={(p) => setTweak("page", p)}
+          setPage={goto}
           openCmdK={() => setCmdkOpen(true)}
         />
       )}
@@ -117,13 +118,14 @@ function App() {
             openCmdK={() => setCmdkOpen(true)}
             toggleRail={() => setTweak("aiRail", !aiRail)}
             railOn={aiRail}
+            openMobile={() => setTweak("mobile", true)}
           />
         )}
         <div className="page">{pageEl}</div>
       </main>
       {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
 
-      <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)}/>
+      <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
       {callOpen && <InCall onClose={() => setCallOpen(false)}/>}
 
       <TweaksPanel title="Tweaks">
@@ -141,6 +143,7 @@ function App() {
         <TweakSection label="Try"/>
         <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
         <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>
+        <TweakButton label="Open mobile prototype (full screen)" onClick={() => window.location.assign("/mobile.html")}/>
       </TweaksPanel>
     </div>
   );

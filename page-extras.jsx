@@ -1,0 +1,912 @@
+/* page-extras.jsx — role-aware pages: Vault, Tiering, Commissions, Training, Recruiting, Calls, Book.
+   Each page exports a single component that branches on `role` so a single sidebar entry
+   serves rep / manager / owner with the right density.
+
+   Conventions:
+     - All money in dollars in display (the underlying domain is cents in Supabase).
+     - Hardcoded demo state lives in module scope; real pages read from Supabase. */
+
+const Money = ({ v, dim }) => (
+  <span className="tabular" style={{ color: dim ? "var(--text-tertiary)" : undefined, fontWeight: dim ? 400 : 500 }}>
+    ${Math.abs(v).toLocaleString()}
+  </span>
+);
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1. Compliance Vault — auditable artifact store (recordings, SOAs, consent)
+   ───────────────────────────────────────────────────────────────────────── */
+function PageVault({ role = "owner" }) {
+  const { RECORDINGS, REPS } = AppData;
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  const [tab, setTab] = React.useState("artifacts");
+  const [q, setQ] = React.useState("");
+
+  // Synthesized SOAs + consent receipts to back the page
+  const ARTIFACTS = [
+    { id: "soa-1", kind: "SOA",        lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "scheduled" },
+    { id: "soa-2", kind: "SOA",        lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "captured"  },
+    { id: "lid-1", kind: "LeadiD",     lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:01a", retention: "13mo", status: "captured"  },
+    { id: "tf-1",  kind: "TrustedForm",lead: "Robert Mendez",  repId: "dani", date: "Today, 8:48a",  retention: "13mo", status: "captured"  },
+    { id: "rec-1", kind: "Recording",  lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "complete"  },
+    { id: "rec-2", kind: "Recording",  lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "complete"  },
+    { id: "con-1", kind: "Consent",    lead: "Linda Cho",      repId: "marc", date: "Yesterday",     retention: "13mo", status: "captured"  },
+    { id: "tpmo-1",kind: "TPMO disc.", lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "captured"  },
+  ];
+
+  const filtered = ARTIFACTS.filter(a => !q || (a.lead + " " + a.kind).toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Compliance Vault</div>
+          <div className="page-sub">Auditor-ready · recordings, SOAs, consent · retention timer per artifact</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
+          <button className="btn"><Icons.ArrowUpRight size={13}/> Export audit pack</button>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard label="Artifacts retained" value="14,820" sub="last 13 months"/>
+        <Shared.KpiCard label="SOA capture" value="98.2%" sub="goal 95%" trend="up"/>
+        <Shared.KpiCard label="TPMO compliance" value="100%" sub="zero violations" trend="up"/>
+        <Shared.KpiCard label="Open chargebacks" value="2" sub="docs in review"/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h">
+          <h3>Artifacts</h3>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+            {["artifacts", "policies"].map(t => (
+              <button key={t} onClick={() => setTab(t)} className="btn btn-ghost" style={{ padding: "3px 10px", background: tab === t ? "var(--bg-raised)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-tertiary)" }}>{t === "artifacts" ? "Artifacts" : "Retention policy"}</button>
+            ))}
+          </div>
+        </div>
+        {tab === "artifacts" && (
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "120px 1fr 1fr 1fr 100px 100px 30px" }}>
+              <div>Kind</div><div>Lead</div><div>Producer</div><div>Captured</div><div>Status</div><div>Retention</div><div></div>
+            </div>
+            {filtered.map(a => (
+              <div key={a.id} className="row" style={{ gridTemplateColumns: "120px 1fr 1fr 1fr 100px 100px 30px" }}>
+                <div><span className="chip">{a.kind}</span></div>
+                <div className="cell-truncate" style={{ fontWeight: 500 }}>{a.lead}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Shared.Avatar rep={repById[a.repId]} size={18}/>
+                  <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[a.repId]?.name.split(" ")[0]}</span>
+                </div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.date}</div>
+                <div><span className={`chip ${a.status === "captured" || a.status === "complete" ? "chip-money" : "chip-status"}`}>{a.status}</span></div>
+                <div className="tabular" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.retention}</div>
+                <button className="icon-btn"><Icons.ArrowUpRight size={12}/></button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab === "policies" && (
+          <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {[
+              { k: "Recording (sales)", v: "10 years post-issue", d: "CMS / state insurance dept aligned" },
+              { k: "SOA",                v: "10 years",            d: "Captured via TwentyHours, vault on issue" },
+              { k: "TPMO disclaimer",    v: "10 years",            d: "Auto-clipped from recording, indexed" },
+              { k: "LeadiD",             v: "13 months",            d: "Jornaya certificate per inbound form" },
+              { k: "TrustedForm",        v: "13 months",            d: "Certificate per outbound or web form" },
+              { k: "Consent receipt",    v: "13 months",            d: "Express consent for telemarketing under TCPA" },
+            ].map((p, i) => (
+              <div key={i} className="panel" style={{ padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: 13 }}>{p.k}</strong>
+                  <span className="chip">{p.v}</span>
+                </div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 6 }}>{p.d}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2. Tiering Console — owner power: who decides who's Diamond?
+   ───────────────────────────────────────────────────────────────────────── */
+function PageTiering() {
+  const { REPS } = AppData;
+  const TIER_ORDER = ["bronze","silver","gold","platinum","diamond"];
+
+  // Initial rules — editable
+  const [rules, setRules] = React.useState({
+    bronze:   { mtd: 0,     persistency: 0  },
+    silver:   { mtd: 15000, persistency: 70 },
+    gold:     { mtd: 25000, persistency: 80 },
+    platinum: { mtd: 35000, persistency: 85 },
+    diamond:  { mtd: 50000, persistency: 90 },
+  });
+  // Per-rep overrides
+  const [overrides, setOverrides] = React.useState({});
+  const [history, setHistory] = React.useState([
+    { who: "Tony Park",   from: "gold",     to: "platinum", reason: "Lost a lead to no fault — protect tier",    when: "Apr 28" },
+    { who: "Remy Chen",   from: "silver",   to: "bronze",   reason: "Persistency drift, 6-mo cohort",            when: "Apr 21" },
+  ]);
+
+  const persFor = (rep) => 88 + (rep.streak % 7); // synthesized
+
+  const calcTier = (rep) => {
+    const p = persFor(rep);
+    let t = "bronze";
+    for (const k of TIER_ORDER) {
+      if (rep.mtd >= rules[k].mtd && p >= rules[k].persistency) t = k;
+    }
+    return t;
+  };
+
+  const setOverride = (id, t) => {
+    const rep = REPS.find(r => r.id === id);
+    const auto = calcTier(rep);
+    if (t === auto) {
+      const n = { ...overrides }; delete n[id]; setOverrides(n);
+    } else {
+      setOverrides({ ...overrides, [id]: t });
+      setHistory([{ who: rep.name, from: rep.tier, to: t, reason: "Manual override", when: "now" }, ...history]);
+    }
+  };
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Tiering Console</div>
+          <div className="page-sub">Define tier rules. Override per-rep when judgment beats numbers. Audit log included.</div>
+        </div>
+      </div>
+
+      <div className="tiering-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h"><Icons.Award size={13}/><h3>Tier rules</h3><span className="meta">all conditions AND</span></div>
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            {TIER_ORDER.map(t => (
+              <div key={t} style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr", gap: 10, alignItems: "center" }}>
+                <div><Shared.TierChip tier={t}/></div>
+                <Shared.Field label={`MTD ≥ $${rules[t].mtd.toLocaleString()}`}>
+                  <input type="range" min={0} max={70000} step={1000} value={rules[t].mtd} onChange={(e) => setRules({ ...rules, [t]: { ...rules[t], mtd: +e.target.value } })}/>
+                </Shared.Field>
+                <Shared.Field label={`Persistency ≥ ${rules[t].persistency}%`}>
+                  <input type="range" min={0} max={100} value={rules[t].persistency} onChange={(e) => setRules({ ...rules, [t]: { ...rules[t], persistency: +e.target.value } })}/>
+                </Shared.Field>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><Icons.Users size={13}/><h3>Per-rep tier · auto vs override</h3></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 80px 90px 100px 1fr" }}>
+              <div>Producer</div>
+              <div className="tabular" style={{ textAlign: "right" }}>MTD</div>
+              <div className="tabular" style={{ textAlign: "right" }}>Persist.</div>
+              <div>Auto</div>
+              <div>Effective</div>
+            </div>
+            {REPS.map(r => {
+              const auto = calcTier(r);
+              const eff = overrides[r.id] || auto;
+              return (
+                <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 80px 90px 100px 1fr" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Shared.Avatar rep={r} size={20}/>
+                    <span style={{ fontWeight: 500 }}>{r.name}</span>
+                  </div>
+                  <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>${(r.mtd/1000).toFixed(1)}k</div>
+                  <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{persFor(r)}%</div>
+                  <div><Shared.TierChip tier={auto} compact/></div>
+                  <div>
+                    <Shared.Select value={eff} onChange={(v) => setOverride(r.id, v)} options={TIER_ORDER.map(t => ({ v: t, l: t.toUpperCase() + (t === auto ? " (auto)" : "") }))}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h"><Icons.Activity size={13}/><h3>Override audit log</h3><span className="meta">{history.length}</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 100px 100px 1.6fr 100px" }}>
+            <div>Producer</div><div>From</div><div>To</div><div>Reason</div><div>When</div>
+          </div>
+          {history.map((h, i) => (
+            <div key={i} className="row" style={{ gridTemplateColumns: "1fr 100px 100px 1.6fr 100px" }}>
+              <div style={{ fontWeight: 500 }}>{h.who}</div>
+              <div><Shared.TierChip tier={h.from} compact/></div>
+              <div><Shared.TierChip tier={h.to} compact/></div>
+              <div style={{ color: "var(--text-secondary)", fontSize: 12.5 }}>{h.reason}</div>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{h.when}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3. Commissions — rep statement / mgr team rollup / owner override pool
+   ───────────────────────────────────────────────────────────────────────── */
+function PageCommissions({ role = "rep" }) {
+  if (role === "manager") return <CommissionsManager/>;
+  if (role === "owner")   return <CommissionsOwner/>;
+  return <CommissionsRep/>;
+}
+
+const STATEMENT = [
+  { date: "Today",      lead: "Cheryl Hampton", carrier: "Aetna SRC",     product: "Plan G",    ap: 1840, pct: 50, expected: 920,  paid: 920,  status: "advance"  },
+  { date: "Today",      lead: "Robert Mendez",  carrier: "UHC",            product: "FE $15K",   ap: 1320, pct: 50, expected: 660,  paid: 660,  status: "advance"  },
+  { date: "Yesterday",  lead: "Henry Akins",    carrier: "F&G Annuities",  product: "Annuity",   ap: 4250, pct: 10, expected: 425,  paid: 0,    status: "as-earned"},
+  { date: "Apr 26",     lead: "Linda Cho",      carrier: "Humana Vantage", product: "Plan N",    ap: 1490, pct: 50, expected: 745,  paid: 0,    status: "NIGO · sigs missing" },
+  { date: "Apr 24",     lead: "Don Phelps",     carrier: "Aetna SRC",      product: "FE $10K",   ap: 0,    pct: 0,  expected: 0,    paid: -480, status: "Chargeback" },
+  { date: "Apr 22",     lead: "Naomi Reese",    carrier: "Aetna SRC",      product: "Plan G",    ap: 1780, pct: 50, expected: 890,  paid: 890,  status: "paid"     },
+  { date: "Apr 19",     lead: "Patricia Volker",carrier: "UHC",            product: "Plan G",    ap: 2120, pct: 50, expected: 1060, paid: 1060, status: "paid"     },
+];
+
+function CommissionsRep() {
+  const total = STATEMENT.reduce((a, r) => a + r.expected, 0);
+  const paid  = STATEMENT.reduce((a, r) => a + r.paid, 0);
+  const inClearing = total - Math.max(0, paid);
+  const charge = STATEMENT.filter(r => r.paid < 0).reduce((a, r) => a + r.paid, 0);
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Commissions · Me</div>
+          <div className="page-sub">Statement · advances vs as-earned · NIGO and chargeback alerts</div>
+        </div>
+        <button className="btn" style={{ marginLeft: "auto" }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="Expected MTD" prefix="$" value={total.toLocaleString()} sub="across 7 issues" trend="up"/>
+        <Shared.KpiCard label="Paid MTD" prefix="$" value={Math.max(0, paid).toLocaleString()} sub="advances + as-earned"/>
+        <Shared.KpiCard label="In clearing" prefix="$" value={inClearing.toLocaleString()} sub="2 NIGO"/>
+        <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(charge).toLocaleString()} sub="last 30d" neg/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{STATEMENT.length} rows · this month</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "100px 1.4fr 1fr 1fr 80px 60px 90px 90px 1fr" }}>
+            <div>Date</div><div>Lead</div><div>Carrier</div><div>Product</div>
+            <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+            <div className="tabular" style={{ textAlign: "right" }}>%</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Expected</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Paid</div>
+            <div>Status</div>
+          </div>
+          {STATEMENT.map((r, i) => (
+            <div key={i} className="row" style={{ gridTemplateColumns: "100px 1.4fr 1fr 1fr 80px 60px 90px 90px 1fr" }}>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.date}</div>
+              <div className="cell-truncate" style={{ fontWeight: 500 }}>{r.lead}</div>
+              <div className="cell-truncate" style={{ color: "var(--text-tertiary)" }}>{r.carrier}</div>
+              <div className="cell-truncate" style={{ color: "var(--text-tertiary)" }}>{r.product}</div>
+              <div className="tabular" style={{ textAlign: "right" }}>{r.ap ? `$${r.ap.toLocaleString()}` : "—"}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.pct}%</div>
+              <div className="tabular" style={{ textAlign: "right" }}><Money v={r.expected}/></div>
+              <div className="tabular" style={{ textAlign: "right", color: r.paid < 0 ? "var(--state-danger)" : undefined }}><Money v={r.paid}/></div>
+              <div><span className={`chip ${
+                r.status === "paid" || r.status === "advance" ? "chip-money" :
+                r.status === "as-earned" ? "chip-info" :
+                r.status.startsWith("Chargeback") ? "chip-danger" : "chip-status"
+              }`}>{r.status}</span></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommissionsManager() {
+  const { REPS } = AppData;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Commissions · Team rollup</div>
+          <div className="page-sub">Per-producer ledger · variance flags vs carrier files</div>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="Team paid MTD" prefix="$" value="184,260" sub="+12% vs last" trend="up"/>
+        <Shared.KpiCard label="In clearing" prefix="$" value="42,180" sub="14 apps"/>
+        <Shared.KpiCard label="NIGO drag" prefix="$" value="11,420" sub="-$2.1k WoW" neg/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>Producers · this month</h3></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 100px 100px 100px 100px" }}>
+            <div>Producer</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Issued</div>
+            <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Paid</div>
+            <div className="tabular" style={{ textAlign: "right" }}>In-clearing</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Variance</div>
+          </div>
+          {REPS.map(r => {
+            const issued = Math.round(r.mtd / 1800);
+            const ap = r.mtd;
+            const paid = Math.round(r.mtd * 0.62);
+            const ic = ap - paid;
+            const variance = (r.id === "luis" || r.id === "remy") ? -180 : 0;
+            return (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 100px 100px 100px 100px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Shared.Avatar rep={r} size={20}/>
+                  <span style={{ fontWeight: 500 }}>{r.name}</span>
+                  <Shared.TierChip tier={r.tier} compact/>
+                </div>
+                <div className="tabular" style={{ textAlign: "right" }}>{issued}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>${ap.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${paid.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>${ic.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: variance ? "var(--state-danger)" : "var(--text-quaternary)" }}>{variance ? `-$${Math.abs(variance)}` : "—"}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommissionsOwner() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Commissions · Override pool</div>
+          <div className="page-sub">Owner override slice · regional waterfall · monthly payout</div>
+        </div>
+      </div>
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="Override pool · MTD" prefix="$" value="258,420" sub="+18.2% vs last" trend="up"/>
+        <Shared.KpiCard label="Net to owner" prefix="$" value="104,700" sub="after lead spend / NIGO" trend="up"/>
+        <Shared.KpiCard label="Paid out to producers" prefix="$" value="412,300" sub="across 9 producers"/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>By region · April</h3></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
+            <div>Region</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Producers</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Total AP</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Override</div>
+            <div></div>
+          </div>
+          {[
+            { name: "Atlanta region", reps: 5, ap: 412800, ovr: 92420 },
+            { name: "Tampa region",   reps: 4, ap: 318200, ovr: 71390 },
+          ].map((r, i) => (
+            <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
+              <div style={{ fontWeight: 500 }}>{r.name}</div>
+              <div className="tabular" style={{ textAlign: "right" }}>{r.reps}</div>
+              <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${r.ovr.toLocaleString()}</div>
+              <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
+                <div style={{ width: `${(r.ovr / 100000) * 100}%`, height: "100%", background: "var(--accent-money)" }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. Training — rep / mgr / owner
+   ───────────────────────────────────────────────────────────────────────── */
+function PageTraining({ role = "rep" }) {
+  if (role === "manager") return <TrainingManager/>;
+  if (role === "owner")   return <TrainingOwner/>;
+  return <TrainingRep/>;
+}
+
+function TrainingRep() {
+  const { COURSES } = AppData;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Training · Me</div>
+          <div className="page-sub">Notion-simple courses, scripts, certifications · AEP cert progress</div>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard label="Active courses" value={COURSES.filter(c => c.status !== "complete").length}/>
+        <Shared.KpiCard label="Cert progress" value="62%" sub="AEP 2026 cert" trend="up"/>
+        <Shared.KpiCard label="CE hours · YTD" value="14.5"/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Book size={13}/><h3>My courses</h3></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
+            <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Status</div><div></div>
+          </div>
+          {COURSES.map(c => (
+            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
+              <div style={{ fontWeight: 500 }}>{c.title}</div>
+              <div><span className="chip">{c.track}</span></div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
+              <div><span className={`chip ${
+                c.status === "complete" ? "chip-money" :
+                c.status === "in-progress" ? "chip-info" :
+                c.status === "due" ? "chip-status" : ""
+              }`}>{c.status}</span></div>
+              <div><button className="btn btn-ghost"><Icons.Play size={11}/> {c.status === "complete" ? "Review" : "Start"}</button></div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h"><h3>Scripts library</h3><span className="meta">always-current</span></div>
+        <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+          {[
+            "Med Supp — Plan G open",
+            "Final Expense — empathy",
+            "TPMO disclosure (verbatim)",
+            "Annuity — fact-find",
+            "Cross-sell — FE → Med Supp",
+            "AEP — switch reasons",
+          ].map((t, i) => (
+            <div key={i} className="panel" style={{ padding: 10 }}>
+              <div style={{ fontWeight: 500 }}>{t}</div>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 4 }}>Updated 2d ago · v3.1</div>
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <button className="btn btn-ghost"><Icons.Play size={11}/> Open</button>
+                <button className="btn btn-ghost">Practice</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrainingManager() {
+  const { REPS, COURSES } = AppData;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Training · Team</div>
+          <div className="page-sub">Enrollment matrix · completion rates · due-date alerts</div>
+        </div>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> Assign course</button>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>Enrollment matrix</h3><span className="meta">{REPS.length} producers × {COURSES.length} courses</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: `1.4fr repeat(${COURSES.length}, 1fr)` }}>
+            <div>Producer</div>
+            {COURSES.map(c => <div key={c.id} className="cell-truncate" style={{ fontSize: 11 }}>{c.title}</div>)}
+          </div>
+          {REPS.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: `1.4fr repeat(${COURSES.length}, 1fr)` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Shared.Avatar rep={r} size={20}/>
+                <span style={{ fontWeight: 500 }}>{r.name}</span>
+              </div>
+              {COURSES.map((c, i) => {
+                // synthesized status per (rep, course) — deterministic
+                const hash = (r.id.charCodeAt(0) + i * 17) % 4;
+                const status = ["complete","in-progress","due","assigned"][hash];
+                return (
+                  <div key={c.id}><span className={`chip ${
+                    status === "complete" ? "chip-money" :
+                    status === "in-progress" ? "chip-info" :
+                    status === "due" ? "chip-status" : ""
+                  }`}>{status}</span></div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrainingOwner() {
+  const { COURSES } = AppData;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Training · Authoring</div>
+          <div className="page-sub">Library · version history · compliance-cert audit trail</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn"><Icons.ArrowUpRight size={13}/> Audit trail</button>
+          <button className="btn btn-primary"><Icons.Plus size={13}/> New course</button>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>Library</h3><span className="meta">{COURSES.length}</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 90px 90px 100px" }}>
+            <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div className="tabular" style={{ textAlign: "right" }}>Versions</div><div className="tabular" style={{ textAlign: "right" }}>Enrolled</div><div></div>
+          </div>
+          {COURSES.map((c, i) => (
+            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 90px 90px 100px" }}>
+              <div style={{ fontWeight: 500 }}>{c.title}</div>
+              <div><span className="chip">{c.track}</span></div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{3 + (i % 4)}</div>
+              <div className="tabular" style={{ textAlign: "right" }}>{4 + i}</div>
+              <div><button className="btn btn-ghost">Edit</button></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   5. Recruiting — owner (org-wide funnel) / mgr (downline + IG DMs)
+   ───────────────────────────────────────────────────────────────────────── */
+function PageRecruiting({ role = "owner" }) {
+  if (role === "manager") return <RecruitingManager/>;
+  return <RecruitingOwner/>;
+}
+
+const FUNNEL = [
+  { l: "FB / LinkedIn / YT applied", v: 412, w: 100 },
+  { l: "Contracted",                  v:  58, w:  14 },
+  { l: "First app submitted",         v:  24, w:   6 },
+  { l: "Producing 90+ days",          v:  14, w: 3.4 },
+];
+
+const SOURCES = [
+  { n: "Instagram",  applied: 184, contracted: 32, cpp: 48 },
+  { n: "LinkedIn",   applied:  98, contracted: 12, cpp: 92 },
+  { n: "YouTube",    applied:  76, contracted:  8, cpp: 124 },
+  { n: "Referral",   applied:  54, contracted:  6, cpp: 0 },
+];
+
+function RecruitingOwner() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Recruiting · Org</div>
+          <div className="page-sub">Applied → Contracted → First-app → Producing · cost per producer</div>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="In funnel" value="412"/>
+        <Shared.KpiCard label="Conv to producing" value="3.4%" sub="14 of 412" trend="up"/>
+        <Shared.KpiCard label="CPP" value="2,140" prefix="$" sub="cost per producer"/>
+      </div>
+
+      <div className="rec-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h"><h3>Funnel · last 90 days</h3></div>
+          <div style={{ padding: 14 }}>
+            {FUNNEL.map((r, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12, borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
+                <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
+                <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginLeft: 14, overflow: "hidden" }}>
+                  <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><h3>By source</h3></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.2fr 90px 100px 90px" }}>
+              <div>Source</div>
+              <div className="tabular" style={{ textAlign: "right" }}>Applied</div>
+              <div className="tabular" style={{ textAlign: "right" }}>Contracted</div>
+              <div className="tabular" style={{ textAlign: "right" }}>CPP</div>
+            </div>
+            {SOURCES.map((s, i) => (
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.2fr 90px 100px 90px" }}>
+                <div style={{ fontWeight: 500 }}>{s.n}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{s.applied}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{s.contracted}</div>
+                <div className="tabular" style={{ textAlign: "right", color: s.cpp === 0 ? "var(--accent-money)" : undefined }}>{s.cpp ? `$${s.cpp}` : "free"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecruitingManager() {
+  const dms = [
+    { who: "Marcus B",   from: "@marcb_sells", lastMsg: "What carriers do you appoint with?", suggested: "We've got UHC, Humana, Aetna SRC, plus F&G for annuity — happy to show you the comp grid. Free 15 today?" },
+    { who: "Stacy V",    from: "@stacy.v.life", lastMsg: "Already licensed in TX — interested",    suggested: "Awesome — quick gut-check call so I can see fit? I have 3:30 today or 10am tomorrow." },
+    { who: "Reggie T",   from: "@reggie.tnsell", lastMsg: "How fast do producers get paid?",      suggested: "Carrier dependent: most pay daily, some weekly. We pay advance on ~85% of products. Want me to send the comp grid?" },
+    { who: "Ana K",      from: "@anak_atx",   lastMsg: "Do you support FE plus Med Supp on one app?", suggested: "Yes — we route both through the same intake; cross-sell is the killer feature for senior products. Want a 10-min walkthrough?" },
+  ];
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Recruiting · My downline</div>
+          <div className="page-sub">DMs from prospects · LLM-drafted replies · routes through Connections → Instagram</div>
+        </div>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> New invite</button>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard label="My applicants" value="38" sub="last 90d"/>
+        <Shared.KpiCard label="Contracted" value="6" sub="3.4% conv"/>
+        <Shared.KpiCard label="DM threads waiting" value={dms.length} sub="reply within 4h"/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>Inbox · prospect DMs</h3><span className="meta">drafts powered by Repflow co-pilot</span></div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {dms.map((d, i) => (
+            <div key={i} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>{d.who}</strong>
+                  <span style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginLeft: 8 }}>{d.from}</span>
+                </div>
+                <span className="chip">Instagram</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>"{d.lastMsg}"</div>
+              <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elevated)", borderRadius: 6, border: "1px dashed var(--border-strong)" }}>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Suggested reply</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>{d.suggested}</div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button className="btn btn-primary"><Icons.Play size={11}/> Send</button>
+                  <button className="btn">Edit</button>
+                  <button className="btn btn-ghost">Snooze</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6. Calls — Gong-style cards with waveform, transcript, AI score
+   ───────────────────────────────────────────────────────────────────────── */
+function PageCalls({ role = "rep" }) {
+  const { RECORDINGS, REPS } = AppData;
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  // Show all recordings; Rep view filters to their own (first rep is the user)
+  const meId = REPS[0].id;
+  const visible = role === "rep" ? RECORDINGS.filter(r => !r.repId || r.repId === meId) : RECORDINGS;
+
+  const [selId, setSelId] = React.useState(visible[0]?.id);
+  const sel = visible.find(r => r.id === selId) || visible[0];
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Calls</div>
+          <div className="page-sub">{role === "rep" ? "My calls" : "All recorded calls"} · waveform · talk ratio · AI score</div>
+        </div>
+      </div>
+
+      <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h"><h3>Recordings</h3><span className="meta">{visible.length}</span></div>
+          <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {visible.map(r => (
+              <button key={r.id} onClick={() => setSelId(r.id)} className="btn btn-ghost" style={{ justifyContent: "flex-start", padding: 10, background: sel?.id === r.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                  <strong style={{ fontSize: 12.5 }}>{r.lead}</strong>
+                  <span className="tabular" style={{ color: r.score >= 80 ? "var(--accent-money)" : r.score >= 60 ? "var(--state-warning)" : "var(--state-danger)", fontSize: 11.5 }}>{r.score}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-tertiary)", fontSize: 11 }}>
+                  <span>{r.date}</span>
+                  <span className="mono">{Math.floor(r.durSec / 60)}:{String(r.durSec % 60).padStart(2, "0")}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Headset size={13}/>
+            <h3>{sel?.lead} · score {sel?.score}</h3>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button className="btn btn-ghost"><Icons.Play size={11}/> Play</button>
+              <button className="btn btn-ghost"><Icons.ArrowUpRight size={11}/> Vault</button>
+            </div>
+          </div>
+          <div style={{ padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 11 }}>
+              <span className="mono">00:00</span>
+              <div style={{ flex: 1, height: 36, position: "relative", background: "var(--bg-raised)", borderRadius: 4, overflow: "hidden" }}>
+                <svg width="100%" height="36" viewBox="0 0 240 36" preserveAspectRatio="none">
+                  {Array.from({ length: 80 }).map((_, i) => {
+                    const h = 4 + Math.abs(Math.sin(i * 0.5 + (sel?.id?.length || 0))) * 26 + (i % 7 === 0 ? 4 : 0);
+                    return <rect key={i} x={i * 3} y={(36 - h) / 2} width="1.6" height={h} fill={i < 48 ? "var(--accent-money)" : "var(--text-quaternary)"}/>;
+                  })}
+                </svg>
+              </div>
+              <span className="mono">{Math.floor((sel?.durSec || 0) / 60)}:{String((sel?.durSec || 0) % 60).padStart(2, "0")}</span>
+            </div>
+            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <span className={`chip ${sel?.talkRatio < 50 ? "chip-money" : "chip-status"}`}>Talk: {sel?.talkRatio}%</span>
+              <span className="chip">Open Q: {sel?.openQ}</span>
+              <span className={`chip ${sel?.flags?.tpmo === "ok" ? "chip-money" : "chip-status"}`}>TPMO {sel?.flags?.tpmo === "ok" ? "✓" : "?"}</span>
+              <span className={`chip ${sel?.flags?.soa === "captured" || sel?.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel?.flags?.soa}</span>
+            </div>
+            <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel?.ai}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. Book Analytics — owner
+   ───────────────────────────────────────────────────────────────────────── */
+function PageBook() {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Book Analytics</div>
+          <div className="page-sub">Persistency · lapse · cross-sell pathway · carrier mix</div>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="In-force AP" prefix="$" value="6.84M" sub="+9.4% YoY" trend="up"/>
+        <Shared.KpiCard label="Persistency · 13mo" value="91.4%" sub="goal 90%" trend="up"/>
+        <Shared.KpiCard label="Lapse rate" value="4.2%" sub="-0.6 WoW" neg trend="up"/>
+        <Shared.KpiCard label="Cross-sell rate" value="22%" sub="FE → Med Supp"/>
+      </div>
+
+      <div className="book-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+        <div className="panel">
+          <div className="panel-h"><h3>Carrier mix · in-force</h3></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr" }}>
+              <div>Carrier</div>
+              <div className="tabular" style={{ textAlign: "right" }}>Apps</div>
+              <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+              <div></div>
+            </div>
+            {[
+              { n: "UHC",            a: 184, p: 1842000, w: 100 },
+              { n: "Humana Vantage", a: 132, p: 1320000, w: 72  },
+              { n: "Aetna SRC",      a: 124, p: 1108000, w: 60  },
+              { n: "F&G Annuities",  a:  42,  p: 1860000, w: 100 },
+              { n: "Mutual of Omaha",a:  88,  p:  708000, w: 38  },
+            ].map((r, i) => (
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr" }}>
+                <div style={{ fontWeight: 500 }}>{r.n}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.a}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>${r.p.toLocaleString()}</div>
+                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
+                  <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><h3>13-mo persistency · cohorts</h3></div>
+          <div style={{ padding: 14 }}>
+            {[
+              { l: "Med Supp · UHC",      v: 94 },
+              { l: "Med Supp · Humana",   v: 92 },
+              { l: "FE · UHC",            v: 88 },
+              { l: "FE · Mutual of Omaha",v: 78 },
+              { l: "Annuity · F&G",       v: 96 },
+            ].map((r, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
+                <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}%</span>
+                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
+                  <div style={{ width: `${r.v}%`, height: "100%", background: r.v >= 90 ? "var(--accent-money)" : r.v >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Stub fallback retained for unknown page IDs */
+function PageStub({ title, sub }) {
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">{title}</div>
+          <div className="page-sub">{sub}</div>
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Sparkles size={20} style={{ color: "var(--accent-money)" }}/>
+        <div style={{ marginTop: 8, fontSize: 14, fontWeight: 500 }}>Page coming online</div>
+        <div style={{ fontSize: 12, marginTop: 4 }}>This view is wired in the data layer; UI ships in the next build.</div>
+      </div>
+    </div>
+  );
+}
+
+/* In-Call overlay (preserved from previous structure for the ⌘K trigger) */
+function InCall({ onClose }) {
+  return (
+    <div className="cmdk-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 520 }}>
+        <div className="modal-h">
+          <div className="modal-t"><Icons.Phone size={13}/> Live · Cheryl Hampton · 04:21</div>
+          <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            <span className="chip chip-money">TPMO captured 0:08</span>
+            <span className="chip">No prior MS</span>
+            <span className="chip chip-info">Plan G eligible</span>
+          </div>
+          <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, lineHeight: 1.5 }}>
+            <strong style={{ color: "var(--text-primary)" }}>AI suggests now —</strong> Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <em>Plan G drug-free coverage gap</em>.
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            <button className="btn">Show script</button>
+            <button className="btn">Send SOA</button>
+            <button className="btn">Quote $145/mo</button>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>Mute</button>
+          <button className="btn btn-primary" onClick={onClose}><Icons.X size={11}/> End call</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.PageVault       = PageVault;
+window.PageTiering     = PageTiering;
+window.PageCommissions = PageCommissions;
+window.PageTraining    = PageTraining;
+window.PageRecruiting  = PageRecruiting;
+window.PageCalls       = PageCalls;
+window.PageBook        = PageBook;
+window.PageStub        = PageStub;
+window.InCall          = InCall;

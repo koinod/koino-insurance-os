@@ -52,41 +52,49 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
   </div>
 );
 
-/* ───── Sidebar ───── */
+/* ───── Sidebar ─────
+   Pages shared across roles render role-aware variants (driven by `role` prop).
+   The NAV map decides which role sees which page in their sidebar. */
 const NAV = {
   rep: [
-    { id: "today", label: "Today", icon: "Home" },
-    { id: "pipeline", label: "Pipeline", icon: "Pipeline", badge: "12" },
-    { id: "queue", label: "Dial Queue", icon: "Phone", badge: "47" },
-    { id: "calls", label: "Calls", icon: "Headset" },
-    { id: "leaderboard", label: "Leaderboard", icon: "Trophy" },
-    { id: "commissions", label: "Commissions", icon: "Wallet" },
-    { id: "training", label: "Training", icon: "Book" },
+    { id: "today",       label: "Today",        icon: "Home" },
+    { id: "pipeline",    label: "Pipeline",     icon: "Pipeline", badge: "12" },
+    { id: "queue",       label: "Dial Queue",   icon: "Phone",    badge: "47" },
+    { id: "calls",       label: "Calls",        icon: "Headset" },
+    { id: "coaching",    label: "Coaching",     icon: "Activity" },
+    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
+    { id: "commissions", label: "Commissions",  icon: "Wallet" },
+    { id: "training",    label: "Training",     icon: "Book" },
   ],
   manager: [
-    { id: "today", label: "Today", icon: "Home" },
-    { id: "team", label: "Team Board", icon: "Users" },
-    { id: "coaching", label: "Coaching", icon: "Activity" },
-    { id: "pipeline", label: "Pipeline", icon: "Pipeline", badge: "184" },
-    { id: "queue", label: "Dispatch", icon: "Kanban" },
-    { id: "calls", label: "Calls", icon: "Headset" },
-    { id: "leaderboard", label: "Leaderboard", icon: "Trophy" },
-    { id: "training", label: "Training", icon: "Book" },
+    { id: "today",       label: "Today",        icon: "Home" },
+    { id: "team",        label: "Team Board",   icon: "Users" },
+    { id: "coaching",    label: "Coaching",     icon: "Activity" },
+    { id: "pipeline",    label: "Pipeline",     icon: "Pipeline", badge: "184" },
+    { id: "queue",       label: "Dispatch",     icon: "Kanban" },
+    { id: "calls",       label: "Calls",        icon: "Headset" },
+    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
+    { id: "commissions", label: "Commissions",  icon: "Wallet" },
+    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "training",    label: "Training",     icon: "Book" },
   ],
   owner: [
-    { id: "pnl", label: "P&L", icon: "TrendingUp" },
-    { id: "tree", label: "Org Tree", icon: "Users" },
-    { id: "book", label: "Book Analytics", icon: "Activity" },
-    { id: "recruiting", label: "Recruiting", icon: "ArrowUpRight" },
-    { id: "vault", label: "Compliance Vault", icon: "Shield" },
-    { id: "tiering", label: "Tiering", icon: "Award" },
-    { id: "leaderboard", label: "Leaderboard", icon: "Trophy" },
+    { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
+    { id: "tree",        label: "Org Tree",     icon: "Users" },
+    { id: "book",        label: "Book Analytics", icon: "Activity" },
+    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "coaching",    label: "Coaching",     icon: "Activity" },
+    { id: "commissions", label: "Commissions",  icon: "Wallet" },
+    { id: "training",    label: "Training",     icon: "Book" },
+    { id: "vault",       label: "Compliance Vault", icon: "Shield" },
+    { id: "tiering",     label: "Tiering",      icon: "Award" },
+    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
   ],
   ops: [
-    { id: "connections", label: "Connections", icon: "Plug" },
-    { id: "hardware", label: "Hardware", icon: "Server" },
-    { id: "agents", label: "Agents", icon: "Cpu" },
-    { id: "workflows", label: "Workflows", icon: "Workflow" },
+    { id: "connections", label: "Connections",  icon: "Plug" },
+    { id: "hardware",    label: "Hardware",     icon: "Server" },
+    { id: "agents",      label: "Agents",       icon: "Cpu" },
+    { id: "workflows",   label: "Workflows",    icon: "Workflow" },
   ],
 };
 
@@ -163,7 +171,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 };
 
 /* ───── Topbar ───── */
-const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn }) => (
+const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile }) => (
   <div className="topbar">
     <div className="crumbs">
       {crumbs.map((c, i) => (
@@ -187,6 +195,9 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn }) => (
       <span className="rank tabular">#3</span>
       <span className="delta-up tabular"><Icons.ArrowUp size={10}/>2</span>
     </button>
+    <button className="icon-btn" onClick={openMobile} title="Open rep mobile prototype">
+      <Icons.Phone size={15}/>
+    </button>
     <button className="icon-btn" onClick={toggleRail} title="Toggle AI co-pilot">
       <Icons.Sparkles size={15} style={{ color: railOn ? "var(--accent-money)" : undefined }}/>
     </button>
@@ -197,41 +208,71 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn }) => (
 /* ───── Cmd K ───── */
 const CMD_ITEMS = {
   Actions: [
-    { label: "Dial next lead in queue", kbd: "D", icon: "Phone" },
-    { label: "Send SOA to current lead", kbd: "S", icon: "Shield" },
-    { label: "Log a sale", kbd: "L", icon: "Wallet" },
-    { label: "Schedule callback", icon: "Calendar" },
-    { label: "Draft rebuttal: 'I already have coverage'", icon: "Sparkles" },
+    { label: "Dial next lead in queue",                       kbd: "D", icon: "Phone",    nav: "queue" },
+    { label: "Send SOA to current lead",                      kbd: "S", icon: "Shield",   nav: "vault" },
+    { label: "Log a sale",                                    kbd: "L", icon: "Wallet",   nav: "commissions" },
+    { label: "Schedule callback",                                       icon: "Calendar", nav: "today" },
+    { label: "Draft rebuttal: 'I already have coverage'",               icon: "Sparkles" },
   ],
   Navigate: [
-    { label: "Pipeline", icon: "Pipeline" },
-    { label: "Leaderboard", icon: "Trophy" },
-    { label: "Commission statement", icon: "Wallet" },
-    { label: "Compliance Vault", icon: "Shield" },
+    { label: "Today",              icon: "Home",       nav: "today" },
+    { label: "Pipeline",           icon: "Pipeline",   nav: "pipeline" },
+    { label: "Dial Queue",         icon: "Phone",      nav: "queue" },
+    { label: "Calls",              icon: "Headset",    nav: "calls" },
+    { label: "Leaderboard",        icon: "Trophy",     nav: "leaderboard" },
+    { label: "Commissions",        icon: "Wallet",     nav: "commissions" },
+    { label: "Training",           icon: "Book",       nav: "training" },
+    { label: "Compliance Vault",   icon: "Shield",     nav: "vault" },
+    { label: "Tiering Console",    icon: "Award",      nav: "tiering" },
+    { label: "Recruiting Funnel",  icon: "ArrowUpRight", nav: "recruiting" },
+    { label: "P&L",                icon: "TrendingUp", nav: "pnl" },
+    { label: "Org Tree",           icon: "Users",      nav: "tree" },
+    { label: "Book Analytics",     icon: "Activity",   nav: "book" },
+    { label: "Connections",        icon: "Plug",       nav: "connections" },
+    { label: "Hardware",           icon: "Server",     nav: "hardware" },
+    { label: "Agents",             icon: "Cpu",        nav: "agents" },
+    { label: "Workflows",          icon: "Workflow",   nav: "workflows" },
   ],
   "Ask Repflow": [
-    { label: "Show leads I haven't touched in 7 days", icon: "Sparkles" },
-    { label: "Compare my conversion vs Tony's, last month", icon: "Sparkles" },
-    { label: "Why did Cheryl Hampton's policy charge back?", icon: "Sparkles" },
+    { label: "Show leads I haven't touched in 7 days",            icon: "Sparkles", nav: "pipeline" },
+    { label: "Compare my conversion vs Tony's, last month",       icon: "Sparkles", nav: "leaderboard" },
+    { label: "Why did Cheryl Hampton's policy charge back?",      icon: "Sparkles", nav: "calls" },
   ],
 };
 
-const CmdK = ({ open, onClose }) => {
+const CmdK = ({ open, onClose, goto }) => {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef();
   useEffect(() => { if (open) { setQ(""); setSel(0); setTimeout(() => inputRef.current?.focus(), 60); } }, [open]);
 
-  if (!open) return null;
-  const flat = Object.entries(CMD_ITEMS).flatMap(([sec, items]) =>
+  const flat = useMemo(() => Object.entries(CMD_ITEMS).flatMap(([sec, items]) =>
     items.filter(i => !q || i.label.toLowerCase().includes(q.toLowerCase())).map(i => ({ ...i, sec }))
-  );
+  ), [q]);
+
+  const run = (it) => {
+    if (it?.nav && goto) goto(it.nav);
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); setSel(s => Math.min(flat.length - 1, s + 1)); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setSel(s => Math.max(0, s - 1)); }
+      else if (e.key === "Enter") { e.preventDefault(); run(flat[sel]); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, flat, sel]);
+
+  if (!open) return null;
   const grouped = flat.reduce((acc, it) => { (acc[it.sec] ||= []).push(it); return acc; }, {});
 
   return (
     <div className="cmdk-overlay" onClick={onClose}>
       <div className="cmdk" onClick={(e) => e.stopPropagation()}>
-        <input ref={inputRef} className="cmdk-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a command, ask anything..." onKeyDown={(e) => e.key === "Escape" && onClose()}/>
+        <input ref={inputRef} className="cmdk-input" value={q} onChange={(e) => { setQ(e.target.value); setSel(0); }} placeholder="Type a command, ask anything..." onKeyDown={(e) => e.key === "Escape" && onClose()}/>
         <div style={{ maxHeight: "52vh", overflowY: "auto" }}>
           {Object.entries(grouped).map(([sec, items]) => (
             <div key={sec} className="cmdk-section">
@@ -240,7 +281,7 @@ const CmdK = ({ open, onClose }) => {
                 const Ico = Icons[it.icon] || Icons.ArrowRight;
                 const idx = flat.indexOf(it);
                 return (
-                  <div key={i} className={`cmdk-item ${idx === sel ? "sel" : ""}`} onMouseEnter={() => setSel(idx)} onClick={onClose}>
+                  <div key={i} className={`cmdk-item ${idx === sel ? "sel" : ""}`} onMouseEnter={() => setSel(idx)} onClick={() => run(it)}>
                     <Ico size={14} style={{ color: "var(--text-tertiary)" }}/>
                     <span>{it.label}</span>
                     {it.kbd && <span className="kbd">{it.kbd}</span>}
@@ -306,4 +347,39 @@ const AIRail = ({ context }) => {
   );
 };
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV };
+/* ───── Modal + form primitives (used by Pipeline filter, New-lead, Bulk-assign) ───── */
+const Modal = ({ title, children, onClose, actions, width = 460 }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose && onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="cmdk-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width }}>
+        <div className="modal-h">
+          <div className="modal-t">{title}</div>
+          <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {actions && <div className="modal-foot">{actions}</div>}
+      </div>
+    </div>
+  );
+};
+
+const Field = ({ label, children, hint }) => (
+  <label className="field">
+    <span className="field-l">{label}</span>
+    {children}
+    {hint && <span className="field-h">{hint}</span>}
+  </label>
+);
+
+const Select = ({ value, onChange, options }) => (
+  <select className="text-input" value={value} onChange={(e) => onChange(e.target.value)}>
+    {options.map((o, i) => <option key={i} value={o.v ?? o.value}>{o.l ?? o.label}</option>)}
+  </select>
+);
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select };
