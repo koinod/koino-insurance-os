@@ -982,6 +982,14 @@ function SettingsProfile({ role }) {
       </div>
 
       <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0 }}>Session</h3>
+        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="btn" onClick={() => window.signOut && window.signOut()}><Icons.X size={12}/> Sign out</button>
+          <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>Ends your Supabase session and clears demo flag.</span>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0 }}>Licenses + appointments</h3>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
           {["TX","FL","GA","NV","AZ"].map(s => <span key={s} className="chip chip-money">{s} · active</span>)}

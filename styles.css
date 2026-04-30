@@ -920,3 +920,31 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(1.4); }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Login screen
+   ────────────────────────────────────────────────────────────────────────── */
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 30% 20%, color-mix(in oklch, var(--accent-money) 6%, var(--bg-base)), var(--bg-base) 60%);
+  padding: 20px;
+  font-family: var(--font-ui);
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: var(--shadow-floating);
+}
+.login-foot {
+  position: fixed;
+  bottom: 16px;
+  font-size: 11px;
+  color: var(--text-quaternary);
+  letter-spacing: 0.04em;
+}
