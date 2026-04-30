@@ -57,7 +57,7 @@ function PagePipeline({ role = "owner" }) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2 }}>
-            {[["list","List"],["kanban","Kanban"]].map(([k,l]) => (
+            {[["list","List"],["kanban","Kanban"],["sequences","Sequences"]].map(([k,l]) => (
               <button key={k} onClick={() => setView(k)} className={view === k ? "btn" : "btn btn-ghost"} style={{ padding: "3px 10px", border: 0, background: view === k ? "var(--bg-raised)" : "transparent" }}>{l}</button>
             ))}
           </div>
@@ -152,6 +152,8 @@ function PagePipeline({ role = "owner" }) {
         </div>
       )}
 
+      {view === "sequences" && (() => { const PS = window.PipelineSequences; return PS ? <PS role={role}/> : null; })()}
+
       {filterOpen && (
         <Shared.Modal title="Filter pipeline" onClose={() => setFilterOpen(false)} actions={
           <>
@@ -238,6 +240,22 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
             <Shared.Field label="Age in stage"><div className="tabular" style={{ fontSize: 16, fontWeight: 500, color: lead.days > 5 ? "var(--state-danger)" : "var(--text-primary)" }}>{lead.days}d</div></Shared.Field>
             <Shared.Field label="Last touch"><div style={{ fontSize: 13 }}>{lead.last}</div></Shared.Field>
             <Shared.Field label="Next action"><div style={{ fontSize: 13 }}>{lead.next}</div></Shared.Field>
+          </div>
+
+          <div className="divider"></div>
+
+          <div className="field-l">Sequences</div>
+          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+            {(window.PIPELINE_SEQUENCES || []).slice(0, 3).map(s => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
+                <Icons.Workflow size={12} style={{ color: "var(--text-tertiary)" }}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.steps.length} steps · {s.days}d · {s.channel}</div>
+                </div>
+                <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Enroll</button>
+              </div>
+            ))}
           </div>
 
           <div className="divider"></div>
