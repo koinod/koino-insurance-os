@@ -89,4 +89,114 @@ const WORKFLOWS = [
   { id: "w4", name: "Cross-sell: FE issued → Med Supp 60d", runs: "12/d", lastRun: "3h ago" },
 ];
 
-window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS };
+window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS, LIVE: false };
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Live Supabase hydration. The publishable key is intentionally public-tier
+   (RLS-protected). When the Supabase JS SDK loads (via UMD <script> in
+   index.html), this fires and swaps the demo AppData arrays for live rows.
+
+   Pages all read from window.AppData; on hydrate we mutate in place + fire a
+   "data:hydrated" event so any mounted component can re-render via state pump.
+   ──────────────────────────────────────────────────────────────────────────── */
+window.SUPABASE_URL  = "https://zybndnqnbxarpkhqpcxq.supabase.co";
+window.SUPABASE_ANON = "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+
+window.getSupabase = function () {
+  if (!window.__supabase && window.supabase?.createClient) {
+    window.__supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON, {
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: "repflow.auth" }
+    });
+  }
+  return window.__supabase || null;
+};
+
+window.hydrateFromSupabase = async function () {
+  const sb = window.getSupabase();
+  if (!sb) return false;
+  try {
+    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows] = await Promise.all([
+      sb.from("reps").select("*").order("mtd_cents", { ascending: false }),
+      sb.from("pipeline").select("*").order("days_in_stage", { ascending: false }),
+      sb.from("queue").select("*").order("score", { ascending: false }),
+      sb.from("courses").select("*"),
+      sb.from("recordings").select("*").order("recorded_at", { ascending: false }),
+      sb.from("connections").select("*"),
+      sb.from("hardware").select("*"),
+      sb.from("ai_agents").select("*"),
+      sb.from("workflows").select("*"),
+    ]);
+
+    if (reps.data?.length) {
+      window.AppData.REPS = reps.data.map(r => ({
+        id: r.id, name: r.name, handle: r.handle, tier: r.tier,
+        mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
+        streak: r.streak_days, dials: r.dials, presence: r.presence,
+        appts: r.appts, color: r.color
+      }));
+    }
+    if (pipeline.data?.length) {
+      window.AppData.PIPELINE = pipeline.data.map(p => ({
+        id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
+        product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
+        last: p.last_activity_text, next: p.next_action, source: p.source,
+        owner: p.owner_rep_id, consent: p.consent, heat: p.heat
+      }));
+    }
+    if (queue.data?.length) {
+      window.AppData.QUEUE = queue.data.map(q => ({
+        id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
+        product: q.product, elapsed: q.elapsed_seconds, score: q.score
+      }));
+    }
+    if (courses.data?.length) {
+      window.AppData.COURSES = courses.data.map(c => ({
+        id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
+      }));
+    }
+    if (recordings.data?.length) {
+      window.AppData.RECORDINGS = recordings.data.map(r => ({
+        id: r.id, lead: r.lead_name, repId: r.rep_id,
+        date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
+        durSec: r.duration_sec, talkRatio: r.talk_ratio_pct, openQ: r.open_questions,
+        ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
+      }));
+    }
+    if (connections.data?.length) {
+      window.AppData.CONNECTIONS = connections.data.map(c => ({
+        id: c.id, name: c.name, category: c.category, status: c.status, meta: c.meta
+      }));
+    }
+    if (hardware.data?.length) {
+      window.AppData.HARDWARE = hardware.data.map(h => ({
+        id: h.id, name: h.name, kind: h.kind, status: h.status, uptime: h.uptime_text,
+        load: h.load_pct, agents: h.agent_count, last: "live"
+      }));
+    }
+    if (agents.data?.length) {
+      window.AppData.AGENTS = agents.data.map(a => ({
+        id: a.id, name: a.name, host: a.host_id, reqs: a.reqs_per_day,
+        success: parseFloat(a.success_rate), last: "live", desc: a.description
+      }));
+    }
+    if (workflows.data?.length) {
+      window.AppData.WORKFLOWS = workflows.data.map(w => ({
+        id: w.id, name: w.name, runs: w.runs_per_day,
+        lastRun: w.last_run ? new Date(w.last_run).toLocaleString() : "—"
+      }));
+    }
+
+    window.AppData.LIVE = true;
+    window.dispatchEvent(new CustomEvent("data:hydrated"));
+    return true;
+  } catch (err) {
+    console.warn("[supabase] hydration failed, staying on demo data:", err);
+    return false;
+  }
+};
+
+// Fire-and-forget on script load. Defers until SDK is ready (UMD may load later).
+(function tryHydrate(retries) {
+  if (window.supabase?.createClient) { window.hydrateFromSupabase(); return; }
+  if (retries > 0) setTimeout(() => tryHydrate(retries - 1), 100);
+})(50);

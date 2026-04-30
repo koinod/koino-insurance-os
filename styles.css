@@ -898,3 +898,25 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   .convo-grid > *:nth-child(1) { max-height: 220px; overflow-y: auto; }
   .rec-tabs { flex-wrap: wrap; }
 }
+
+/* Live / demo badge in topbar */
+.live-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+}
+.live-badge .dot { width: 5px; height: 5px; border-radius: 50%; }
+.live-badge.on  { color: var(--accent-money); background: color-mix(in oklch, var(--accent-money) 10%, transparent); border-color: color-mix(in oklch, var(--accent-money) 30%, transparent); }
+.live-badge.on .dot { background: var(--accent-money); animation: pulseDot 2s ease-in-out infinite; }
+.live-badge.off { color: var(--text-tertiary); }
+.live-badge.off .dot { background: var(--text-quaternary); }
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(1.4); }
+}

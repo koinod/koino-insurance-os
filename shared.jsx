@@ -171,6 +171,16 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 };
 
 /* ───── Topbar ───── */
+const LiveBadge = () => {
+  const live = AppData.LIVE;
+  return (
+    <span className={`live-badge ${live ? "on" : "off"}`} title={live ? "Reading live data from Supabase" : "Showing demo data — Supabase not connected or empty"}>
+      <span className="dot"></span>
+      {live ? "live" : "demo"}
+    </span>
+  );
+};
+
 const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNotifications, openSettings, notifCount }) => (
   <div className="topbar">
     <div className="crumbs">
@@ -181,6 +191,7 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
         </React.Fragment>
       ))}
     </div>
+    <LiveBadge/>
     <div className="topbar-spacer"/>
     {aep && (
       <div className="aep-pill"><span className="dot"></span>AEP SURGE · Day 14 / 54</div>
