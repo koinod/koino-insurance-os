@@ -397,7 +397,7 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
         <div className="slideout-foot">
           <button className="btn"><Icons.Mail size={12}/> Email</button>
           <button className="btn"><Icons.MessageSquare size={12}/> SMS</button>
-          <button className="btn btn-primary"><Icons.Phone size={12}/> Call now</button>
+          <button className="btn btn-primary" onClick={() => window.repflowCall && window.repflowCall("+15125550" + (lead.id || "100"), lead.lead)}><Icons.Phone size={12}/> Call now</button>
         </div>
       </aside>
     </div>

@@ -37,12 +37,17 @@ function PageConnections() {
 }
 
 function PageHardware() {
+  const [enrollOpen, setEnrollOpen] = React.useState(false);
   return (
     <div className="page-pad">
       <div className="page-h">
-        <div><div className="page-title">Hardware</div><div className="page-sub">Customer-owned nodes running Repflow agents · Tesla-clean tiles, real ops</div></div>
-        <button className="btn" style={{ marginLeft: "auto" }}><Icons.Calendar size={13}/> Schedule call with ops</button>
+        <div><div className="page-title">Hardware</div><div className="page-sub">Customer-owned nodes running Repflow agents · enroll a fresh VPS or Mac mini in 60 seconds</div></div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn"><Icons.Calendar size={13}/> Schedule call with ops</button>
+          <button className="btn btn-primary" onClick={() => setEnrollOpen(true)}><Icons.Plus size={13}/> Enroll new host</button>
+        </div>
       </div>
+      {enrollOpen && (() => { const M = window.EnrollHostModal; return M ? <M onClose={() => setEnrollOpen(false)}/> : null; })()}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
         {AppData.HARDWARE.map(h => (
           <div key={h.id} className="panel" style={{ padding: 18 }}>
@@ -71,11 +76,14 @@ function PageHardware() {
 }
 
 function PageAgents() {
+  const [deployOpen, setDeployOpen] = React.useState(false);
   return (
     <div className="page-pad">
       <div className="page-h">
-        <div><div className="page-title">Agents</div><div className="page-sub">{AppData.AGENTS.length} agents running · read-only · request changes via chat</div></div>
+        <div><div className="page-title">Agents</div><div className="page-sub">{AppData.AGENTS.length} agents · click Deploy to push a template to any enrolled host</div></div>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setDeployOpen(true)}><Icons.Plus size={13}/> Deploy agent</button>
       </div>
+      {deployOpen && (() => { const M = window.DeployAgentModal; return M ? <M onClose={() => setDeployOpen(false)}/> : null; })()}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
         {AppData.AGENTS.map(a => (
           <div key={a.id} className="panel" style={{ padding: 14 }}>

@@ -53,7 +53,7 @@ function DialQueueView({ onCall }) {
                   <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} onClick={i === 0 ? onCall : undefined}><Icons.Phone size={12}/></button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} onClick={() => i === 0 ? onCall && onCall() : window.repflowCall && window.repflowCall("+15125550" + l.id.replace(/\D/g, "").slice(0, 3), l.lead)}><Icons.Phone size={12}/></button>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}><Icons.MessageSquare size={12}/></button>
                   </div>
                 </div>

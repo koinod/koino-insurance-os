@@ -749,10 +749,10 @@ function PageBook() {
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
   const TABS = role === "owner"
-    ? [["org","Organization"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["notifications","Notifications"],["profile","Profile"]]
+    ? [["org","Organization"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
-      ? [["routing","Routing rules"],["notifications","Notifications"],["profile","Profile"]]
-      : [["profile","Profile"],["notifications","Notifications"]];
+      ? [["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+      : [["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
   const [tab, setTab] = React.useState(TABS[0][0]);
 
   return (
@@ -777,6 +777,7 @@ function PageSettings({ role = "owner" }) {
           {tab === "integrations" && <SettingsIntegrations/>}
           {tab === "api"          && <SettingsApi/>}
           {tab === "routing"      && <SettingsRouting/>}
+          {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
         </div>
