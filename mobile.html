@@ -45,9 +45,11 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
-<script type="text/babel" src="ios-frame.jsx"></script>
-<script type="text/babel" src="data.jsx"></script>
-<script type="text/babel" src="mobile-screens.jsx"></script>
+<link rel="manifest" href="/manifest.webmanifest"/>
+<script type="text/babel" src="ios-frame.jsx?v=4"></script>
+<script type="text/babel" src="data.jsx?v=4"></script>
+<script type="text/babel" src="mobile-screens.jsx?v=4"></script>
+<script type="text/babel" src="mobile-extra-screens.jsx?v=4"></script>
 
 <script type="text/babel">
 const { useState, useEffect } = React;
@@ -91,20 +93,35 @@ function FitFrame({ children }) {
 
 function FlowPhone() {
   const [view, setView] = useState({ name: "home", lead: null });
-  const nav = (n) => {
-    if (n === "home")  setView({ name: "home",  lead: null });
-    else if (n === "queue") setView({ name: "queue", lead: null });
-    else if (n === "lb")    setView({ name: "lb",    lead: null });
-    else if (n === "comm")  setView({ name: "comm",  lead: null });
-  };
+  const nav = (n) => setView({ name: n, lead: null });
   let screen;
-  if      (view.name === "home")  screen = <MScreenToday onNav={nav}/>;
-  else if (view.name === "queue") screen = <MScreenQueue onNav={nav} onCall={(l) => setView({ name: "call", lead: l })} onLead={(l) => setView({ name: "lead", lead: l })}/>;
-  else if (view.name === "call")  screen = <MScreenCall lead={view.lead} onEnd={() => setView({ name: "queue", lead: null })}/>;
-  else if (view.name === "lead")  screen = <MScreenLead lead={view.lead} onBack={() => setView({ name: "queue", lead: null })} onCall={() => setView({ name: "call", lead: view.lead })}/>;
-  else if (view.name === "lb")    screen = <MScreenLeaderboard onNav={nav}/>;
-  else if (view.name === "comm")  screen = <MScreenComm onNav={nav}/>;
-  return <Phone>{screen}</Phone>;
+  if      (view.name === "home")     screen = <MScreenToday       onNav={nav}/>;
+  else if (view.name === "queue")    screen = <MScreenQueue       onNav={nav} onCall={(l) => setView({ name: "call", lead: l })} onLead={(l) => setView({ name: "lead", lead: l })}/>;
+  else if (view.name === "call")     screen = <MScreenCall        lead={view.lead} onEnd={() => setView({ name: "queue", lead: null })}/>;
+  else if (view.name === "lead")     screen = <MScreenLead        lead={view.lead} onBack={() => setView({ name: "queue", lead: null })} onCall={() => setView({ name: "call", lead: view.lead })}/>;
+  else if (view.name === "lb")       screen = <MScreenLeaderboard onNav={nav}/>;
+  else if (view.name === "comm")     screen = <MScreenComm        onNav={nav}/>;
+  else if (view.name === "pipeline" && window.MScreenPipeline) { const C = window.MScreenPipeline; screen = <C onNav={nav} onLead={(l) => setView({ name: "lead", lead: l })}/>; }
+  else if (view.name === "coaching" && window.MScreenCoaching) { const C = window.MScreenCoaching; screen = <C onNav={nav}/>; }
+  else if (view.name === "vault"     && window.MScreenVault)    { const C = window.MScreenVault;    screen = <C onNav={nav}/>; }
+  else if (view.name === "settings"  && window.MScreenSettings) { const C = window.MScreenSettings; screen = <C onNav={nav}/>; }
+  else screen = <MScreenToday onNav={nav}/>;
+
+  return <Phone>
+    {screen}
+    <div className="m-quicknav">
+      {[
+        { k: "home",     l: "Today" },
+        { k: "pipeline", l: "Pipe" },
+        { k: "queue",    l: "Queue" },
+        { k: "coaching", l: "Coach" },
+        { k: "vault",    l: "Vault" },
+        { k: "settings", l: "Set" },
+      ].map(t => (
+        <button key={t.k} className={`m-quicknav-btn ${view.name === t.k ? "active" : ""}`} onClick={() => nav(t.k)}>{t.l}</button>
+      ))}
+    </div>
+  </Phone>;
 }
 
 function App() {

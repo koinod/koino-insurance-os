@@ -1,0 +1,15 @@
+{
+  "name": "Repflow",
+  "short_name": "Repflow",
+  "description": "Operator-grade insurance distribution OS",
+  "start_url": "/mobile.html",
+  "display": "standalone",
+  "background_color": "#0c0d11",
+  "theme_color": "#14171c",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["business", "productivity"]
+}
