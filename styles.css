@@ -844,3 +844,57 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   .slideout { width: 100vw; }
   .spend-strip { gap: 6px; padding: 6px 8px; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Recruiting workbench — tab strip + multi-pane layouts
+   ────────────────────────────────────────────────────────────────────────── */
+.rec-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+.rec-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.rec-tab:hover { color: var(--text-secondary); }
+.rec-tab.active {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.rec-tab-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 5px;
+  background: var(--bg-overlay);
+  color: var(--text-tertiary);
+  border-radius: 8px;
+  font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.rec-tab.active .rec-tab-n {
+  background: var(--accent-money);
+  color: oklch(0.18 0.005 260);
+}
+
+@media (max-width: 1100px) {
+  .rec-detail-grid, .seq-grid { grid-template-columns: 1fr !important; }
+  .convo-grid { grid-template-columns: 280px 1fr !important; }
+  .convo-grid > *:nth-child(3) { display: none !important; }  /* hide profile pane on tablet */
+}
+@media (max-width: 820px) {
+  .convo-grid { grid-template-columns: 1fr !important; height: auto !important; }
+  .convo-grid > *:nth-child(1) { max-height: 220px; overflow-y: auto; }
+  .rec-tabs { flex-wrap: wrap; }
+}

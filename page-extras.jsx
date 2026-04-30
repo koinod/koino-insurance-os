@@ -565,136 +565,6 @@ function TrainingOwner() {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   5. Recruiting — owner (org-wide funnel) / mgr (downline + IG DMs)
-   ───────────────────────────────────────────────────────────────────────── */
-function PageRecruiting({ role = "owner" }) {
-  if (role === "manager") return <RecruitingManager/>;
-  return <RecruitingOwner/>;
-}
-
-const FUNNEL = [
-  { l: "FB / LinkedIn / YT applied", v: 412, w: 100 },
-  { l: "Contracted",                  v:  58, w:  14 },
-  { l: "First app submitted",         v:  24, w:   6 },
-  { l: "Producing 90+ days",          v:  14, w: 3.4 },
-];
-
-const SOURCES = [
-  { n: "Instagram",  applied: 184, contracted: 32, cpp: 48 },
-  { n: "LinkedIn",   applied:  98, contracted: 12, cpp: 92 },
-  { n: "YouTube",    applied:  76, contracted:  8, cpp: 124 },
-  { n: "Referral",   applied:  54, contracted:  6, cpp: 0 },
-];
-
-function RecruitingOwner() {
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Recruiting · Org</div>
-          <div className="page-sub">Applied → Contracted → First-app → Producing · cost per producer</div>
-        </div>
-      </div>
-
-      <div className="kpi-row">
-        <Shared.KpiCard hero label="In funnel" value="412"/>
-        <Shared.KpiCard label="Conv to producing" value="3.4%" sub="14 of 412" trend="up"/>
-        <Shared.KpiCard label="CPP" value="2,140" prefix="$" sub="cost per producer"/>
-      </div>
-
-      <div className="rec-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
-        <div className="panel">
-          <div className="panel-h"><h3>Funnel · last 90 days</h3></div>
-          <div style={{ padding: 14 }}>
-            {FUNNEL.map((r, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12, borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
-                <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
-                <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
-                <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginLeft: 14, overflow: "hidden" }}>
-                  <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h"><h3>By source</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.2fr 90px 100px 90px" }}>
-              <div>Source</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Applied</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Contracted</div>
-              <div className="tabular" style={{ textAlign: "right" }}>CPP</div>
-            </div>
-            {SOURCES.map((s, i) => (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.2fr 90px 100px 90px" }}>
-                <div style={{ fontWeight: 500 }}>{s.n}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{s.applied}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>{s.contracted}</div>
-                <div className="tabular" style={{ textAlign: "right", color: s.cpp === 0 ? "var(--accent-money)" : undefined }}>{s.cpp ? `$${s.cpp}` : "free"}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RecruitingManager() {
-  const dms = [
-    { who: "Marcus B",   from: "@marcb_sells", lastMsg: "What carriers do you appoint with?", suggested: "We've got UHC, Humana, Aetna SRC, plus F&G for annuity — happy to show you the comp grid. Free 15 today?" },
-    { who: "Stacy V",    from: "@stacy.v.life", lastMsg: "Already licensed in TX — interested",    suggested: "Awesome — quick gut-check call so I can see fit? I have 3:30 today or 10am tomorrow." },
-    { who: "Reggie T",   from: "@reggie.tnsell", lastMsg: "How fast do producers get paid?",      suggested: "Carrier dependent: most pay daily, some weekly. We pay advance on ~85% of products. Want me to send the comp grid?" },
-    { who: "Ana K",      from: "@anak_atx",   lastMsg: "Do you support FE plus Med Supp on one app?", suggested: "Yes — we route both through the same intake; cross-sell is the killer feature for senior products. Want a 10-min walkthrough?" },
-  ];
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Recruiting · My downline</div>
-          <div className="page-sub">DMs from prospects · LLM-drafted replies · routes through Connections → Instagram</div>
-        </div>
-        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> New invite</button>
-      </div>
-
-      <div className="kpi-row">
-        <Shared.KpiCard label="My applicants" value="38" sub="last 90d"/>
-        <Shared.KpiCard label="Contracted" value="6" sub="3.4% conv"/>
-        <Shared.KpiCard label="DM threads waiting" value={dms.length} sub="reply within 4h"/>
-      </div>
-
-      <div className="panel">
-        <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>Inbox · prospect DMs</h3><span className="meta">drafts powered by Repflow co-pilot</span></div>
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-          {dms.map((d, i) => (
-            <div key={i} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <strong style={{ fontSize: 13 }}>{d.who}</strong>
-                  <span style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginLeft: 8 }}>{d.from}</span>
-                </div>
-                <span className="chip">Instagram</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>"{d.lastMsg}"</div>
-              <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elevated)", borderRadius: 6, border: "1px dashed var(--border-strong)" }}>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Suggested reply</div>
-                <div style={{ fontSize: 13, lineHeight: 1.5 }}>{d.suggested}</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button className="btn btn-primary"><Icons.Play size={11}/> Send</button>
-                  <button className="btn">Edit</button>
-                  <button className="btn btn-ghost">Snooze</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ─────────────────────────────────────────────────────────────────────────
    6. Calls — Gong-style cards with waveform, transcript, AI score
@@ -1243,7 +1113,7 @@ window.PageVault          = PageVault;
 window.PageTiering        = PageTiering;
 window.PageCommissions    = PageCommissions;
 window.PageTraining       = PageTraining;
-window.PageRecruiting     = PageRecruiting;
+/* PageRecruiting moved to page-recruiting.jsx */
 window.PageCalls          = PageCalls;
 window.PageBook           = PageBook;
 window.PageSettings       = PageSettings;
