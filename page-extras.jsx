@@ -849,25 +849,6 @@ function PageBook() {
   );
 }
 
-/* Stub fallback retained for unknown page IDs */
-function PageStub({ title, sub }) {
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">{title}</div>
-          <div className="page-sub">{sub}</div>
-        </div>
-      </div>
-      <div className="panel" style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)" }}>
-        <Icons.Sparkles size={20} style={{ color: "var(--accent-money)" }}/>
-        <div style={{ marginTop: 8, fontSize: 14, fontWeight: 500 }}>Page coming online</div>
-        <div style={{ fontSize: 12, marginTop: 4 }}>This view is wired in the data layer; UI ships in the next build.</div>
-      </div>
-    </div>
-  );
-}
-
 /* ─────────────────────────────────────────────────────────────────────────
    8. Settings — role-aware (org / billing / integrations / API / routing /
       notifications). Owner sees everything, mgr sees team-relevant
