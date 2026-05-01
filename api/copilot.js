@@ -106,7 +106,7 @@ async function tryGemini(model, key, prompt) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.5, maxOutputTokens: 800 }
+      generationConfig: { temperature: 0.5, maxOutputTokens: 400 }
     })
   });
   if (!resp.ok) return { ok: false, status: resp.status, detail: await resp.text() };
@@ -128,7 +128,7 @@ async function tryOpenRouter(key, prompt) {
       model: "anthropic/claude-3-haiku",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.5,
-      max_tokens: 800
+      max_tokens: 200
     })
   });
   if (!resp.ok) return { ok: false, status: resp.status, detail: await resp.text() };
@@ -159,11 +159,11 @@ export default async function handler(req) {
 
   const userMsg = `${SYSTEM}\n\n[Page context: ${context || "(none)"}]${data.block ? `\n\n=== DATA fetched on your behalf ===${data.block}` : ""}\n\n[Operator question]\n${prompt}`;
 
-  // Gemini 2.0 → 1.5 → OpenRouter
+  // Gemini 2.5 Flash (free tier) → Gemini 2.0 Flash → OpenRouter Haiku
   const attempts = [];
   for (const [name, fn] of [
+    ["gemini-2.5-flash", () => gKey && tryGemini("gemini-2.5-flash", gKey, userMsg)],
     ["gemini-2.0-flash", () => gKey && tryGemini("gemini-2.0-flash", gKey, userMsg)],
-    ["gemini-1.5-flash", () => gKey && tryGemini("gemini-1.5-flash", gKey, userMsg)],
     ["claude-3-haiku-via-openrouter", () => orKey && tryOpenRouter(orKey, userMsg)],
   ]) {
     const r = await fn();
