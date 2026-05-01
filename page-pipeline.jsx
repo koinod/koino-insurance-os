@@ -11,6 +11,13 @@ function PagePipeline({ role = "owner" }) {
   const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0].id });
   const [extra, setExtra] = React.useState([]);
   const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
+  // When live data hydrates (initial load OR realtime tick), drop the local
+  // optimistic layers — Supabase is now the source of truth.
+  React.useEffect(() => {
+    const onHydrate = () => { setExtra([]); setOverrides({}); };
+    window.addEventListener("data:hydrated", onHydrate);
+    return () => window.removeEventListener("data:hydrated", onHydrate);
+  }, []);
   const [drag, setDrag] = React.useState(null);
   const [openLead, setOpenLead] = React.useState(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);

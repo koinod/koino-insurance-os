@@ -77,32 +77,96 @@ function PageHardware() {
 
 function PageAgents() {
   const [deployOpen, setDeployOpen] = React.useState(false);
+  const [tailFor, setTailFor]       = React.useState(null);
+  const [runs, setRuns]              = React.useState([]);
+  const [loading, setLoading]        = React.useState(false);
+
+  // Pull recent runs for the selected agent (or all agents if none selected)
+  const loadRuns = React.useCallback(async (agentId) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setRuns([]); return; }
+    setLoading(true);
+    let q = sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(20);
+    if (agentId) q = q.eq("agent_id", agentId);
+    const { data } = await q;
+    setRuns(data || []); setLoading(false);
+  }, []);
+  React.useEffect(() => { loadRuns(tailFor); }, [tailFor, loadRuns]);
+  // Realtime: refresh when an agent_runs row appears
+  React.useEffect(() => {
+    const onRt = (e) => { if (e.detail?.table === "agent_runs") loadRuns(tailFor); };
+    window.addEventListener("data:realtime", onRt);
+    return () => window.removeEventListener("data:realtime", onRt);
+  }, [tailFor, loadRuns]);
+
   return (
     <div className="page-pad">
       <div className="page-h">
-        <div><div className="page-title">Agents</div><div className="page-sub">{AppData.AGENTS.length} agents · click Deploy to push a template to any enrolled host</div></div>
+        <div><div className="page-title">Agents</div><div className="page-sub">{AppData.AGENTS.length} templates · deploy to any enrolled host · live log streams below</div></div>
         <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setDeployOpen(true)}><Icons.Plus size={13}/> Deploy agent</button>
       </div>
       {deployOpen && (() => { const M = window.DeployAgentModal; return M ? <M onClose={() => setDeployOpen(false)}/> : null; })()}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-        {AppData.AGENTS.map(a => (
-          <div key={a.id} className="panel" style={{ padding: 14 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <Icons.Cpu size={14} style={{ color: "var(--accent-money)", marginTop: 2 }}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{a.name}</div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>host: {a.host} · last run {a.last}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{a.desc}</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 10 }}>
+        {AppData.AGENTS.map(a => {
+          const myRuns = runs.filter(r => r.agent_id === a.id);
+          const lastRun = myRuns[0];
+          return (
+            <div key={a.id} className="panel" style={{ padding: 14, cursor: "pointer", borderColor: tailFor === a.id ? "var(--accent-money)" : undefined }} onClick={() => setTailFor(tailFor === a.id ? null : a.id)}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <Icons.Cpu size={14} style={{ color: "var(--accent-money)", marginTop: 2 }}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{a.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>host: {a.host} · {lastRun ? `last run ${new Date(lastRun.started_at).toLocaleTimeString()}` : "no runs yet"}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{a.desc}</div>
+                </div>
+                {lastRun ? (
+                  <span className={`chip ${lastRun.status === "ok" ? "chip-money" : lastRun.status === "running" ? "chip-info" : "chip-danger"}`}>{lastRun.status}</span>
+                ) : (
+                  <span className="chip">v2.4</span>
+                )}
               </div>
-              <span className="chip chip-money">v2.4</span>
+              <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11, alignItems: "center" }}>
+                <span style={{ color: "var(--text-tertiary)" }}>Reqs: <span className="tabular" style={{ color: "var(--text-primary)" }}>{a.reqs}</span></span>
+                <span style={{ color: "var(--text-tertiary)" }}>Success: <span className="tabular" style={{ color: a.success >= 99 ? "var(--accent-money)" : "var(--accent-status)" }}>{a.success}%</span></span>
+                <span style={{ color: "var(--text-tertiary)" }}>Runs (24h): <span className="tabular" style={{ color: "var(--text-primary)" }}>{myRuns.length}</span></span>
+                <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "3px 8px", fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setTailFor(tailFor === a.id ? null : a.id); }}>
+                  {tailFor === a.id ? "Hide log" : "Tail log"}
+                </button>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11 }}>
-              <span style={{ color: "var(--text-tertiary)" }}>Reqs: <span className="tabular" style={{ color: "var(--text-primary)" }}>{a.reqs}</span></span>
-              <span style={{ color: "var(--text-tertiary)" }}>Success: <span className="tabular" style={{ color: a.success >= 99 ? "var(--accent-money)" : "var(--accent-status)" }}>{a.success}%</span></span>
-              <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "3px 8px", fontSize: 11 }}><Icons.MessageSquare size={11}/> Request change</button>
-            </div>
+          );
+        })}
+      </div>
+
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h">
+          <Icons.Activity size={13}/>
+          <h3>Live log · {tailFor ? AppData.AGENTS.find(a => a.id === tailFor)?.name || tailFor : "all agents"}</h3>
+          <span className="meta">{runs.length} recent runs · auto-refreshes via realtime</span>
+          {tailFor && <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={() => setTailFor(null)}>All agents</button>}
+        </div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "120px 1fr 80px 70px 90px" }}>
+            <div>Started</div><div>Log preview</div><div>Status</div><div className="tabular" style={{ textAlign: "right" }}>Exit</div><div className="tabular" style={{ textAlign: "right" }}>Duration</div>
           </div>
-        ))}
+          {loading && <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>Loading...</div>}
+          {!loading && runs.length === 0 && (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, lineHeight: 1.6 }}>
+              No runs yet. Either no agents are deployed, no enrolled host has the runner installed, or the cron tick hasn't fired.
+              <div style={{ marginTop: 6, fontSize: 11 }}>Hardware → Enroll new host (the install script now schedules <span className="mono">agent-runner.sh</span> too).</div>
+            </div>
+          )}
+          {!loading && runs.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "120px 1fr 80px 70px 90px", height: "auto", padding: "8px 12px", alignItems: "flex-start" }}>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{new Date(r.started_at).toLocaleTimeString()}</div>
+              <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-secondary)", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto" }}>{(r.log || "(empty)").slice(0, 600)}</pre>
+              <div><span className={`chip ${r.status === "ok" ? "chip-money" : r.status === "running" ? "chip-info" : "chip-danger"}`}>{r.status}</span></div>
+              <div className="tabular" style={{ textAlign: "right", color: r.exit_code ? "var(--state-danger)" : "var(--text-tertiary)", fontSize: 11.5 }}>{r.exit_code ?? "—"}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.duration_ms ? `${r.duration_ms}ms` : "—"}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

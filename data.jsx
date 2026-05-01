@@ -212,6 +212,76 @@ function _emitMutation(table, kind, id) {
   window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table, kind, id } }));
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Realtime subscriptions — when another operator (or a backend cron) inserts
+   or updates a row, mutate the in-memory AppData array in place and dispatch
+   data:hydrated so every page re-renders without a refresh.
+
+   Subscribes once, on first hydrate, and shares the channel across pages.
+   ──────────────────────────────────────────────────────────────────────────── */
+window.subscribeRealtime = function () {
+  const sb = window.getSupabase && window.getSupabase();
+  if (!sb || window.__rt_subscribed) return;
+  window.__rt_subscribed = true;
+
+  const TABLE_TO_KEY = {
+    pipeline:    "PIPELINE",
+    queue:       "QUEUE",
+    reps:        "REPS",
+    hardware:    "HARDWARE",
+    ai_agents:   "AGENTS",
+    connections: "CONNECTIONS",
+    workflows:   "WORKFLOWS",
+    agent_deployments: "DEPLOYMENTS",
+    agent_runs:        "AGENT_RUNS",
+  };
+
+  // Same DB→JS shape mapper used by hydrate, narrowed per table
+  const toJs = (table, r) => {
+    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, owner: r.owner_rep_id, consent: r.consent, heat: r.heat };
+    if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score };
+    if (table === "reps")       return { id: r.id, name: r.name, handle: r.handle, tier: r.tier, mtd: Math.round(r.mtd_cents/100), today: Math.round(r.today_cents/100), streak: r.streak_days, dials: r.dials, presence: r.presence, appts: r.appts, color: r.color };
+    if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
+    if (table === "ai_agents")  return { id: r.id, name: r.name, host: r.host_id, reqs: r.reqs_per_day, success: parseFloat(r.success_rate), last: "live", desc: r.description };
+    if (table === "connections")return { id: r.id, name: r.name, category: r.category, status: r.status, meta: r.meta };
+    if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run };
+    if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
+    if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
+    return r;
+  };
+
+  const channel = sb.channel("repflow-rt");
+  Object.keys(TABLE_TO_KEY).forEach(table => {
+    channel.on("postgres_changes", { event: "*", schema: "public", table }, (payload) => {
+      const key = TABLE_TO_KEY[table];
+      window.AppData[key] = window.AppData[key] || [];
+      const arr = window.AppData[key];
+      const { eventType, new: newRow, old: oldRow } = payload;
+      if (eventType === "INSERT" && newRow) {
+        const mapped = toJs(table, newRow);
+        if (!arr.find(x => x.id === mapped.id)) arr.unshift(mapped);
+      } else if (eventType === "UPDATE" && newRow) {
+        const idx = arr.findIndex(x => x.id === newRow.id);
+        if (idx >= 0) arr[idx] = toJs(table, newRow);
+      } else if (eventType === "DELETE" && oldRow) {
+        const idx = arr.findIndex(x => x.id === oldRow.id);
+        if (idx >= 0) arr.splice(idx, 1);
+      }
+      window.dispatchEvent(new CustomEvent("data:realtime", { detail: { table, eventType, id: (newRow || oldRow)?.id } }));
+      window.dispatchEvent(new CustomEvent("data:hydrated"));
+    });
+  });
+  channel.subscribe(status => {
+    if (status === "SUBSCRIBED") {
+      console.info("[repflow] realtime channel live across", Object.keys(TABLE_TO_KEY).length, "tables");
+    }
+  });
+  return channel;
+};
+
+// Auto-subscribe after first hydrate
+window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (_e) {} }, { once: true });
+
 window.AppData.mutate = {
   async pipelineStage(id, stage) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);

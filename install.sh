@@ -61,12 +61,17 @@ curl -fsSL -X POST "$SUPABASE_URL/rest/v1/rpc/heartbeat_host" \
 HBEOF
 chmod +x "$INSTALL_DIR/heartbeat.sh"
 
-# 4. Schedule heartbeat (cron if available, otherwise launchd-friendly)
+# 4. Pull the agent-runner so this box also executes deployed agents
+curl -fsSL "$REPFLOW_URL/agent-runner.sh" -o "$INSTALL_DIR/agent-runner.sh" && chmod +x "$INSTALL_DIR/agent-runner.sh" || true
+
+# 5. Schedule heartbeat (1 min) + agent-runner (2 min) cron entries
 if command -v crontab >/dev/null 2>&1; then
-  ( crontab -l 2>/dev/null | grep -v 'repflow/heartbeat' ; echo "* * * * * $INSTALL_DIR/heartbeat.sh" ) | crontab -
-  echo ">> Heartbeat scheduled every minute via cron"
+  ( crontab -l 2>/dev/null | grep -v 'repflow/heartbeat\|repflow/agent-runner' ; \
+    echo "* * * * * $INSTALL_DIR/heartbeat.sh"; \
+    echo "*/2 * * * * $INSTALL_DIR/agent-runner.sh" ) | crontab -
+  echo ">> Heartbeat (1m) + agent runner (2m) scheduled via cron"
 else
-  echo "!! cron unavailable — run $INSTALL_DIR/heartbeat.sh manually or wire to launchd"
+  echo "!! cron unavailable — run heartbeat.sh + agent-runner.sh manually, or wire to launchd"
 fi
 
 # 5. First heartbeat now

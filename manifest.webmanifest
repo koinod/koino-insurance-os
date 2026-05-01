@@ -3,13 +3,15 @@
   "short_name": "Repflow",
   "description": "Operator-grade insurance distribution OS",
   "start_url": "/mobile.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0c0d11",
   "theme_color": "#14171c",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icon.svg", "sizes": "any",     "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml" },
+    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
   ],
   "categories": ["business", "productivity"]
 }
