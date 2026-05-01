@@ -374,14 +374,24 @@ const AIRail = ({ context }) => {
     setVal("");
     setBusy(true);
     try {
+      // If signed in, forward the Supabase JWT so the Edge fn can fetch live data
+      // under authenticated RLS. Demo mode just sends no token.
+      let jwt = null;
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) {
+        const { data } = await sb.auth.getSession();
+        jwt = data?.session?.access_token || null;
+      }
+      const headers = { "content-type": "application/json" };
+      if (jwt) headers["x-supabase-auth"] = `Bearer ${jwt}`;
       const resp = await fetch("/api/copilot", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ prompt, context })
       });
       const j = await resp.json();
       if (!resp.ok) throw new Error(j.error + (j.detail ? " — " + j.detail.slice(0, 200) : ""));
-      setHist(h => [...h, { role: "assistant", text: j.text, ms: j.ms }]);
+      setHist(h => [...h, { role: "assistant", text: j.text, ms: j.ms, model: j.model, tools: j.tools_used }]);
     } catch (e) {
       setHist(h => [...h, { role: "assistant", text: "Couldn't reach the model. " + (e.message || ""), ms: 0, err: true }]);
     } finally {
@@ -418,7 +428,7 @@ const AIRail = ({ context }) => {
         {history.map((m, i) => (
           <div key={i} className={`ai-msg ${m.role === "assistant" ? "assistant" : ""}`}>
             <div className="who">
-              {m.role === "user" ? <><Avatar rep={AppData.REPS[0]} size={16}/> You</> : <><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow{m.ms ? ` · ${(m.ms/1000).toFixed(1)}s` : ""}</>}
+              {m.role === "user" ? <><Avatar rep={AppData.REPS[0]} size={16}/> You</> : <><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow{m.ms ? ` · ${(m.ms/1000).toFixed(1)}s` : ""}{m.tools?.length ? ` · queried ${m.tools.join(", ")}` : ""}</>}
             </div>
             <div className="body" style={{ whiteSpace: "pre-wrap", color: m.err ? "var(--state-danger)" : undefined }}>{m.text}</div>
           </div>

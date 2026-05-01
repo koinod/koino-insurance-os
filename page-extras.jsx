@@ -155,7 +155,7 @@ function PageTiering() {
     return t;
   };
 
-  const setOverride = (id, t) => {
+  const setOverride = async (id, t) => {
     const rep = REPS.find(r => r.id === id);
     const auto = calcTier(rep);
     if (t === auto) {
@@ -164,6 +164,8 @@ function PageTiering() {
       setOverrides({ ...overrides, [id]: t });
       setHistory([{ who: rep.name, from: rep.tier, to: t, reason: "Manual override", when: "now" }, ...history]);
     }
+    try { await AppData.mutate.tieringOverride(id, t); window.toast && window.toast(`${rep.name} → ${t.toUpperCase()}${AppData.LIVE ? " · saved" : ""}`, "success"); }
+    catch (_e) {}
   };
 
   return (

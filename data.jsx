@@ -200,3 +200,116 @@ window.hydrateFromSupabase = async function () {
   if (window.supabase?.createClient) { window.hydrateFromSupabase(); return; }
   if (retries > 0) setTimeout(() => tryHydrate(retries - 1), 100);
 })(50);
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Mutation helpers — every callsite calls window.AppData.mutate.X(...) which:
+     1. Updates the local AppData array (optimistic, fires "data:mutated")
+     2. If LIVE, writes the change to Supabase under the hood
+   The local update keeps demo mode and refresh-resistance both working.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+function _emitMutation(table, kind, id) {
+  window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table, kind, id } }));
+}
+
+window.AppData.mutate = {
+  async pipelineStage(id, stage) {
+    const row = window.AppData.PIPELINE.find(p => p.id === id);
+    if (row) { row.stage = stage; row.last = "Just now"; }
+    _emitMutation("pipeline", "update", id);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("pipeline").update({ stage, updated_at: new Date().toISOString(), last_activity_text: "Just now" }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+  },
+
+  async pipelineOwner(id, ownerRepId) {
+    const row = window.AppData.PIPELINE.find(p => p.id === id);
+    if (row) row.owner = ownerRepId;
+    _emitMutation("pipeline", "update", id);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("pipeline").update({ owner_rep_id: ownerRepId }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+  },
+
+  async pipelineInsert(row) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const dbRow = {
+          lead_name: row.lead, age: row.age, state: row.state, stage: row.stage,
+          product: row.product, ap_cents: Math.round((row.ap || 0) * 100),
+          days_in_stage: row.days || 0, last_activity_text: row.last, next_action: row.next,
+          source: row.source, owner_rep_id: row.owner, consent: row.consent, heat: row.heat,
+        };
+        const { data, error } = await sb.from("pipeline").insert(dbRow).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data?.id) row.id = data.id;
+      }
+    }
+    window.AppData.PIPELINE.unshift(row);
+    _emitMutation("pipeline", "insert", row.id);
+  },
+
+  async pipelineDelete(id) {
+    const idx = window.AppData.PIPELINE.findIndex(p => p.id === id);
+    if (idx >= 0) window.AppData.PIPELINE.splice(idx, 1);
+    _emitMutation("pipeline", "delete", id);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("pipeline").delete().eq("id", id);
+      if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
+    }
+  },
+
+  async queueAssign(queueId, repId) {
+    // Conceptually: take a queue lead, give it to a rep — promote to pipeline.
+    const q = window.AppData.QUEUE.find(x => x.id === queueId);
+    if (!q) return;
+    const newPipeRow = {
+      lead: q.lead, age: q.age, state: q.state, stage: "New",
+      product: q.product, ap: 0, days: 0, last: "Just routed",
+      next: "First dial", source: q.source, owner: repId, consent: "verified", heat: "fresh"
+    };
+    await this.pipelineInsert(newPipeRow);
+    // Remove from queue locally
+    const idx = window.AppData.QUEUE.findIndex(x => x.id === queueId);
+    if (idx >= 0) window.AppData.QUEUE.splice(idx, 1);
+    _emitMutation("queue", "delete", queueId);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      sb.from("queue").delete().eq("id", queueId); // fire-and-forget
+    }
+  },
+
+  async tieringOverride(repId, tier) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("tiering_overrides").upsert(
+          { rep_id: repId, override_tier: tier, set_at: new Date().toISOString() },
+          { onConflict: "rep_id" }
+        );
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+    _emitMutation("tiering_overrides", "upsert", repId);
+  },
+
+  async sequenceEnroll(leadId, sequenceId, ownerRepId) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("sequence_enrollments").insert({
+          lead_pipeline_id: leadId, sequence_id: sequenceId, owner_rep_id: ownerRepId,
+          status: "active", current_step: 0, enrolled_at: new Date().toISOString()
+        });
+        if (error) { window.toast && window.toast(`Enroll failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+    _emitMutation("sequence_enrollments", "insert", leadId);
+  },
+};

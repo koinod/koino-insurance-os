@@ -41,32 +41,50 @@ function PagePipeline({ role = "owner" }) {
   );
 
   const cols = "20px 1fr 90px 1fr 90px 60px 1fr 1fr 80px 30px";
-  const submit = () => {
+  const submit = async () => {
     if (!newRow.lead.trim()) return;
-    const id = Math.max(0, ...all.map(p => p.id || 0)) + 1;
-    setExtra([{ id, lead: newRow.lead, age: +newRow.age, state: newRow.state, stage: "New", product: newRow.product, ap: 0, days: 0, last: "Just added", next: "First dial", source: newRow.source, owner: newRow.owner, consent: "verified", heat: "fresh" }, ...extra]);
-    setNewRow({ ...newRow, lead: "" });
-    setNewOpen(false);
+    const localId = "tmp-" + Date.now();
+    const row = { id: localId, lead: newRow.lead, age: +newRow.age, state: newRow.state, stage: "New", product: newRow.product, ap: 0, days: 0, last: "Just added", next: "First dial", source: newRow.source, owner: newRow.owner, consent: "verified", heat: "fresh" };
+    try {
+      await AppData.mutate.pipelineInsert(row);
+      setExtra(e => [row, ...e]);
+      setNewRow({ ...newRow, lead: "" });
+      setNewOpen(false);
+      window.toast && window.toast(`Added ${row.lead}${AppData.LIVE ? " · saved" : ""}`, "success");
+    } catch (_e) { /* toast already fired by mutate */ }
   };
-  const moveTo = (id, stage) => {
-    setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), stage } });
-    window.toast && window.toast(`Moved to ${stage}`, "success");
+  const moveTo = async (id, stage) => {
+    setOverrides(o => ({ ...o, [id]: { ...(o[id] || {}), stage } }));
+    window.toast && window.toast(`Moved to ${stage}${AppData.LIVE ? " · saved" : ""}`, "success");
+    try { await AppData.mutate.pipelineStage(id, stage); }
+    catch (_e) { setOverrides(o => { const n = { ...o }; if (n[id]) delete n[id].stage; return n; }); }
   };
-  const reassign = (id, owner) => {
-    setOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), owner } });
+  const reassign = async (id, owner) => {
+    setOverrides(o => ({ ...o, [id]: { ...(o[id] || {}), owner } }));
     const r = REPS.find(x => x.id === owner);
-    window.toast && window.toast(`Reassigned to ${r?.name || owner}`, "success");
+    window.toast && window.toast(`Reassigned to ${r?.name || owner}${AppData.LIVE ? " · saved" : ""}`, "success");
+    try { await AppData.mutate.pipelineOwner(id, owner); }
+    catch (_e) { setOverrides(o => { const n = { ...o }; if (n[id]) delete n[id].owner; return n; }); }
   };
 
-  const applyBulk = () => {
-    const next = { ...overrides };
-    sel.forEach(id => {
-      next[id] = { ...(next[id] || {}), [bulkAction === "stage" ? "stage" : "owner"]: bulkValue };
+  const applyBulk = async () => {
+    const ids = Array.from(sel);
+    setOverrides(o => {
+      const next = { ...o };
+      ids.forEach(id => { next[id] = { ...(next[id] || {}), [bulkAction === "stage" ? "stage" : "owner"]: bulkValue }; });
+      return next;
     });
-    setOverrides(next);
     setBulkOpen(false);
-    window.toast && window.toast(`Updated ${sel.size} leads`, "success");
+    window.toast && window.toast(`Updating ${ids.length} leads${AppData.LIVE ? "..." : ""}`, "info");
     setSel(new Set());
+    if (AppData.LIVE) {
+      try {
+        await Promise.all(ids.map(id => bulkAction === "stage"
+          ? AppData.mutate.pipelineStage(id, bulkValue)
+          : AppData.mutate.pipelineOwner(id, bulkValue)));
+        window.toast && window.toast(`Saved ${ids.length} leads`, "success");
+      } catch (_e) { /* per-row toast fired */ }
+    }
   };
 
   const saveView = () => {
@@ -349,7 +367,12 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
                   <div style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.steps.length} steps · {s.days}d · {s.channel}</div>
                 </div>
-                <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Enroll</button>
+                <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={async () => {
+                  try {
+                    await AppData.mutate.sequenceEnroll(lead.id, s.id, lead.owner);
+                    window.toast && window.toast(`Enrolled ${lead.lead} in ${s.name}${AppData.LIVE ? " · saved" : ""}`, "success");
+                  } catch (_e) {}
+                }}>Enroll</button>
               </div>
             ))}
           </div>

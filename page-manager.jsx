@@ -28,9 +28,17 @@ function PageTeam() {
     setBulkPicks(picks);
     setBulkOpen(true);
   };
-  const commitBulk = () => {
-    setAssigned({ ...assigned, ...bulkPicks });
+  const commitBulk = async () => {
+    const picks = { ...bulkPicks };
+    setAssigned({ ...assigned, ...picks });
     setBulkOpen(false);
+    window.toast && window.toast(`Routing ${Object.keys(picks).length} leads${AppData.LIVE ? "..." : ""}`, "info");
+    if (AppData.LIVE) {
+      try {
+        await Promise.all(Object.entries(picks).map(([qid, rid]) => AppData.mutate.queueAssign(qid, rid)));
+        window.toast && window.toast(`Routed ${Object.keys(picks).length} leads`, "success");
+      } catch (_e) {}
+    }
   };
 
   return (
@@ -75,10 +83,15 @@ function PageTeam() {
             <div key={r.id} className="panel"
               onDragOver={(e) => { e.preventDefault(); setDrop(r.id); }}
               onDragLeave={() => setDrop(null)}
-              onDrop={() => {
+              onDrop={async () => {
                 if (drag) {
                   setAssigned({ ...assigned, [drag.id]: r.id });
+                  const dragSnap = drag;
                   setDrag(null); setDrop(null);
+                  try {
+                    await AppData.mutate.queueAssign(dragSnap.id, r.id);
+                    window.toast && window.toast(`${dragSnap.lead} → ${r.name.split(" ")[0]}${AppData.LIVE ? " · routed" : ""}`, "success");
+                  } catch (_e) {}
                 }
               }}
               style={{ borderColor: drop === r.id ? "var(--accent-money)" : undefined, background: drop === r.id ? "color-mix(in oklch, var(--accent-money) 6%, var(--bg-elevated))" : undefined }}>
