@@ -242,7 +242,7 @@ New-Item -Path "HKCU:\\Software\\Classes\\repflow" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "(Default)" -Value "URL:Repflow Protocol"
 Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "URL Protocol" -Value ""
 New-Item -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Force | Out-Null
-Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Name "(Default)" -Value "$dir\\repflow.cmd `"%1`""
+Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Name "(Default)" -Value "$dir\\repflow.cmd \`"%1\`""
 Write-Host "Repflow helper installed."`;
 
   const linuxScript = `# Repflow Desktop click-to-call helper · Linux
