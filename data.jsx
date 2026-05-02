@@ -186,6 +186,251 @@ window.hydrateFromSupabase = async function () {
       }));
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // V2 hydrate — pull the 38 tables added by migration 0002 so the new
+    // domain-specific pages (commissions, recruits, NIGOs, AEP, messaging,
+    // notifications, coaching, forecast, attribution, book of business,
+    // tasks, tier history) have live data on render.
+    // Failures here never block the v1 hydrate above.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const [
+        carriersR, productsR, apptsR,
+        policiesR, commissionsR, payoutsR, clawbacksR,
+        leadSourcesR, attributionsR, touchpointsR,
+        nigoReasonsR, nigosR,
+        forecastRunsR, forecastOverridesR,
+        coachingSessionsR, coachingNotesR,
+        vaultFilesR,
+        householdsR, clientsR, bookEntriesR,
+        recruitsR, interviewsR,
+        threadsR, threadMembersR, messagesR, messageReadsR,
+        notificationsR,
+        tasksR, followupRulesR,
+        tierChangesR,
+        aepPeriodsR, aepAssignmentsR,
+        sequencesR, seqEnrollmentsR,
+        tieringOverridesR,
+        agentDeploymentsR, agentRunsR,
+      ] = await Promise.all([
+        sb.from("carriers").select("*").order("name"),
+        sb.from("products").select("*"),
+        sb.from("carrier_appointments").select("*"),
+        sb.from("policies").select("*").order("issued_at", { ascending: false }),
+        sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500),
+        sb.from("payouts").select("*").order("period_end", { ascending: false }).limit(100),
+        sb.from("clawbacks").select("*").order("recorded_at", { ascending: false }).limit(100),
+        sb.from("lead_sources").select("*"),
+        sb.from("attributions").select("*"),
+        sb.from("touchpoints").select("*").order("occurred_at", { ascending: false }).limit(500),
+        sb.from("nigo_reasons").select("*"),
+        sb.from("nigos").select("*").order("created_at", { ascending: false }).limit(200),
+        sb.from("forecast_runs").select("*").order("generated_at", { ascending: false }).limit(50),
+        sb.from("forecast_overrides").select("*").order("set_at", { ascending: false }).limit(50),
+        sb.from("coaching_sessions").select("*").order("scheduled_at", { ascending: false }).limit(100),
+        sb.from("coaching_notes").select("*").order("created_at", { ascending: false }).limit(200),
+        sb.from("vault_files").select("*").order("created_at", { ascending: false }).limit(200),
+        sb.from("households").select("*"),
+        sb.from("clients").select("*"),
+        sb.from("book_entries").select("*"),
+        sb.from("recruits").select("*").order("created_at", { ascending: false }),
+        sb.from("interviews").select("*").order("scheduled_at", { ascending: false }),
+        sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50),
+        sb.from("thread_members").select("*"),
+        sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500),
+        sb.from("message_reads").select("*"),
+        sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(200),
+        sb.from("tasks").select("*").order("due_at", { ascending: true }).limit(200),
+        sb.from("followup_rules").select("*"),
+        sb.from("tier_changes").select("*").order("changed_at", { ascending: false }).limit(100),
+        sb.from("aep_periods").select("*"),
+        sb.from("aep_assignments").select("*"),
+        sb.from("sequences").select("*"),
+        sb.from("sequence_enrollments").select("*").order("enrolled_at", { ascending: false }).limit(200),
+        sb.from("tiering_overrides").select("*"),
+        sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50),
+        sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100),
+      ]);
+
+      const cents = (n) => Math.round((Number(n) || 0) / 100);
+      const mapRows = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+
+      window.AppData.CARRIERS = mapRows(carriersR, c => ({
+        id: c.id, name: c.name, category: c.category, status: c.status,
+        productLines: c.product_lines || [], notes: c.notes,
+        contact: { name: c.contact_name, phone: c.contact_phone, email: c.contact_email }
+      }));
+      window.AppData.PRODUCTS = mapRows(productsR, p => ({
+        id: p.id, carrierId: p.carrier_id, name: p.name, category: p.category,
+        compPct: p.comp_pct ? parseFloat(p.comp_pct) : null,
+        compPerApp: p.comp_per_app_cents ? cents(p.comp_per_app_cents) : null,
+        active: p.is_active
+      }));
+      window.AppData.APPOINTMENTS = mapRows(apptsR, a => ({
+        id: a.id, carrierId: a.carrier_id, repId: a.rep_id, state: a.state,
+        status: a.status, appointedAt: a.appointed_at, npn: a.npn
+      }));
+      window.AppData.POLICIES = mapRows(policiesR, p => ({
+        id: p.id, leadId: p.lead_pipeline_id, carrierId: p.carrier_id,
+        productId: p.product_id, policyNumber: p.policy_number,
+        product: p.product_text, ap: cents(p.ap_cents),
+        issuedAt: p.issued_at, effectiveAt: p.effective_at,
+        status: p.status, persistency: p.persistency_status,
+        owner: p.owner_rep_id, state: p.state
+      }));
+      window.AppData.COMMISSIONS = mapRows(commissionsR, c => ({
+        id: c.id, policyId: c.policy_id, repId: c.rep_id,
+        amount: cents(c.amount_cents), kind: c.kind, period: c.period_text,
+        earnedAt: c.earned_at, paidAt: c.paid_at, source: c.source
+      }));
+      window.AppData.PAYOUTS = mapRows(payoutsR, p => ({
+        id: p.id, repId: p.rep_id,
+        periodStart: p.period_start, periodEnd: p.period_end,
+        gross: cents(p.gross_cents), deductions: cents(p.deductions_cents),
+        net: cents(p.net_cents), status: p.status, paidAt: p.paid_at
+      }));
+      window.AppData.CLAWBACKS = mapRows(clawbacksR, c => ({
+        id: c.id, policyId: c.policy_id, repId: c.rep_id,
+        amount: cents(c.amount_cents), reason: c.reason,
+        recordedAt: c.recorded_at, status: c.status
+      }));
+      window.AppData.LEAD_SOURCES = mapRows(leadSourcesR, s => ({
+        id: s.id, name: s.name, kind: s.kind, vendor: s.vendor,
+        costPerLead: s.cost_per_lead_cents ? cents(s.cost_per_lead_cents) : 0
+      }));
+      window.AppData.ATTRIBUTIONS = mapRows(attributionsR, a => ({
+        id: a.id, leadId: a.lead_pipeline_id, sourceId: a.source_id,
+        firstTouch: a.first_touch_at, lastTouch: a.last_touch_at,
+        model: a.model, creditPct: parseFloat(a.credit_pct)
+      }));
+      window.AppData.TOUCHPOINTS = mapRows(touchpointsR, t => ({
+        id: t.id, leadId: t.lead_pipeline_id, sourceId: t.source_id,
+        kind: t.kind, occurredAt: t.occurred_at
+      }));
+      window.AppData.NIGO_REASONS = mapRows(nigoReasonsR, r => ({
+        id: r.id, label: r.label, category: r.category, severity: r.severity
+      }));
+      window.AppData.NIGOS = mapRows(nigosR, n => ({
+        id: n.id, policyId: n.policy_id, pipelineId: n.pipeline_id,
+        reasonId: n.reason_id, notes: n.notes, status: n.status,
+        assignedTo: n.assigned_to, createdAt: n.created_at, resolvedAt: n.resolved_at
+      }));
+      window.AppData.FORECAST_RUNS = mapRows(forecastRunsR, f => ({
+        id: f.id, generatedAt: f.generated_at, period: f.period_text,
+        basis: f.basis, forecast: cents(f.forecast_cents),
+        confidence: parseFloat(f.confidence_pct), model: f.model
+      }));
+      window.AppData.FORECAST_OVERRIDES = mapRows(forecastOverridesR, o => ({
+        id: o.id, period: o.period_text, override: cents(o.override_cents),
+        reason: o.reason, setBy: o.set_by, setAt: o.set_at
+      }));
+      window.AppData.COACHING_SESSIONS = mapRows(coachingSessionsR, s => ({
+        id: s.id, repId: s.rep_id, coachHandle: s.coach_handle,
+        scheduledAt: s.scheduled_at, completedAt: s.completed_at,
+        focusArea: s.focus_area, recordingId: s.recording_id,
+        outcome: s.outcome, rating: s.rating, notes: s.notes
+      }));
+      window.AppData.COACHING_NOTES = mapRows(coachingNotesR, n => ({
+        id: n.id, sessionId: n.session_id, repId: n.rep_id,
+        body: n.body, createdBy: n.created_by, createdAt: n.created_at
+      }));
+      window.AppData.VAULT_FILES = mapRows(vaultFilesR, v => ({
+        id: v.id, filename: v.filename, kind: v.kind,
+        policyId: v.policy_id, pipelineId: v.pipeline_id, repId: v.rep_id,
+        bucket: v.bucket, path: v.path, sizeBytes: v.size_bytes,
+        retentionUntil: v.retention_until
+      }));
+      window.AppData.HOUSEHOLDS = mapRows(householdsR, h => ({
+        id: h.id, name: h.household_name, primaryLeadId: h.primary_lead_id,
+        city: h.city, state: h.state
+      }));
+      window.AppData.CLIENTS = mapRows(clientsR, c => ({
+        id: c.id, householdId: c.household_id, name: c.full_name,
+        dob: c.dob, phone: c.contact_phone, email: c.contact_email,
+        leadId: c.lead_pipeline_id, relationship: c.relationship
+      }));
+      window.AppData.BOOK_ENTRIES = mapRows(bookEntriesR, b => ({
+        id: b.id, repId: b.rep_id, policyId: b.policy_id,
+        inForceSince: b.in_force_since, lastReview: b.last_review_at,
+        persistency: b.persistency_score ? parseFloat(b.persistency_score) : null
+      }));
+      window.AppData.RECRUITS = mapRows(recruitsR, r => ({
+        id: r.id, name: r.full_name, source: r.source,
+        email: r.contact_email, phone: r.contact_phone,
+        state: r.license_state, hasLicense: r.has_license,
+        status: r.status, recruiter: r.recruiter_handle, createdAt: r.created_at
+      }));
+      window.AppData.INTERVIEWS = mapRows(interviewsR, i => ({
+        id: i.id, recruitId: i.recruit_id, scheduledAt: i.scheduled_at,
+        completedAt: i.completed_at, interviewer: i.interviewer,
+        outcome: i.outcome, notes: i.notes
+      }));
+      window.AppData.THREADS = mapRows(threadsR, t => ({
+        id: t.id, kind: t.kind, subject: t.subject,
+        relatedLeadId: t.related_lead_id, lastMessageAt: t.last_message_at
+      }));
+      window.AppData.THREAD_MEMBERS = mapRows(threadMembersR, m => ({
+        id: m.id, threadId: m.thread_id, member: m.member_handle, muted: m.muted
+      }));
+      window.AppData.MESSAGES = mapRows(messagesR, m => ({
+        id: m.id, threadId: m.thread_id, sender: m.sender_handle,
+        body: m.body, createdAt: m.created_at
+      }));
+      window.AppData.MESSAGE_READS = mapRows(messageReadsR, r => ({
+        id: r.id, messageId: r.message_id, reader: r.reader_handle, readAt: r.read_at
+      }));
+      window.AppData.NOTIFICATIONS = mapRows(notificationsR, n => ({
+        id: n.id, recipient: n.recipient_handle, kind: n.kind,
+        title: n.title, body: n.body, link: n.link,
+        severity: n.severity, readAt: n.read_at, createdAt: n.created_at
+      }));
+      window.AppData.TASKS = mapRows(tasksR, t => ({
+        id: t.id, repId: t.rep_id, kind: t.kind, title: t.title, body: t.body,
+        dueAt: t.due_at, completedAt: t.completed_at,
+        relatedLeadId: t.related_lead_id, relatedPolicyId: t.related_policy_id,
+        priority: t.priority, status: t.status
+      }));
+      window.AppData.FOLLOWUP_RULES = mapRows(followupRulesR, r => ({
+        id: r.id, name: r.name, trigger: r.trigger, action: r.action, active: r.is_active
+      }));
+      window.AppData.TIER_CHANGES = mapRows(tierChangesR, c => ({
+        id: c.id, repId: c.rep_id, from: c.from_tier, to: c.to_tier,
+        reason: c.reason, changedBy: c.changed_by, changedAt: c.changed_at
+      }));
+      window.AppData.AEP_PERIODS = mapRows(aepPeriodsR, p => ({
+        id: p.id, name: p.name, startsAt: p.starts_at, endsAt: p.ends_at, status: p.status
+      }));
+      window.AppData.AEP_ASSIGNMENTS = mapRows(aepAssignmentsR, a => ({
+        id: a.id, periodId: a.period_id, repId: a.rep_id, territory: a.territory,
+        targetApps: a.target_apps, targetAp: cents(a.target_ap_cents),
+        completedApps: a.completed_apps, completedAp: cents(a.completed_ap_cents)
+      }));
+      window.AppData.SEQUENCES = mapRows(sequencesR, s => ({
+        id: s.id, name: s.name, description: s.description,
+        steps: s.steps, active: s.is_active
+      }));
+      window.AppData.SEQUENCE_ENROLLMENTS = mapRows(seqEnrollmentsR, e => ({
+        id: e.id, leadId: e.lead_pipeline_id, sequenceId: e.sequence_id,
+        owner: e.owner_rep_id, status: e.status, currentStep: e.current_step,
+        enrolledAt: e.enrolled_at, nextStepAt: e.next_step_at
+      }));
+      window.AppData.TIERING_OVERRIDES = mapRows(tieringOverridesR, o => ({
+        repId: o.rep_id, tier: o.override_tier, setAt: o.set_at, setBy: o.set_by
+      }));
+      window.AppData.DEPLOYMENTS = mapRows(agentDeploymentsR, d => ({
+        id: d.id, agentId: d.agent_id, hostId: d.host_id, status: d.status,
+        manifest: d.manifest, lastHeartbeat: d.last_heartbeat, startedAt: d.started_at
+      }));
+      window.AppData.AGENT_RUNS = mapRows(agentRunsR, r => ({
+        id: r.id, agentId: r.agent_id, hostId: r.host_id,
+        startedAt: r.started_at, endedAt: r.ended_at, durationMs: r.duration_ms,
+        status: r.status, output: r.output_text, error: r.error_text
+      }));
+    } catch (v2err) {
+      // v2 tables may not exist yet — that's fine, v1 hydrate already succeeded.
+      console.warn("[supabase] v2 hydrate skipped:", v2err?.message ?? v2err);
+    }
+
     window.AppData.LIVE = true;
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
