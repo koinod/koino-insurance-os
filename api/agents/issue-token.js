@@ -6,8 +6,8 @@ export const config = { runtime: "edge" };
 export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
   const body = req.body ? await req.json().catch(() => ({})) : {};
   const hint = (body && body.hint) || "host";

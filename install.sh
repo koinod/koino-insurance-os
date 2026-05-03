@@ -13,8 +13,8 @@ set -eu
 PLATFORM_CONFIG="$(curl -fsSL "$REPFLOW_URL/api/agents/issue-token" \
   -X POST -H 'content-type: application/json' \
   -d "{\"hint\":\"host-bootstrap\",\"_token_lookup\":\"$REPFLOW_TOKEN\"}" 2>/dev/null || echo '{}')"
-SUPABASE_URL="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_url','https://zybndnqnbxarpkhqpcxq.supabase.co'))" 2>/dev/null || echo "https://zybndnqnbxarpkhqpcxq.supabase.co")"
-SUPABASE_KEY="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_anon','sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W'))" 2>/dev/null || echo "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W")"
+SUPABASE_URL="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_url','https://jfphwmzwteermalzwojp.supabase.co'))" 2>/dev/null || echo "https://jfphwmzwteermalzwojp.supabase.co")"
+SUPABASE_KEY="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_anon','sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr'))" 2>/dev/null || echo "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr")"
 
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 KIND_VAL="$(uname -s 2>/dev/null || echo Unknown)"

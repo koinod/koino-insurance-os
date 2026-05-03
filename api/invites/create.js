@@ -4,7 +4,7 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 
 export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
@@ -14,7 +14,7 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: "missing bearer token" }), { status: 401, headers: { "content-type": "application/json" }});
   }
   const jwt = auth.slice(7);
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400 }); }

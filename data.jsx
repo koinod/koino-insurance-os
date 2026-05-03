@@ -103,8 +103,8 @@ window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDING
 // as the first script in index.html and mobile.html). If they're not yet set
 // at the time data.jsx evaluates (script ordering edge case), fall back to
 // safe defaults so the rest of the file still parses.
-window.SUPABASE_URL  = window.SUPABASE_URL  || "https://zybndnqnbxarpkhqpcxq.supabase.co";
-window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+window.SUPABASE_URL  = window.SUPABASE_URL  || "https://jfphwmzwteermalzwojp.supabase.co";
+window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
 window.getSupabase = function () {
   if (!window.__supabase && window.supabase?.createClient) {

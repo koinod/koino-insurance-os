@@ -4,7 +4,7 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 
 export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
@@ -19,7 +19,7 @@ export default async function handler(req) {
 
   // Best-effort write to vault. Uses anon key under RLS — in single-tenant
   // production the operator's service role key would land here via env.
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
   try {
     await fetch(`${SUPA_URL}/rest/v1/vault_artifacts`, {
       method: "POST",

@@ -7,7 +7,7 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 
 const enc = new TextEncoder();
 function timingSafeEq(a, b) {
@@ -46,7 +46,7 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
   const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const anon     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+  const anon     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
   if (!whSecret) {
     return new Response(JSON.stringify({ error: "webhook_secret_missing", detail: "Set STRIPE_WEBHOOK_SECRET on Vercel." }), { status: 503, headers: { "content-type": "application/json" }});
   }

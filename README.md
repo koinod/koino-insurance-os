@@ -8,7 +8,7 @@ Static client-rendered React prototype (Babel-standalone), wrapped for Vercel
 static deploy. Loaded directly from `index.html`; mobile rep view at
 `/mobile.html`.
 
-Backed by Supabase project `Repflow` (`zybndnqnbxarpkhqpcxq`) — schema mirrors
+Backed by Supabase project `Repflow` (`jfphwmzwteermalzwojp`) — schema mirrors
 the demo data shapes in `data.jsx`. The migration in `supabase/migrations/`
 provisions a matching DB.
 
