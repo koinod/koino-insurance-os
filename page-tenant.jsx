@@ -11,7 +11,7 @@
 
 (function () {
 
-const SUPA_URL = "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
 
 /* ─── Tenant context ───────────────────────────────────────────────────── */
 async function loadTenant() {

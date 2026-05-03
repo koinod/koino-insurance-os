@@ -4,7 +4,7 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
 
 export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });

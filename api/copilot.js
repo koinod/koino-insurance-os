@@ -28,7 +28,7 @@ GROUND RULES (non-negotiable):
 6. COMPLIANCE — never coach a producer to skip TPMO/SOA, never suggest evading carrier appointments, never produce content that violates Medicare marketing rules. If asked, refuse and cite the rule.
 7. STYLE — operator-grade specificity. 1-3 short paragraphs or a tight list. Never pad. Cite rep/lead names and exact numbers from DATA.`;
 
-const SUPA_URL = "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
 
 /* ─── Data tools ──────────────────────────────────────────────────────────
    Each tool returns a {label, rows} shape that gets serialized to JSON

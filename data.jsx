@@ -99,8 +99,12 @@ window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDING
    Pages all read from window.AppData; on hydrate we mutate in place + fire a
    "data:hydrated" event so any mounted component can re-render via state pump.
    ──────────────────────────────────────────────────────────────────────────── */
-window.SUPABASE_URL  = "https://zybndnqnbxarpkhqpcxq.supabase.co";
-window.SUPABASE_ANON = "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+// Supabase URL + anon key are now centralized in lib/supabase-config.js (loaded
+// as the first script in index.html and mobile.html). If they're not yet set
+// at the time data.jsx evaluates (script ordering edge case), fall back to
+// safe defaults so the rest of the file still parses.
+window.SUPABASE_URL  = window.SUPABASE_URL  || "https://zybndnqnbxarpkhqpcxq.supabase.co";
+window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
 
 window.getSupabase = function () {
   if (!window.__supabase && window.supabase?.createClient) {

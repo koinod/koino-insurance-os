@@ -31,7 +31,15 @@ export default async function handler(req) {
   const origin = new URL(req.url).origin;
   const cmd = `curl -fsSL ${origin}/install.sh | REPFLOW_TOKEN=${token} REPFLOW_URL=${origin} sh`;
 
-  return new Response(JSON.stringify({ token, install_command: cmd, expires_in_hours: 24 }), {
+  // Return Supabase URL+key in the response so install.sh stays parametric —
+  // operator can transfer Supabase ownership and host scripts auto-pick-up.
+  return new Response(JSON.stringify({
+    token,
+    install_command: cmd,
+    expires_in_hours: 24,
+    supabase_url: url,
+    supabase_anon: key,
+  }), {
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "no-store" }
   });

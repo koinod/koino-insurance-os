@@ -7,8 +7,14 @@ set -eu
 : "${REPFLOW_TOKEN:?REPFLOW_TOKEN env var required (paste from Repflow → Hardware → Enroll new host)}"
 : "${REPFLOW_URL:=https://koino-insurance-os.vercel.app}"
 
-SUPABASE_URL="https://zybndnqnbxarpkhqpcxq.supabase.co"
-SUPABASE_KEY="sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W"
+# Pull Supabase URL+key from the platform's token-issuance response, so this
+# script keeps working if the operator transfers Supabase ownership later.
+# Fallback to defaults if the token endpoint is unreachable.
+PLATFORM_CONFIG="$(curl -fsSL "$REPFLOW_URL/api/agents/issue-token" \
+  -X POST -H 'content-type: application/json' \
+  -d "{\"hint\":\"host-bootstrap\",\"_token_lookup\":\"$REPFLOW_TOKEN\"}" 2>/dev/null || echo '{}')"
+SUPABASE_URL="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_url','https://zybndnqnbxarpkhqpcxq.supabase.co'))" 2>/dev/null || echo "https://zybndnqnbxarpkhqpcxq.supabase.co")"
+SUPABASE_KEY="$(printf '%s' "$PLATFORM_CONFIG" | python3 -c "import sys,json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('supabase_anon','sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W'))" 2>/dev/null || echo "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W")"
 
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 KIND_VAL="$(uname -s 2>/dev/null || echo Unknown)"
