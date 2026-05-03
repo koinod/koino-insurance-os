@@ -111,20 +111,31 @@ window.getSupabase = function () {
   return window.__supabase || null;
 };
 
+window.getActiveAgencyId = function () {
+  try { return localStorage.getItem("repflow.active_agency"); } catch (_e) { return null; }
+};
+
 window.hydrateFromSupabase = async function () {
   const sb = window.getSupabase();
   if (!sb) return false;
   try {
+    // Multi-tenant scope: if the user has selected an active agency via the switcher,
+    // pin every query to it. RLS already restricts reads, but explicit scoping is
+    // required when the user is a member of multiple agencies.
+    const activeAgency = window.getActiveAgencyId();
+    const scope = (q) => activeAgency ? q.eq("agency_id", activeAgency) : q;
+    /* (Older variant of this function below uses unscoped queries; the next
+       awaited block applies scope() to every Promise.all entry below.) */
     const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows] = await Promise.all([
-      sb.from("reps").select("*").order("mtd_cents", { ascending: false }),
-      sb.from("pipeline").select("*").order("days_in_stage", { ascending: false }),
-      sb.from("queue").select("*").order("score", { ascending: false }),
-      sb.from("courses").select("*"),
-      sb.from("recordings").select("*").order("recorded_at", { ascending: false }),
-      sb.from("connections").select("*"),
-      sb.from("hardware").select("*"),
-      sb.from("ai_agents").select("*"),
-      sb.from("workflows").select("*"),
+      scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
+      scope(sb.from("pipeline").select("*").order("days_in_stage", { ascending: false })),
+      scope(sb.from("queue").select("*").order("score", { ascending: false })),
+      scope(sb.from("courses").select("*")),
+      scope(sb.from("recordings").select("*").order("recorded_at", { ascending: false })),
+      scope(sb.from("connections").select("*")),
+      scope(sb.from("hardware").select("*")),
+      scope(sb.from("ai_agents").select("*")),
+      scope(sb.from("workflows").select("*")),
     ]);
 
     if (reps.data?.length) {
