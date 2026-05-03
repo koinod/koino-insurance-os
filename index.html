@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=13"/>
+<link rel="stylesheet" href="styles.css?v=14"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
 <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
@@ -24,31 +24,32 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
-<script type="text/babel" src="tweaks-panel.jsx?v=13"></script>
-<script type="text/babel" src="data.jsx?v=13"></script>
-<script type="text/babel" src="icons.jsx?v=13"></script>
-<script type="text/babel" src="shared.jsx?v=13"></script>
-<script type="text/babel" src="page-today.jsx?v=13"></script>
-<script type="text/babel" src="page-pipeline-sequences.jsx?v=13"></script>
-<script type="text/babel" src="page-pipeline.jsx?v=13"></script>
-<script type="text/babel" src="page-queue.jsx?v=13"></script>
-<script type="text/babel" src="page-leaderboard.jsx?v=13"></script>
-<script type="text/babel" src="page-manager.jsx?v=13"></script>
-<script type="text/babel" src="page-owner.jsx?v=13"></script>
-<script type="text/babel" src="page-ops.jsx?v=13"></script>
-<script type="text/babel" src="page-extras.jsx?v=13"></script>
-<script type="text/babel" src="page-recruiting.jsx?v=13"></script>
-<script type="text/babel" src="page-attribution.jsx?v=13"></script>
-<script type="text/babel" src="page-ops-depth.jsx?v=13"></script>
-<script type="text/babel" src="page-platform.jsx?v=13"></script>
-<script type="text/babel" src="page-tenant.jsx?v=13"></script>
-<script type="text/babel" src="page-onboarding.jsx?v=13"></script>
-<script type="text/babel" src="page-admin.jsx?v=13"></script>
-<script type="text/babel" src="page-billing.jsx?v=13"></script>
-<script type="text/babel" src="page-floor.jsx?v=13"></script>
-<script type="text/babel" src="polish.jsx?v=13"></script>
-<script type="text/babel" src="page-auth.jsx?v=13"></script>
-<script type="text/babel" src="page-mobile.jsx?v=13"></script>
+<script type="text/babel" src="tweaks-panel.jsx?v=14"></script>
+<script type="text/babel" src="data.jsx?v=14"></script>
+<script type="text/babel" src="icons.jsx?v=14"></script>
+<script type="text/babel" src="shared.jsx?v=14"></script>
+<script type="text/babel" src="page-today.jsx?v=14"></script>
+<script type="text/babel" src="page-pipeline-sequences.jsx?v=14"></script>
+<script type="text/babel" src="page-pipeline.jsx?v=14"></script>
+<script type="text/babel" src="page-queue.jsx?v=14"></script>
+<script type="text/babel" src="page-leaderboard.jsx?v=14"></script>
+<script type="text/babel" src="page-manager.jsx?v=14"></script>
+<script type="text/babel" src="page-owner.jsx?v=14"></script>
+<script type="text/babel" src="page-ops.jsx?v=14"></script>
+<script type="text/babel" src="page-extras.jsx?v=14"></script>
+<script type="text/babel" src="page-recruiting.jsx?v=14"></script>
+<script type="text/babel" src="page-attribution.jsx?v=14"></script>
+<script type="text/babel" src="page-ops-depth.jsx?v=14"></script>
+<script type="text/babel" src="page-platform.jsx?v=14"></script>
+<script type="text/babel" src="page-tenant.jsx?v=14"></script>
+<script type="text/babel" src="page-onboarding.jsx?v=14"></script>
+<script type="text/babel" src="page-admin.jsx?v=14"></script>
+<script type="text/babel" src="page-billing.jsx?v=14"></script>
+<script type="text/babel" src="page-autodialer.jsx?v=14"></script>
+<script type="text/babel" src="page-floor.jsx?v=14"></script>
+<script type="text/babel" src="polish.jsx?v=14"></script>
+<script type="text/babel" src="page-auth.jsx?v=14"></script>
+<script type="text/babel" src="page-mobile.jsx?v=14"></script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
@@ -183,6 +184,7 @@ function App() {
       {(() => { const T = window.ToastHost; return T ? <T/> : null; })()}
       {(() => { const O = window.OnboardingTour; return O ? <O/> : null; })()}
       {(() => { const NP = window.PerAgencyNotificationsPanel || NotificationsPanel; return <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>; })()}
+      {window.AutoDialBar && (() => { const A = window.AutoDialBar; return <A/>; })()}
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall onClose={() => setCallOpen(false)}/>}
 

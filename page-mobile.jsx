@@ -1,9 +1,17 @@
-/* Mobile rep view */
+/* Mobile rep view — swipe-to-act on real data */
 function MobileRep() {
   const [tab, setTab] = React.useState("dial");
-  const [cards, setCards] = React.useState(AppData.QUEUE.slice(0, 4));
+  const [cards, setCards] = React.useState(() => (AppData.QUEUE || []).slice(0, 6));
   const [drag, setDrag] = React.useState({ x: 0, y: 0 });
+  const [actionFlash, setActionFlash] = React.useState(null); // {dir, label}
   const startRef = React.useRef(null);
+
+  // Re-pull cards when realtime swaps the queue
+  React.useEffect(() => {
+    const refresh = () => setCards((AppData.QUEUE || []).slice(0, 6));
+    window.addEventListener("data:hydrated", refresh);
+    return () => window.removeEventListener("data:hydrated", refresh);
+  }, []);
 
   const top = cards[0];
 
@@ -15,12 +23,46 @@ function MobileRep() {
   const onPtrUp = () => {
     if (!startRef.current) return;
     const { x, y } = drag;
-    if (Math.abs(x) > 80 || Math.abs(y) > 80) {
-      setCards(c => c.slice(1));
+    const ax = Math.abs(x), ay = Math.abs(y);
+    if (Math.max(ax, ay) > 80) {
+      const dir = ax > ay ? (x > 0 ? "right" : "left") : (y < 0 ? "up" : "down");
+      handleSwipe(dir, top);
     }
     startRef.current = null;
     setDrag({ x: 0, y: 0 });
   };
+
+  const handleSwipe = (dir, lead) => {
+    if (!lead) return;
+    const phone = "+1512555" + String(lead.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
+    if (dir === "right") {
+      // Dial — call via repflowDial (Twilio first, then helper, then tel:)
+      window.repflowDial && window.repflowDial(phone, lead.lead);
+      flash("right", "DIAL");
+    } else if (dir === "left") {
+      // Skip — toast and pop
+      window.toast && window.toast(`Skipped ${lead.lead}`, "info");
+      flash("left", "SKIP");
+    } else if (dir === "up") {
+      // SMS — fire SMS intent + log activity
+      const sms = `sms:${phone}?body=${encodeURIComponent("Hi " + (lead.lead || "").split(" ")[0] + ", this is Marcus from Atlas — got a sec to talk Med Supp?")}`;
+      window.location.href = sms;
+      flash("up", "SMS");
+    } else if (dir === "down") {
+      // Re-queue — push to back
+      setCards(c => [...c.slice(1), c[0]]);
+      window.toast && window.toast(`${lead.lead} re-queued`, "info");
+      flash("down", "LATER");
+      return; // don't pop
+    }
+    setCards(c => c.slice(1));
+  };
+
+  const flash = (dir, label) => {
+    setActionFlash({ dir, label });
+    setTimeout(() => setActionFlash(null), 700);
+  };
+
   const dir = drag.x > 40 ? "right" : drag.x < -40 ? "left" : drag.y < -40 ? "up" : drag.y > 40 ? "down" : null;
 
   return (
@@ -39,7 +81,7 @@ function MobileRep() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 14px" }}>
                 <div>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Dial Queue</div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{cards.length} fresh · swipe to dispatch</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{cards.length} fresh · swipe → dial · ← skip · ↑ SMS · ↓ later</div>
                 </div>
                 <div className="lb-pill" style={{ padding: "3px 8px" }}>
                   <Icons.Trophy size={11} style={{ color: "var(--accent-status)" }}/>
@@ -54,7 +96,7 @@ function MobileRep() {
                     <Icons.Sparkles size={20} style={{ color: "var(--accent-money)" }}/>
                     <div style={{ fontSize: 14, fontWeight: 500, marginTop: 6 }}>Queue empty</div>
                     <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Pull from AEP pool?</div>
-                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setCards(AppData.QUEUE.slice(0, 4))}>Pull 4 leads</button>
+                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setCards((AppData.QUEUE || []).slice(0, 6))}>Pull 6 leads</button>
                   </div>
                 )}
                 {cards.slice(0, 3).reverse().map((c, idx, arr) => {
@@ -63,6 +105,7 @@ function MobileRep() {
                   const transform = isTop
                     ? `translate(${drag.x}px, ${drag.y}px) rotate(${drag.x * 0.04}deg)`
                     : `translateY(${offset * 8}px) scale(${1 - offset * 0.04})`;
+                  const phone = "+1512555" + String(c.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
                   return (
                     <div key={c.id} className="swipe-card" style={{ transform, zIndex: idx, transition: isTop && !startRef.current ? "transform 200ms var(--ease-spring)" : "none" }}
                          onPointerDown={isTop ? onPtrDown : undefined}
@@ -84,14 +127,14 @@ function MobileRep() {
                         <span className="chip chip-info">Score {c.score}</span>
                       </div>
                       <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
-                        <div style={{ width: 80, height: 80, borderRadius: "50%", border: "1.5px dashed var(--border-strong)", display: "grid", placeItems: "center", color: "var(--text-tertiary)" }}>
+                        <button className="btn btn-primary" style={{ width: 80, height: 80, borderRadius: "50%", padding: 0 }} onClick={() => isTop && handleSwipe("right", c)}>
                           <Icons.Phone size={28}/>
-                        </div>
+                        </button>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 10.5, color: "var(--text-tertiary)" }}>
                         <div>← Skip</div>
                         <div style={{ textAlign: "right" }}>Dial →</div>
-                        <div>↓ Re-queue</div>
+                        <div>↓ Later</div>
                         <div style={{ textAlign: "right" }}>↑ SMS</div>
                       </div>
                       {isTop && dir && (
@@ -107,8 +150,15 @@ function MobileRep() {
                   );
                 })}
               </div>
+              {actionFlash && (
+                <div style={{ position: "fixed", inset: 0, pointerEvents: "none", display: "grid", placeItems: "center", animation: "rise 240ms var(--ease-out)" }}>
+                  <div style={{ padding: "12px 24px", borderRadius: 999, fontSize: 18, fontWeight: 700, color: actionFlash.dir === "right" ? "var(--accent-money)" : actionFlash.dir === "left" ? "var(--state-danger)" : "var(--state-info)", background: "color-mix(in oklch, var(--bg-elevated) 90%, transparent)", border: "1px solid var(--border-strong)" }}>{actionFlash.label}</div>
+                </div>
+              )}
             </>
           )}
+
+          {tab === "pipe" && window.MScreenPipeline && (() => { const C = window.MScreenPipeline; return <C onNav={(n) => setTab(n === "queue" ? "dial" : n)} onLead={(l) => { window.repflowDial && window.repflowDial("+15125550" + (l.id || "100"), l.lead); }}/>; })()}
 
           {tab === "lb" && (
             <>
@@ -132,27 +182,21 @@ function MobileRep() {
             </>
           )}
 
+          {tab === "vault" && window.MScreenVault && (() => { const C = window.MScreenVault; return <C onNav={setTab}/>; })()}
+
           {tab === "me" && (
             <>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0" }}>
                 <Shared.Avatar rep={AppData.REPS[0]} size={64}/>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginTop: 10 }}>Marcus Avila</div>
-                <Shared.TierChip tier="platinum"/>
-                <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", marginTop: 16 }}>$42,310</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>MTD · $8,690 to Diamond</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginTop: 10 }}>{AppData.REPS[0]?.name}</div>
+                <Shared.TierChip tier={AppData.REPS[0]?.tier || "bronze"}/>
+                <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", marginTop: 16 }}>${(AppData.REPS[0]?.mtd || 0).toLocaleString()}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>MTD · keep going</div>
                 <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                  <div style={{ width: "82%", height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
+                  <div style={{ width: `${Math.min(100, (AppData.REPS[0]?.mtd || 0) / 600)}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
                 </div>
               </div>
-              <div className="panel" style={{ marginTop: 12 }}>
-                <div className="panel-h"><Icons.Flame size={13} style={{ color: "var(--accent-heat)" }}/><h3>18-day dial streak</h3></div>
-                <div style={{ padding: 12, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {Array.from({ length: 18 }).map((_, i) => (
-                    <div key={i} style={{ width: 22, height: 22, borderRadius: 4, background: "color-mix(in oklch, var(--accent-heat) 35%, transparent)", display: "grid", placeItems: "center", color: "var(--accent-heat)", fontSize: 9, fontWeight: 600 }}>✓</div>
-                  ))}
-                  <div style={{ width: 22, height: 22, borderRadius: 4, border: "1px dashed var(--border-strong)", display: "grid", placeItems: "center", color: "var(--text-quaternary)", fontSize: 9 }}>?</div>
-                </div>
-              </div>
+              <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 16, color: "var(--state-danger)" }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
             </>
           )}
         </div>

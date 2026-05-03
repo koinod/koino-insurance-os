@@ -143,6 +143,7 @@ function PagePipeline({ role = "owner" }) {
             const rows = filtered.map(p => Object.fromEntries(headers.map(h => [h, p[h]])));
             window.exportCSV && window.exportCSV(rows, "pipeline.csv");
           }}><Icons.ArrowUpRight size={13}/> Export</button>
+          {window.PipelineAutoDialButton && (() => { const B = window.PipelineAutoDialButton; return <B leads={filtered}/>; })()}
           <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={13}/> New lead</button>
         </div>
       </div>

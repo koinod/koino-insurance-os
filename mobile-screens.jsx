@@ -43,67 +43,80 @@ function MBottomNav({ active = "home", onNav = () => {} }) {
 
 // ── Screen 1: Today ─────────────────────────────────────────────────────
 function MScreenToday({ onNav }) {
+  // Hydrate everything from demo / live AppData so the screen is honest.
+  const me   = AppData.REPS && AppData.REPS[0];
+  const hot  = (AppData.QUEUE || []).filter(q => q.elapsed < 60).slice(0, 3);
+  const upNext = (AppData.PIPELINE || [])
+    .filter(p => p.next && p.stage !== "Issued" && p.stage !== "Lost")
+    .slice(0, 4)
+    .map((p, i) => ({ time: ["11:30","1:00","2:30","4:00"][i], who: p.lead, what: p.next, chip: p.product?.split(" ").slice(0, 2).join(" ") }));
+  const todayBooked = me?.today || 0;
+  const target = 3800;
+  const pct = Math.min(100, Math.round((todayBooked / target) * 100));
+  const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
+  const monthDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const initials = me?.name?.split(" ").map(s => s[0]).join("") || "MA";
+  const issuedToday = (AppData.PIPELINE || []).filter(p => p.stage === "Issued").length;
+
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Tuesday · Oct 14</div>
-          <div className="m-title">Good morning, Marcus</div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{dayName} · {monthDate}</div>
+          <div className="m-title">{(me?.name || "Producer").split(" ")[0] === "Producer" ? "Welcome back" : "Good morning, " + me.name.split(" ")[0]}</div>
         </div>
-        <div className="m-avatar">MA</div>
+        <div className="m-avatar" style={{ background: me?.color }}>{initials}</div>
       </div>
 
       <div className="m-scroll">
-        {/* Hot lead notif */}
-        <div className="m-notif" style={{ marginTop: 4 }}>
-          <span className="m-live"></span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>3 hot leads waiting <span className="m-chip heat" style={{ marginLeft: 6 }}><MIcon.Flame/> 14s SLA</span></div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>Cheryl Hampton · Anita Boswell · Jamal Wright</div>
+        {hot.length > 0 && (
+          <div className="m-notif" style={{ marginTop: 4 }}>
+            <span className="m-live"></span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{hot.length} hot {hot.length === 1 ? "lead" : "leads"} waiting <span className="m-chip heat" style={{ marginLeft: 6 }}><MIcon.Flame/> {hot[0].elapsed}s SLA</span></div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{hot.map(h => h.lead).join(" · ")}</div>
+            </div>
+            <button className="m-btn m-btn-pri m-btn-pill" onClick={() => onNav("queue")}>Dial</button>
           </div>
-          <button className="m-btn m-btn-pri m-btn-pill" onClick={() => onNav("queue")}>Dial</button>
-        </div>
+        )}
 
-        <div className="m-section-h"><span>Today's progress</span><span style={{ color: "var(--accent-money)" }}>+$2,840</span></div>
+        <div className="m-section-h"><span>Today's progress</span><span style={{ color: "var(--accent-money)" }}>+${todayBooked.toLocaleString()}</span></div>
         <div className="m-kpi-row">
-          <div className="m-kpi"><div className="m-kpi-l">Premium MTD</div><div className="m-kpi-v">$42.3k</div><div className="m-kpi-d" style={{ color: "var(--accent-money)" }}>+18% wk</div></div>
-          <div className="m-kpi"><div className="m-kpi-l">Apps issued</div><div className="m-kpi-v">14</div><div className="m-kpi-d">3 pending</div></div>
-          <div className="m-kpi"><div className="m-kpi-l">Dials</div><div className="m-kpi-v">87</div><div className="m-kpi-d">goal 110</div></div>
-          <div className="m-kpi"><div className="m-kpi-l">Streak</div><div className="m-kpi-v">18d</div><div className="m-kpi-d" style={{ color: "var(--accent-heat)" }}>🔥 club rank 4</div></div>
+          <div className="m-kpi"><div className="m-kpi-l">Premium MTD</div><div className="m-kpi-v">${((me?.mtd || 0) / 1000).toFixed(1)}k</div><div className="m-kpi-d" style={{ color: "var(--accent-money)" }}>{me?.mtd > 30000 ? "on pace" : "behind"}</div></div>
+          <div className="m-kpi"><div className="m-kpi-l">Apps issued</div><div className="m-kpi-v">{issuedToday}</div><div className="m-kpi-d">this month</div></div>
+          <div className="m-kpi"><div className="m-kpi-l">Dials</div><div className="m-kpi-v">{me?.dials || 0}</div><div className="m-kpi-d">today</div></div>
+          <div className="m-kpi"><div className="m-kpi-l">Streak</div><div className="m-kpi-v">{me?.streak || 0}d</div><div className="m-kpi-d" style={{ color: "var(--accent-heat)" }}>{me?.streak > 10 ? "🔥 club" : "warming up"}</div></div>
         </div>
 
-        <div className="m-section-h"><span>Daily target</span><span>$3,800</span></div>
+        <div className="m-section-h"><span>Daily target</span><span>${target.toLocaleString()}</span></div>
         <div className="m-card">
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12, color: "var(--text-secondary)" }}>
-            <span>$2,840 · 75%</span><span style={{ color: "var(--text-tertiary)" }}>$960 to goal</span>
+            <span>${todayBooked.toLocaleString()} · {pct}%</span><span style={{ color: "var(--text-tertiary)" }}>${(target - todayBooked).toLocaleString()} to goal</span>
           </div>
-          <div className="m-bar"><div className="m-bar-fill" style={{ width: "75%" }}></div></div>
+          <div className="m-bar"><div className="m-bar-fill" style={{ width: pct + "%" }}></div></div>
           <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
-            <span className="m-chip">7 appts</span>
-            <span className="m-chip">3 SOA</span>
-            <span className="m-chip money">$1.8k AP closed</span>
-            <span className="m-chip">Plat tier</span>
+            <span className="m-chip">{me?.appts || 0} appts</span>
+            <span className="m-chip">{me?.tier || "bronze"} tier</span>
           </div>
         </div>
 
-        <div className="m-section-h"><span>Up next</span></div>
-        <div className="m-card" style={{ padding: 0 }}>
-          {[
-            { time: "11:30", who: "Cheryl Hampton", what: "SOA + Plan G quote", chip: "Med Supp" },
-            { time: "1:00", who: "Robert Mendez", what: "App walkthrough", chip: "FE $15K" },
-            { time: "2:30", who: "Linda Cho", what: "Quote follow-up", chip: "Med Supp" },
-            { time: "4:00", who: "Henry Akins", what: "Carrier signature call", chip: "Annuity" },
-          ].map((a, i) => (
-            <div key={i} className="m-lead" style={{ padding: "12px 14px", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
-              <div className="m-lead-i" style={{ fontFamily: "var(--font-mono)", color: "var(--accent-money)", background: "color-mix(in oklch, var(--accent-money) 12%, transparent)" }}>{a.time}</div>
-              <div className="m-lead-b">
-                <div className="m-lead-t">{a.who}</div>
-                <div className="m-lead-s">{a.what}</div>
-              </div>
-              <span className="m-chip">{a.chip}</span>
+        {upNext.length > 0 && (
+          <>
+            <div className="m-section-h"><span>Up next</span></div>
+            <div className="m-card" style={{ padding: 0 }}>
+              {upNext.map((a, i) => (
+                <div key={i} className="m-lead" style={{ padding: "12px 14px", borderBottom: i < upNext.length - 1 ? "1px solid var(--border-subtle)" : 0 }}>
+                  <div className="m-lead-i" style={{ fontFamily: "var(--font-mono)", color: "var(--accent-money)", background: "color-mix(in oklch, var(--accent-money) 12%, transparent)" }}>{a.time}</div>
+                  <div className="m-lead-b">
+                    <div className="m-lead-t">{a.who}</div>
+                    <div className="m-lead-s">{a.what}</div>
+                  </div>
+                  <span className="m-chip">{a.chip}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </div>
 
       <MBottomNav active="home" onNav={onNav}/>

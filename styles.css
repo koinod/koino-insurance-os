@@ -1085,3 +1085,26 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 .tour-overlay { position: fixed; bottom: 24px; right: 24px; z-index: 150; }
 .tour-card    { width: 360px; padding: 18px; background: var(--bg-elevated); border: 1px solid var(--accent-money); border-radius: 12px; box-shadow: var(--shadow-floating); animation: tourPop 240ms var(--ease-out); }
 @keyframes tourPop { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* Autodial floating bar */
+.autodial-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 80;
+  width: min(880px, calc(100vw - 28px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--bg-elevated) 88%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid color-mix(in oklch, var(--border-subtle) 75%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--text-primary) 5%, transparent) inset,
+    0 18px 40px -18px rgba(0,0,0,0.7);
+  animation: rise 240ms var(--ease-out);
+}
