@@ -160,7 +160,6 @@ function TodayRep({ aep }) {
         <Shared.KpiCard label="Dials" value="87" sub="streak: 18d" trend="up" spark={[60,72,68,75,80,78,85,87]}/>
       </div>
 
-      <AEPBanner repId={me?.id}/>
       <TasksPanel repId={me?.id} limit={5}/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -329,7 +328,6 @@ function TodayManager({ aep }) {
         <Shared.KpiCard label="Total dials" value={totalDials} sub="goal 700" trend="up"/>
       </div>
 
-      <AEPBanner/>
       <ForecastStrip scope="team"/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -439,7 +437,6 @@ function TodayOwner({ aep }) {
         <Shared.KpiCard label="Active producers" value={REPS.filter(r => r.presence === "live").length + "/" + REPS.length}/>
       </div>
 
-      <AEPBanner/>
       <ForecastStrip scope="org"/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>

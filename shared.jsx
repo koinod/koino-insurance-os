@@ -78,6 +78,7 @@ const NAV = {
     { id: "training",    label: "Training",     icon: "Book" },
   ],
   owner: [
+    { id: "admin",       label: "Admin",        icon: "Shield" },
     { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
     { id: "tree",        label: "Org Tree",     icon: "Users" },
     { id: "book",        label: "Book Analytics", icon: "Activity" },
@@ -259,6 +260,7 @@ const CMD_ITEMS = {
     { label: "Hardware",           icon: "Server",     nav: "hardware" },
     { label: "Agents",             icon: "Cpu",        nav: "agents" },
     { label: "Workflows",          icon: "Workflow",   nav: "workflows" },
+    { label: "Admin",              icon: "Shield",     nav: "admin" },
     { label: "Settings",           icon: "Settings",   nav: "settings" },
   ],
   "Ask Repflow": [
