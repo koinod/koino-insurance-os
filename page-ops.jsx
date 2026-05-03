@@ -182,17 +182,26 @@ function PageWorkflows() {
         <div className="panel">
           <div className="panel-h"><h3>Active workflows</h3><span className="meta">{AppData.WORKFLOWS.length}</span></div>
           <div className="list">
-            {AppData.WORKFLOWS.map(w => (
-              <div key={w.id} className="row" style={{ gridTemplateColumns: "1fr 90px 90px 30px", height: 44 }}>
-                <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{w.name}</div>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>last run {w.lastRun}</div>
+            {AppData.WORKFLOWS.map(w => {
+              const active = w.active !== false;
+              return (
+                <div key={w.id} className="row" style={{ gridTemplateColumns: "1fr 90px 90px 60px 30px", height: 44 }}>
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, opacity: active ? 1 : 0.55 }}>{w.name}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>last run {w.lastRun}</div>
+                  </div>
+                  <div className="tabular" style={{ color: "var(--text-secondary)" }}>{w.runs}</div>
+                  <div><span className={`chip ${active ? "chip-money" : ""}`}>{active ? "healthy" : "paused"}</span></div>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    onClick={() => window.AppData.mutate.workflowToggle(w.id, !active).then(() => window.toast && window.toast(`${active ? "Paused" : "Resumed"} ${w.name}`, "success")).catch(() => {})}>
+                    {active ? <><Icons.Pause size={11}/> Pause</> : <><Icons.Play size={11}/> Run</>}
+                  </button>
+                  <button className="icon-btn"><Icons.ChevronRight size={12}/></button>
                 </div>
-                <div className="tabular" style={{ color: "var(--text-secondary)" }}>{w.runs}</div>
-                <div><span className="chip chip-money">healthy</span></div>
-                <button className="icon-btn"><Icons.ChevronRight size={12}/></button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

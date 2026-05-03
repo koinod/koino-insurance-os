@@ -789,10 +789,18 @@ function PageSettings({ role = "owner" }) {
 }
 
 function SettingsOrg() {
-  const [name, setName]     = React.useState("Atlas Insurance Group");
-  const [legal, setLegal]   = React.useState("Atlas IMO LLC");
-  const [domain, setDomain] = React.useState("atlasimo.com");
-  const [npn, setNpn]       = React.useState("19384726");
+  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || "Atlas Insurance Group");
+  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || "Atlas IMO LLC");
+  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || "atlasimo.com");
+  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || "19384726");
+  const [saving, setSaving] = React.useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await window.AppData.mutate.orgSettingsSave({ name, legal, domain, npn });
+      window.toast && window.toast(`Organization saved${AppData.LIVE ? "" : " (demo only — sign in for persistence)"}`, "success");
+    } catch (_e) {} finally { setSaving(false); }
+  };
   return (
     <div className="panel" style={{ padding: 16 }}>
       <h3 style={{ margin: 0, marginBottom: 12 }}>Organization</h3>
@@ -811,7 +819,7 @@ function SettingsOrg() {
         <button className="btn btn-ghost" style={{ padding: "3px 10px" }}><Icons.Plus size={11}/> Add</button>
       </div>
       <div className="divider"></div>
-      <button className="btn btn-primary"><Icons.Check size={12}/> Save organization</button>
+      <button className="btn btn-primary" onClick={save} disabled={saving}><Icons.Check size={12}/> {saving ? "Saving..." : "Save organization"}</button>
     </div>
   );
 }
@@ -953,6 +961,42 @@ function SettingsRouting() {
 }
 
 function SettingsNotifications() {
+  const [prefs, setPrefs] = React.useState({
+    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
+  });
+  const update = (k, v) => {
+    const next = { ...prefs, [k]: v };
+    setPrefs(next);
+    window.AppData.mutate.notificationPrefsSave("me", next).catch(() => {});
+  };
+  const t = (k, l, sub) => (
+    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
+      <span style={{ display: "inline-block", width: 32 }}>
+        <input type="checkbox" checked={prefs[k]} onChange={(e) => update(k, e.target.checked)}/>
+      </span>
+      <div>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
+      </div>
+      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
+    </label>
+  );
+  return (
+    <div className="panel" style={{ padding: 16 }}>
+      <h3 style={{ margin: 0 }}>Notifications</h3>
+      <div style={{ marginTop: 8 }}>
+        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
+        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
+        {t("dealIssued",    "Deal issued",                   "Push immediately")}
+        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
+        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
+        {t("recruitingNew", "New applicant in funnel",        "Daily")}
+        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
+      </div>
+    </div>
+  );
+}
+function SettingsNotifications_OLD() {
   const [prefs, setPrefs] = React.useState({
     leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
   });

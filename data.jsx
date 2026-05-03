@@ -627,4 +627,188 @@ window.AppData.mutate = {
     }
     _emitMutation("sequence_enrollments", "insert", leadId);
   },
+
+  /* ── Settings & profile ─────────────────────────────────────────────── */
+  async orgSettingsSave(patch) {
+    // patch: object of key/value pairs to upsert into org_settings
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const rows = Object.entries(patch).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }));
+      const { error } = await sb.from("org_settings").upsert(rows, { onConflict: "key" });
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    window.AppData.ORG_SETTINGS = { ...(window.AppData.ORG_SETTINGS || {}), ...patch };
+    _emitMutation("org_settings", "upsert", null);
+  },
+
+  async notificationPrefsSave(userId, prefs) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("notification_prefs").upsert(
+        { user_id: userId, prefs, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("notification_prefs", "upsert", userId);
+  },
+
+  /* ── Vault artifacts ────────────────────────────────────────────────── */
+  async vaultArtifactInsert(artifact) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("vault_artifacts").insert(artifact).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) artifact.id = data.id;
+      }
+    }
+    (window.AppData.VAULT_ARTIFACTS = window.AppData.VAULT_ARTIFACTS || []).unshift(artifact);
+    _emitMutation("vault_artifacts", "insert", artifact.id);
+  },
+
+  async vaultRetentionUpdate(id, retention) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("vault_artifacts").update({ retention }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("vault_artifacts", "update", id);
+  },
+
+  /* ── NIGO workflow ──────────────────────────────────────────────────── */
+  async nigoCreate(item) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("nigo_items").insert(item).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) item.id = data.id;
+      }
+    }
+    (window.AppData.NIGO = window.AppData.NIGO || []).unshift(item);
+    _emitMutation("nigo_items", "insert", item.id);
+  },
+
+  async nigoStatus(id, status, detail) {
+    const row = (window.AppData.NIGO || []).find(n => n.id === id);
+    if (row) {
+      row.status = status;
+      if (status === "resolved") row.resolved_at = new Date().toISOString();
+      if (detail) row.detail = detail;
+    }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const patch = { status };
+      if (status === "resolved") patch.resolved_at = new Date().toISOString();
+      if (detail) patch.detail = detail;
+      const { error } = await sb.from("nigo_items").update(patch).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("nigo_items", "update", id);
+  },
+
+  /* ── Recruiting ─────────────────────────────────────────────────────── */
+  async recruitingApplicantAdd(applicant) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("recruiting_applicants").insert(applicant).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) applicant.id = data.id;
+      }
+    }
+    (window.AppData.APPLICANTS = window.AppData.APPLICANTS || []).unshift(applicant);
+    _emitMutation("recruiting_applicants", "insert", applicant.id);
+  },
+
+  async recruitingMessageSend(applicantId, body, channel = "instagram", aiDrafted = false) {
+    const msg = { applicant_id: applicantId, direction: "out", channel, body, ai_drafted: aiDrafted, sent_at: new Date().toISOString() };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("recruiting_messages").insert(msg).select().single();
+        if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
+        if (data) msg.id = data.id;
+      }
+    }
+    (window.AppData.RECRUIT_MSGS = window.AppData.RECRUIT_MSGS || []).unshift(msg);
+    _emitMutation("recruiting_messages", "insert", msg.id);
+    return msg;
+  },
+
+  async recruitingCampaignToggle(id, status) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("recruiting_campaigns").update({ status }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("recruiting_campaigns", "update", id);
+  },
+
+  /* ── Workflows ──────────────────────────────────────────────────────── */
+  async workflowToggle(id, active) {
+    const w = window.AppData.WORKFLOWS.find(x => x.id === id);
+    if (w) w.active = active;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("workflows").update({ active }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("workflows", "update", id);
+  },
+
+  /* ── Routing rules ──────────────────────────────────────────────────── */
+  async routingRuleSave(rule) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const op = rule.id
+          ? sb.from("routing_rules").update({ source: rule.src || rule.source, route_to: rule.route || rule.route_to, weight: rule.weight, active: rule.active ?? true }).eq("id", rule.id)
+          : sb.from("routing_rules").insert({ source: rule.src || rule.source, route_to: rule.route || rule.route_to, weight: rule.weight, active: rule.active ?? true });
+        const { error } = await op;
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+    _emitMutation("routing_rules", rule.id ? "update" : "insert", rule.id);
+  },
+
+  async routingRuleDelete(id) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("routing_rules").delete().eq("id", id);
+      if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("routing_rules", "delete", id);
+  },
+
+  /* ── Saved views ────────────────────────────────────────────────────── */
+  async savedViewSave(userId, page, name, filters) {
+    const row = { user_id: userId, page, name, filters };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("saved_views").insert(row).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) row.id = data.id;
+      }
+    }
+    (window.AppData.SAVED_VIEWS = window.AppData.SAVED_VIEWS || []).push(row);
+    _emitMutation("saved_views", "insert", row.id);
+    return row;
+  },
+
+  /* ── Connections ────────────────────────────────────────────────────── */
+  async connectionStatus(id, status, meta) {
+    const row = window.AppData.CONNECTIONS.find(c => c.id === id);
+    if (row) { row.status = status; if (meta !== undefined) row.meta = meta; }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const patch = { status, updated_at: new Date().toISOString() };
+      if (meta !== undefined) patch.meta = meta;
+      const { error } = await sb.from("connections").update(patch).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("connections", "update", id);
+  },
 };

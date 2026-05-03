@@ -493,4 +493,19 @@ const Select = ({ value, onChange, options }) => (
   </select>
 );
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select };
+/* Section pill — horizontal liquid-glass tabs for combining related pages
+   within one screen. Use as: <SectionPill items={[{k:"a",l:"All"},...]}
+   value={tab} onChange={setTab}/> */
+const SectionPill = ({ items, value, onChange, dense }) => (
+  <div className="section-pill" style={dense ? { margin: "0 0 8px" } : undefined}>
+    {items.map(it => (
+      <button key={it.k} className={value === it.k ? "active" : ""} onClick={() => onChange(it.k)}>
+        {it.icon && Icons[it.icon] ? React.createElement(Icons[it.icon], { size: 11, style: { marginRight: 4, verticalAlign: "middle" } }) : null}
+        {it.l}
+        {it.badge != null && <span className="badge tabular" style={{ marginLeft: 6, fontSize: 9.5 }}>{it.badge}</span>}
+      </button>
+    ))}
+  </div>
+);
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill };
