@@ -78,27 +78,21 @@ const NAV = {
     { id: "training",    label: "Training",     icon: "Book" },
   ],
   owner: [
-    { id: "admin",       label: "Admin",        icon: "Shield" },
-    { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
-    { id: "tree",        label: "Org Tree",     icon: "Users" },
-    { id: "book",        label: "Book Analytics", icon: "Activity" },
-    { id: "attribution", label: "Lead Vendors", icon: "Wallet" },
-    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
-    { id: "coaching",    label: "Coaching",     icon: "Activity" },
-    { id: "commissions", label: "Commissions",  icon: "Wallet" },
-    { id: "training",    label: "Training",     icon: "Book" },
+    { id: "admin",       label: "Admin",            icon: "Shield" },
+    { id: "pnl",         label: "P&L",              icon: "TrendingUp" },
+    { id: "tree",        label: "Org Tree",         icon: "Users" },
+    { id: "performance", label: "Performance",      icon: "Trophy" },
+    { id: "book",        label: "Book Analytics",   icon: "Activity" },
+    { id: "attribution", label: "Lead Vendors",     icon: "Wallet" },
+    { id: "recruiting",  label: "Recruiting",       icon: "ArrowUpRight" },
+    { id: "coaching",    label: "Coaching",         icon: "Activity" },
+    { id: "commissions", label: "Commissions",      icon: "Wallet" },
+    { id: "training",    label: "Training",         icon: "Book" },
     { id: "vault",       label: "Compliance Vault", icon: "Shield" },
-    { id: "scrubbers",   label: "Scrubbers",   icon: "Shield" },
-    { id: "carriers",    label: "Carriers",    icon: "Folder" },
-    { id: "forecast",    label: "Forecast",    icon: "TrendingUp" },
-    { id: "tiering",     label: "Tiering",      icon: "Award" },
-    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
+    { id: "resources",   label: "Resources",        icon: "Folder" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
-    { id: "hardware",    label: "Hardware",     icon: "Server" },
-    { id: "agents",      label: "Agents",       icon: "Cpu" },
-    { id: "workflows",   label: "Workflows",    icon: "Workflow" },
   ],
 };
 
@@ -239,30 +233,25 @@ const CMD_ITEMS = {
     { label: "Draft rebuttal: 'I already have coverage'",               icon: "Sparkles" },
   ],
   Navigate: [
-    { label: "Today",              icon: "Home",       nav: "today" },
-    { label: "Pipeline",           icon: "Pipeline",   nav: "pipeline" },
-    { label: "Dial Queue",         icon: "Phone",      nav: "queue" },
-    { label: "Calls",              icon: "Headset",    nav: "calls" },
-    { label: "Leaderboard",        icon: "Trophy",     nav: "leaderboard" },
-    { label: "Commissions",        icon: "Wallet",     nav: "commissions" },
-    { label: "Training",           icon: "Book",       nav: "training" },
-    { label: "Compliance Vault",   icon: "Shield",     nav: "vault" },
-    { label: "Tiering Console",    icon: "Award",      nav: "tiering" },
+    { label: "Today",              icon: "Home",         nav: "today" },
+    { label: "Pipeline",           icon: "Pipeline",     nav: "pipeline" },
+    { label: "Dial Queue",         icon: "Phone",        nav: "queue" },
+    { label: "Calls",              icon: "Headset",      nav: "calls" },
+    { label: "Leaderboard",        icon: "Trophy",       nav: "leaderboard" },
+    { label: "Performance · standings + tiering + forecast", icon: "Trophy", nav: "performance" },
+    { label: "Commissions",        icon: "Wallet",       nav: "commissions" },
+    { label: "Training",           icon: "Book",         nav: "training" },
+    { label: "Compliance Vault",   icon: "Shield",       nav: "vault" },
+    { label: "Resources · scrub tool + carriers + links", icon: "Folder", nav: "resources" },
     { label: "Recruiting Funnel",  icon: "ArrowUpRight", nav: "recruiting" },
-    { label: "P&L",                icon: "TrendingUp", nav: "pnl" },
-    { label: "Org Tree",           icon: "Users",      nav: "tree" },
-    { label: "Book Analytics",     icon: "Activity",   nav: "book" },
-    { label: "Lead Vendors · ROI", icon: "Wallet",     nav: "attribution" },
-    { label: "NIGO Queue",         icon: "Bell",       nav: "nigo" },
-    { label: "Carriers",           icon: "Folder",     nav: "carriers" },
-    { label: "Compliance scrubbers", icon: "Shield",   nav: "scrubbers" },
-    { label: "Revenue forecast",    icon: "TrendingUp", nav: "forecast" },
-    { label: "Connections",        icon: "Plug",       nav: "connections" },
-    { label: "Hardware",           icon: "Server",     nav: "hardware" },
-    { label: "Agents",             icon: "Cpu",        nav: "agents" },
-    { label: "Workflows",          icon: "Workflow",   nav: "workflows" },
-    { label: "Admin",              icon: "Shield",     nav: "admin" },
-    { label: "Settings",           icon: "Settings",   nav: "settings" },
+    { label: "P&L",                icon: "TrendingUp",   nav: "pnl" },
+    { label: "Org Tree",           icon: "Users",        nav: "tree" },
+    { label: "Book Analytics",     icon: "Activity",     nav: "book" },
+    { label: "Lead Vendors · ROI", icon: "Wallet",       nav: "attribution" },
+    { label: "NIGO Queue",         icon: "Bell",         nav: "nigo" },
+    { label: "Connections",        icon: "Plug",         nav: "connections" },
+    { label: "Admin",              icon: "Shield",       nav: "admin" },
+    { label: "Settings",           icon: "Settings",     nav: "settings" },
   ],
   "Ask Repflow": [
     { label: "Show leads I haven't touched in 7 days",            icon: "Sparkles", nav: "pipeline" },
@@ -334,10 +323,11 @@ const SUGGESTIONS_BY_PAGE = {
   pipeline:     ["Show me leads I haven't touched in 7 days", "Which deals are most likely to close this week?", "Why is this deal stuck in 'App In'?"],
   queue:        ["Which lead in the queue should I dial first and why?", "Draft a 30-second opener for the top scored lead", "Which producers are hottest right now?"],
   leaderboard:  ["Compare my conversion vs Tony's last month", "What's the gap between #1 and #2 this month?"],
+  performance:  ["Who would qualify for Diamond if MTD threshold dropped to $45k?", "Which producers are most at risk of missing tier this month?", "What's our 30-day weighted forecast vs goal?"],
   team:         ["Who's at risk of missing tier this month?", "Which producer needs a coaching nudge today?"],
   coaching:     ["Top 3 issues across all producer calls this week", "Which coaching theme is moving the needle most?"],
   vault:        ["Are any artifacts approaching retention expiry?", "Audit pack for Aetna SRC — what's missing?"],
-  tiering:      ["Who would qualify for Diamond if MTD threshold dropped to $45k?"],
+  resources:    ["Which carrier portal needs the credentials reset this month?", "Add a quick link for the new training URL"],
   recruiting:   ["Which campaign has the lowest cost per producer?", "Draft a follow-up DM for {{handle}} based on their reply"],
   commissions:  ["Where's my biggest variance vs carrier statements this month?"],
   book:          ["Which carrier mix segment has the best persistency?"],
@@ -350,11 +340,14 @@ function pageKeyFromContext(context) {
   if (c.includes("p&l") || c.includes("pnl")) return "pnl";
   if (c.includes("pipeline")) return "pipeline";
   if (c.includes("queue") || c.includes("dispatch")) return "queue";
+  if (c.includes("performance") || c.includes("standings")) return "performance";
   if (c.includes("leaderboard")) return "leaderboard";
   if (c.includes("team")) return "team";
   if (c.includes("coaching")) return "coaching";
   if (c.includes("vault")) return "vault";
-  if (c.includes("tiering")) return "tiering";
+  if (c.includes("resources")) return "resources";
+  if (c.includes("tiering")) return "performance";
+  if (c.includes("forecast")) return "performance";
   if (c.includes("recruit")) return "recruiting";
   if (c.includes("commission")) return "commissions";
   if (c.includes("book")) return "book";

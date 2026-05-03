@@ -101,8 +101,10 @@ function PageVault({ role = "owner" }) {
         <div className="panel-h">
           <h3>Artifacts</h3>
           <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-            {["artifacts", "policies"].map(t => (
-              <button key={t} onClick={() => setTab(t)} className="btn btn-ghost" style={{ padding: "3px 10px", background: tab === t ? "var(--bg-raised)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-tertiary)" }}>{t === "artifacts" ? "Artifacts" : "Retention policy"}</button>
+            {["artifacts", "policies", "scrub"].map(t => (
+              <button key={t} onClick={() => setTab(t)} className="btn btn-ghost" style={{ padding: "3px 10px", background: tab === t ? "var(--bg-raised)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+                {t === "artifacts" ? "Artifacts" : t === "policies" ? "Retention policy" : "Auto-scrub policy"}
+              </button>
             ))}
           </div>
         </div>
@@ -147,6 +149,33 @@ function PageVault({ role = "owner" }) {
                 <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 6 }}>{p.d}</div>
               </div>
             ))}
+          </div>
+        )}
+        {tab === "scrub" && (
+          <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {[
+              { k: "DNC scrub",         v: "Every dial",  d: "State + federal DNC + Atlas internal opt-out checked before route" },
+              { k: "License gate",      v: "Realtime",     d: "Producer cannot dial leads in states they're not licensed in" },
+              { k: "Carrier appointment", v: "Realtime",   d: "Validated against the lead's state — pre-qual at the dialer" },
+              { k: "TPMO disclaimer",   v: "Within 8s",    d: "Auto-fires on every Med Supp connect, captured in recording" },
+              { k: "Litigator screen",  v: "Pre-dial",     d: "Known TCPA litigator history blocks the dial" },
+              { k: "Audit log",         v: "All scrubs",   d: "Result + timestamp + producer ID logged for trailing audit" },
+            ].map((p, i) => (
+              <div key={i} className="panel" style={{ padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: 13 }}>{p.k}</strong>
+                  <span className="chip chip-money">{p.v}</span>
+                </div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 6 }}>{p.d}</div>
+              </div>
+            ))}
+            <div style={{ gridColumn: "span 2", padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 10 }}>
+              <Icons.Shield size={14} style={{ color: "var(--accent-money)" }}/>
+              <div style={{ flex: 1 }}>Need to test a specific number, age, or zip? The interactive scrub tool lives in <strong style={{ color: "var(--text-primary)" }}>Resources</strong>.</div>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" }}))}>
+                <Icons.ArrowUpRight size={11}/> Open scrubber
+              </button>
+            </div>
           </div>
         )}
       </div>
