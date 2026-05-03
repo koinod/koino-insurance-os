@@ -29,10 +29,22 @@ const PRIORITY_CLR  = { p0: "var(--state-danger)", p1: "var(--state-warning)", p
 
 function PageNIGO({ role = "manager" }) {
   const [filter, setFilter] = React.useState({ status: "open", priority: "all" });
-  const visible = NIGOS.filter(n =>
-    (filter.status === "all" || n.status === filter.status) &&
-    (filter.priority === "all" || n.priority === filter.priority)
-  );
+  const [drill, setDrill]   = React.useState(null);
+  const [statusOverrides, setStatusOverrides] = React.useState({});
+  const visible = NIGOS
+    .map(n => ({ ...n, status: statusOverrides[n.id] ?? n.status }))
+    .filter(n =>
+      (filter.status === "all" || n.status === filter.status) &&
+      (filter.priority === "all" || n.priority === filter.priority)
+    );
+
+  const setStatus = async (id, newStatus) => {
+    setStatusOverrides(s => ({ ...s, [id]: newStatus }));
+    try {
+      await AppData.mutate.nigoStatus(id, newStatus);
+      window.toast && window.toast(`NIGO marked ${STATUS_LABEL[newStatus] || newStatus}${AppData.LIVE ? " · saved" : ""}`, "success");
+    } catch (_e) {}
+  };
   const totalAtRisk = visible.reduce((a, n) => a + n.apAtRisk, 0);
   const repById = Object.fromEntries(AppData.REPS.map(r => [r.id, r]));
 
@@ -79,12 +91,35 @@ function PageNIGO({ role = "manager" }) {
                   <span style={{ fontSize: 11.5 }}>{owner?.name?.split(" ")[0]}</span>
                 </div>
                 <div style={{ fontSize: 11.5, color: n.deadline === "Today" ? "var(--state-danger)" : n.deadline === "Tomorrow" ? "var(--state-warning)" : "var(--text-tertiary)", fontWeight: n.deadline === "Today" ? 600 : 400 }}>{n.deadline}</div>
-                <div><span className="chip" style={{ color: STATUS_CLR[n.status], borderColor: `color-mix(in oklch, ${STATUS_CLR[n.status]} 30%, transparent)`, background: `color-mix(in oklch, ${STATUS_CLR[n.status]} 10%, transparent)` }}>{STATUS_LABEL[n.status]}</span></div>
+                <div><span className="chip" style={{ color: STATUS_CLR[n.status], borderColor: `color-mix(in oklch, ${STATUS_CLR[n.status]} 30%, transparent)`, background: `color-mix(in oklch, ${STATUS_CLR[n.status]} 10%, transparent)`, cursor: "pointer" }} onClick={() => setDrill(n)}>{STATUS_LABEL[n.status]}</span></div>
               </div>
             );
           })}
         </div>
       </div>
+
+      {drill && (
+        <Shared.Modal title={`NIGO · ${drill.lead}`} width={520} onClose={() => setDrill(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setDrill(null)}>Close</button>
+            {drill.status !== "in_review" && <button className="btn" onClick={() => { setStatus(drill.id, "in_review"); setDrill(null); }}>Move to In review</button>}
+            {drill.status !== "fixed" && <button className="btn btn-primary" onClick={() => { setStatus(drill.id, "fixed"); setDrill(null); }}><Icons.Check size={11}/> Mark fixed</button>}
+          </>
+        }>
+          <div className="kpi-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <Shared.KpiCard label="Carrier" value={drill.carrier}/>
+            <Shared.KpiCard label="AP at risk" prefix="$" value={drill.apAtRisk?.toLocaleString() || "0"}/>
+          </div>
+          <div className="divider"></div>
+          <div className="field-l">Reason</div>
+          <div style={{ marginTop: 6, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>{drill.reason}</div>
+          <div className="divider"></div>
+          <div className="field-l">Fix steps</div>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
+            {(drill.fixSteps || ["Contact lead", "Re-collect missing field", "Resubmit to carrier", "Confirm receipt"]).map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+        </Shared.Modal>
+      )}
     </div>
   );
 }

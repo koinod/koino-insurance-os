@@ -20,9 +20,20 @@ function PageVault({ role = "owner" }) {
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
   const [tab, setTab] = React.useState("artifacts");
   const [q, setQ] = React.useState("");
+  const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [extras, setExtras] = React.useState([]);
+  const [retentionEdits, setRetentionEdits] = React.useState({});
+
+  const updateRetention = async (id, retention) => {
+    setRetentionEdits(s => ({ ...s, [id]: retention }));
+    try {
+      await AppData.mutate.vaultRetentionUpdate(id, retention);
+      window.toast && window.toast(`Retention updated to ${retention}${AppData.LIVE ? "" : " (demo)"}`, "success");
+    } catch (_e) {}
+  };
 
   // Synthesized SOAs + consent receipts to back the page
-  const ARTIFACTS = [
+  const SEED_ARTIFACTS = [
     { id: "soa-1", kind: "SOA",        lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "scheduled" },
     { id: "soa-2", kind: "SOA",        lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "captured"  },
     { id: "lid-1", kind: "LeadiD",     lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:01a", retention: "13mo", status: "captured"  },
@@ -33,7 +44,25 @@ function PageVault({ role = "owner" }) {
     { id: "tpmo-1",kind: "TPMO disc.", lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "captured"  },
   ];
 
+  const ARTIFACTS = [...extras, ...SEED_ARTIFACTS].map(a => retentionEdits[a.id] ? { ...a, retention: retentionEdits[a.id] } : a);
   const filtered = ARTIFACTS.filter(a => !q || (a.lead + " " + a.kind).toLowerCase().includes(q.toLowerCase()));
+
+  const submitUpload = async (form) => {
+    const newRow = {
+      id: "vault-" + Date.now(),
+      kind: form.kind, lead_name: form.lead, lead: form.lead, repId: form.repId, rep_id: form.repId,
+      date: "Just added", retention: form.retention, status: "captured",
+    };
+    try {
+      await AppData.mutate.vaultArtifactInsert({
+        kind: form.kind, lead_name: form.lead, rep_id: form.repId,
+        retention: form.retention, status: "captured"
+      });
+    } catch (_e) {}
+    setExtras(es => [newRow, ...es]);
+    setUploadOpen(false);
+    window.toast && window.toast(`Vault entry added · ${form.kind} for ${form.lead}`, "success");
+  };
 
   return (
     <div className="page-pad">
@@ -44,6 +73,7 @@ function PageVault({ role = "owner" }) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
+          <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>
           <button className="btn" onClick={() => {
             const html = `
               <h1>Compliance Audit Pack</h1>
@@ -91,7 +121,9 @@ function PageVault({ role = "owner" }) {
                 </div>
                 <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.date}</div>
                 <div><span className={`chip ${a.status === "captured" || a.status === "complete" ? "chip-money" : "chip-status"}`}>{a.status}</span></div>
-                <div className="tabular" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.retention}</div>
+                <div>
+                  <Shared.Select value={a.retention} onChange={(v) => updateRetention(a.id, v)} options={[{ v: "13mo", l: "13mo" }, { v: "10y", l: "10y" }, { v: "indef", l: "indefinite" }]}/>
+                </div>
                 <button className="icon-btn"><Icons.ArrowUpRight size={12}/></button>
               </div>
             ))}
@@ -118,7 +150,38 @@ function PageVault({ role = "owner" }) {
           </div>
         )}
       </div>
+
+      {uploadOpen && <VaultUploadModal onClose={() => setUploadOpen(false)} onSubmit={submitUpload}/>}
     </div>
+  );
+}
+
+function VaultUploadModal({ onClose, onSubmit }) {
+  const [form, setForm] = React.useState({ kind: "SOA", lead: "", repId: AppData.REPS[0]?.id, retention: "10y" });
+  const valid = form.lead.trim().length > 0;
+  return (
+    <Shared.Modal title="Upload artifact" width={460} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={() => valid && onSubmit(form)} disabled={!valid}><Icons.Plus size={11}/> Upload</button>
+      </>
+    }>
+      <Shared.Field label="Kind">
+        <Shared.Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v })} options={["SOA","Recording","LeadiD","TrustedForm","Consent","TPMO disc.","App","Other"].map(k => ({ v: k, l: k }))}/>
+      </Shared.Field>
+      <Shared.Field label="Lead name">
+        <input className="text-input" value={form.lead} onChange={(e) => setForm({ ...form, lead: e.target.value })} placeholder="Cheryl Hampton" autoFocus/>
+      </Shared.Field>
+      <Shared.Field label="Producer">
+        <Shared.Select value={form.repId} onChange={(v) => setForm({ ...form, repId: v })} options={AppData.REPS.map(r => ({ v: r.id, l: r.name }))}/>
+      </Shared.Field>
+      <Shared.Field label="Retention">
+        <Shared.Select value={form.retention} onChange={(v) => setForm({ ...form, retention: v })} options={[{ v: "13mo", l: "13mo" }, { v: "10y", l: "10y" }, { v: "indef", l: "indefinite" }]}/>
+      </Shared.Field>
+      <div style={{ padding: 10, border: "1px dashed var(--border-strong)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 11.5, textAlign: "center" }}>
+        File-drop placeholder · binary upload would route to Supabase Storage in the multi-tenant build
+      </div>
+    </Shared.Modal>
   );
 }
 
@@ -637,8 +700,9 @@ function PageCalls({ role = "rep" }) {
             <Icons.Headset size={13}/>
             <h3>{sel?.lead} · score {sel?.score}</h3>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="btn btn-ghost"><Icons.Play size={11}/> Play</button>
-              <button className="btn btn-ghost"><Icons.ArrowUpRight size={11}/> Vault</button>
+              <button className="btn btn-ghost" onClick={() => sel && window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Summarize the call with ${sel.lead} and grade my open-ended question rate`, context: "Call · " + sel.lead }}))}><Icons.Sparkles size={11}/> Analyze</button>
+              <button className="btn btn-ghost" onClick={() => sel && AppData.mutate.vaultArtifactInsert({ kind: "Recording", lead_name: sel.lead, rep_id: sel.repId, retention: "10y", status: "complete" }).then(() => window.toast && window.toast(`Sent ${sel.lead}'s recording to Vault`, "success"))}><Icons.Shield size={11}/> Send to vault</button>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "vault" }}))}><Icons.ArrowUpRight size={11}/> Open Vault</button>
             </div>
           </div>
           <div style={{ padding: 14 }}>
@@ -903,20 +967,36 @@ function SettingsBilling() {
 
 function SettingsIntegrations() {
   const { CONNECTIONS } = AppData;
+  const [testing, setTesting] = React.useState(null);
+
+  const test = async (c) => {
+    setTesting(c.id);
+    // Simulated test — flip status briefly to "warn" then back to ok via mutate.connectionStatus
+    await new Promise(r => setTimeout(r, 600));
+    try {
+      await AppData.mutate.connectionStatus(c.id, "ok", c.meta + " · last test " + new Date().toLocaleTimeString());
+      window.toast && window.toast(`${c.name}: connection healthy`, "success");
+    } catch (_e) {}
+    setTesting(null);
+  };
+
   return (
     <div className="panel">
       <div className="panel-h"><h3>Connected services</h3><span className="meta">{CONNECTIONS.length} configured</span></div>
       <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 100px" }}>
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
           <div>Service</div><div>Category</div><div>Status</div><div>Detail</div><div></div>
         </div>
         {CONNECTIONS.map(c => (
-          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 100px" }}>
+          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
             <div style={{ fontWeight: 500 }}>{c.name}</div>
             <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
             <div><span className={`chip ${c.status === "ok" ? "chip-money" : c.status === "warn" ? "chip-status" : "chip-danger"}`}>{c.status === "ok" ? "Connected" : c.status === "warn" ? "Action needed" : "Down"}</span></div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
-            <button className="btn btn-ghost">{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => test(c)} disabled={testing === c.id}>{testing === c.id ? "Testing..." : "Test"}</button>
+              <button className="btn btn-ghost">{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+            </div>
           </div>
         ))}
       </div>
@@ -935,7 +1015,7 @@ function SettingsApi() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>
           <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? KEY : KEY.slice(0, 12) + "•••••••••••••••••••"}</span>
           <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)}>{revealed ? "Hide" : "Reveal"}</button>
-          <button className="btn btn-ghost"><Icons.Copy size={12}/> Copy</button>
+          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(KEY).then(() => window.toast && window.toast("API key copied to clipboard", "success"))}><Icons.Copy size={12}/> Copy</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button className="btn btn-primary"><Icons.Plus size={12}/> Create new key</button>

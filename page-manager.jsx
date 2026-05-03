@@ -195,6 +195,7 @@ function PageCoaching({ role = "manager" }) {
 
 function CoachingManager() {
   const { REPS } = AppData;
+  const [replay, setReplay] = React.useState(null);
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -220,7 +221,7 @@ function CoachingManager() {
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{c.rep.name}</div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}><Shared.TierChip tier={c.rep.tier} compact/> · {c.rep.handle}</div>
                   </div>
-                  <button className="btn btn-ghost"><Icons.Play size={11}/> Replay moment</button>
+                  <button className="btn btn-ghost" onClick={() => setReplay(c)}><Icons.Play size={11}/> Replay moment</button>
                 </div>
                 <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
                 <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
@@ -280,7 +281,45 @@ function CoachingManager() {
           </div>
         </div>
       </div>
+
+      {replay && <ReplayMomentModal card={replay} onClose={() => setReplay(null)}/>}
     </div>
+  );
+}
+
+function ReplayMomentModal({ card, onClose }) {
+  // Synthesized transcript snippet that plausibly matches the coaching focus
+  const transcript = [
+    { who: "You",      t: "00:42", body: "So, do you take any medications?" },
+    { who: card?.rep?.name?.split(" ")[0] || "Lead", t: "00:46", body: "Uh, yes, a few — metformin, blood pressure, and..." },
+    { who: "You",      t: "00:51", body: "Got it. Well, our Plan G also covers the donut hole, so..." },
+    { who: card?.rep?.name?.split(" ")[0] || "Lead", t: "01:02", body: "Wait, I was about to say something — sorry." },
+  ];
+  return (
+    <Shared.Modal title={`Coaching moment · ${card?.rep?.name || "rep"}`} width={620} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        <button className="btn btn-primary" onClick={() => { window.toast && window.toast("Marked practiced — moves down the queue", "success"); onClose(); }}><Icons.Check size={11}/> Mark practiced</button>
+      </>
+    }>
+      <div style={{ padding: 12, background: "color-mix(in oklch, var(--accent-status) 8%, transparent)", borderRadius: 6, fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.55 }}>
+        <strong style={{ color: "var(--accent-status)" }}>Focus —</strong> {card?.focus}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {transcript.map((m, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 10, alignItems: "start" }}>
+            <span className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{m.t}</span>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: m.who === "You" ? "var(--accent-money)" : "var(--text-secondary)" }}>{m.who}</div>
+              <div style={{ fontSize: 13, color: "var(--text-primary)" }}>{m.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 14, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+        <strong style={{ color: "var(--text-primary)" }}>What to try next time:</strong> "Walk me through what your morning looks like with those medications." Open-ended → fewer interruptions → richer discovery.
+      </div>
+    </Shared.Modal>
   );
 }
 
@@ -312,7 +351,7 @@ function CoachingRep() {
               <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
               <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
               <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button className="btn btn-primary"><Icons.Play size={11}/> Replay moment</button>
+                <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }}))}><Icons.Play size={11}/> Replay moment</button>
                 <button className="btn"><Icons.Sparkles size={11}/> {c.drill}</button>
                 <span className="chip chip-money" style={{ alignSelf: "center" }}>Impact: {c.impact}</span>
               </div>

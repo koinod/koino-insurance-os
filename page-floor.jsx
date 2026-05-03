@@ -91,6 +91,20 @@
   // Mode toggle — pill row at the top
   // ────────────────────────────────────────────────────────────────────────
   function ModeTabs({ mode, setMode }) {
+    return (
+      <Shared.SectionPill
+        items={[
+          { k: "live",     l: "Live" },
+          { k: "pipeline", l: "Pipeline" },
+          { k: "history",  l: "History" },
+        ]}
+        value={mode}
+        onChange={setMode}
+        dense
+      />
+    );
+  }
+  function _LegacyModeTabs({ mode, setMode }) {
     const TABS = [
       { id: "live",     label: "Live",     hint: "Dial queue + autodialer" },
       { id: "pipeline", label: "Pipeline", hint: "Your book in motion" },
