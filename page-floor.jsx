@@ -96,6 +96,7 @@
         items={[
           { k: "live",     l: "Live" },
           { k: "pipeline", l: "Pipeline" },
+          { k: "deals",    l: "Deals" },
           { k: "history",  l: "History" },
         ]}
         value={mode}
@@ -208,6 +209,22 @@
     return P ? <P role={role}/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading call history…</div>;
   }
 
+  function DealsMode({ role }) {
+    const Form = window.DealWriteForm;
+    const Recent = window.RecentDeals;
+    const me = AppData.REPS && AppData.REPS[0];
+    const [refreshKey, setRefreshKey] = useState(0);
+    if (!Form || !Recent) {
+      return <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading deal-write form…</div>;
+    }
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
+        <Form key={refreshKey} onWritten={() => setRefreshKey(k => k + 1)}/>
+        <Recent repId={me?.id} key={"recent-" + refreshKey}/>
+      </div>
+    );
+  }
+
   // ────────────────────────────────────────────────────────────────────────
   // Page entry — picks the mode from URL ?floor=X (so deep links work) and
   // remembers the last mode in localStorage.
@@ -215,20 +232,20 @@
   function PageFloor({ onCall, role = "rep", defaultMode }) {
     const initialMode = (() => {
       // Explicit prop wins (used by legacy /pipeline, /queue, /calls routes)
-      if (defaultMode && ["live","pipeline","history"].includes(defaultMode)) return defaultMode;
+      if (defaultMode && ["live","pipeline","deals","history"].includes(defaultMode)) return defaultMode;
       try {
         const url = new URL(window.location.href);
         const m = url.searchParams.get("floor");
-        if (m && ["live","pipeline","history"].includes(m)) return m;
+        if (m && ["live","pipeline","deals","history"].includes(m)) return m;
         const stored = localStorage.getItem("repflow.floor.mode");
-        if (stored && ["live","pipeline","history"].includes(stored)) return stored;
+        if (stored && ["live","pipeline","deals","history"].includes(stored)) return stored;
       } catch {}
       return "live";
     })();
     const [mode, setMode] = useState(initialMode);
     // If parent route changes (Pipeline → Dial Queue), follow it
     useEffect(() => {
-      if (defaultMode && ["live","pipeline","history"].includes(defaultMode)) {
+      if (defaultMode && ["live","pipeline","deals","history"].includes(defaultMode)) {
         setMode(defaultMode);
       }
     }, [defaultMode]);
@@ -273,6 +290,7 @@
 
         {mode === "live"     && <LiveMode     role={role} onCall={onCall} autodialer={autodialer} setAutodialer={setAutodialer}/>}
         {mode === "pipeline" && <PipelineMode role={role}/>}
+        {mode === "deals"    && <DealsMode    role={role}/>}
         {mode === "history"  && <HistoryMode  role={role}/>}
       </div>
     );
