@@ -29,6 +29,104 @@ function SpendStrip({ items }) {
   );
 }
 
+/* ───── AEP banner + Tasks live panels (used by all role views) ─────────── */
+function AEPBanner({ repId }) {
+  const periods = AppData.AEP_PERIODS || [];
+  const active = periods.find(p => p.status === "active") || periods.find(p => p.status === "planned");
+  if (!active) return null;
+  const myAssign = (AppData.AEP_ASSIGNMENTS || []).find(a => a.periodId === active.id && a.repId === repId);
+  const daysToStart = active.startsAt ? Math.ceil((new Date(active.startsAt) - new Date()) / (1000*60*60*24)) : null;
+  const isLive = active.status === "active";
+  const pctApps = myAssign && myAssign.targetApps > 0 ? Math.round((myAssign.completedApps / myAssign.targetApps) * 100) : 0;
+  return (
+    <div className="panel" style={{ padding: "12px 16px", marginBottom: 14, background: "color-mix(in oklch, var(--accent-heat) 6%, transparent)", borderColor: "color-mix(in oklch, var(--accent-heat) 30%, transparent)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span className="chip" style={{ color: "var(--accent-heat)", borderColor: "color-mix(in oklch, var(--accent-heat) 40%, transparent)", background: "color-mix(in oklch, var(--accent-heat) 12%, transparent)", fontWeight: 600 }}>
+          {isLive ? "🔥 AEP LIVE" : "AEP UPCOMING"}
+        </span>
+        <strong style={{ fontSize: 13 }}>{active.name}</strong>
+        <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
+          {active.startsAt} → {active.endsAt}
+          {!isLive && daysToStart != null && daysToStart > 0 && <span> · opens in {daysToStart}d</span>}
+        </span>
+        {myAssign && (
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14, fontSize: 12 }}>
+            <span><strong className="tabular">{myAssign.completedApps}</strong> / {myAssign.targetApps} apps <span style={{ color: "var(--text-tertiary)" }}>({pctApps}%)</span></span>
+            <span><strong className="tabular">${myAssign.completedAp.toLocaleString()}</strong> / ${myAssign.targetAp.toLocaleString()} AP</span>
+            {myAssign.territory && <span className="chip">{myAssign.territory}</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ForecastStrip({ scope = "team" }) {
+  const runs = AppData.FORECAST_RUNS || [];
+  if (runs.length === 0) return null;
+  const latest = runs[0];
+  const overrides = AppData.FORECAST_OVERRIDES || [];
+  const override = overrides.find(o => o.period === latest.period);
+  const value = override ? override.override : latest.forecast;
+  return (
+    <div className="panel" style={{ padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+      <span className="chip chip-info" style={{ fontSize: 11, fontWeight: 600 }}>FORECAST · {latest.period}</span>
+      <span className="tabular" style={{ fontSize: 16, fontWeight: 500, color: "var(--accent-money)" }}>${value.toLocaleString()}</span>
+      <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+        {latest.confidence ? `${latest.confidence}% confidence` : ""} · basis: {latest.basis} · model: {latest.model}
+      </span>
+      {override && (
+        <span className="chip" style={{ marginLeft: "auto", color: "var(--state-warning)" }}>
+          owner override (was ${latest.forecast.toLocaleString()})
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TasksPanel({ repId, limit = 6 }) {
+  const tasks = (AppData.TASKS || []).filter(t => t.status === "open" && (!repId || t.repId === repId));
+  if (tasks.length === 0) return null;
+  const fmt = (iso) => {
+    if (!iso) return "no due date";
+    const d = new Date(iso);
+    const now = new Date();
+    const diffH = Math.round((d - now) / (1000*60*60));
+    if (diffH < 0) return `${Math.abs(diffH)}h overdue`;
+    if (diffH < 1) return "now";
+    if (diffH < 24) return `in ${diffH}h`;
+    const days = Math.round(diffH / 24);
+    return `in ${days}d`;
+  };
+  const priColor = (p) => p === "urgent" ? "var(--state-danger)" : p === "high" ? "var(--state-warning)" : "var(--accent-status)";
+  const kindIcon = { call: "Phone", sms: "MessageSquare", email: "Mail", admin: "Folder", followup: "Bell", review: "Activity", soa: "Shield", other: "Circle" };
+  return (
+    <div className="panel" style={{ marginBottom: 14 }}>
+      <div className="panel-h">
+        <Icons.Bell size={14} style={{ color: "var(--accent-money)" }}/>
+        <h3>Today&apos;s tasks</h3>
+        <span className="meta">{tasks.length} open</span>
+      </div>
+      <div style={{ padding: "8px 0" }}>
+        {tasks.slice(0, limit).map(t => {
+          const Ico = Icons[kindIcon[t.kind] || "Circle"];
+          return (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+              <span className="dot" style={{ background: priColor(t.priority) }}></span>
+              {Ico && <Ico size={13} style={{ color: "var(--text-tertiary)" }}/>}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 500 }}>{t.title}</div>
+                {t.body && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{t.body}</div>}
+              </div>
+              <span style={{ fontSize: 11, color: t.dueAt && new Date(t.dueAt) < new Date() ? "var(--state-danger)" : "var(--text-tertiary)" }}>{fmt(t.dueAt)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ───── Rep view ─────────────────────────────────────────────────────────── */
 function TodayRep({ aep }) {
   const { REPS, QUEUE, RECORDINGS } = AppData;
@@ -61,6 +159,9 @@ function TodayRep({ aep }) {
         <Shared.KpiCard label="Apps submitted" value="4" sub="goal: 5" trend="up" spark={spark2}/>
         <Shared.KpiCard label="Dials" value="87" sub="streak: 18d" trend="up" spark={[60,72,68,75,80,78,85,87]}/>
       </div>
+
+      <AEPBanner repId={me?.id}/>
+      <TasksPanel repId={me?.id} limit={5}/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
@@ -228,6 +329,9 @@ function TodayManager({ aep }) {
         <Shared.KpiCard label="Total dials" value={totalDials} sub="goal 700" trend="up"/>
       </div>
 
+      <AEPBanner/>
+      <ForecastStrip scope="team"/>
+
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
           <div className="panel-h"><Icons.Users size={13}/><h3>Producers · live floor</h3></div>
@@ -334,6 +438,9 @@ function TodayOwner({ aep }) {
         <Shared.KpiCard label="Override revenue MTD" prefix="$" value="258,420" sub="+18% MoM" trend="up"/>
         <Shared.KpiCard label="Active producers" value={REPS.filter(r => r.presence === "live").length + "/" + REPS.length}/>
       </div>
+
+      <AEPBanner/>
+      <ForecastStrip scope="org"/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
