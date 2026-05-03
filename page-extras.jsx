@@ -674,6 +674,17 @@ function PageCalls({ role = "rep" }) {
    7. Book Analytics — owner
    ───────────────────────────────────────────────────────────────────────── */
 function PageBook() {
+  const [period, setPeriod] = React.useState("13mo");
+  const [drill, setDrill]   = React.useState(null);
+  const [view, setView]     = React.useState("mix");
+
+  const exportBook = () => {
+    const blob = new Blob([JSON.stringify({ period, generated_at: new Date().toISOString() }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `book-${period}-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Book export ready`, "success");
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -681,11 +692,17 @@ function PageBook() {
           <div className="page-title">Book Analytics</div>
           <div className="page-sub">Persistency · lapse · cross-sell pathway · carrier mix</div>
         </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <Shared.SectionPill items={[{k:"3mo",l:"3mo"},{k:"13mo",l:"13mo"},{k:"24mo",l:"24mo"}]} value={period} onChange={setPeriod} dense/>
+          <button className="btn" onClick={exportBook}><Icons.ArrowUpRight size={13}/> Export</button>
+        </div>
       </div>
+
+      <Shared.SectionPill items={[{k:"mix",l:"Carrier mix"},{k:"cohorts",l:"Cohorts"},{k:"crosssell",l:"Cross-sell"}]} value={view} onChange={setView}/>
 
       <div className="kpi-row">
         <Shared.KpiCard hero label="In-force AP" prefix="$" value="6.84M" sub="+9.4% YoY" trend="up"/>
-        <Shared.KpiCard label="Persistency · 13mo" value="91.4%" sub="goal 90%" trend="up"/>
+        <Shared.KpiCard label={`Persistency · ${period}`} value="91.4%" sub="goal 90%" trend="up"/>
         <Shared.KpiCard label="Lapse rate" value="4.2%" sub="-0.6 WoW" neg trend="up"/>
         <Shared.KpiCard label="Cross-sell rate" value="22%" sub="FE → Med Supp"/>
       </div>
@@ -707,7 +724,7 @@ function PageBook() {
               { n: "F&G Annuities",  a:  42,  p: 1860000, w: 100 },
               { n: "Mutual of Omaha",a:  88,  p:  708000, w: 38  },
             ].map((r, i) => (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr" }}>
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr", cursor: "pointer", background: drill === r.n ? "var(--bg-raised)" : undefined }} onClick={() => setDrill(drill === r.n ? null : r.n)}>
                 <div style={{ fontWeight: 500 }}>{r.n}</div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.a}</div>
                 <div className="tabular" style={{ textAlign: "right" }}>${r.p.toLocaleString()}</div>
@@ -716,11 +733,30 @@ function PageBook() {
                 </div>
               </div>
             ))}
+            {drill && (
+              <div style={{ padding: 14, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: 13 }}>{drill}</strong>
+                  <button className="icon-btn" onClick={() => setDrill(null)}><Icons.X size={11}/></button>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                  Persistency: {drill === "F&G Annuities" ? 96 : drill === "UHC" ? 94 : 87}% over {period}.
+                  Top product: {drill === "F&G Annuities" ? "Annuity $50K" : "Plan G"}.
+                  NIGO rate: {drill === "Aetna SRC" ? "3.1% (high)" : "1.4%"}.
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Break down ${drill}: top contributors, NIGO drivers, persistency drift this ${period}`, context: "Book · " + drill }}))}>
+                    <Icons.Sparkles size={11}/> Ask the Book
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "carriers" }}))}>Open in Carriers</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h3>13-mo persistency · cohorts</h3></div>
+          <div className="panel-h"><h3>{period} persistency · cohorts</h3></div>
           <div style={{ padding: 14 }}>
             {[
               { l: "Med Supp · UHC",      v: 94 },

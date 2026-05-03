@@ -190,18 +190,18 @@ function PageRecruiting({ role = "owner" }) {
         </div>
       </div>
 
-      <div className="rec-tabs">
-        {[
-          ["campaigns",     "Campaigns",     CAMPAIGNS.length],
-          ["conversations", "Conversations", THREADS.length],
-          ["sequences",     "Sequences",     SEQUENCES.length],
-          ["leads",         "Leads",         LEADS.length],
-          ["insights",      "Insights",      null],
-        ].map(([k, l, n]) => (
-          <button key={k} onClick={() => setTab(k)} className={`rec-tab ${tab === k ? "active" : ""}`}>
-            {l}{n != null && <span className="rec-tab-n">{n}</span>}
-          </button>
-        ))}
+      <Shared.SectionPill
+        items={[
+          { k: "campaigns",     l: "Campaigns",     badge: CAMPAIGNS.length },
+          { k: "conversations", l: "Conversations", badge: THREADS.length },
+          { k: "sequences",     l: "Sequences",     badge: SEQUENCES.length },
+          { k: "leads",         l: "Leads",         badge: LEADS.length },
+          { k: "insights",      l: "Insights" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+      <div style={{ display: "none" }}>{/* legacy rec-tabs marker */}
       </div>
 
       {tab === "campaigns"     && <CampaignsTab onOpen={(id) => { setActiveCampaignId(id); setTab("campaign-detail"); }}/>}
