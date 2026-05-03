@@ -410,6 +410,23 @@ function TwilioConfigModal({ onClose }) {
     } finally { setTesting(false); }
   };
 
+  const autoProvision = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await fetch("/api/twilio-app/provision", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+      const j = await r.json();
+      if (r.ok && j.twiml_app_sid) {
+        setForm(f => ({ ...f, twiml_app_sid: j.twiml_app_sid }));
+        setTestResult({ ok: true, body: { provisioned: j.twiml_app_sid, voice_url: j.voice_url } });
+        window.toast && window.toast(`TwiML app created · ${j.twiml_app_sid.slice(0, 12)}…`, "success");
+      } else {
+        setTestResult({ ok: false, body: j });
+      }
+    } catch (e) {
+      setTestResult({ ok: false, body: { error: String(e) } });
+    } finally { setTesting(false); }
+  };
+
   const envVarBlock = `# Add these to Vercel project (Settings -> Environment Variables)
 TWILIO_ACCOUNT_SID=${form.account_sid || "<paste yours>"}
 TWILIO_API_KEY_SID=${form.api_key_sid || "<paste yours>"}
@@ -420,6 +437,7 @@ TWILIO_TWIML_APP_SID=${form.twiml_app_sid || "<paste yours>"}`;
     <Shared.Modal title="Twilio · Voice connector" width={620} onClose={onClose} actions={
       <>
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn" onClick={autoProvision} disabled={testing} title="Creates the TwiML app + voice URL automatically using your Twilio account creds">{testing ? "..." : "Auto-create TwiML app"}</button>
         <button className="btn" onClick={test} disabled={testing}>{testing ? "Testing..." : "Test mint"}</button>
         <button className="btn btn-primary" onClick={save}><Icons.Check size={11}/> Save config</button>
       </>

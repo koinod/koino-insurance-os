@@ -331,10 +331,62 @@ const STATEMENT = [
 ];
 
 function CommissionsRep() {
-  const total = STATEMENT.reduce((a, r) => a + r.expected, 0);
-  const paid  = STATEMENT.reduce((a, r) => a + r.paid, 0);
+  // Live statement: build from AppData.COMMISSIONS + POLICIES + PIPELINE if
+  // hydrated, else fall back to demo STATEMENT. Filter to current rep
+  // (hardcoded "marc" until auth lands — same convention used elsewhere).
+  const repId = AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id;
+  const liveRows = (() => {
+    const C = AppData.COMMISSIONS;
+    const P = AppData.POLICIES;
+    const PIPE = AppData.PIPELINE;
+    if (!Array.isArray(C) || C.length === 0) return null;
+    const policyById = new Map((P || []).map(p => [p.id, p]));
+    const leadById   = new Map((PIPE || []).map(l => [l.id, l]));
+    const clbk       = AppData.CLAWBACKS || [];
+    const fmtDate = (iso) => {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      const today = new Date(); today.setHours(0,0,0,0);
+      const day = new Date(d); day.setHours(0,0,0,0);
+      const diff = (today - day) / (1000 * 60 * 60 * 24);
+      if (diff === 0) return "Today";
+      if (diff === 1) return "Yesterday";
+      if (diff < 14) return `${diff}d ago`;
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    };
+    const rows = C
+      .filter(c => !repId || c.repId === repId)
+      .map(c => {
+        const pol = c.policyId ? policyById.get(c.policyId) : null;
+        const lead = pol && pol.leadId ? leadById.get(pol.leadId) : null;
+        return {
+          date: fmtDate(c.paidAt || c.earnedAt),
+          lead: lead?.lead || (pol ? `Policy ${pol.policyNumber || pol.id.slice(0,6)}` : "—"),
+          carrier: pol?.carrierId ? (pol.carrierId.toUpperCase()) : "—",
+          product: pol?.product || "—",
+          ap: pol?.ap || 0,
+          pct: pol?.ap ? Math.round((c.amount / pol.ap) * 100) : 0,
+          expected: c.amount,
+          paid: c.kind === "advance" || c.kind === "earned" || c.kind === "trail" || c.kind === "residual" ? c.amount : 0,
+          status: c.kind === "advance" ? "advance" : c.kind === "earned" ? "paid" : c.kind,
+        };
+      });
+    // Add chargebacks for the same rep as negative-paid rows
+    clbk.filter(cb => !repId || cb.repId === repId).forEach(cb => {
+      rows.push({
+        date: fmtDate(cb.recordedAt),
+        lead: "(chargeback)",
+        carrier: "—", product: "—", ap: 0, pct: 0,
+        expected: 0, paid: -cb.amount, status: "Chargeback",
+      });
+    });
+    return rows.sort((a, b) => (a.date === "Today" ? -1 : 1));
+  })();
+  const ROWS = liveRows && liveRows.length ? liveRows : STATEMENT;
+  const total = ROWS.reduce((a, r) => a + r.expected, 0);
+  const paid  = ROWS.reduce((a, r) => a + r.paid, 0);
   const inClearing = total - Math.max(0, paid);
-  const charge = STATEMENT.filter(r => r.paid < 0).reduce((a, r) => a + r.paid, 0);
+  const charge = ROWS.filter(r => r.paid < 0).reduce((a, r) => a + r.paid, 0);
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -349,7 +401,7 @@ function CommissionsRep() {
             <table>
               <thead><tr><th>Date</th><th>Lead</th><th>Carrier</th><th>Product</th><th style="text-align:right">AP</th><th style="text-align:right">Comp %</th><th style="text-align:right">Expected</th><th style="text-align:right">Paid</th><th>Status</th></tr></thead>
               <tbody>
-              ${STATEMENT.map(r => `<tr><td>${r.date}</td><td>${r.lead}</td><td>${r.carrier}</td><td>${r.product}</td><td style="text-align:right">$${(r.ap || 0).toLocaleString()}</td><td style="text-align:right">${r.pct}%</td><td style="text-align:right">$${r.expected.toLocaleString()}</td><td style="text-align:right">$${r.paid.toLocaleString()}</td><td>${r.status}</td></tr>`).join("")}
+              ${ROWS.map(r => `<tr><td>${r.date}</td><td>${r.lead}</td><td>${r.carrier}</td><td>${r.product}</td><td style="text-align:right">$${(r.ap || 0).toLocaleString()}</td><td style="text-align:right">${r.pct}%</td><td style="text-align:right">$${r.expected.toLocaleString()}</td><td style="text-align:right">$${r.paid.toLocaleString()}</td><td>${r.status}</td></tr>`).join("")}
               </tbody>
             </table>`;
           window.exportPDF && window.exportPDF("Statement · April", html);
@@ -364,7 +416,7 @@ function CommissionsRep() {
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{STATEMENT.length} rows · this month</span></div>
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{ROWS.length} rows · this month</span></div>
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "100px 1.4fr 1fr 1fr 80px 60px 90px 90px 1fr" }}>
             <div>Date</div><div>Lead</div><div>Carrier</div><div>Product</div>
@@ -374,7 +426,7 @@ function CommissionsRep() {
             <div className="tabular" style={{ textAlign: "right" }}>Paid</div>
             <div>Status</div>
           </div>
-          {STATEMENT.map((r, i) => (
+          {ROWS.map((r, i) => (
             <div key={i} className="row" style={{ gridTemplateColumns: "100px 1.4fr 1fr 1fr 80px 60px 90px 90px 1fr" }}>
               <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.date}</div>
               <div className="cell-truncate" style={{ fontWeight: 500 }}>{r.lead}</div>
@@ -1202,7 +1254,7 @@ function SettingsProfile({ role }) {
    ───────────────────────────────────────────────────────────────────────── */
 function NotificationsPanel({ open, onClose, goto }) {
   if (!open) return null;
-  const items = [
+  const FALLBACK = [
     { kind: "lead",     t: "Hot inbound · Cheryl Hampton",    d: "14s",       sub: "FB T65 · score 92 · TX",                page: "queue" },
     { kind: "issued",   t: "Deal issued · Naomi Reese",        d: "8m",        sub: "Aetna SRC Plan G · $1,780 AP",          page: "commissions" },
     { kind: "nigo",     t: "NIGO returned · Linda Cho",         d: "1h",        sub: "Sigs missing · Plan N",                  page: "calls" },
@@ -1210,7 +1262,52 @@ function NotificationsPanel({ open, onClose, goto }) {
     { kind: "anomaly",  t: "Persistency drift · Tampa",          d: "3h",        sub: "FE 13-mo cohort -3.2pts WoW",           page: "book" },
     { kind: "recruit",  t: "New applicant · Stacy V",            d: "yesterday", sub: "Already licensed in TX",                  page: "recruiting" },
   ];
-  const colorOf = (k) => k === "lead" ? "var(--accent-money)" : k === "issued" ? "var(--accent-money)" : k === "nigo" ? "var(--state-danger)" : k === "anomaly" ? "var(--state-warning)" : "var(--accent-status)";
+  // Live notifications: AppData.NOTIFICATIONS, mapped onto the panel shape.
+  // Sort unread first, then most recent. Fallback to FALLBACK if empty.
+  const fmtDelta = (iso) => {
+    if (!iso) return "";
+    const ms = Date.now() - new Date(iso).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    const d = Math.floor(h / 24);
+    if (d < 7) return `${d}d`;
+    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+  const linkToPage = (link) => {
+    if (!link) return null;
+    const m = String(link).match(/page=([a-z-]+)/);
+    return m ? m[1] : null;
+  };
+  const live = (AppData.NOTIFICATIONS || []).map(n => ({
+    kind: n.kind,
+    t: n.title,
+    d: fmtDelta(n.createdAt),
+    sub: n.body || "",
+    page: linkToPage(n.link),
+    unread: !n.readAt,
+    id: n.id,
+  })).sort((a, b) => (a.unread === b.unread) ? 0 : (a.unread ? -1 : 1));
+  const items = live.length > 0 ? live : FALLBACK;
+  const unreadCount = live.length > 0 ? live.filter(i => i.unread).length : items.length;
+  const colorOf = (k) => k === "lead_assigned" || k === "lead" ? "var(--accent-money)" :
+                       k === "commission_paid" || k === "issued" ? "var(--accent-money)" :
+                       k === "nigo" ? "var(--state-danger)" :
+                       k === "tier_promo" ? "var(--accent-money)" :
+                       k === "anomaly" ? "var(--state-warning)" :
+                       "var(--accent-status)";
+  const markAllRead = async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || live.length === 0) { onClose(); return; }
+    const ids = live.filter(i => i.unread).map(i => i.id);
+    if (ids.length === 0) { onClose(); return; }
+    await sb.from("notifications").update({ read_at: new Date().toISOString() }).in("id", ids);
+    window.hydrateFromSupabase && window.hydrateFromSupabase();
+    onClose();
+  };
   return (
     <div className="slideout-overlay" onClick={onClose}>
       <aside className="slideout" onClick={(e) => e.stopPropagation()} style={{ width: 380 }}>
@@ -1218,10 +1315,10 @@ function NotificationsPanel({ open, onClose, goto }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Icons.Bell size={14}/>
             <div style={{ fontSize: 14, fontWeight: 500 }}>Notifications</div>
-            <span className="chip chip-money">{items.length}</span>
+            <span className="chip chip-money">{unreadCount}</span>
           </div>
           <div style={{ display: "flex", gap: 4 }}>
-            <button className="btn btn-ghost">Mark read</button>
+            <button className="btn btn-ghost" onClick={markAllRead}>Mark read</button>
             <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
           </div>
         </div>

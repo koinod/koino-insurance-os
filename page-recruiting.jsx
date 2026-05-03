@@ -643,7 +643,32 @@ function SequencesTab({ activeId, onSelect }) {
 function LeadsTab({ onConverse }) {
   const [drag, setDrag]       = React.useState(null);
   const [overrides, setOver]  = React.useState({});
-  const merge = LEADS.map(l => overrides[l.id] ? { ...l, ...overrides[l.id] } : l);
+  // Merge live AppData.RECRUITS in front of demo LEADS. Map recruit.status →
+  // kanban stage. Live rows always render first so seeded data is obvious.
+  const STATUS_TO_STAGE = {
+    lead:        "Contacted",
+    screen:      "Replied",
+    interview:   "Booked",
+    offer:       "Applied",
+    onboarded:   "Contracted",
+    declined:    "Producing",  // hide-ish; only Producing rows have score=0
+    dropped:     "Producing",
+  };
+  const liveRecruits = (AppData.RECRUITS || []).map(r => ({
+    id: "live-" + r.id,
+    name: r.name,
+    handle: r.email ? "@" + r.email.split("@")[0] : "",
+    ch: r.source === "linkedin" ? "linkedin" : r.source === "indeed" ? "email" : "instagram",
+    stage: STATUS_TO_STAGE[r.status] || "Contacted",
+    score: r.status === "interview" || r.status === "offer" ? 88 : r.status === "onboarded" ? 0 : 70,
+    source: r.source ? `${r.source} · ${r.recruiter || ""}`.trim() : "—",
+    state: r.state || "—",
+    lic: r.hasLicense ? "active" : "pending",
+    last: r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—",
+    note: r.notes || (r.recruiter ? `Recruiter: ${r.recruiter}` : ""),
+  }));
+  const baseLeads = liveRecruits.length > 0 ? [...liveRecruits, ...LEADS] : LEADS;
+  const merge = baseLeads.map(l => overrides[l.id] ? { ...l, ...overrides[l.id] } : l);
   const move = (id, stage) => setOver({ ...overrides, [id]: { stage } });
 
   return (

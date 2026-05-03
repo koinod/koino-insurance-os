@@ -31,7 +31,38 @@ function PageNIGO({ role = "manager" }) {
   const [filter, setFilter] = React.useState({ status: "open", priority: "all" });
   const [drill, setDrill]   = React.useState(null);
   const [statusOverrides, setStatusOverrides] = React.useState({});
-  const visible = NIGOS
+  // Live: project AppData.NIGOS into the local schema, fall back to demo NIGOS.
+  const liveNigos = (() => {
+    const N = AppData.NIGOS;
+    if (!Array.isArray(N) || N.length === 0) return null;
+    const reasonById = new Map((AppData.NIGO_REASONS || []).map(r => [r.id, r]));
+    const leadById   = new Map((AppData.PIPELINE || []).map(l => [l.id, l]));
+    const policyById = new Map((AppData.POLICIES || []).map(p => [p.id, p]));
+    const sevToPriority = { critical: "p0", high: "p0", med: "p1", low: "p2" };
+    return N.map(n => {
+      const reason = n.reasonId ? reasonById.get(n.reasonId) : null;
+      const pol = n.policyId ? policyById.get(n.policyId) : null;
+      const lead = n.pipelineId ? leadById.get(n.pipelineId) : null;
+      const apAtRisk = pol?.ap || lead?.ap || 0;
+      // Status mapping: open|in_review|resolved|wont_fix → open|in_review|fixed
+      const status = n.status === "resolved" || n.status === "wont_fix" ? "fixed" : n.status;
+      return {
+        id: n.id,
+        lead: lead?.lead || (pol ? `Policy ${pol.policyNumber || pol.id.slice(0,6)}` : "—"),
+        carrier: pol?.carrierId ? pol.carrierId.toUpperCase() : "—",
+        product: pol?.product || lead?.product || "—",
+        reason: reason?.label || n.notes || "Reason unspecified",
+        apAtRisk,
+        owner: n.assignedTo || lead?.owner || (AppData.REPS[0] && AppData.REPS[0].id),
+        deadline: reason?.severity === "critical" ? "Today" : reason?.severity === "high" ? "Tomorrow" : "This week",
+        status,
+        priority: sevToPriority[reason?.severity || "med"] || "p1",
+        notes: n.notes,
+      };
+    });
+  })();
+  const baseNigos = liveNigos && liveNigos.length > 0 ? liveNigos : NIGOS;
+  const visible = baseNigos
     .map(n => ({ ...n, status: statusOverrides[n.id] ?? n.status }))
     .filter(n =>
       (filter.status === "all" || n.status === filter.status) &&
@@ -62,9 +93,9 @@ function PageNIGO({ role = "manager" }) {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Open NIGOs" value={NIGOS.filter(n => n.status === "open").length} sub={`$${NIGOS.filter(n => n.status === "open").reduce((a, n) => a + n.apAtRisk, 0).toLocaleString()} AP at risk`}/>
-        <Shared.KpiCard      label="In review" value={NIGOS.filter(n => n.status === "in_review").length}/>
-        <Shared.KpiCard      label="Fixed today" value={NIGOS.filter(n => n.status === "fixed").length} trend="up"/>
+        <Shared.KpiCard hero label="Open NIGOs" value={baseNigos.filter(n => n.status === "open").length} sub={`$${baseNigos.filter(n => n.status === "open").reduce((a, n) => a + n.apAtRisk, 0).toLocaleString()} AP at risk`}/>
+        <Shared.KpiCard      label="In review" value={baseNigos.filter(n => n.status === "in_review").length}/>
+        <Shared.KpiCard      label="Fixed today" value={baseNigos.filter(n => n.status === "fixed").length} trend="up"/>
         <Shared.KpiCard      label="Avg time-to-fix" value="1.4d" sub="goal 2d" trend="up"/>
       </div>
 

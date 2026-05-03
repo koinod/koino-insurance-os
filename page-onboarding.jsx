@@ -27,6 +27,21 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
   });
   const [busy, setBusy] = React.useState(false);
   const [err, setErr]   = React.useState("");
+  const [niprResults, setNiprResults] = React.useState(null); // { results, configured }
+  const [niprBusy, setNiprBusy]       = React.useState(false);
+
+  const verifyNipr = async () => {
+    if (!form.npn.trim() || form.license_states.length === 0) return;
+    setNiprBusy(true);
+    try {
+      const r = await fetch("/api/nipr-verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ npn: form.npn, states: form.license_states }) });
+      const j = await r.json();
+      // Both 200 (real verify) and 503 (graceful self-attested) include results
+      setNiprResults({ configured: r.ok, results: j.results || [] });
+    } catch (_e) {
+      setNiprResults({ configured: false, results: form.license_states.map(s => ({ state: s, status: "self-attested" })) });
+    } finally { setNiprBusy(false); }
+  };
 
   const STEPS = ["Profile", "Licenses", "Carriers", "Done"];
 
@@ -99,11 +114,30 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
             </Shared.Field>
             <Shared.Field label="Active license states" hint={`${form.license_states.length} selected`}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: 8, background: "var(--bg-raised)", borderRadius: 6, maxHeight: 180, overflowY: "auto" }}>
-                {STATES.map(s => (
-                  <button key={s} onClick={() => toggleState(s)} className={`chip ${form.license_states.includes(s) ? "chip-money" : ""}`} style={{ cursor: "pointer", border: 0, fontWeight: 500 }}>{s}</button>
-                ))}
+                {STATES.map(s => {
+                  const r = niprResults?.results?.find(x => x.state === s);
+                  const verified = r?.status === "active";
+                  const pending  = r?.status === "pending";
+                  return (
+                    <button key={s} onClick={() => { toggleState(s); setNiprResults(null); }} className={`chip ${form.license_states.includes(s) ? (verified ? "chip-money" : pending ? "chip-status" : "") : ""}`} style={{ cursor: "pointer", border: 0, fontWeight: 500, position: "relative" }}>
+                      {s}{verified && " ✓"}
+                    </button>
+                  );
+                })}
               </div>
             </Shared.Field>
+            <button className="btn" style={{ marginTop: 6 }} onClick={verifyNipr} disabled={niprBusy || !form.npn.trim() || form.license_states.length === 0}>
+              <Icons.Shield size={11}/> {niprBusy ? "Verifying via NIPR..." : "Verify with NIPR"}
+            </button>
+            {niprResults && (
+              <div style={{ marginTop: 8, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                {niprResults.configured ? (
+                  <><strong style={{ color: "var(--accent-money)" }}>NIPR PDB · live</strong> — {niprResults.results.filter(r => r.status === "active").length} of {niprResults.results.length} states verified active.</>
+                ) : (
+                  <><strong style={{ color: "var(--state-warning)" }}>Self-attested</strong> — NIPR PDB not connected. Set NIPR_USER_ID + NIPR_PASSWORD on Vercel for real-time license verification. States accepted on trust for now.</>
+                )}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setStep(0)}>Back</button>
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setStep(2)} disabled={form.license_states.length === 0}>Continue</button>
