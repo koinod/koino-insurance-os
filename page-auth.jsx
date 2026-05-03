@@ -96,21 +96,49 @@ function LoginScreen() {
 function AuthGate({ children }) {
   const [session, setSession] = React.useState(undefined); // undefined = checking, null = no session, obj = signed in
   const [demo, setDemo]       = React.useState(sessionStorage.getItem("repflow.demo") === "1");
+  const [tenant, setTenant]   = React.useState(undefined); // undefined = checking, null = no agency, obj = has agency
   const sb = window.getSupabase();
+
+  const refreshTenant = React.useCallback(async () => {
+    if (window.loadTenant) {
+      const t = await window.loadTenant();
+      setTenant(t);
+    } else { setTenant(null); }
+  }, []);
 
   React.useEffect(() => {
     if (!sb) { setSession(null); return; }
     sb.auth.getSession().then(({ data }) => setSession(data.session || null));
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      if (s) {
+        // Redeem stashed invite if there is one, then refresh tenant
+        const stash = sessionStorage.getItem("repflow.pending_invite");
+        if (stash) {
+          sb.rpc("redeem_invite", { p_token: stash }).then(() => {
+            sessionStorage.removeItem("repflow.pending_invite");
+            refreshTenant();
+          });
+        } else {
+          refreshTenant();
+        }
+      }
+    });
     const onSkip = () => setDemo(true);
     window.addEventListener("auth:skip", onSkip);
     return () => { sub.subscription.unsubscribe(); window.removeEventListener("auth:skip", onSkip); };
   }, []);
 
+  React.useEffect(() => { if (session) refreshTenant(); }, [session, refreshTenant]);
+
   if (session === undefined) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Checking session...</div></div>;
   }
   if (!session && !demo) return <LoginScreen/>;
+  if (session && tenant && !tenant.member && window.OnboardingWizard) {
+    const W = window.OnboardingWizard;
+    return <W onComplete={() => refreshTenant()}/>;
+  }
   return children;
 }
 

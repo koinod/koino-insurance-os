@@ -161,8 +161,8 @@ function DeployAgentModal({ onClose, presetAgent }) {
 }
 window.DeployAgentModal = DeployAgentModal;
 
-/* ─── Click-to-call: tries repflow:// scheme, falls back to tel: ─────── */
-window.repflowCall = function (phone, leadName) {
+/* ─── Click-to-call: Twilio softphone first → repflow:// scheme → tel: ─── */
+const _origRepflowCall = function (phone, leadName) {
   if (!phone) {
     window.toast && window.toast("No phone on file", "error");
     return;
@@ -187,6 +187,13 @@ window.repflowCall = function (phone, leadName) {
   const onHide = () => { clearTimeout(fallback); document.removeEventListener("visibilitychange", onHide); };
   document.addEventListener("visibilitychange", onHide);
   window.toast && window.toast(`Calling ${leadName || cleaned}`, "info");
+};
+
+// Public dial entrypoint: Twilio in-browser softphone if connector configured,
+// otherwise fall through to repflow:// (desktop helper) → tel: (system dialer)
+window.repflowCall = function (phone, leadName) {
+  if (window.repflowDial) { window.repflowDial(phone, leadName); }
+  else _origRepflowCall(phone, leadName);
 };
 
 /* ─── Settings: Calling tab — Repflow Desktop helper install ─────────── */

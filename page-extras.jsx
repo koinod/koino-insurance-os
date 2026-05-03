@@ -851,9 +851,9 @@ function PageBook() {
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
   const TABS = role === "owner"
-    ? [["org","Organization"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+    ? [["org","Organization"],["team","Team & invites"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
-      ? [["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+      ? [["team","Team & invites"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
       : [["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
   const [tab, setTab] = React.useState(TABS[0][0]);
 
@@ -880,6 +880,7 @@ function PageSettings({ role = "owner" }) {
           {tab === "api"          && <SettingsApi/>}
           {tab === "routing"      && <SettingsRouting/>}
           {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
+          {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
         </div>
@@ -968,6 +969,7 @@ function SettingsBilling() {
 function SettingsIntegrations() {
   const { CONNECTIONS } = AppData;
   const [testing, setTesting] = React.useState(null);
+  const [twilioOpen, setTwilioOpen] = React.useState(false);
 
   const test = async (c) => {
     setTesting(c.id);
@@ -995,11 +997,12 @@ function SettingsIntegrations() {
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => test(c)} disabled={testing === c.id}>{testing === c.id ? "Testing..." : "Test"}</button>
-              <button className="btn btn-ghost">{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+              <button className="btn btn-ghost" onClick={() => { if (c.id === "twilio") setTwilioOpen(true); else window.toast && window.toast(`Configure ${c.name}: connector dialog coming next`, "info"); }}>{c.status === "ok" ? "Configure" : "Reconnect"}</button>
             </div>
           </div>
         ))}
       </div>
+      {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => setTwilioOpen(false)}/>; })()}
     </div>
   );
 }
