@@ -289,6 +289,10 @@ window.hydrateFromSupabase = async function () {
         id: p.id, leadId: p.lead_pipeline_id, carrierId: p.carrier_id,
         productId: p.product_id, policyNumber: p.policy_number,
         product: p.product_text, ap: cents(p.ap_cents),
+        targetPremium: cents(p.target_premium_cents),
+        compRatePct: p.comp_rate_pct != null ? Number(p.comp_rate_pct) : null,
+        expectedCommission: cents(p.expected_commission_cents),
+        submissionDate: p.submission_date, initialDraftDate: p.initial_draft_date,
         issuedAt: p.issued_at, effectiveAt: p.effective_at,
         status: p.status, persistency: p.persistency_status,
         owner: p.owner_rep_id, state: p.state

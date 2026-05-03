@@ -359,58 +359,84 @@ const STATEMENT = [
   { date: "Apr 19",     lead: "Patricia Volker",carrier: "UHC",            product: "Plan G",    ap: 2120, pct: 50, expected: 1060, paid: 1060, status: "paid"     },
 ];
 
-function CommissionsRep() {
-  // Live statement: build from AppData.COMMISSIONS + POLICIES + PIPELINE if
-  // hydrated, else fall back to demo STATEMENT. Filter to current rep
-  // (hardcoded "marc" until auth lands — same convention used elsewhere).
-  const repId = AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id;
-  const liveRows = (() => {
-    const C = AppData.COMMISSIONS;
-    const P = AppData.POLICIES;
-    const PIPE = AppData.PIPELINE;
-    if (!Array.isArray(C) || C.length === 0) return null;
-    const policyById = new Map((P || []).map(p => [p.id, p]));
-    const leadById   = new Map((PIPE || []).map(l => [l.id, l]));
-    const clbk       = AppData.CLAWBACKS || [];
-    const fmtDate = (iso) => {
-      if (!iso) return "—";
-      const d = new Date(iso);
-      const today = new Date(); today.setHours(0,0,0,0);
-      const day = new Date(d); day.setHours(0,0,0,0);
-      const diff = (today - day) / (1000 * 60 * 60 * 24);
-      if (diff === 0) return "Today";
-      if (diff === 1) return "Yesterday";
-      if (diff < 14) return `${diff}d ago`;
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    };
-    const rows = C
-      .filter(c => !repId || c.repId === repId)
-      .map(c => {
-        const pol = c.policyId ? policyById.get(c.policyId) : null;
-        const lead = pol && pol.leadId ? leadById.get(pol.leadId) : null;
-        return {
-          date: fmtDate(c.paidAt || c.earnedAt),
-          lead: lead?.lead || (pol ? `Policy ${pol.policyNumber || pol.id.slice(0,6)}` : "—"),
-          carrier: pol?.carrierId ? (pol.carrierId.toUpperCase()) : "—",
-          product: pol?.product || "—",
-          ap: pol?.ap || 0,
-          pct: pol?.ap ? Math.round((c.amount / pol.ap) * 100) : 0,
-          expected: c.amount,
-          paid: c.kind === "advance" || c.kind === "earned" || c.kind === "trail" || c.kind === "residual" ? c.amount : 0,
-          status: c.kind === "advance" ? "advance" : c.kind === "earned" ? "paid" : c.kind,
-        };
-      });
-    // Add chargebacks for the same rep as negative-paid rows
-    clbk.filter(cb => !repId || cb.repId === repId).forEach(cb => {
-      rows.push({
-        date: fmtDate(cb.recordedAt),
-        lead: "(chargeback)",
-        carrier: "—", product: "—", ap: 0, pct: 0,
-        expected: 0, paid: -cb.amount, status: "Chargeback",
-      });
+// ─── Account-based commission calculator ───────────────────────────────────
+// Single source of truth: each row in policies carries comp_rate_pct +
+// expected_commission (set by deal-write). PAID amounts come from the
+// commissions ledger (advances / earned / trails). This makes the rep,
+// manager, and owner views all derive from the same data — change a comp%
+// at deal entry and every downstream number moves.
+function buildStatement({ repId } = {}) {
+  const policies = AppData.POLICIES || [];
+  const commissions = AppData.COMMISSIONS || [];
+  const pipeline = AppData.PIPELINE || [];
+  const carriers = AppData.CARRIERS || [];
+  const clawbacks = AppData.CLAWBACKS || [];
+  const carrierById = new Map(carriers.map(c => [c.id, c]));
+  const leadById   = new Map(pipeline.map(l => [l.id, l]));
+
+  const fmtDate = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso); if (isNaN(d)) return iso;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const day = new Date(d); day.setHours(0,0,0,0);
+    const diff = Math.round((today - day) / 86400000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    if (diff < 14)  return `${diff}d ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const rows = policies
+    .filter(p => !repId || p.owner === repId)
+    .map(p => {
+      // Sum any paid commissions tied to this policy
+      const paidForPolicy = commissions
+        .filter(c => c.policyId === p.id)
+        .reduce((a, c) => a + (c.amount || 0), 0);
+      // expected: prefer stored expected, else AP × comp%
+      const base = p.targetPremium || p.ap || 0;
+      const pct  = p.compRatePct != null ? p.compRatePct : 0;
+      const expected = p.expectedCommission != null ? p.expectedCommission : Math.round(base * pct / 100);
+      const lead     = p.leadId ? leadById.get(p.leadId) : null;
+      const carrier  = carrierById.get(p.carrierId);
+      // Status mapping
+      const status = p.status === "issued" || p.status === "active" ? (paidForPolicy > 0 ? "paid" : "pending payout")
+                    : p.status === "submitted" || p.status === "app_in" ? "submitted"
+                    : p.status === "declined" || p.status === "withdrawn" ? p.status
+                    : p.status || "—";
+      return {
+        policyId: p.id,
+        date: fmtDate(p.submissionDate || p.issuedAt),
+        lead: lead?.lead || (p.policyNumber ? `Policy ${p.policyNumber}` : "—"),
+        carrier: carrier?.name || p.carrierId || "—",
+        product: p.product || "—",
+        ap: p.ap || 0,
+        pct,
+        expected,
+        paid: paidForPolicy,
+        status,
+      };
     });
-    return rows.sort((a, b) => (a.date === "Today" ? -1 : 1));
-  })();
+
+  // Append chargebacks (negative paid)
+  clawbacks
+    .filter(cb => !repId || cb.repId === repId)
+    .forEach(cb => rows.push({
+      policyId: cb.policyId,
+      date: fmtDate(cb.recordedAt),
+      lead: "(chargeback)",
+      carrier: "—", product: "—", ap: 0, pct: 0,
+      expected: 0, paid: -(cb.amount || 0), status: "Chargeback",
+    }));
+
+  return rows;
+}
+
+function CommissionsRep() {
+  // Always recompute from policies + commissions ledger so any deal entered
+  // anywhere by this rep flows through immediately.
+  const repId = AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id;
+  const liveRows = buildStatement({ repId });
   const ROWS = liveRows && liveRows.length ? liveRows : STATEMENT;
   const total = ROWS.reduce((a, r) => a + r.expected, 0);
   const paid  = ROWS.reduce((a, r) => a + r.paid, 0);
@@ -480,50 +506,76 @@ function CommissionsRep() {
 
 function CommissionsManager() {
   const { REPS } = AppData;
+  // Aggregate buildStatement per rep — same comp% input flows up
+  const perRep = REPS.map(r => {
+    const rows = buildStatement({ repId: r.id });
+    const issued = rows.filter(x => x.status === "paid" || x.status === "pending payout").length;
+    const ap     = rows.reduce((a, x) => a + (x.ap || 0), 0);
+    const expected = rows.reduce((a, x) => a + (x.expected || 0), 0);
+    const paid    = rows.reduce((a, x) => a + Math.max(0, x.paid || 0), 0);
+    const charge  = rows.filter(x => (x.paid || 0) < 0).reduce((a, x) => a + x.paid, 0);
+    return { rep: r, issued, ap, expected, paid, ic: Math.max(0, expected - paid), charge };
+  });
+  const teamAp       = perRep.reduce((a, x) => a + x.ap, 0);
+  const teamExpected = perRep.reduce((a, x) => a + x.expected, 0);
+  const teamPaid     = perRep.reduce((a, x) => a + x.paid, 0);
+  const teamIc       = Math.max(0, teamExpected - teamPaid);
+  const teamCharge   = perRep.reduce((a, x) => a + x.charge, 0);
+
+  // Fall back to demo numbers if no policies have been written yet
+  const isEmpty = teamAp === 0 && teamExpected === 0;
+  const display = isEmpty
+    ? { ap: 295000, expected: 184260, paid: 142080, ic: 42180, charge: -11420 }
+    : { ap: teamAp, expected: teamExpected, paid: teamPaid, ic: teamIc, charge: teamCharge };
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Team rollup</div>
-          <div className="page-sub">Per-producer ledger · variance flags vs carrier files</div>
+          <div className="page-sub">Per-producer ledger · computed from rep-entered comp % at deal-write</div>
         </div>
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Team paid MTD" prefix="$" value="184,260" sub="+12% vs last" trend="up"/>
-        <Shared.KpiCard label="In clearing" prefix="$" value="42,180" sub="14 apps"/>
-        <Shared.KpiCard label="NIGO drag" prefix="$" value="11,420" sub="-$2.1k WoW" neg/>
+        <Shared.KpiCard hero label="Team expected MTD" prefix="$" value={display.expected.toLocaleString()} sub={`across ${perRep.reduce((a, x) => a + x.issued, 0) || 14} issues`} trend="up"/>
+        <Shared.KpiCard label="Team paid MTD" prefix="$" value={display.paid.toLocaleString()} sub="advances + as-earned"/>
+        <Shared.KpiCard label="In clearing" prefix="$" value={display.ic.toLocaleString()} sub={isEmpty ? "14 apps" : "expected − paid"}/>
+        <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(display.charge).toLocaleString()} sub="last 30d" neg/>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><h3>Producers · this month</h3></div>
+        <div className="panel-h"><h3>Producers · this month</h3><span className="meta">click rep to drill</span></div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 100px 100px 100px 100px" }}>
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 70px 100px 110px 100px 100px" }}>
             <div>Producer</div>
             <div className="tabular" style={{ textAlign: "right" }}>Issued</div>
             <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Expected</div>
             <div className="tabular" style={{ textAlign: "right" }}>Paid</div>
             <div className="tabular" style={{ textAlign: "right" }}>In-clearing</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Variance</div>
           </div>
-          {REPS.map(r => {
-            const issued = Math.round(r.mtd / 1800);
-            const ap = r.mtd;
-            const paid = Math.round(r.mtd * 0.62);
-            const ic = ap - paid;
-            const variance = (r.id === "luis" || r.id === "remy") ? -180 : 0;
+          {perRep.map(({ rep, issued, ap, expected, paid, ic }) => {
+            // Synthesize numbers when no real policies yet so the page isn't empty
+            const fakeAp = rep.mtd;
+            const fakePaid = Math.round(rep.mtd * 0.62);
+            const showAp = isEmpty ? fakeAp : ap;
+            const showExpected = isEmpty ? Math.round(rep.mtd * 0.5) : expected;
+            const showPaid = isEmpty ? fakePaid : paid;
+            const showIc = isEmpty ? Math.max(0, showExpected - showPaid) : ic;
+            const showIssued = isEmpty ? Math.round(rep.mtd / 1800) : issued;
             return (
-              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 100px 100px 100px 100px" }}>
+              <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.6fr 70px 100px 110px 100px 100px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Shared.Avatar rep={r} size={20}/>
-                  <span style={{ fontWeight: 500 }}>{r.name}</span>
-                  <Shared.TierChip tier={r.tier} compact/>
+                  <Shared.Avatar rep={rep} size={20}/>
+                  <span style={{ fontWeight: 500 }}>{rep.name}</span>
+                  <Shared.TierChip tier={rep.tier} compact/>
                 </div>
-                <div className="tabular" style={{ textAlign: "right" }}>{issued}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${ap.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${paid.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>${ic.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: variance ? "var(--state-danger)" : "var(--text-quaternary)" }}>{variance ? `-$${Math.abs(variance)}` : "—"}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{showIssued}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>${showAp.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${showExpected.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${showPaid.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>${showIc.toLocaleString()}</div>
               </div>
             );
           })}
@@ -534,22 +586,67 @@ function CommissionsManager() {
 }
 
 function CommissionsOwner() {
+  // Account-wide pool: union of every rep's deals → producer commissions →
+  // implied override slice. Owner sets the override % below; everything moves.
+  const { REPS } = AppData;
+  const [overridePct, setOverridePct] = React.useState(20);  // owner's slice on top of producer comp
+  const allRows = buildStatement();   // all reps
+  const issued = allRows.filter(r => r.status === "paid" || r.status === "pending payout").length;
+  const totalAp       = allRows.reduce((a, r) => a + (r.ap || 0), 0);
+  const totalExpected = allRows.reduce((a, r) => a + (r.expected || 0), 0);
+  const totalPaid     = allRows.reduce((a, r) => a + Math.max(0, r.paid || 0), 0);
+  const overridePool  = Math.round(totalAp * overridePct / 100);
+  const isEmpty = totalAp === 0;
+
+  // Region split — rough: first 5 reps = Atlanta, rest = Tampa
+  const regionRows = ["Atlanta region", "Tampa region"].map((name, i) => {
+    const reps = REPS.slice(i === 0 ? 0 : 5, i === 0 ? 5 : undefined);
+    const ids = new Set(reps.map(r => r.id));
+    const rows = allRows.filter(r => {
+      const pol = (AppData.POLICIES || []).find(p => p.id === r.policyId);
+      return pol && ids.has(pol.owner);
+    });
+    const ap = rows.reduce((a, r) => a + (r.ap || 0), 0);
+    const ovr = Math.round(ap * overridePct / 100);
+    return { name, reps: reps.length, ap, ovr };
+  });
+
+  // Fallback display when no real deals
+  const display = isEmpty
+    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
+    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Override pool</div>
-          <div className="page-sub">Owner override slice · regional waterfall · monthly payout</div>
+          <div className="page-sub">Account-wide rollup · {issued || 14} issues this period · override % set by you below</div>
         </div>
       </div>
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Override pool · MTD" prefix="$" value="258,420" sub="+18.2% vs last" trend="up"/>
-        <Shared.KpiCard label="Net to owner" prefix="$" value="104,700" sub="after lead spend / NIGO" trend="up"/>
-        <Shared.KpiCard label="Paid out to producers" prefix="$" value="412,300" sub="across 9 producers"/>
+        <Shared.KpiCard hero label="Override pool · MTD" prefix="$" value={display.pool.toLocaleString()} sub={`${overridePct}% of $${display.totalAp.toLocaleString()} AP`} trend="up"/>
+        <Shared.KpiCard label="Net to owner" prefix="$" value={display.net.toLocaleString()} sub="after lead spend + NIGO" trend="up"/>
+        <Shared.KpiCard label="Paid to producers" prefix="$" value={display.paidOut.toLocaleString()} sub={`${REPS.length} producers`}/>
+        <Shared.KpiCard label="Coverage" value={`${(display.pool / 100000).toFixed(2)}x`} sub="vs $100k goal" trend={display.pool >= 100000 ? "up" : "down"}/>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <div className="panel-h"><Icons.Calculator size={13}/><h3>Owner override %</h3><span className="meta">applies to all producer AP</span></div>
+        <div style={{ padding: "12px 14px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Override slice</span>
+            <span className="tabular" style={{ fontSize: 14, fontWeight: 600 }}>{overridePct}%</span>
+          </div>
+          <input type="range" min={5} max={40} step={1} value={overridePct} onChange={(e) => setOverridePct(+e.target.value)} style={{ width: "100%" }}/>
+          <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+            At {overridePct}%, every $1k of producer AP returns ${(overridePct * 10).toFixed(0)} to the owner pool. Rep comp % is set per-deal at write time.
+          </div>
+        </div>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><h3>By region · April</h3></div>
+        <div className="panel-h"><h3>By region</h3></div>
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
             <div>Region</div>
@@ -558,20 +655,22 @@ function CommissionsOwner() {
             <div className="tabular" style={{ textAlign: "right" }}>Override</div>
             <div></div>
           </div>
-          {[
-            { name: "Atlanta region", reps: 5, ap: 412800, ovr: 92420 },
-            { name: "Tampa region",   reps: 4, ap: 318200, ovr: 71390 },
-          ].map((r, i) => (
-            <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
-              <div style={{ fontWeight: 500 }}>{r.name}</div>
-              <div className="tabular" style={{ textAlign: "right" }}>{r.reps}</div>
-              <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
-              <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${r.ovr.toLocaleString()}</div>
-              <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
-                <div style={{ width: `${(r.ovr / 100000) * 100}%`, height: "100%", background: "var(--accent-money)" }}></div>
+          {regionRows.map((r, i) => {
+            const showAp  = isEmpty ? [412800, 318200][i] : r.ap;
+            const showOvr = isEmpty ? [92420, 71390][i]   : r.ovr;
+            const max     = Math.max(...regionRows.map(x => isEmpty ? Math.max(92420, 71390) : x.ovr), 1);
+            return (
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
+                <div style={{ fontWeight: 500 }}>{r.name}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{r.reps}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>${showAp.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${showOvr.toLocaleString()}</div>
+                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
+                  <div style={{ width: `${(showOvr / max) * 100}%`, height: "100%", background: "var(--accent-money)" }}></div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -587,14 +686,277 @@ function PageTraining({ role = "rep" }) {
   return <TrainingRep/>;
 }
 
+/* ─── Default video library + scripts library ─────────────────────────────
+   Both seed lists. The user's library is `seeds + localStorage extras`,
+   merged at render time. Owner can edit via TrainingOwner authoring view. */
+const DEFAULT_VIDEOS = [
+  { id: "v-medg",  title: "Med Supp · Plan G — opening + objections",  cat: "Med Supp",      durMin: 12, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-fe",     title: "Final Expense — empathy & emotional setup", cat: "Final Expense", durMin: 18, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-aep",    title: "AEP — fast switch reasons that close",       cat: "AEP",           durMin: 9,  src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-iul",    title: "IUL — target premium vs annual premium",      cat: "Life",          durMin: 22, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-tpmo",   title: "TPMO disclosure — verbatim walkthrough",      cat: "Compliance",    durMin: 6,  src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-cross",  title: "Cross-sell — Med Supp → FE in one call",      cat: "Med Supp",      durMin: 14, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+];
+
+const DEFAULT_SCRIPTS = [
+  { id: "s-medg",   title: "Med Supp — Plan G open",       cat: "Open",       version: "v3.1", updated: "2d ago", body: `Hi {{lead_name}}, this is {{rep_first}} with Atlas. The reason for my call is to make sure your Medicare Supplement gives you the same Plan G coverage at a lower rate. Quick question — when you turn the page on next year's premium, are you most concerned about the monthly cost or the network freedom?` },
+  { id: "s-fe",     title: "Final Expense — empathy",       cat: "Open",       version: "v2.4", updated: "1w ago", body: `Most of my clients tell me the hardest part isn't paying for a policy, it's the thought of leaving the people they love with a bill on top of grief. Can I ask — if something happened tomorrow, who would you not want to leave that burden on?` },
+  { id: "s-tpmo",   title: "TPMO disclosure (verbatim)",   cat: "Compliance", version: "v1.0", updated: "3w ago", body: `We do not offer every plan available in your area. Currently we represent {{n_orgs}} organizations which offer {{n_plans}} products in your area. Please contact Medicare.gov or 1-800-MEDICARE to get information on all of your options.` },
+  { id: "s-annuity",title: "Annuity — fact-find",           cat: "Discovery",  version: "v1.7", updated: "5d ago", body: `Before I quote anything, I need to understand your timeline. The money you're considering — is this for income within the next 5 years, or is it cushion for ten-plus years out?` },
+  { id: "s-xsell",  title: "Cross-sell — FE → Med Supp",   cat: "Cross-sell", version: "v2.0", updated: "1d ago", body: `Now that we've taken care of the final expense piece, the other coverage gap I usually see is on the medical side. With Plan G, your Medicare-approved costs after deductible would be zero. Want me to pull a quick rate?` },
+  { id: "s-aep",    title: "AEP — switch reasons",          cat: "Open",       version: "v4.2", updated: "Today",   body: `Three reasons people switch during AEP: (1) the drug list changed, (2) their doctor dropped, (3) the premium jumped. Which of those is hitting you hardest this year?` },
+];
+
+const VIDEO_CATS  = ["All", "Med Supp", "Final Expense", "AEP", "Life", "Compliance"];
+const SCRIPT_CATS = ["All", "Open", "Discovery", "Cross-sell", "Compliance"];
+
+function useLocalArray(key, seed) {
+  const [items, setItems] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) return JSON.parse(raw);
+    } catch (_e) {}
+    return seed;
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(items)); } catch (_e) {}
+  }, [items]);
+  return [items, setItems];
+}
+
+function VideoLibrary() {
+  const [videos]                 = useLocalArray("repflow:videos", DEFAULT_VIDEOS);
+  const [cat, setCat]             = React.useState("All");
+  const [q, setQ]                 = React.useState("");
+  const [sel, setSel]             = React.useState(null);
+  const filtered = videos.filter(v =>
+    (cat === "All" || v.cat === cat) &&
+    (!q || v.title.toLowerCase().includes(q.toLowerCase()))
+  );
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Video size={13}/>
+        <h3>Video library</h3>
+        <span className="meta">{filtered.length} of {videos.length}</span>
+        <input className="text-input" style={{ width: 220, marginLeft: "auto" }} placeholder="Search videos…" value={q} onChange={(e) => setQ(e.target.value)}/>
+      </div>
+      <div style={{ padding: "10px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {VIDEO_CATS.map(c => (
+          <button key={c} className="btn btn-ghost" onClick={() => setCat(c)}
+            style={{ padding: "4px 10px", fontSize: 11.5, background: cat === c ? "var(--bg-raised)" : "transparent", color: cat === c ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+            {c}
+          </button>
+        ))}
+      </div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+        {filtered.map(v => (
+          <div key={v.id} style={{ background: "var(--bg-raised)", borderRadius: 8, overflow: "hidden", cursor: "pointer", border: "1px solid var(--border-subtle)" }} onClick={() => setSel(v)}>
+            <div style={{ position: "relative", paddingTop: "56.25%", background: "var(--bg-overlay)" }}>
+              {v.thumb && <img src={v.thumb} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}/>}
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.25)" }}>
+                <div style={{ width: 40, height: 40, borderRadius: 999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icons.Play size={16} style={{ color: "white", marginLeft: 2 }}/>
+                </div>
+              </div>
+              <div style={{ position: "absolute", bottom: 6, right: 6, padding: "2px 6px", background: "rgba(0,0,0,0.7)", borderRadius: 3, fontSize: 10.5, color: "white" }}>{v.durMin}m</div>
+            </div>
+            <div style={{ padding: 10 }}>
+              <div style={{ fontWeight: 500, fontSize: 12.5 }}>{v.title}</div>
+              <div style={{ marginTop: 4 }}><span className="chip">{v.cat}</span></div>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div style={{ gridColumn: "1 / -1", padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No videos match your filter.
+          </div>
+        )}
+      </div>
+
+      {sel && (
+        <Shared.Modal title={sel.title} width={800} onClose={() => setSel(null)}>
+          <div style={{ position: "relative", paddingTop: "56.25%", background: "black", borderRadius: 6, overflow: "hidden" }}>
+            <iframe src={sel.src} title={sel.title} allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}/>
+          </div>
+          <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+            <Icons.Clock size={11}/> {sel.durMin} min · <span className="chip">{sel.cat}</span>
+          </div>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+function ScriptsLibrary() {
+  const [scripts, setScripts]     = useLocalArray("repflow:scripts", DEFAULT_SCRIPTS);
+  const [cat, setCat]             = React.useState("All");
+  const [q, setQ]                 = React.useState("");
+  const [openId, setOpenId]       = React.useState(null);
+  const [editing, setEditing]     = React.useState(null);   // {id?, title, cat, body}
+  const [copyToast, setCopyToast] = React.useState(null);
+
+  const filtered = scripts.filter(s =>
+    (cat === "All" || s.cat === cat) &&
+    (!q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()))
+  );
+  const open = openId ? scripts.find(s => s.id === openId) : null;
+
+  const startNew  = () => setEditing({ id: null, title: "", cat: "Open", body: "" });
+  const startEdit = (s) => setEditing({ id: s.id, title: s.title, cat: s.cat, body: s.body });
+  const save = () => {
+    if (!editing.title.trim() || !editing.body.trim()) return;
+    if (editing.id) {
+      setScripts(ss => ss.map(s => s.id === editing.id ? { ...s, title: editing.title, cat: editing.cat, body: editing.body, updated: "Just now" } : s));
+    } else {
+      setScripts(ss => [{ id: "s-" + Date.now(), title: editing.title, cat: editing.cat, body: editing.body, version: "v1.0", updated: "Just now" }, ...ss]);
+    }
+    window.toast && window.toast(editing.id ? "Script updated" : "Script added", "success");
+    setEditing(null);
+  };
+  const remove = (id) => {
+    setScripts(ss => ss.filter(s => s.id !== id));
+    if (openId === id) setOpenId(null);
+    window.toast && window.toast("Script removed", "info");
+  };
+  const copyBody = async (s) => {
+    try {
+      await navigator.clipboard.writeText(s.body);
+      setCopyToast(s.id);
+      setTimeout(() => setCopyToast(null), 1400);
+    } catch (_e) {
+      window.toast && window.toast("Copy blocked by browser", "warn");
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.FileText size={13}/>
+        <h3>Scripts library</h3>
+        <span className="meta">{filtered.length} of {scripts.length}</span>
+        <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search title or body…" value={q} onChange={(e) => setQ(e.target.value)}/>
+        <button className="btn btn-primary" onClick={startNew}><Icons.Plus size={12}/> New</button>
+      </div>
+      <div style={{ padding: "10px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {SCRIPT_CATS.map(c => (
+          <button key={c} className="btn btn-ghost" onClick={() => setCat(c)}
+            style={{ padding: "4px 10px", fontSize: 11.5, background: cat === c ? "var(--bg-raised)" : "transparent", color: cat === c ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: open ? "1fr 1.4fr" : "1fr", gap: 0 }}>
+        <div className="list" style={{ borderRight: open ? "1px solid var(--border-subtle)" : "none" }}>
+          {filtered.map(s => (
+            <div key={s.id} className="row" style={{ gridTemplateColumns: "1.4fr 90px 80px 90px", height: 40, cursor: "pointer", background: openId === s.id ? "var(--bg-raised)" : undefined }}
+              onClick={() => setOpenId(s.id)}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 12.5 }}>{s.title}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version} · {s.updated}</div>
+              </div>
+              <div><span className="chip">{s.cat}</span></div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{s.body.split(" ").length}w</div>
+              <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBody(s); }} title="Copy">
+                  {copyToast === s.id ? <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/> : <Icons.Copy size={11}/>}
+                </button>
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+              No scripts match your filter.
+            </div>
+          )}
+        </div>
+
+        {open && (
+          <div style={{ padding: 16, background: "var(--bg-elevated)" }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+              <strong style={{ fontSize: 14 }}>{open.title}</strong>
+              <span className="meta" style={{ fontSize: 11 }}>{open.version} · {open.updated}</span>
+            </div>
+            <div style={{ marginBottom: 12 }}><span className="chip">{open.cat}</span></div>
+            <div style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13.5, lineHeight: 1.7, color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
+              {open.body}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>
+              Variables: <code style={{ fontSize: 11 }}>{`{{lead_name}}`}</code> · <code style={{ fontSize: 11 }}>{`{{rep_first}}`}</code> · <code style={{ fontSize: 11 }}>{`{{n_orgs}}`}</code> are filled at speak-time on the dialer.
+            </div>
+            <div style={{ marginTop: 14, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => remove(open.id)} style={{ color: "var(--state-danger)" }}>
+                <Icons.X size={11}/> Delete
+              </button>
+              <button className="btn" onClick={() => copyBody(open)}>
+                {copyToast === open.id ? <><Icons.Check size={11}/> Copied</> : <><Icons.Copy size={11}/> Copy</>}
+              </button>
+              <button className="btn btn-primary" onClick={() => startEdit(open)}>
+                <Icons.Edit size={11}/> Edit
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <Shared.Modal title={editing.id ? "Edit script" : "New script"} width={620} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!editing.title.trim() || !editing.body.trim()}>
+              <Icons.Check size={11}/> {editing.id ? "Save" : "Add"}
+            </button>
+          </>
+        }>
+          <Shared.Field label="Title">
+            <input className="text-input" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="Med Supp · Plan G open" autoFocus/>
+          </Shared.Field>
+          <Shared.Field label="Category">
+            <Shared.Select value={editing.cat} onChange={(v) => setEditing({ ...editing, cat: v })} options={SCRIPT_CATS.filter(c => c !== "All").map(c => ({ v: c, l: c }))}/>
+          </Shared.Field>
+          <Shared.Field label="Body">
+            <textarea className="text-input" rows={10} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+              placeholder={`Hi {{lead_name}}, this is {{rep_first}} with Atlas...`}
+              style={{ width: "100%", lineHeight: 1.6, fontFamily: "var(--font-ui)" }}/>
+          </Shared.Field>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+            Use <code style={{ fontSize: 11 }}>{`{{lead_name}}`}</code> / <code style={{ fontSize: 11 }}>{`{{rep_first}}`}</code> for runtime substitution.
+          </div>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
 function TrainingRep() {
   const { COURSES } = AppData;
+  const [tab, setTab] = React.useState("courses");
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Training · Me</div>
-          <div className="page-sub">Notion-simple courses, scripts, certifications · AEP cert progress</div>
+          <div className="page-sub">Courses · video library · live scripts · AEP cert progress</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2 }}>
+          {[
+            { k: "courses", l: "Courses",  icon: "Book" },
+            { k: "videos",  l: "Videos",   icon: "Video" },
+            { k: "scripts", l: "Scripts",  icon: "FileText" },
+          ].map(t => {
+            const Ic = Icons[t.icon];
+            return (
+              <button key={t.k} onClick={() => setTab(t.k)} className="btn btn-ghost"
+                style={{ padding: "4px 12px", display: "flex", alignItems: "center", gap: 6, background: tab === t.k ? "var(--bg-raised)" : "transparent", color: tab === t.k ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+                <Ic size={12}/> {t.l}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -604,50 +966,32 @@ function TrainingRep() {
         <Shared.KpiCard label="CE hours · YTD" value="14.5"/>
       </div>
 
-      <div className="panel">
-        <div className="panel-h"><Icons.Book size={13}/><h3>My courses</h3></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
-            <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Status</div><div></div>
-          </div>
-          {COURSES.map(c => (
-            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
-              <div style={{ fontWeight: 500 }}>{c.title}</div>
-              <div><span className="chip">{c.track}</span></div>
-              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
-              <div><span className={`chip ${
-                c.status === "complete" ? "chip-money" :
-                c.status === "in-progress" ? "chip-info" :
-                c.status === "due" ? "chip-status" : ""
-              }`}>{c.status}</span></div>
-              <div><button className="btn btn-ghost"><Icons.Play size={11}/> {c.status === "complete" ? "Review" : "Start"}</button></div>
+      {tab === "courses" && (
+        <div className="panel">
+          <div className="panel-h"><Icons.Book size={13}/><h3>My courses</h3></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
+              <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Status</div><div></div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="panel" style={{ marginTop: 14 }}>
-        <div className="panel-h"><h3>Scripts library</h3><span className="meta">always-current</span></div>
-        <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-          {[
-            "Med Supp — Plan G open",
-            "Final Expense — empathy",
-            "TPMO disclosure (verbatim)",
-            "Annuity — fact-find",
-            "Cross-sell — FE → Med Supp",
-            "AEP — switch reasons",
-          ].map((t, i) => (
-            <div key={i} className="panel" style={{ padding: 10 }}>
-              <div style={{ fontWeight: 500 }}>{t}</div>
-              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 4 }}>Updated 2d ago · v3.1</div>
-              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                <button className="btn btn-ghost"><Icons.Play size={11}/> Open</button>
-                <button className="btn btn-ghost">Practice</button>
+            {COURSES.map(c => (
+              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
+                <div style={{ fontWeight: 500 }}>{c.title}</div>
+                <div><span className="chip">{c.track}</span></div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
+                <div><span className={`chip ${
+                  c.status === "complete" ? "chip-money" :
+                  c.status === "in-progress" ? "chip-info" :
+                  c.status === "due" ? "chip-status" : ""
+                }`}>{c.status}</span></div>
+                <div><button className="btn btn-ghost"><Icons.Play size={11}/> {c.status === "complete" ? "Review" : "Start"}</button></div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {tab === "videos"  && <VideoLibrary/>}
+      {tab === "scripts" && <ScriptsLibrary/>}
     </div>
   );
 }
