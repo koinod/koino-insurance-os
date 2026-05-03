@@ -366,6 +366,14 @@ const AIRail = ({ context }) => {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history.length, busy]);
 
+  // External pages can dispatch CustomEvent('ai:ask', { detail: { prompt, context }})
+  // to seed the rail with a prompt and auto-fire it.
+  useEffect(() => {
+    const onAsk = (e) => { const p = e.detail?.prompt; if (p) ask(p); };
+    window.addEventListener("ai:ask", onAsk);
+    return () => window.removeEventListener("ai:ask", onAsk);
+  }, [busy]);
+
   const ask = async (prompt) => {
     if (!prompt.trim() || busy) return;
     setHist(h => [...h, { role: "user", text: prompt }]);

@@ -41,6 +41,9 @@ function PageTeam() {
     }
   };
 
+  const [routingOpen, setRoutingOpen] = React.useState(false);
+  const [repDrill, setRepDrill] = React.useState(null);
+
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -49,10 +52,16 @@ function PageTeam() {
           <div className="page-sub">Drag a lead onto a producer · routing rules validate state license, carrier appt, and tier</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Settings size={13}/> Routing rules</button>
+          <button className="btn" onClick={() => setRoutingOpen(true)}><Icons.Settings size={13}/> Routing rules</button>
           <button className="btn btn-primary" onClick={openBulk} disabled={visibleQueue.length === 0}><Icons.Plus size={13}/> Bulk assign</button>
         </div>
       </div>
+
+      <Shared.SectionPill
+        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"}]}
+        value="team"
+        onChange={(k) => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
+      />
 
       <div className="team-grid" style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14 }}>
         <div className="panel">
@@ -94,7 +103,8 @@ function PageTeam() {
                   } catch (_e) {}
                 }
               }}
-              style={{ borderColor: drop === r.id ? "var(--accent-money)" : undefined, background: drop === r.id ? "color-mix(in oklch, var(--accent-money) 6%, var(--bg-elevated))" : undefined }}>
+              style={{ borderColor: drop === r.id ? "var(--accent-money)" : undefined, background: drop === r.id ? "color-mix(in oklch, var(--accent-money) 6%, var(--bg-elevated))" : undefined, cursor: "pointer" }}
+              onClick={(e) => { if (e.target.closest("button")) return; setRepDrill(r); }}>
               <div className="panel-h">
                 <Shared.Avatar rep={r} size={22}/>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -135,6 +145,9 @@ function PageTeam() {
           ))}
         </div>
       </div>
+
+      {routingOpen && <RoutingRulesModal onClose={() => setRoutingOpen(false)}/>}
+      {repDrill && <RepDrillSlideout rep={repDrill} onClose={() => setRepDrill(null)}/>}
 
       {bulkOpen && (
         <Shared.Modal title="Bulk assign queue" width={620} onClose={() => setBulkOpen(false)} actions={
@@ -349,6 +362,155 @@ function CoachingOwner() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Routing rules modal — full editor backed by Supabase ─────────── */
+function RoutingRulesModal({ onClose }) {
+  const [rules, setRules] = React.useState([
+    { id: "stub-1", source: "FB Lead Form · T65",         route_to: "Med Supp specialists", weight: 60,  active: true },
+    { id: "stub-2", source: "Inbound < 30s",               route_to: "Tier ≥ Gold",          weight: 90,  active: true },
+    { id: "stub-3", source: "Annuity",                      route_to: "Certified producer",   weight: 100, active: true },
+    { id: "stub-4", source: "Spanish",                      route_to: "Bilingual round-robin", weight: 50, active: true },
+  ]);
+  const [editing, setEditing] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!AppData.LIVE) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    sb.from("routing_rules").select("*").order("weight", { ascending: false }).then(({ data }) => {
+      if (data && data.length) setRules(data);
+    });
+  }, []);
+
+  const upsert = async (rule) => {
+    await AppData.mutate.routingRuleSave(rule);
+    if (rule.id?.startsWith("stub-")) {
+      // local-only save while not in LIVE mode
+      setRules(rs => rs.map(r => r.id === rule.id ? rule : r));
+    } else if (rule.id) {
+      setRules(rs => rs.map(r => r.id === rule.id ? rule : r));
+    } else {
+      setRules(rs => [...rs, { ...rule, id: "tmp-" + Date.now() }]);
+    }
+    setEditing(null);
+    window.toast && window.toast("Routing rule saved", "success");
+  };
+  const remove = async (id) => {
+    if (!String(id).startsWith("stub-")) await AppData.mutate.routingRuleDelete(id);
+    setRules(rs => rs.filter(r => r.id !== id));
+  };
+
+  return (
+    <Shared.Modal title="Routing rules" width={680} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        <button className="btn btn-primary" onClick={() => setEditing({ source: "", route_to: "", weight: 50, active: true })}><Icons.Plus size={11}/> New rule</button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 8 }}>Higher weight wins ties. Inactive rules don't fire. Persisted to Supabase when signed in.</div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 1.6fr 80px 80px 80px" }}>
+          <div>Source / trigger</div><div>Route to</div><div className="tabular" style={{ textAlign: "right" }}>Weight</div><div>State</div><div></div>
+        </div>
+        {rules.map(r => (
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 1.6fr 80px 80px 80px" }}>
+            <div style={{ fontWeight: 500 }}>{r.source}</div>
+            <div style={{ color: "var(--text-secondary)" }}>{r.route_to}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>{r.weight}</div>
+            <div>
+              <span className={`chip ${r.active ? "chip-money" : ""}`}>{r.active ? "active" : "off"}</span>
+            </div>
+            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+              <button className="icon-btn" onClick={() => setEditing(r)}><Icons.Settings size={11}/></button>
+              <button className="icon-btn" onClick={() => remove(r.id)}><Icons.X size={11}/></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <div style={{ marginTop: 12, padding: 12, background: "var(--bg-raised)", borderRadius: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+          <Shared.Field label="Source / trigger"><input className="text-input" value={editing.source} onChange={(e) => setEditing({ ...editing, source: e.target.value })} placeholder="FB Lead Form · T65"/></Shared.Field>
+          <Shared.Field label="Route to"><input className="text-input" value={editing.route_to} onChange={(e) => setEditing({ ...editing, route_to: e.target.value })} placeholder="Med Supp specialists"/></Shared.Field>
+          <Shared.Field label={`Weight · ${editing.weight}`}><input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })}/></Shared.Field>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+            <input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })}/> Active
+          </label>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={() => upsert(editing)} disabled={!editing.source.trim() || !editing.route_to.trim()}><Icons.Check size={11}/> Save</button>
+          </div>
+        </div>
+      )}
+    </Shared.Modal>
+  );
+}
+
+/* ─── Rep drill-down slideout ──────────────────────────────────────── */
+function RepDrillSlideout({ rep, onClose }) {
+  const myPipeline = AppData.PIPELINE.filter(p => p.owner === rep.id);
+  const todayBooked = myPipeline.filter(p => p.stage === "Issued").reduce((a, p) => a + (p.ap || 0), 0);
+  const sendCheckIn = () => {
+    window.toast && window.toast(`Check-in sent to ${rep.name.split(" ")[0]}`, "success");
+  };
+  const callRep = () => {
+    window.repflowCall && window.repflowCall("+15125550" + rep.id.slice(0, 3), rep.name);
+  };
+  return (
+    <div className="slideout-overlay" onClick={onClose}>
+      <aside className="slideout" onClick={(e) => e.stopPropagation()} style={{ width: 460 }}>
+        <div className="slideout-h">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Shared.Avatar rep={rep} size={36}/>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "var(--font-display)" }}>{rep.name}</div>
+              <div style={{ fontSize: 12, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Shared.TierChip tier={rep.tier} compact/>
+                <span>· {rep.handle}</span>
+                <span className={`dot dot-${rep.presence === "live" ? "live" : "idle"}`}></span>
+                {rep.presence}
+              </div>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><Icons.X size={14}/></button>
+        </div>
+        <div className="slideout-body">
+          <div className="kpi-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <Shared.KpiCard label="MTD AP" prefix="$" value={rep.mtd.toLocaleString()}/>
+            <Shared.KpiCard label="Today" prefix="$" value={rep.today.toLocaleString()}/>
+            <Shared.KpiCard label="Dials" value={rep.dials}/>
+            <Shared.KpiCard label="Streak" value={rep.streak + "d"} sub={rep.streak > 10 ? "🔥 club" : "—"}/>
+          </div>
+
+          <div className="divider"></div>
+          <div className="field-l">Active deals · {myPipeline.length}</div>
+          <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+            {myPipeline.length === 0 && <div style={{ padding: 12, color: "var(--text-tertiary)", fontSize: 12 }}>No active deals.</div>}
+            {myPipeline.map(p => (
+              <div key={p.id} style={{ padding: 8, background: "var(--bg-raised)", borderRadius: 4, fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <strong>{p.lead}</strong>
+                  <span className="tabular">{p.ap ? `$${p.ap.toLocaleString()}` : "—"}</span>
+                </div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11, marginTop: 2 }}>{p.product} · {p.stage} · {p.days}d</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="divider"></div>
+          <div className="field-l">Today's progress</div>
+          <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-secondary)" }}>
+            {todayBooked > 0 ? `Booked $${todayBooked.toLocaleString()} so far. Pace = ${rep.today > 1500 ? "ahead of avg" : "behind avg"}.` : "No bookings yet today — quick check-in?"}
+          </div>
+        </div>
+        <div className="slideout-foot">
+          <button className="btn" onClick={sendCheckIn}><Icons.MessageSquare size={12}/> Send check-in</button>
+          <button className="btn"><Icons.Activity size={12}/> Coaching cards</button>
+          <button className="btn btn-primary" onClick={callRep}><Icons.Phone size={12}/> Call now</button>
+        </div>
+      </aside>
     </div>
   );
 }

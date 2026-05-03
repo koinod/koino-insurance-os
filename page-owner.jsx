@@ -2,26 +2,67 @@
 function PagePnL() {
   const sparkRev = [120,134,128,148,162,158,180,195,210,228,242,258];
   const sparkOR = [38,42,40,46,52,49,58,63,68,74,79,84];
+  const [period, setPeriod]      = React.useState("MTD");  // MTD | T12 | YTD
+  const [askValue, setAskValue]  = React.useState("");
+  const [waterfallDrill, setDrill] = React.useState(null);
+
+  const ask = (q) => {
+    const prompt = q || askValue.trim();
+    if (!prompt) return;
+    // Open AI rail if it's not already open, and seed it with the prompt
+    window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt, context: "P&L · " + period }}));
+    setAskValue("");
+  };
+
+  const exportAudit = () => {
+    const blob = new Blob([JSON.stringify({ period, generated_at: new Date().toISOString(), agency: "Atlas IMO" }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `atlas-audit-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${period} audit pack`, "success");
+  };
+
+  const handleAnomaly = (kind) => {
+    const map = { "Drill": "book", "Open queue": "nigo", "Notify": "training", "Approve": "attribution" };
+    const target = map[kind];
+    if (target) window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: target }}));
+  };
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Agency P&L</div>
-          <div className="page-sub">Atlas Insurance Group · Trailing 12 · 9 producers · 7 states · live</div>
+          <div className="page-sub">Atlas Insurance Group · {period === "MTD" ? "Month to date" : period === "T12" ? "Trailing 12" : "Year to date"} · 9 producers · 7 states · live</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> T12</button>
-          <button className="btn"><Icons.ArrowUpRight size={13}/> Export audit</button>
+          <Shared.SectionPill items={[{k:"MTD",l:"MTD"},{k:"T12",l:"T12"},{k:"YTD",l:"YTD"}]} value={period} onChange={setPeriod} dense/>
+          <button className="btn" onClick={exportAudit}><Icons.ArrowUpRight size={13}/> Export audit</button>
         </div>
       </div>
 
-      {/* Ask the Book */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, marginBottom: 14 }}>
+      {/* Ask the Book — actually wired to the AI rail */}
+      <form onSubmit={(e) => { e.preventDefault(); ask(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, marginBottom: 14 }}>
         <Icons.Sparkles size={14} style={{ color: "var(--accent-money)" }}/>
-        <span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>Ask the Book —</span>
-        <span style={{ color: "var(--text-primary)", fontSize: 12.5 }}>"Which downlines have persistency under 80% in their FE 13-month cohort?"</span>
-        <span className="kbd mono" style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11 }}>⌘K</span>
+        <span style={{ color: "var(--text-tertiary)", fontSize: 12.5, flex: "0 0 auto" }}>Ask the Book —</span>
+        <input
+          className="text-input"
+          value={askValue}
+          onChange={(e) => setAskValue(e.target.value)}
+          placeholder='e.g. "Which downlines have persistency under 80% on FE 13-mo?"'
+          style={{ flex: 1, background: "transparent", border: 0, color: "var(--text-primary)", padding: 0, fontSize: 12.5, outline: "none" }}
+        />
+        <button type="submit" className="btn btn-ghost" style={{ padding: "2px 8px" }}><Icons.Send size={11}/></button>
+      </form>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14, marginTop: -6 }}>
+        {[
+          "Which downlines drag persistency below 80%?",
+          "Top 3 producers by override contribution this month",
+          "If I cut the worst-performing lead source, what's the net impact?",
+        ].map((q, i) => (
+          <button key={i} className="btn btn-ghost" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => ask(q)}>{q}</button>
+        ))}
       </div>
 
       <div className="kpi-row">
@@ -49,7 +90,8 @@ function PagePnL() {
               { l: "− SaaS / payroll / other", v: -64100, ind: 0, w: 16, c: "var(--text-quaternary)" },
               { l: "Net to owner", v: 104700, ind: 0, w: 25, c: "var(--accent-money)", bold: true },
             ].map((r, i) => (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 110px", height: 36, paddingLeft: 14 + r.ind * 16 }}>
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 110px", height: 36, paddingLeft: 14 + r.ind * 16, cursor: "pointer", background: waterfallDrill === r.l ? "var(--bg-raised)" : undefined }}
+                onClick={() => setDrill(waterfallDrill === r.l ? null : r.l)}>
                 <div style={{ color: r.bold ? "var(--text-primary)" : "var(--text-secondary)", fontWeight: r.bold ? 600 : 400, fontSize: 12.5 }}>{r.l}</div>
                 <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden", margin: "0 14px" }}>
                   <div style={{ width: `${r.w}%`, height: "100%", background: r.c }}></div>
@@ -57,6 +99,12 @@ function PagePnL() {
                 <div className="tabular" style={{ textAlign: "right", fontWeight: r.bold ? 600 : 500, color: r.v < 0 ? "var(--state-danger)" : "var(--text-primary)" }}>${Math.abs(r.v).toLocaleString()}</div>
               </div>
             ))}
+            {waterfallDrill && (
+              <div style={{ padding: 12, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                <strong style={{ color: "var(--text-primary)" }}>{waterfallDrill}</strong> — drill panel placeholder. Plug in commission ledger / NIGO / lead-spend tables here for the full breakdown.
+                <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => ask(`Break down "${waterfallDrill}" — top 3 contributors and what changed vs last ${period}`)}><Icons.Sparkles size={10}/> Ask the Book</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -79,7 +127,7 @@ function PagePnL() {
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{x.t}</div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{x.b}</div>
                   </div>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>{x.a}</button>
+                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => handleAnomaly(x.a)}>{x.a}</button>
                 </div>
               ))}
             </div>
@@ -206,7 +254,7 @@ function PageOrgTree() {
                 return <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="var(--border-subtle)" strokeWidth="1"/>;
               })}
               {layout.map(n => (
-                <g key={n.id} transform={`translate(${n.x},${n.y})`} style={{ cursor: "pointer" }} onMouseEnter={() => setHover(n.id)}>
+                <g key={n.id} transform={`translate(${n.x},${n.y})`} style={{ cursor: "pointer" }} onMouseEnter={() => setHover(n.id)} onClick={() => setHover(n.id)}>
                   <circle r={n.size + 8} fill="none" stroke={colorFor(n.tier)} strokeOpacity={hover === n.id ? 0.5 : 0.15} strokeWidth={hover === n.id ? 2 : 1.5}/>
                   <circle r={n.size} fill={`url(#g-${view}-${n.id})`} stroke={colorFor(n.tier)} strokeWidth="1.2"/>
                   <text x="0" y={n.size + 18} textAnchor="middle" fill="var(--text-secondary)" fontSize="10.5" fontFamily="var(--font-ui)">{n.name.split(" ")[0]}</text>
@@ -231,7 +279,23 @@ function PageOrgTree() {
               </div>
 
               <div className="divider"></div>
-              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
+              {sel?.id && AppData.REPS.find(r => r.id === sel.id) && (
+                <Shared.Field label="Tier override">
+                  <Shared.Select value={sel.tier} onChange={async (v) => {
+                    await AppData.mutate.tieringOverride(sel.id, v);
+                    window.toast && window.toast(`${sel.name} → ${v.toUpperCase()}${AppData.LIVE ? " · saved" : ""}`, "success");
+                  }} options={["bronze","silver","gold","platinum","diamond"].map(t => ({ v: t, l: t.toUpperCase() }))}/>
+                </Shared.Field>
+              )}
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={() => {
+                if (sel?.id && AppData.REPS.find(r => r.id === sel.id)) {
+                  // It's a rep — go to leaderboard filtered to them (placeholder: just go to leaderboard)
+                  window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "leaderboard" }}));
+                } else {
+                  // Region/owner node — go to attribution by region
+                  window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "attribution" }}));
+                }
+              }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
             </div>
           </div>
         </div>

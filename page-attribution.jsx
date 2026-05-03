@@ -86,11 +86,11 @@ function PageAttribution({ role = "owner" }) {
         <Shared.KpiCard      label="Blended CPA" prefix="$" value={Math.round(blendedCPA).toLocaleString()}/>
       </div>
 
-      <div className="rec-tabs">
-        {[["vendors","By vendor"],["state","By state"],["product","By product"],["roi","ROI explorer"]].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={`rec-tab ${tab === k ? "active" : ""}`}>{l}</button>
-        ))}
-      </div>
+      <Shared.SectionPill
+        items={[{k:"vendors",l:"By vendor"},{k:"state",l:"By state"},{k:"product",l:"By product"},{k:"roi",l:"ROI explorer"}]}
+        value={tab}
+        onChange={setTab}
+      />
 
       {tab === "vendors" && (
         <div className="panel">
