@@ -41,6 +41,7 @@
 <script type="text/babel" src="page-attribution.jsx?v=4"></script>
 <script type="text/babel" src="page-ops-depth.jsx?v=4"></script>
 <script type="text/babel" src="page-platform.jsx?v=4"></script>
+<script type="text/babel" src="page-floor.jsx?v=4"></script>
 <script type="text/babel" src="polish.jsx?v=4"></script>
 <script type="text/babel" src="page-auth.jsx?v=4"></script>
 <script type="text/babel" src="page-mobile.jsx?v=4"></script>
@@ -99,8 +100,9 @@ function App() {
     if (mobile) return <MobileRep/>;
     switch (page) {
       case "today":       return <PageToday aep={aepMode} role={role}/>;
-      case "pipeline":    return <PagePipeline role={role}/>;
-      case "queue":       return <PageQueue role={role} onCall={() => setCallOpen(true)}/>;
+      case "floor":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
+      case "pipeline":    return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="pipeline"/>;
+      case "queue":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
       case "leaderboard": return <PageLeaderboard role={role}/>;
       case "team":        return <PageTeam/>;
       case "coaching":    return <PageCoaching role={role}/>;
@@ -110,7 +112,7 @@ function App() {
       case "hardware":    return <PageHardware/>;
       case "agents":      return <PageAgents/>;
       case "workflows":   return <PageWorkflows/>;
-      case "calls":       return <PageCalls role={role}/>;
+      case "calls":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="history"/>;
       case "commissions": return <PageCommissions role={role}/>;
       case "training":    return <PageTraining role={role}/>;
       case "vault":       return <PageVault role={role}/>;

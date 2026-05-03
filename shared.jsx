@@ -58,9 +58,7 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
 const NAV = {
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
-    { id: "pipeline",    label: "Pipeline",     icon: "Pipeline", badge: "12" },
-    { id: "queue",       label: "Dial Queue",   icon: "Phone",    badge: "47" },
-    { id: "calls",       label: "Calls",        icon: "Headset" },
+    { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
     { id: "coaching",    label: "Coaching",     icon: "Activity" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "commissions", label: "Commissions",  icon: "Wallet" },
