@@ -196,6 +196,7 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
       ))}
     </div>
     <LiveBadge/>
+    {window.AgencySwitcher && (() => { const A = window.AgencySwitcher; return <A/>; })()}
     <div className="topbar-spacer"/>
     {aep && (
       <div className="aep-pill"><span className="dot"></span>AEP SURGE · Day 14 / 54</div>

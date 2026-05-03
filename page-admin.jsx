@@ -140,22 +140,9 @@ function PageAdmin({ role = "owner" }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h"><Icons.Folder size={13}/><h3>Plan</h3><span className="meta">{liveAgency.plan}</span></div>
-            <div style={{ padding: 14 }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, textTransform: "capitalize" }}>{liveAgency.plan}</div>
-              <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 4 }}>
-                {liveAgency.plan === "trial"      ? "14 days free · upgrade for unlimited producers and SLA"
-                  : liveAgency.plan === "starter"   ? "Up to 5 producers · core features"
-                  : liveAgency.plan === "growth"    ? "Up to 25 producers · all integrations"
-                  : "Unlimited producers · 24h support · SOC 2 attestation"}
-              </div>
-              <div className="divider"></div>
-              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => window.toast && window.toast("Stripe billing coming next wave", "info")}>
-                <Icons.ArrowUpRight size={12}/> Manage subscription
-              </button>
-            </div>
-          </div>
+          {(() => { const C = window.AdminPlanCard; return C ? <C agency={agency || liveAgency}/> : (
+            <div className="panel"><div className="panel-h"><h3>Plan</h3></div><div style={{ padding: 14 }}>{liveAgency.plan}</div></div>
+          ); })()}
 
           <div className="panel">
             <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Pending invites</h3><span className="meta">{invitePending}</span></div>
