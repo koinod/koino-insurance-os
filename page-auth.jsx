@@ -139,6 +139,11 @@ function AuthGate({ children }) {
     const W = window.OnboardingWizard;
     return <W onComplete={() => refreshTenant()}/>;
   }
+  // Producer who joined via invite but hasn't provisioned their rep row yet
+  if (session && tenant && tenant.member && !tenant.member.rep_id && tenant.member.role !== "owner" && window.ProducerOnboardingWizard) {
+    const P = window.ProducerOnboardingWizard;
+    return <P tenant={tenant} onComplete={() => refreshTenant()}/>;
+  }
   return children;
 }
 

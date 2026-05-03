@@ -22,7 +22,7 @@ async function loadTenant() {
   const userId = session.session.user.id;
   const email  = session.session.user.email;
   const { data: members } = await sb.from("agency_members")
-    .select("agency_id, role, agencies (id, slug, name, plan, state)")
+    .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
     .eq("user_id", userId).eq("active", true);
   if (!members || members.length === 0) {
     return { authed: true, userId, email, member: null, agency: null };
@@ -32,7 +32,7 @@ async function loadTenant() {
     authed: true,
     userId,
     email,
-    member: { agency_id: m.agency_id, role: m.role },
+    member: { agency_id: m.agency_id, role: m.role, rep_id: m.rep_id },
     agency: m.agencies,
   };
 }

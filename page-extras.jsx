@@ -969,7 +969,8 @@ function SettingsBilling() {
 function SettingsIntegrations() {
   const { CONNECTIONS } = AppData;
   const [testing, setTesting] = React.useState(null);
-  const [twilioOpen, setTwilioOpen] = React.useState(false);
+  const [twilioOpen, setTwilioOpen]   = React.useState(false);
+  const [genericOpen, setGenericOpen] = React.useState(null);  // connector id
 
   const test = async (c) => {
     setTesting(c.id);
@@ -997,12 +998,13 @@ function SettingsIntegrations() {
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => test(c)} disabled={testing === c.id}>{testing === c.id ? "Testing..." : "Test"}</button>
-              <button className="btn btn-ghost" onClick={() => { if (c.id === "twilio") setTwilioOpen(true); else window.toast && window.toast(`Configure ${c.name}: connector dialog coming next`, "info"); }}>{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+              <button className="btn btn-ghost" onClick={() => { if (c.id === "twilio") setTwilioOpen(true); else if (window.CONNECTOR_SCHEMAS && window.CONNECTOR_SCHEMAS[c.id]) setGenericOpen(c.id); else window.toast && window.toast(`No config schema for ${c.name} yet`, "info"); }}>{c.status === "ok" ? "Configure" : "Reconnect"}</button>
             </div>
           </div>
         ))}
       </div>
       {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => setTwilioOpen(false)}/>; })()}
+      {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => setGenericOpen(null)}/>; })()}
     </div>
   );
 }
