@@ -849,4 +849,84 @@ window.AppData.mutate = {
     }
     _emitMutation("connections", "update", id);
   },
+
+  /* ── Coaching ───────────────────────────────────────────────────────── */
+  async coachingNoteCreate(repId, body, sessionId = null) {
+    const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const note = {
+      id: "tmp-" + Date.now(),
+      sessionId, repId, body,
+      createdBy: me?.handle || "system",
+      createdAt: new Date().toISOString(),
+    };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("coaching_notes").insert({
+          session_id: sessionId, rep_id: repId, body,
+          created_by: me?.handle || null,
+        }).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) note.id = data.id;
+      }
+    }
+    (window.AppData.COACHING_NOTES = window.AppData.COACHING_NOTES || []).unshift(note);
+    _emitMutation("coaching_notes", "insert", note.id);
+    return note;
+  },
+
+  async coachingSessionResolve(id, outcome, rating, notes) {
+    const row = (window.AppData.COACHING_SESSIONS || []).find(s => s.id === id);
+    if (row) {
+      row.completedAt = new Date().toISOString();
+      if (outcome) row.outcome = outcome;
+      if (rating != null) row.rating = rating;
+      if (notes) row.notes = notes;
+    }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const patch = { completed_at: new Date().toISOString() };
+      if (outcome) patch.outcome = outcome;
+      if (rating != null) patch.rating = rating;
+      if (notes) patch.notes = notes;
+      const { error } = await sb.from("coaching_sessions").update(patch).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("coaching_sessions", "update", id);
+  },
+
+  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ── */
+  async notificationCreate({ repId = null, recipientHandle = null, kind = "focus", severity = "info", title, body, pageLink = null }) {
+    const note = {
+      id: "tmp-" + Date.now(),
+      kind, severity, title, body,
+      pageLink, repId, recipientHandle,
+      createdAt: new Date().toISOString(),
+      readBy: [],
+    };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        // Prefer the create_notification RPC when available (it does fan-out + audit)
+        const rpc = await sb.rpc("create_notification", {
+          p_kind: kind, p_severity: severity,
+          p_title: title, p_body: body,
+          p_page_link: pageLink, p_ref_id: repId,
+        }).then(r => r).catch(() => ({ error: { message: "rpc_unavailable" } }));
+        if (rpc?.error) {
+          // Fallback: direct insert
+          const { data, error } = await sb.from("agency_notifications").insert({
+            kind, severity, title, body, page_link: pageLink, ref_id: repId,
+          }).select().single();
+          if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
+          if (data) note.id = data.id;
+        } else if (rpc.data) {
+          note.id = rpc.data;
+        }
+      }
+    }
+    (window.AppData.NOTIFICATIONS = window.AppData.NOTIFICATIONS || []).unshift(note);
+    _emitMutation("agency_notifications", "insert", note.id);
+    return note;
+  },
 };
