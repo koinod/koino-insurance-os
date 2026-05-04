@@ -84,6 +84,133 @@ function ForecastStrip({ scope = "team" }) {
   );
 }
 
+/* GAP-X1 v1 — predictive heuristics (RETAINER + RECRUITER sub-agents preview).
+   Pure derivation from AppData; no ML yet. ML model lands in Sprint-1.
+   Manager scope: filtered to downline via window.scopeRepIds().
+   Owner scope: full fleet.
+*/
+function computeRiskScore(rep, ctx) {
+  // Higher = more at-risk. Range 0..100. Heuristic, transparent inputs:
+  //   +30 if streak === 0 (broke streak)
+  //   +25 if today === 0 (no calls/closes today, regardless of presence)
+  //   +20 if dials < 30 (low activity)
+  //   +15 if mtd < tier_target * 0.4 (running well behind tier)
+  //   +10 if presence === "off"
+  //   −15 if streak >= 14 (long streak = sticky)
+  let s = 0;
+  if (rep.streak === 0)            s += 30;
+  if ((rep.today || 0) === 0)      s += 25;
+  if ((rep.dials || 0) < 30)       s += 20;
+  const tierTarget = (TIER_TARGETS[rep.tier] || TIER_TARGETS.bronze).threshold || 12000;
+  if ((rep.mtd || 0) < tierTarget * 0.4) s += 15;
+  if (rep.presence === "off")      s += 10;
+  if ((rep.streak || 0) >= 14)     s -= 15;
+  return Math.max(0, Math.min(100, s));
+}
+function computeBreakoutScore(rep, ctx) {
+  // Higher = more likely to break out this month. Heuristic:
+  //   +30 if mtd >= 1.3 × tier_target (already crushed bar, accelerating)
+  //   +25 if today >= rep's avg-today × 1.5
+  //   +20 if streak >= 10
+  //   +15 if presence === "live" AND dials >= 60
+  //   +10 if appts >= 4 (booking velocity)
+  let s = 0;
+  const tierTarget = (TIER_TARGETS[rep.tier] || TIER_TARGETS.bronze).threshold || 12000;
+  if ((rep.mtd || 0) >= tierTarget * 1.3) s += 30;
+  // avg-today proxy: mtd / 22 (workdays/mo). +25 if today is 1.5x.
+  const avgToday = ((rep.mtd || 0) / 22);
+  if ((rep.today || 0) >= avgToday * 1.5 && (rep.today || 0) > 500) s += 25;
+  if ((rep.streak || 0) >= 10)             s += 20;
+  if (rep.presence === "live" && (rep.dials || 0) >= 60) s += 15;
+  if ((rep.appts || 0) >= 4)               s += 10;
+  return Math.max(0, Math.min(100, s));
+}
+function PredictiveCards({ scope }) {
+  // scope = "team" (manager downline) or "org" (fleet)
+  const reps = AppData.REPS || [];
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const visibleReps = scope === "org" ? reps
+                    : scopeIds ? reps.filter(r => scopeIds.includes(r.id))
+                    : reps;
+  if (visibleReps.length === 0) return null;
+
+  const scored = visibleReps.map(r => ({
+    rep: r,
+    risk:     computeRiskScore(r),
+    breakout: computeBreakoutScore(r),
+  }));
+  const atRisk    = scored.filter(s => s.risk >= 50).sort((a,b) => b.risk - a.risk).slice(0, 3);
+  const breakouts = scored.filter(s => s.breakout >= 50).sort((a,b) => b.breakout - a.breakout).slice(0, 3);
+
+  if (atRisk.length === 0 && breakouts.length === 0) return null;
+
+  const chip = (label, value, tone) => (
+    <span className="chip" style={{
+      color: tone === "danger" ? "var(--state-danger)" : tone === "money" ? "var(--accent-money)" : "var(--text-secondary)",
+      borderColor: `color-mix(in oklch, ${tone === "danger" ? "var(--state-danger)" : tone === "money" ? "var(--accent-money)" : "var(--text-secondary)"} 30%, transparent)`,
+      background: `color-mix(in oklch, ${tone === "danger" ? "var(--state-danger)" : tone === "money" ? "var(--accent-money)" : "var(--text-secondary)"} 10%, transparent)`,
+      fontSize: 10.5
+    }}>{label}: {value}</span>
+  );
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div className="panel" style={{ borderColor: atRisk.length ? "color-mix(in oklch, var(--state-danger) 30%, transparent)" : undefined }}>
+        <div className="panel-h">
+          <Icons.AlertTriangle size={14} style={{ color: "var(--state-danger)" }}/>
+          <h3>At risk · RETAINER</h3>
+          <span className="meta">{atRisk.length} flagged</span>
+        </div>
+        {atRisk.length === 0
+          ? <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12.5 }}>Nobody at-risk. Keep the streaks going.</div>
+          : <div style={{ padding: "8px 0" }}>
+              {atRisk.map(({ rep, risk }) => (
+                <div key={rep.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+                  <span style={{ width: 28, height: 24, borderRadius: 4, background: "color-mix(in oklch, var(--state-danger) 18%, transparent)", color: "var(--state-danger)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600 }}>{risk}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{rep.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {rep.tier}</span></div>
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {rep.streak === 0 && chip("streak", "broken", "danger")}
+                      {(rep.today || 0) === 0 && chip("today", "$0", "danger")}
+                      {(rep.dials || 0) < 30 && chip("dials", String(rep.dials || 0), "danger")}
+                      {rep.presence === "off" && chip("status", "off", "danger")}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+
+      <div className="panel" style={{ borderColor: breakouts.length ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : undefined }}>
+        <div className="panel-h">
+          <Icons.TrendingUp size={14} style={{ color: "var(--accent-money)" }}/>
+          <h3>About to break out · CLOSER</h3>
+          <span className="meta">{breakouts.length} accelerating</span>
+        </div>
+        {breakouts.length === 0
+          ? <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12.5 }}>No breakout signals yet — push a power hour to spark one.</div>
+          : <div style={{ padding: "8px 0" }}>
+              {breakouts.map(({ rep, breakout }) => (
+                <div key={rep.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+                  <span style={{ width: 28, height: 24, borderRadius: 4, background: "color-mix(in oklch, var(--accent-money) 18%, transparent)", color: "var(--accent-money)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600 }}>{breakout}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{rep.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {rep.tier}</span></div>
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {(rep.today || 0) > 0 && chip("today", "$" + (rep.today || 0).toLocaleString(), "money")}
+                      {(rep.streak || 0) >= 10 && chip("streak", (rep.streak || 0) + "d", "money")}
+                      {(rep.appts || 0) >= 4 && chip("appts", String(rep.appts || 0), "money")}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 function TasksPanel({ repId, limit = 6 }) {
   const tasks = (AppData.TASKS || []).filter(t => t.status === "open" && (!repId || t.repId === repId));
   if (tasks.length === 0) return null;
@@ -128,9 +255,78 @@ function TasksPanel({ repId, limit = 6 }) {
 }
 
 /* ───── Rep view ─────────────────────────────────────────────────────────── */
+// GAP-D1: KPIs now derive from the signed-in rep via window.me() + AppData.
+// Falls back to AppData.REPS[0] only when no session (demo / unauthenticated).
+const TIER_TARGETS = {
+  bronze:   { next: "silver",    threshold: 12000 },
+  silver:   { next: "gold",      threshold: 20000 },
+  gold:     { next: "platinum",  threshold: 35000 },
+  platinum: { next: "diamond",   threshold: 50000 },
+  diamond:  { next: null,        threshold: null   },
+};
+
+function todayDateStr() {
+  const d = new Date(); d.setHours(0,0,0,0);
+  return d.toISOString().slice(0, 10);
+}
+
 function TodayRep({ aep }) {
-  const { REPS, QUEUE, RECORDINGS } = AppData;
-  const me = REPS[0];
+  const { REPS, QUEUE, RECORDINGS, COMMISSIONS, POLICIES, TASKS } = AppData;
+
+  // Resolve current viewer. window.me() may be null on first paint; we still
+  // render with REPS[0] to avoid a flash, then re-render on the me:loaded event.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myRow   = REPS.find(r => meIdent && (r.id === meIdent.rep_id || r.handle === meIdent.handle))
+                || REPS[0];
+
+  // Force re-render when me() resolves
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const onMe = () => force(n => n + 1);
+    window.addEventListener("me:loaded", onMe);
+    return () => window.removeEventListener("me:loaded", onMe);
+  }, []);
+
+  const today = todayDateStr();
+  const monthPrefix = today.slice(0, 7);
+
+  // Today's commission: sum AppData.COMMISSIONS where repId === my rep id and paid/earned today
+  const myCommissionsToday = (COMMISSIONS || []).filter(c =>
+    c.repId === myRow.id && (
+      (c.paidAt && c.paidAt.startsWith(today)) ||
+      (c.earnedAt && c.earnedAt.startsWith(today))
+    )
+  );
+  const todayCommission = myCommissionsToday.reduce((s, c) => s + (c.amount || 0), 0)
+                          || (myRow.today || 0);
+
+  // Apps submitted today: policies where owner_rep_id === me and submission_date === today
+  const appsToday = (POLICIES || []).filter(p =>
+    p.owner === myRow.id && p.issuedAt && p.issuedAt.startsWith(today)
+  ).length || 0;
+
+  // Dials today: from RECORDINGS for me. The demo seed lacks per-day rollup;
+  // fall back to myRow.dials (live counter on the rep row).
+  const dialsToday = (RECORDINGS || []).filter(r =>
+    (r.repId === myRow.id || r.rep_id === myRow.id) && r.date && r.date.toLowerCase().includes("today")
+  ).length || (myRow.dials || 0);
+
+  // Tier proximity copy (replaces hardcoded "$8,690 from Diamond")
+  const tierInfo = TIER_TARGETS[myRow.tier] || TIER_TARGETS.bronze;
+  const mtdNum = myRow.mtd || 0;
+  const tierCopy = tierInfo.next
+    ? (mtdNum >= tierInfo.threshold
+        ? `${tierInfo.next.toUpperCase()} unlocked — $${(mtdNum - tierInfo.threshold).toLocaleString()} above bar`
+        : `$${(tierInfo.threshold - mtdNum).toLocaleString()} from ${tierInfo.next}`)
+    : "Top tier — keep stacking";
+
+  // Compose the page-sub line dynamically so no rep ever sees Marcus's literal numbers
+  const todayHrs = Math.max(0, Math.round((dialsToday * 4) / 60)); // ~4 min/dial heuristic, harmless if 0
+  const subline = `${todayCommission > 0 ? "$" + todayCommission.toLocaleString() + " booked" : "no commissions logged today"}`
+    + ` · ${todayHrs}h of dial time`
+    + ` · ${tierCopy}`;
+
+  // Sparklines remain demo for now (need historical aggregation table — Sprint-1 work).
   const spark1 = [12,18,15,22,30,28,35,42];
   const spark2 = [4,6,5,8,11,9,12,14];
 
@@ -138,8 +334,11 @@ function TodayRep({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today, Tuesday — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}</div>
-          <div className="page-sub">$2,840 booked · 3 hrs of dial time logged · You're $8,690 from Diamond</div>
+          <div className="page-title">
+            Today — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}
+            {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, marginLeft: 8, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
+          </div>
+          <div className="page-sub">{subline}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn"><Icons.Calendar size={13}/> Schedule</button>
@@ -155,12 +354,12 @@ function TodayRep({ aep }) {
       ]}/>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Today's Commission" value="2,840" prefix="$" sub="+$1,200 vs avg Tue" trend="up" spark={spark1}/>
-        <Shared.KpiCard label="Apps submitted" value="4" sub="goal: 5" trend="up" spark={spark2}/>
-        <Shared.KpiCard label="Dials" value="87" sub="streak: 18d" trend="up" spark={[60,72,68,75,80,78,85,87]}/>
+        <Shared.KpiCard hero label="Today's Commission" value={todayCommission.toLocaleString()} prefix="$" sub={`MTD: $${mtdNum.toLocaleString()}`} trend={todayCommission > 0 ? "up" : undefined} spark={spark1}/>
+        <Shared.KpiCard label="Apps submitted (today)" value={appsToday} sub={`tier: ${(myRow.tier || "—").toUpperCase()}`} spark={spark2}/>
+        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined} spark={[60,72,68,75,80,78,85,87]}/>
       </div>
 
-      <TasksPanel repId={me?.id} limit={5}/>
+      <TasksPanel repId={myRow?.id} limit={5}/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
@@ -328,6 +527,7 @@ function TodayManager({ aep }) {
         <Shared.KpiCard label="Total dials" value={totalDials} sub="goal 700" trend="up"/>
       </div>
 
+      <PredictiveCards scope="team"/>
       <ForecastStrip scope="team"/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -409,14 +609,40 @@ function TodayManager({ aep }) {
 
 /* ───── Owner view ───────────────────────────────────────────────────────── */
 function TodayOwner({ aep }) {
-  const { REPS } = AppData;
-  const teamToday = REPS.reduce((a, r) => a + r.today, 0);
+  // GAP-OD1: Owner Today now derives from live tables instead of hardcoded.
+  const { REPS, COMMISSIONS, POLICIES, CLAWBACKS } = AppData;
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const agencyName = meIdent?.agency_name || "Atlas Insurance Group";
+
+  const today = todayDateStr();
+  const monthPrefix = today.slice(0, 7);
+
+  const teamToday = REPS.reduce((a, r) => a + (r.today || 0), 0);
+  const teamMTD   = REPS.reduce((a, r) => a + (r.mtd || 0),   0);
+
+  // Override revenue MTD: commissions where kind === 'override' and earned_at in this month
+  const overrideMTD = (COMMISSIONS || []).filter(c =>
+    c.kind === "override" && (c.earnedAt || "").startsWith(monthPrefix)
+  ).reduce((s, c) => s + (c.amount || 0), 0);
+
+  // Anomalies = open NIGOs (real count, replaces "4" literal)
+  const anomalies = (AppData.NIGOS || []).filter(n => n.status === "open" || n.status === "in_review").length;
+
+  // Lead spend today: sum over lead_sources × today's touchpoints
+  const todayTouches = (AppData.TOUCHPOINTS || []).filter(t => (t.occurredAt || "").startsWith(today));
+  const leadSourceById = new Map((AppData.LEAD_SOURCES || []).map(s => [s.id, s]));
+  const leadSpendToday = todayTouches.reduce((s, t) => s + ((leadSourceById.get(t.sourceId)?.costPerLead) || 0), 0);
+  // ROI: today commission / today lead spend (guard divide-by-zero)
+  const roiToday = leadSpendToday > 0 ? (teamToday / leadSpendToday).toFixed(1) + "x" : "—";
+
+  const liveCount = REPS.filter(r => r.presence === "live").length;
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · Atlas IMO — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}</div>
-          <div className="page-sub">9 producers · 2 regions · ${teamToday.toLocaleString()} AP closed today</div>
+          <div className="page-title">Today · {agencyName} — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}</div>
+          <div className="page-sub">{REPS.length} producers · ${teamToday.toLocaleString()} AP closed today · ${teamMTD.toLocaleString()} MTD</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn"><Icons.Calendar size={13}/> Audit week</button>
@@ -425,18 +651,19 @@ function TodayOwner({ aep }) {
       </div>
 
       <SpendStrip items={[
-        { l: "Lead spend ROI today", v: "4.2x", tone: "money" },
-        { l: "Lead spend today",      v: "$1,840" },
-        { l: "Override pool today",   v: `$${(teamToday * 0.22).toFixed(0)}`, tone: "money" },
-        { l: "Anomalies open",        v: "4",   tone: "warn" },
+        { l: "Lead spend ROI today",  v: roiToday, tone: "money" },
+        { l: "Lead spend today",       v: leadSpendToday > 0 ? `$${leadSpendToday.toLocaleString()}` : "$0" },
+        { l: "Override pool today",    v: `$${(teamToday * 0.22).toFixed(0)}`, tone: "money" },
+        { l: "Anomalies open",         v: String(anomalies), tone: anomalies > 0 ? "warn" : "money" },
       ]}/>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="AP closed today" prefix="$" value={teamToday.toLocaleString()} sub="+22% vs avg Tue" trend="up"/>
-        <Shared.KpiCard label="Override revenue MTD" prefix="$" value="258,420" sub="+18% MoM" trend="up"/>
-        <Shared.KpiCard label="Active producers" value={REPS.filter(r => r.presence === "live").length + "/" + REPS.length}/>
+        <Shared.KpiCard hero label="AP closed today" prefix="$" value={teamToday.toLocaleString()} sub={`MTD: $${teamMTD.toLocaleString()}`} trend={teamToday > 0 ? "up" : undefined}/>
+        <Shared.KpiCard label="Override revenue MTD" prefix="$" value={overrideMTD > 0 ? overrideMTD.toLocaleString() : "—"} sub="from commissions.kind=override"/>
+        <Shared.KpiCard label="Active producers" value={`${liveCount}/${REPS.length}`}/>
       </div>
 
+      <PredictiveCards scope="org"/>
       <ForecastStrip scope="org"/>
 
       <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
