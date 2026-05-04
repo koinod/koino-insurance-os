@@ -35,90 +35,190 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteerma
    and inlined into the model prompt. Selection rule: scan the prompt for
    keywords; run the matching tools (up to 3 at once for cost control).
    ─────────────────────────────────────────────────────────────────────── */
-async function sbSelect(path, anonKey, userJwt) {
-  // If the caller forwarded a user JWT, use it (RLS authenticated policies kick in).
-  // Otherwise fall back to anon (which won't see anything under tightened RLS — that's fine).
-  const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+async function sbSelect(path, anonKey, userJwt, agencyId) {
+  // GAP-X3 — when caller's agency_id is known, force-scope every PostgREST
+  // query to it. If the table doesn't have an agency_id column we retry without
+  // the filter (PostgREST returns 400 on unknown column).
+  let scoped = path;
+  if (agencyId) {
+    const sep = path.includes("?") ? "&" : "?";
+    scoped = `${path}${sep}agency_id=eq.${encodeURIComponent(agencyId)}`;
+  }
+  const r = await fetch(`${SUPA_URL}/rest/v1/${scoped}`, {
     headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt || anonKey}` }
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    if (agencyId && r.status === 400) {
+      const r2 = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+        headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt || anonKey}` }
+      });
+      if (!r2.ok) return null;
+      return await r2.json();
+    }
+    return null;
+  }
   return await r.json();
+}
+
+async function resolveAgencyId(userJwt, anonKey) {
+  if (!userJwt) return null;
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
+      method: "POST",
+      headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows[0] ? rows[0].agency_id : null;
+  } catch { return null; }
 }
 
 const TOOLS = {
   reps: {
     match: /\b(rep|reps|producer|producers|leaderboard|tier|tiers|tony|marcus|dani|kira|jada|sade|luis|remy|alex)\b/i,
     label: "REPS · all producers, sorted by MTD",
-    fetch: (anon, jwt) => sbSelect("reps?select=id,name,handle,tier,mtd_cents,today_cents,streak_days,dials,presence,appts&order=mtd_cents.desc", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("reps?select=id,name,handle,tier,mtd_cents,today_cents,streak_days,dials,presence,appts&order=mtd_cents.desc", anon, jwt, agency),
   },
   pipeline: {
     match: /\b(pipeline|deal|deals|lead|leads|stage|stages|app in|quoted|issued|stuck|hot|cold|aging|days)\b/i,
     label: "PIPELINE · 15 most stagnant leads with rep/stage/heat",
-    fetch: (anon, jwt) => sbSelect("pipeline?select=lead_name,age,state,stage,product,ap_cents,days_in_stage,heat,owner_rep_id,source,last_activity_text,next_action&order=days_in_stage.desc&limit=15", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("pipeline?select=lead_name,age,state,stage,product,ap_cents,days_in_stage,heat,owner_rep_id,source,last_activity_text,next_action&order=days_in_stage.desc&limit=15", anon, jwt, agency),
   },
   queue: {
     match: /\b(queue|inbound|sla|dispatch|speed-to-lead|dial|dialing)\b/i,
     label: "QUEUE · current inbound dial queue",
-    fetch: (anon, jwt) => sbSelect("queue?select=lead_name,age,state,source,product,elapsed_seconds,score&order=score.desc&limit=15", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("queue?select=lead_name,age,state,source,product,elapsed_seconds,score&order=score.desc&limit=15", anon, jwt, agency),
   },
   recordings: {
     match: /\b(call|calls|recording|coaching|talk|talk ratio|tpmo|soa|transcript)\b/i,
     label: "RECORDINGS · last 5 calls scored",
-    fetch: (anon, jwt) => sbSelect("recordings?select=lead_name,rep_id,duration_sec,talk_ratio_pct,open_questions,ai_summary,tpmo_flag,soa_flag,score,recorded_at&order=recorded_at.desc&limit=5", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("recordings?select=lead_name,rep_id,duration_sec,talk_ratio_pct,open_questions,ai_summary,tpmo_flag,soa_flag,score,recorded_at&order=recorded_at.desc&limit=5", anon, jwt, agency),
   },
   hardware: {
     match: /\b(host|hardware|vps|mac mini|node|nodes|enrolled|fleet)\b/i,
     label: "HARDWARE · enrolled hosts",
-    fetch: (anon, jwt) => sbSelect("hardware?select=id,name,kind,status,uptime_text,load_pct,agent_count,last_heartbeat&order=last_heartbeat.desc", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("hardware?select=id,name,kind,status,uptime_text,load_pct,agent_count,last_heartbeat&order=last_heartbeat.desc", anon, jwt, agency),
   },
   agents: {
     match: /\b(agent|agents|automation|workflow|workflows|bot|bots)\b/i,
     label: "AI_AGENTS · deployed agent templates",
-    fetch: (anon, jwt) => sbSelect("ai_agents?select=id,name,host_id,reqs_per_day,success_rate,description", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("ai_agents?select=id,name,host_id,reqs_per_day,success_rate,description", anon, jwt, agency),
   },
   connections: {
     match: /\b(connection|connections|integration|integrations|carrier|carriers|twilio|vapi|stripe|jornaya)\b/i,
     label: "CONNECTIONS · third-party services",
-    fetch: (anon, jwt) => sbSelect("connections?select=id,name,category,status,meta", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("connections?select=id,name,category,status,meta", anon, jwt, agency),
   },
   enrollments: {
     match: /\b(sequence|sequences|enrollment|cadence|follow-up|nurture|drip)\b/i,
     label: "SEQUENCE_ENROLLMENTS · active enrollments",
-    fetch: (anon, jwt) => sbSelect("sequence_enrollments?select=lead_pipeline_id,sequence_id,owner_rep_id,status,current_step,enrolled_at&status=eq.active&order=enrolled_at.desc&limit=20", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("sequence_enrollments?select=lead_pipeline_id,sequence_id,owner_rep_id,status,current_step,enrolled_at&status=eq.active&order=enrolled_at.desc&limit=20", anon, jwt, agency),
+  },
+  // ---- MONEY tools (added 2026-05-03 to close P&L copilot gap) ----
+  lead_sources: {
+    match: /\b(lead source|lead sources|lead vendor|lead vendors|source|sources|vendor|vendors|attribution|cost per lead|cpl|spend|roi)\b/i,
+    label: "LEAD_SOURCES · all sources with cost-per-lead",
+    fetch: (anon, jwt, agency) => sbSelect("lead_sources?select=id,name,kind,vendor,cost_per_lead_cents,is_active", anon, jwt, agency),
+  },
+  attributions: {
+    match: /\b(attribut|touch|touchpoint|first touch|last touch|credit|conversion path)\b/i,
+    label: "ATTRIBUTIONS · per-lead source credit",
+    fetch: (anon, jwt, agency) => sbSelect("attributions?select=lead_pipeline_id,source_id,first_touch_at,last_touch_at,model,credit_pct&limit=200", anon, jwt, agency),
+  },
+  commissions: {
+    match: /\b(commission|commissions|advance|trail|residual|earn|earned|paid|comp|p&l|pnl|profit|loss|revenue|booked)\b/i,
+    label: "COMMISSIONS · last 200 commission events with rep+amount+kind+period",
+    fetch: (anon, jwt, agency) => sbSelect("commissions?select=policy_id,rep_id,amount_cents,kind,period_text,earned_at,paid_at,source&order=earned_at.desc&limit=200", anon, jwt, agency),
+  },
+  payouts: {
+    match: /\b(payout|payouts|payment|payments|wire|stripe payout|net|deduction)\b/i,
+    label: "PAYOUTS · last 50 payouts with rep+period+gross/net",
+    fetch: (anon, jwt, agency) => sbSelect("payouts?select=rep_id,period_start,period_end,gross_cents,deductions_cents,net_cents,status,paid_at&order=period_end.desc&limit=50", anon, jwt, agency),
+  },
+  clawbacks: {
+    match: /\b(clawback|clawbacks|chargeback|reversal|persistency|lapse|lapsed)\b/i,
+    label: "CLAWBACKS · last 50 chargebacks",
+    fetch: (anon, jwt, agency) => sbSelect("clawbacks?select=policy_id,rep_id,amount_cents,reason,recorded_at,status&order=recorded_at.desc&limit=50", anon, jwt, agency),
+  },
+  policies: {
+    match: /\b(polic|polic[iy]es|issued|in force|persistency|carrier appoint|nigo|underwriting)\b/i,
+    label: "POLICIES · last 100 policies with carrier/product/AP/status",
+    fetch: (anon, jwt, agency) => sbSelect("policies?select=lead_pipeline_id,carrier_id,product_text,ap_cents,issued_at,status,owner_rep_id&order=issued_at.desc&limit=100", anon, jwt, agency),
+  },
+  nigos: {
+    match: /\b(nigo|nigos|in good order|sigs missing|kickback|carrier return)\b/i,
+    label: "NIGOS · open in-good-order issues",
+    fetch: (anon, jwt, agency) => sbSelect("nigos?select=policy_id,pipeline_id,reason_id,status,assigned_to,created_at&status=eq.open&order=created_at.desc&limit=50", anon, jwt, agency),
+  },
+  forecast: {
+    match: /\b(forecast|forecasted|projection|projected|next month|next quarter|q\d|aep)\b/i,
+    label: "FORECAST_RUNS · most recent forecast(s)",
+    fetch: (anon, jwt, agency) => sbSelect("forecast_runs?select=period_text,basis,forecast_cents,confidence_pct,model,generated_at&order=generated_at.desc&limit=10", anon, jwt, agency),
   },
 };
 
+// Context-driven tool boost: when the user is on a page whose name implies
+// money/people/predictions, force-include the matching tools EVEN IF the
+// prompt didn't explicitly mention them. This is what fixes the "no data"
+// failures on P&L when someone asks "what's the impact?" without saying
+// "commission" or "lead source" out loud.
+function contextBoost(context) {
+  const c = (context || "").toLowerCase();
+  const boost = [];
+  if (/p&l|pnl|profit|loss|revenue|override/.test(c)) {
+    boost.push("commissions", "payouts", "lead_sources", "policies");
+  }
+  if (/commission/.test(c)) boost.push("commissions", "payouts", "policies");
+  if (/lead vendor|attribution|source/.test(c)) boost.push("lead_sources", "attributions", "commissions");
+  if (/leaderboard|performance|tier/.test(c)) boost.push("reps", "commissions");
+  if (/recruit/.test(c)) boost.push("reps");
+  if (/forecast/.test(c)) boost.push("forecast", "commissions", "policies");
+  if (/nigo/.test(c)) boost.push("nigos", "policies");
+  return boost;
+}
+
 function pickTools(prompt, context) {
   const hay = `${prompt}\n${context || ""}`.toLowerCase();
-  const scored = Object.entries(TOOLS)
-    .map(([name, t]) => [name, t, t.match.test(hay) ? 1 : 0])
-    .filter(([, , s]) => s > 0);
-  // Cap at 3 tools per call to keep token budget small
-  return scored.slice(0, 3).map(([name, t]) => ({ name, t }));
+  const matched = new Set();
+  for (const [name, t] of Object.entries(TOOLS)) {
+    if (t.match.test(hay)) matched.add(name);
+  }
+  // Boost from page context — picks up vague follow-ups like "what's the impact?"
+  for (const name of contextBoost(context)) {
+    if (TOOLS[name]) matched.add(name);
+  }
+  // Up to 5 tools per call (was 3) — needed for analytical questions that
+  // require commissions × lead_sources × policies join in the model's head.
+  return [...matched].slice(0, 5).map(name => ({ name, t: TOOLS[name] }));
 }
 
 async function fetchData(prompt, context, userJwt) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
   const tools = pickTools(prompt, context);
-  if (tools.length === 0) return { used: [], block: "" };
-  const results = await Promise.all(tools.map(({ t }) => t.fetch(anonKey, userJwt)));
+  if (tools.length === 0) return { used: [], block: "", agencyId: null };
+  // GAP-X3 — resolve viewer's agency once; sbSelect uses it to scope every query.
+  const agencyId = await resolveAgencyId(userJwt, anonKey);
+  const results = await Promise.all(tools.map(({ t }) => t.fetch(anonKey, userJwt, agencyId)));
   const blocks = tools.map(({ t }, i) => {
     const rows = results[i];
-    if (!rows || rows.length === 0) return `\n\n[${t.label}]\n(no rows — RLS may be blocking; ensure user is signed in for live data)`;
+    if (!rows || rows.length === 0) return `\n\n[${t.label}]\n(no rows — either RLS blocked or no rows match your scope; if you expected data, verify you're signed in to the right agency)`;
     return `\n\n[${t.label}]\n${JSON.stringify(rows, null, 2).slice(0, 4000)}`;
   });
-  return { used: tools.map(({ name }) => name), block: blocks.join("") };
+  return { used: tools.map(({ name }) => name), block: blocks.join(""), agencyId };
 }
 
 /* ─── Model providers ─────────────────────────────────────────────────── */
-async function tryGemini(model, key, prompt) {
+async function tryGemini(model, key, prompt, maxTokens = 900) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.5, maxOutputTokens: 400 }
+      // Bumped from 400 → 900: prevents truncation on analytical answers
+      // (top-3 contributors + MoM deltas + ROI math need more headroom).
+      generationConfig: { temperature: 0.5, maxOutputTokens: maxTokens }
     })
   });
   if (!resp.ok) return { ok: false, status: resp.status, detail: await resp.text() };
@@ -164,7 +264,8 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: { "content-type": "application/json" }}); }
-  const { prompt, context } = body || {};
+  // history: [{q, a}] — caller passes last 2-3 turns for short-term memory.
+  const { prompt, context, history } = body || {};
   if (!prompt || typeof prompt !== "string") return new Response(JSON.stringify({ error: "prompt required" }), { status: 400, headers: { "content-type": "application/json" }});
 
   // Forward the user's Supabase JWT so PostgREST applies authenticated RLS.
@@ -175,7 +276,30 @@ export default async function handler(req) {
   const data = await fetchData(prompt, context, userJwt);
   const tFetch = Date.now() - t0;
 
-  const userMsg = `${SYSTEM}\n\n[Page context: ${context || "(none)"}]${data.block ? `\n\n=== DATA fetched on your behalf ===${data.block}` : ""}\n\n[Operator question]\n${prompt}`;
+  // DEMO_ASSIST sub-agent — when the caller's agency is the demo agency OR
+  // every fetched tool returned zero rows, switch to "guide me" tone:
+  // explain the metric, name the missing data, point at the right page to
+  // populate it. Never fail flatly.
+  const DEMO_AGENCY_ID = "11111111-1111-1111-1111-111111111111";
+  const isDemo = data.agencyId === DEMO_AGENCY_ID;
+  const allEmpty = data.used.length > 0 && /\(no rows/.test(data.block) && !/\[\s*{/.test(data.block);
+  const demoAssist = (isDemo || allEmpty)
+    ? `\n\n[DEMO_ASSIST mode — the user is on a demo or empty account.]
+DEMO_ASSIST RULES (override style #7 only when in this mode):
+- Be a friendly guide, not a refuse-all gate. Explain what the metric MEANS, what data sources WOULD answer it, and which page/button to click to populate.
+- Still refuse off-mission and software-internals questions.
+- When asked an analytical question with no data: open with "Here's how this would work once your data is flowing:" then walk through the formula in plain terms (e.g., "net impact of cutting source X = − sum of last 90d commissions tied to X − you keep − the lead-spend you stop"), and end with "To see your real number, do {specific action}."
+- Use round-number examples ($X, Y reps, Z%) when illustrating, marked clearly as illustrative.`
+    : "";
+
+  // Short-term memory: include up to 3 prior turns so vague follow-ups
+  // ("what do you need", "??") have context.
+  const historyBlock = (Array.isArray(history) && history.length > 0)
+    ? "\n\n[Recent conversation — for context only, do not repeat back]\n" +
+      history.slice(-3).map((t, i) => `Turn ${i+1}:\n  user: ${t.q || ""}\n  you: ${t.a || ""}`).join("\n")
+    : "";
+
+  const userMsg = `${SYSTEM}${demoAssist}\n\n[Page context: ${context || "(none)"}]${historyBlock}${data.block ? `\n\n=== DATA fetched on your behalf ===${data.block}` : ""}\n\n[Operator question]\n${prompt}`;
 
   // FREE-only cascade. NO paid models.
   // Gemini 2.5 Flash (Google direct) → Gemini 2.0 Flash (Google direct)

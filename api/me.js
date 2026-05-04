@@ -1,0 +1,95 @@
+// /api/me — returns the current viewer's identity (rep + agency + downline ids).
+// Closes GAP-X4 — auth identity link.
+//
+// Reads the user JWT from `Authorization` or `x-supabase-auth` header,
+// hits the public.me() Postgres function via PostgREST, joins downline_of() so
+// the UI gets the full set of rep_ids the viewer can scope queries to.
+//
+// Response shape (always 200, fields may be null for unauthed callers):
+//   { rep_id, user_id, full_name, handle, role, tier, agency_id, agency_name,
+//     upline_id, downline_ids: [text], is_demo: bool }
+//
+// FREE: no model calls, no paid services. Pure Postgres RPC.
+
+export const config = { runtime: "edge" };
+
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
+const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
+const DEMO_AGENCY_ID = "11111111-1111-1111-1111-111111111111";
+
+function corsHeaders() {
+  return {
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "authorization, x-supabase-auth, content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+  };
+}
+
+async function callRpc(fn, body, jwt) {
+  const r = await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "apikey": ANON,
+      "authorization": `Bearer ${jwt || ANON}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body || {}),
+  });
+  if (!r.ok) return null;
+  try { return await r.json(); } catch { return null; }
+}
+
+export default async function handler(req) {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  if (req.method !== "GET" && req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "GET only" }), { status: 405, headers: corsHeaders() });
+  }
+
+  const auth = req.headers.get("authorization") || req.headers.get("x-supabase-auth") || "";
+  const jwt = auth.replace(/^Bearer\s+/i, "") || null;
+
+  // me() returns 0 or 1 row
+  const meRows = await callRpc("me", {}, jwt);
+  const me = Array.isArray(meRows) && meRows.length > 0 ? meRows[0] : null;
+
+  // Anonymous / signed-out callers get the demo identity (read-only, scoped
+  // to the demo agency). Real signed-in callers get their real rep row.
+  if (!me || !me.rep_id) {
+    return new Response(JSON.stringify({
+      rep_id: null,
+      user_id: null,
+      full_name: null,
+      handle: null,
+      role: "guest",
+      tier: null,
+      agency_id: DEMO_AGENCY_ID,
+      agency_name: "Atlas Insurance Group",
+      upline_id: null,
+      downline_ids: [],
+      is_demo: true,
+      authenticated: false,
+    }), { status: 200, headers: corsHeaders() });
+  }
+
+  // downline_of(me.rep_id) returns text[] via PostgREST
+  const downlineRows = await callRpc("downline_of", { root_rep_id: me.rep_id }, jwt);
+  const downline_ids = Array.isArray(downlineRows)
+    ? downlineRows.map(r => (typeof r === "string" ? r : r.rep_id)).filter(Boolean)
+    : [];
+
+  return new Response(JSON.stringify({
+    rep_id:       me.rep_id,
+    user_id:      me.user_id,
+    full_name:    me.full_name,
+    handle:       me.handle,
+    role:         me.role,
+    tier:         me.tier,
+    agency_id:    me.agency_id,
+    agency_name:  me.agency_name,
+    upline_id:    me.upline_id,
+    downline_ids,
+    is_demo:      me.agency_id === DEMO_AGENCY_ID,
+    authenticated: true,
+  }), { status: 200, headers: corsHeaders() });
+}

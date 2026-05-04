@@ -116,7 +116,17 @@ window.getSupabase = function () {
 };
 
 window.getActiveAgencyId = function () {
-  try { return localStorage.getItem("repflow.active_agency"); } catch (_e) { return null; }
+  // GAP-X2 — agency scope priority: explicit switcher → me().agency_id → null.
+  // null = unscoped (only acceptable on shared reference tables).
+  try {
+    const explicit = localStorage.getItem("repflow.active_agency");
+    if (explicit) return explicit;
+  } catch (_e) {}
+  if (window.me) {
+    const me = window.me();
+    if (me && me.agency_id) return me.agency_id;
+  }
+  return null;
 };
 
 window.hydrateFromSupabase = async function () {
@@ -228,43 +238,52 @@ window.hydrateFromSupabase = async function () {
         tieringOverridesR,
         agentDeploymentsR, agentRunsR,
       ] = await Promise.all([
+        // Reference tables (global) — NOT agency-scoped:
         sb.from("carriers").select("*").order("name"),
         sb.from("products").select("*"),
         sb.from("carrier_appointments").select("*"),
-        sb.from("policies").select("*").order("issued_at", { ascending: false }),
-        sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500),
-        sb.from("payouts").select("*").order("period_end", { ascending: false }).limit(100),
-        sb.from("clawbacks").select("*").order("recorded_at", { ascending: false }).limit(100),
+        // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
+        scope(sb.from("policies").select("*").order("issued_at", { ascending: false })),
+        scope(sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500)),
+        scope(sb.from("payouts").select("*").order("period_end", { ascending: false }).limit(100)),
+        scope(sb.from("clawbacks").select("*").order("recorded_at", { ascending: false }).limit(100)),
+        // Reference:
         sb.from("lead_sources").select("*"),
-        sb.from("attributions").select("*"),
-        sb.from("touchpoints").select("*").order("occurred_at", { ascending: false }).limit(500),
+        // Tenant-specific:
+        scope(sb.from("attributions").select("*")),
+        scope(sb.from("touchpoints").select("*").order("occurred_at", { ascending: false }).limit(500)),
+        // Reference:
         sb.from("nigo_reasons").select("*"),
-        sb.from("nigos").select("*").order("created_at", { ascending: false }).limit(200),
-        sb.from("forecast_runs").select("*").order("generated_at", { ascending: false }).limit(50),
-        sb.from("forecast_overrides").select("*").order("set_at", { ascending: false }).limit(50),
-        sb.from("coaching_sessions").select("*").order("scheduled_at", { ascending: false }).limit(100),
-        sb.from("coaching_notes").select("*").order("created_at", { ascending: false }).limit(200),
-        sb.from("vault_files").select("*").order("created_at", { ascending: false }).limit(200),
-        sb.from("households").select("*"),
-        sb.from("clients").select("*"),
-        sb.from("book_entries").select("*"),
-        sb.from("recruits").select("*").order("created_at", { ascending: false }),
-        sb.from("interviews").select("*").order("scheduled_at", { ascending: false }),
-        sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50),
-        sb.from("thread_members").select("*"),
-        sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500),
-        sb.from("message_reads").select("*"),
-        sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(200),
-        sb.from("tasks").select("*").order("due_at", { ascending: true }).limit(200),
-        sb.from("followup_rules").select("*"),
-        sb.from("tier_changes").select("*").order("changed_at", { ascending: false }).limit(100),
+        // Tenant-specific:
+        scope(sb.from("nigos").select("*").order("created_at", { ascending: false }).limit(200)),
+        scope(sb.from("forecast_runs").select("*").order("generated_at", { ascending: false }).limit(50)),
+        scope(sb.from("forecast_overrides").select("*").order("set_at", { ascending: false }).limit(50)),
+        scope(sb.from("coaching_sessions").select("*").order("scheduled_at", { ascending: false }).limit(100)),
+        scope(sb.from("coaching_notes").select("*").order("created_at", { ascending: false }).limit(200)),
+        scope(sb.from("vault_files").select("*").order("created_at", { ascending: false }).limit(200)),
+        scope(sb.from("households").select("*")),
+        scope(sb.from("clients").select("*")),
+        scope(sb.from("book_entries").select("*")),
+        scope(sb.from("recruits").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("interviews").select("*").order("scheduled_at", { ascending: false })),
+        scope(sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50)),
+        scope(sb.from("thread_members").select("*")),
+        scope(sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500)),
+        scope(sb.from("message_reads").select("*")),
+        scope(sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)),
+        scope(sb.from("tasks").select("*").order("due_at", { ascending: true }).limit(200)),
+        scope(sb.from("followup_rules").select("*")),
+        scope(sb.from("tier_changes").select("*").order("changed_at", { ascending: false }).limit(100)),
+        // Reference:
         sb.from("aep_periods").select("*"),
-        sb.from("aep_assignments").select("*"),
+        scope(sb.from("aep_assignments").select("*")),
+        // Reference:
         sb.from("sequences").select("*"),
-        sb.from("sequence_enrollments").select("*").order("enrolled_at", { ascending: false }).limit(200),
-        sb.from("tiering_overrides").select("*"),
-        sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50),
-        sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100),
+        // Tenant-specific:
+        scope(sb.from("sequence_enrollments").select("*").order("enrolled_at", { ascending: false }).limit(200)),
+        scope(sb.from("tiering_overrides").select("*")),
+        scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
+        scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
       ]);
 
       const cents = (n) => Math.round((Number(n) || 0) / 100);
