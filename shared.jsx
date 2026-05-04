@@ -386,10 +386,19 @@ const AIRail = ({ context }) => {
       }
       const headers = { "content-type": "application/json" };
       if (jwt) headers["x-supabase-auth"] = `Bearer ${jwt}`;
+      // Pass last 3 turns so the copilot has short-term memory for vague
+      // follow-ups like "what do you need?" / "??". Each turn = {q, a}.
+      const recent = [];
+      for (let i = hist.length - 1; i >= 0 && recent.length < 3; i--) {
+        const m = hist[i];
+        if (m.role === "assistant" && i > 0 && hist[i-1]?.role === "user") {
+          recent.unshift({ q: hist[i-1].text || "", a: m.text || "" });
+        }
+      }
       const resp = await fetch("/api/copilot", {
         method: "POST",
         headers,
-        body: JSON.stringify({ prompt, context })
+        body: JSON.stringify({ prompt, context, history: recent })
       });
       const j = await resp.json();
       if (!resp.ok) throw new Error(j.error + (j.detail ? " — " + j.detail.slice(0, 200) : ""));
