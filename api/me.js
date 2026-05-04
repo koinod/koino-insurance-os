@@ -13,9 +13,10 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://zybndnqnbxarpkhqpcxq.supabase.co";
-const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_uN_hMYG8Bbv3_ajAYckqjg_5moQ-37W";
-const DEMO_AGENCY_ID = "11111111-1111-1111-1111-111111111111";
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
+const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+// Atlas Insurance Group (the seeded demo tenant) — agencies.id from the live DB.
+const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
 
 function corsHeaders() {
   return {
@@ -53,20 +54,26 @@ export default async function handler(req) {
   const meRows = await callRpc("me", {}, jwt);
   const me = Array.isArray(meRows) && meRows.length > 0 ? meRows[0] : null;
 
-  // Anonymous / signed-out callers get the demo identity (read-only, scoped
-  // to the demo agency). Real signed-in callers get their real rep row.
+  // Anonymous / signed-out callers get the demo identity: Marcus, the Atlas
+  // owner. Read-only because anon RLS only grants SELECT on Atlas-scoped rows
+  // (see migration 0006_anon_demo_read). Gives ?demo=1 visitors the full
+  // owner view — fleet KPIs, P&L, predictive cards — without an account.
   if (!me || !me.rep_id) {
+    const downlineRows = await callRpc("downline_of", { root_rep_id: "marc" }, null);
+    const downline_ids = Array.isArray(downlineRows)
+      ? downlineRows.map(r => (typeof r === "string" ? r : r.rep_id)).filter(Boolean)
+      : [];
     return new Response(JSON.stringify({
-      rep_id: null,
+      rep_id: "marc",
       user_id: null,
-      full_name: null,
-      handle: null,
-      role: "guest",
-      tier: null,
+      full_name: "Marcus Avila",
+      handle: "@marc",
+      role: "owner",
+      tier: "diamond",
       agency_id: DEMO_AGENCY_ID,
       agency_name: "Atlas Insurance Group",
       upline_id: null,
-      downline_ids: [],
+      downline_ids,
       is_demo: true,
       authenticated: false,
     }), { status: 200, headers: corsHeaders() });

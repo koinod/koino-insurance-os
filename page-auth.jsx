@@ -94,6 +94,12 @@ function LoginScreen() {
 }
 
 function AuthGate({ children }) {
+  // ?demo=1 in the URL auto-enters demo mode and persists for the session.
+  // Lets us share koino-insurance-os.vercel.app/?demo=1 as a clickable demo.
+  if (typeof window !== "undefined" && window.location.search.indexOf("demo=1") >= 0) {
+    try { sessionStorage.setItem("repflow.demo", "1"); } catch {}
+  }
+
   const [session, setSession] = React.useState(undefined); // undefined = checking, null = no session, obj = signed in
   const [demo, setDemo]       = React.useState(sessionStorage.getItem("repflow.demo") === "1");
   const [tenant, setTenant]   = React.useState(undefined); // undefined = checking, null = no agency, obj = has agency
