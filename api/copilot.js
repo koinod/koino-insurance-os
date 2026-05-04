@@ -280,7 +280,7 @@ export default async function handler(req) {
   // every fetched tool returned zero rows, switch to "guide me" tone:
   // explain the metric, name the missing data, point at the right page to
   // populate it. Never fail flatly.
-  const DEMO_AGENCY_ID = "11111111-1111-1111-1111-111111111111";
+  const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
   const isDemo = data.agencyId === DEMO_AGENCY_ID;
   const allEmpty = data.used.length > 0 && /\(no rows/.test(data.block) && !/\[\s*{/.test(data.block);
   const demoAssist = (isDemo || allEmpty)
