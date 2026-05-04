@@ -35,56 +35,85 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteerma
    and inlined into the model prompt. Selection rule: scan the prompt for
    keywords; run the matching tools (up to 3 at once for cost control).
    ─────────────────────────────────────────────────────────────────────── */
-async function sbSelect(path, anonKey, userJwt) {
-  // If the caller forwarded a user JWT, use it (RLS authenticated policies kick in).
-  // Otherwise fall back to anon (which won't see anything under tightened RLS — that's fine).
-  const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+async function sbSelect(path, anonKey, userJwt, agencyId) {
+  // GAP-X3 — when caller's agency_id is known, force-scope every PostgREST
+  // query to it. If the table doesn't have an agency_id column we retry without
+  // the filter (PostgREST returns 400 on unknown column).
+  let scoped = path;
+  if (agencyId) {
+    const sep = path.includes("?") ? "&" : "?";
+    scoped = `${path}${sep}agency_id=eq.${encodeURIComponent(agencyId)}`;
+  }
+  const r = await fetch(`${SUPA_URL}/rest/v1/${scoped}`, {
     headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt || anonKey}` }
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    if (agencyId && r.status === 400) {
+      const r2 = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+        headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt || anonKey}` }
+      });
+      if (!r2.ok) return null;
+      return await r2.json();
+    }
+    return null;
+  }
   return await r.json();
+}
+
+async function resolveAgencyId(userJwt, anonKey) {
+  if (!userJwt) return null;
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
+      method: "POST",
+      headers: { "apikey": anonKey, "authorization": `Bearer ${userJwt}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows[0] ? rows[0].agency_id : null;
+  } catch { return null; }
 }
 
 const TOOLS = {
   reps: {
     match: /\b(rep|reps|producer|producers|leaderboard|tier|tiers|tony|marcus|dani|kira|jada|sade|luis|remy|alex)\b/i,
     label: "REPS · all producers, sorted by MTD",
-    fetch: (anon, jwt) => sbSelect("reps?select=id,name,handle,tier,mtd_cents,today_cents,streak_days,dials,presence,appts&order=mtd_cents.desc", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("reps?select=id,name,handle,tier,mtd_cents,today_cents,streak_days,dials,presence,appts&order=mtd_cents.desc", anon, jwt, agency),
   },
   pipeline: {
     match: /\b(pipeline|deal|deals|lead|leads|stage|stages|app in|quoted|issued|stuck|hot|cold|aging|days)\b/i,
     label: "PIPELINE · 15 most stagnant leads with rep/stage/heat",
-    fetch: (anon, jwt) => sbSelect("pipeline?select=lead_name,age,state,stage,product,ap_cents,days_in_stage,heat,owner_rep_id,source,last_activity_text,next_action&order=days_in_stage.desc&limit=15", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("pipeline?select=lead_name,age,state,stage,product,ap_cents,days_in_stage,heat,owner_rep_id,source,last_activity_text,next_action&order=days_in_stage.desc&limit=15", anon, jwt, agency),
   },
   queue: {
     match: /\b(queue|inbound|sla|dispatch|speed-to-lead|dial|dialing)\b/i,
     label: "QUEUE · current inbound dial queue",
-    fetch: (anon, jwt) => sbSelect("queue?select=lead_name,age,state,source,product,elapsed_seconds,score&order=score.desc&limit=15", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("queue?select=lead_name,age,state,source,product,elapsed_seconds,score&order=score.desc&limit=15", anon, jwt, agency),
   },
   recordings: {
     match: /\b(call|calls|recording|coaching|talk|talk ratio|tpmo|soa|transcript)\b/i,
     label: "RECORDINGS · last 5 calls scored",
-    fetch: (anon, jwt) => sbSelect("recordings?select=lead_name,rep_id,duration_sec,talk_ratio_pct,open_questions,ai_summary,tpmo_flag,soa_flag,score,recorded_at&order=recorded_at.desc&limit=5", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("recordings?select=lead_name,rep_id,duration_sec,talk_ratio_pct,open_questions,ai_summary,tpmo_flag,soa_flag,score,recorded_at&order=recorded_at.desc&limit=5", anon, jwt, agency),
   },
   hardware: {
     match: /\b(host|hardware|vps|mac mini|node|nodes|enrolled|fleet)\b/i,
     label: "HARDWARE · enrolled hosts",
-    fetch: (anon, jwt) => sbSelect("hardware?select=id,name,kind,status,uptime_text,load_pct,agent_count,last_heartbeat&order=last_heartbeat.desc", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("hardware?select=id,name,kind,status,uptime_text,load_pct,agent_count,last_heartbeat&order=last_heartbeat.desc", anon, jwt, agency),
   },
   agents: {
     match: /\b(agent|agents|automation|workflow|workflows|bot|bots)\b/i,
     label: "AI_AGENTS · deployed agent templates",
-    fetch: (anon, jwt) => sbSelect("ai_agents?select=id,name,host_id,reqs_per_day,success_rate,description", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("ai_agents?select=id,name,host_id,reqs_per_day,success_rate,description", anon, jwt, agency),
   },
   connections: {
     match: /\b(connection|connections|integration|integrations|carrier|carriers|twilio|vapi|stripe|jornaya)\b/i,
     label: "CONNECTIONS · third-party services",
-    fetch: (anon, jwt) => sbSelect("connections?select=id,name,category,status,meta", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("connections?select=id,name,category,status,meta", anon, jwt, agency),
   },
   enrollments: {
     match: /\b(sequence|sequences|enrollment|cadence|follow-up|nurture|drip)\b/i,
     label: "SEQUENCE_ENROLLMENTS · active enrollments",
-    fetch: (anon, jwt) => sbSelect("sequence_enrollments?select=lead_pipeline_id,sequence_id,owner_rep_id,status,current_step,enrolled_at&status=eq.active&order=enrolled_at.desc&limit=20", anon, jwt),
+    fetch: (anon, jwt, agency) => sbSelect("sequence_enrollments?select=lead_pipeline_id,sequence_id,owner_rep_id,status,current_step,enrolled_at&status=eq.active&order=enrolled_at.desc&limit=20", anon, jwt, agency),
   },
 };
 
@@ -100,14 +129,16 @@ function pickTools(prompt, context) {
 async function fetchData(prompt, context, userJwt) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
   const tools = pickTools(prompt, context);
-  if (tools.length === 0) return { used: [], block: "" };
-  const results = await Promise.all(tools.map(({ t }) => t.fetch(anonKey, userJwt)));
+  if (tools.length === 0) return { used: [], block: "", agencyId: null };
+  // GAP-X3 — resolve viewer's agency once; sbSelect uses it to scope every query.
+  const agencyId = await resolveAgencyId(userJwt, anonKey);
+  const results = await Promise.all(tools.map(({ t }) => t.fetch(anonKey, userJwt, agencyId)));
   const blocks = tools.map(({ t }, i) => {
     const rows = results[i];
-    if (!rows || rows.length === 0) return `\n\n[${t.label}]\n(no rows — RLS may be blocking; ensure user is signed in for live data)`;
+    if (!rows || rows.length === 0) return `\n\n[${t.label}]\n(no rows — either RLS blocked or no rows match your scope; if you expected data, verify you're signed in to the right agency)`;
     return `\n\n[${t.label}]\n${JSON.stringify(rows, null, 2).slice(0, 4000)}`;
   });
-  return { used: tools.map(({ name }) => name), block: blocks.join("") };
+  return { used: tools.map(({ name }) => name), block: blocks.join(""), agencyId };
 }
 
 /* ─── Model providers ─────────────────────────────────────────────────── */
