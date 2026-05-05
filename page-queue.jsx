@@ -49,14 +49,20 @@ function DialQueueView({ onCall }) {
                   <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Dial"
-                      onClick={() => i === 0
-                        ? (onCall && onCall())
-                        : window.repflowCall && window.repflowCall(l.phone || "+15125550" + l.id.replace(/\D/g, "").slice(0, 3), l.lead)}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
+                      title={l.phone ? `Dial ${l.phone}` : "No phone on file — add one in lead detail"}
+                      disabled={!l.phone && i !== 0}
+                      onClick={() => {
+                        if (i === 0) { onCall && onCall(); return; }
+                        if (!l.phone) { window.toast && window.toast("No phone on file — add one in lead detail", "warn"); return; }
+                        window.repflowCall && window.repflowCall(l.phone, l.lead);
+                      }}>
                       <Icons.Phone size={12}/>
                     </button>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Send SMS"
-                      onClick={() => window.smsCompose && window.smsCompose(l, l.phone)}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
+                      title={l.phone ? `Send SMS to ${l.phone}` : "No phone on file"}
+                      disabled={!l.phone}
+                      onClick={() => l.phone && window.smsCompose && window.smsCompose(l, l.phone)}>
                       <Icons.MessageSquare size={12}/>
                     </button>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Schedule SOA"
@@ -364,6 +370,172 @@ function CarrierQuoteTool() {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   CallCopilot — real-time analysis pane for the in-call panel.
+
+   Subscribes to `transcript:segment` events emitted by LiveTranscriber and:
+     • counts words per speaker → live talk-ratio meter with target band
+     • detects TPMO disclosure fragments in the rep's stream → flips the
+       compliance flag without relying on the 8s timer
+     • pattern-matches caller utterances against an objection map → surfaces
+       AI-suggested rebuttals as actionable chips that drop a script into
+       Scripts/Send-SMS pipeline
+     • shows contextual nudges based on rolling state (talk-ratio >60% for
+       30s+, no open question in 90s, no TPMO read at 30s, etc.)
+     • one-click "Drop call to Vault" button — uses vaultArtifactInsert.
+
+   Stays cheap: all logic is local string matching + counters. Hooks into
+   the existing transcriber; no extra network calls.
+   ───────────────────────────────────────────────────────────────────────── */
+function CallCopilot({ lead, sec, tpmoFired, setTpmoFired }) {
+  const [segments, setSegments] = React.useState([]);
+  const [dropped, setDropped]   = React.useState(false);
+
+  React.useEffect(() => {
+    const onSeg = (e) => {
+      const s = e.detail;
+      if (!s || !s.text) return;
+      setSegments(prev => [...prev, { who: s.who || "You", text: s.text, t: s.t || sec }]);
+    };
+    window.addEventListener("transcript:segment", onSeg);
+    return () => window.removeEventListener("transcript:segment", onSeg);
+  }, [sec]);
+
+  // Reset when the lead changes (next call in autodial)
+  React.useEffect(() => { setSegments([]); setDropped(false); }, [lead && lead.id]);
+
+  // ── Derived signals ─────────────────────────────────────────────────────
+  const repText    = segments.filter(s => s.who === "You").map(s => s.text).join(" ").toLowerCase();
+  const callerText = segments.filter(s => s.who !== "You").map(s => s.text).join(" ").toLowerCase();
+  const repWords   = repText.split(/\s+/).filter(Boolean).length;
+  const callerWords= callerText.split(/\s+/).filter(Boolean).length;
+  const totalWords = repWords + callerWords;
+  const talkRatio  = totalWords === 0 ? null : Math.round((repWords / totalWords) * 100);
+  const openQs     = (repText.match(/\b(what|how|why|when|where|tell me|walk me through)\b/g) || []).length;
+
+  // TPMO auto-detect: any of these phrases in the rep stream flips compliance.
+  const TPMO_PHRASES = [
+    "do not offer every plan",
+    "limited to those plans",
+    "1-800-medicare",
+    "medicare.gov",
+  ];
+  React.useEffect(() => {
+    if (tpmoFired) return;
+    if (TPMO_PHRASES.some(p => repText.includes(p))) setTpmoFired(true);
+  }, [repText, tpmoFired, setTpmoFired]);
+
+  // Objection map: caller phrase → { label, action }
+  const OBJECTIONS = [
+    { match: /\b(too expensive|can'?t afford|out of (my )?budget|too pricey)\b/, label: "Price objection", reply: "Plan G covers everything Original Medicare doesn't — the question isn't 'can I afford this premium,' it's 'can I afford a $9,000 hospital deductible.' Walk me through what hospital stays would cost you today without it." },
+    { match: /\b(already have|have coverage|got insurance|covered already)\b/,    label: "Already covered", reply: "That's good — most of my clients had something. The reason I called is the rates jumped 14% on average for renewals this year. What carrier and plan are you on right now?" },
+    { match: /\b(let me think|need to think|call me back|send me|in the mail)\b/, label: "Stalling",         reply: "Of course. What I want to make sure is that when you do think about it, you have everything you need. What's the one piece of information that would make this an easy yes or no?" },
+    { match: /\b(spouse|wife|husband|partner|talk to my)\b/,                       label: "Spouse decision", reply: "Smart — what's your spouse's biggest concern about Medicare costs? I can run a quote for them too in 60 seconds." },
+    { match: /\b(medication|prescription|pharmacy|drug)\b/,                        label: "Drug coverage",   reply: "Let me pull up your medication list. What you take matters more than the premium for choosing the right plan. What are you on right now?" },
+  ];
+  const detectedObj = OBJECTIONS.find(o => o.match.test(callerText));
+
+  // Nudges: tactical real-time prompts, ordered by urgency
+  const nudges = [];
+  if (sec >= 30 && !tpmoFired)            nudges.push({ kind: "warn", msg: "Read the TPMO disclosure now — you've been on for 30s." });
+  if (talkRatio !== null && talkRatio > 60 && sec >= 30) nudges.push({ kind: "warn", msg: `Talking ${talkRatio}% — ask: "Walk me through your day."` });
+  if (openQs === 0 && repWords > 50)      nudges.push({ kind: "tip", msg: "No open-ended questions yet. Lead with one." });
+  if (detectedObj)                         nudges.push({ kind: "obj", msg: `Caller said "${detectedObj.label}" — try the rebuttal below.` });
+
+  const targetMin = 35, targetMax = 50;  // healthy talk-ratio band
+
+  const dropToVault = async () => {
+    try {
+      const transcriptText = segments.map(s => `${s.who}: ${s.text}`).join("\n");
+      const me = (typeof window !== "undefined" && window.me && window.me()) || {};
+      await AppData.mutate.vaultArtifactInsert({
+        kind: "Recording",
+        lead_name: lead?.lead || lead?.name || "Live call",
+        rep_id: me.rep_id || null,
+        retention: "10y",
+        status: "complete",
+        metadata: {
+          duration_seconds: sec,
+          talk_ratio: talkRatio,
+          open_questions: openQs,
+          tpmo_compliant: tpmoFired,
+          transcript: transcriptText,
+        },
+      });
+      setDropped(true);
+      window.toast && window.toast("Call dropped to Vault — 10y retention applied", "success");
+    } catch (_e) {
+      window.toast && window.toast("Vault drop failed — check Supabase", "warn");
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Talk-ratio meter */}
+      <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Icons.Activity size={11} style={{ color: "var(--accent-money)" }}/>
+          <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>Talk ratio</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>target {targetMin}–{targetMax}%</span>
+        </div>
+        {talkRatio === null ? (
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Listening for first words…</div>
+        ) : (
+          <>
+            <div style={{ position: "relative", height: 8, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden" }}>
+              {/* Target band */}
+              <div style={{ position: "absolute", left: `${targetMin}%`, width: `${targetMax - targetMin}%`, height: "100%", background: "color-mix(in oklch, var(--accent-money) 16%, transparent)" }}/>
+              {/* Rep talk fill */}
+              <div style={{ width: `${talkRatio}%`, height: "100%", background: talkRatio > targetMax ? "var(--state-warning)" : talkRatio < targetMin ? "var(--text-tertiary)" : "var(--accent-money)" }}/>
+            </div>
+            <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)" }}>
+              <span>You: <strong style={{ color: talkRatio > targetMax ? "var(--state-warning)" : "var(--accent-money)" }}>{talkRatio}%</strong></span>
+              <span>Caller: {100 - talkRatio}%</span>
+              <span>Open Qs: <strong style={{ color: openQs >= 3 ? "var(--accent-money)" : "var(--text-secondary)" }}>{openQs}</strong></span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* AI nudges */}
+      <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--accent-money)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <Icons.Sparkles size={11}/> AI nudges
+        </div>
+        {nudges.length === 0 ? (
+          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-tertiary)" }}>Looking good. Keep them talking.</div>
+        ) : (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {nudges.map((n, i) => (
+              <div key={i} style={{
+                fontSize: 12, lineHeight: 1.5, padding: "6px 10px", borderRadius: 6,
+                background: n.kind === "warn" ? "color-mix(in oklch, var(--state-warning) 12%, transparent)"
+                          : n.kind === "obj"  ? "color-mix(in oklch, var(--accent-status) 12%, transparent)"
+                          : "color-mix(in oklch, var(--accent-money) 8%, transparent)",
+                color: n.kind === "warn" ? "var(--state-warning)"
+                     : n.kind === "obj"  ? "var(--accent-status)"
+                     : "var(--text-primary)",
+                borderLeft: `3px solid ${n.kind === "warn" ? "var(--state-warning)" : n.kind === "obj" ? "var(--accent-status)" : "var(--accent-money)"}`,
+              }}>{n.msg}</div>
+            ))}
+          </div>
+        )}
+        {detectedObj && (
+          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-overlay)", borderRadius: 6, fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.55 }}>
+            <div style={{ fontSize: 10.5, color: "var(--accent-status)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Try this →</div>
+            "{detectedObj.reply}"
+          </div>
+        )}
+      </div>
+
+      {/* Vault drop — single click, end-of-call action */}
+      <button className={dropped ? "btn" : "btn btn-primary"} onClick={dropToVault} disabled={dropped} style={{ alignSelf: "flex-start" }}>
+        <Icons.Shield size={11}/> {dropped ? "In Vault · 10y retention" : "Drop call → Vault"}
+      </button>
+    </div>
+  );
+}
+
 function InCall({ onClose, lead, autodial }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
@@ -464,6 +636,17 @@ function InCall({ onClose, lead, autodial }) {
           <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>
             {[activeLead.age && `${activeLead.age}`, activeLead.state, activeLead.source].filter(Boolean).join(" · ") || "—"}
           </div>
+          {(activeLead.phone || activeLead.email) && (
+            <div style={{ marginTop: 6, display: "flex", gap: 12, fontSize: 11.5, color: "var(--text-secondary)", flexWrap: "wrap" }}>
+              {activeLead.phone && <span><Icons.Phone size={10} style={{ verticalAlign: "middle", color: "var(--text-tertiary)" }}/> <span className="mono">{activeLead.phone}</span></span>}
+              {activeLead.email && <span><Icons.Mail  size={10} style={{ verticalAlign: "middle", color: "var(--text-tertiary)" }}/> <span className="mono" style={{ fontSize: 11 }}>{activeLead.email}</span></span>}
+            </div>
+          )}
+          {!activeLead.phone && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--state-warning)" }}>
+              No phone on file — add one in the lead detail drawer to dial / SMS.
+            </div>
+          )}
 
           <div style={{ marginTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
             {activeLead.product   && <span className="chip chip-info">{activeLead.product}</span>}
@@ -523,12 +706,12 @@ function InCall({ onClose, lead, autodial }) {
               ? (() => { const T = window.LiveTranscriber; return <T active={!onHold} leadName={activeLead.lead}/>; })()
               : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcriber loading…</div>}
 
-            <div style={{ marginTop: 18, padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--accent-money)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                <Icons.Sparkles size={11}/> AI suggests
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-primary)" }}>AI suggestions populate from the live transcript as the call progresses.</div>
-            </div>
+            {window.QuoteCard && (() => {
+              const Q = window.QuoteCard;
+              return <Q active={!onHold} leadName={activeLead.lead} leadId={activeLead.leadId || activeLead.id} callId={activeLead.callId}/>;
+            })()}
+
+            <CallCopilot lead={activeLead} sec={sec} tpmoFired={tpmoFired} setTpmoFired={setTpmoFired}/>
           </div>
 
           {isAutodial && stage === "outcome" ? (
