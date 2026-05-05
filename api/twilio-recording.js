@@ -1,6 +1,7 @@
 // /api/twilio-recording — webhook from Twilio when a recorded call finishes.
 // Writes a vault_artifacts row (kind=Recording, retention=10y) so SOA / TPMO
-// audit trails populate automatically.
+// audit trails populate automatically. If OPENAI_API_KEY is set, also fires
+// a fire-and-forget transcription job that updates the same row when done.
 
 export const config = { runtime: "edge" };
 
@@ -20,20 +21,60 @@ export default async function handler(req) {
   // Best-effort write to vault. Uses anon key under RLS — in single-tenant
   // production the operator's service role key would land here via env.
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+  let artifactId = null;
   try {
-    await fetch(`${SUPA_URL}/rest/v1/vault_artifacts`, {
+    const r = await fetch(`${SUPA_URL}/rest/v1/vault_artifacts?select=id`, {
       method: "POST",
-      headers: { "apikey": anon, "authorization": `Bearer ${anon}`, "content-type": "application/json", "prefer": "return=minimal" },
+      headers: { "apikey": anon, "authorization": `Bearer ${anon}`, "content-type": "application/json", "prefer": "return=representation" },
       body: JSON.stringify({
         kind: "Recording",
         lead_name: `[Twilio call ${to}]`,
         retention: "10y",
         status: "complete",
         artifact_url: recording_url,
-        metadata: { recording_sid, call_sid, duration_sec }
+        metadata: { recording_sid, call_sid, duration_sec, transcribe_status: "pending" }
       })
     });
+    const rows = await r.json().catch(() => []);
+    artifactId = rows?.[0]?.id || null;
   } catch (_e) {}
 
+  // Fire transcription async (don't block Twilio's webhook on Whisper latency).
+  // EdgeRuntime exposes waitUntil via req when available; fall back to a detached fetch.
+  if (process.env.OPENAI_API_KEY && recording_url) {
+    const job = transcribeAndPersist({ recording_url, artifactId, anon });
+    if (typeof req.waitUntil === "function") req.waitUntil(job);
+    // else: detached promise — Vercel edge will let it run for a few seconds
+  }
+
   return new Response("ok", { status: 200 });
+}
+
+async function transcribeAndPersist({ recording_url, artifactId, anon }) {
+  try {
+    // Twilio recording URLs need basic auth — pass account SID + auth token
+    const sid = process.env.TWILIO_ACCOUNT_SID || "";
+    const tok = process.env.TWILIO_AUTH_TOKEN || "";
+    const r = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        audio_url: recording_url,
+        basic_auth: sid && tok ? `${sid}:${tok}` : null,
+        language: "en",
+        prompt: "Insurance sales call. Names, products: Medicare Supplement Plan G, Plan N, Final Expense, IUL, Annuity, TPMO, SOA.",
+      }),
+    });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (artifactId) {
+      await fetch(`${SUPA_URL}/rest/v1/vault_artifacts?id=eq.${artifactId}`, {
+        method: "PATCH",
+        headers: { "apikey": anon, "authorization": `Bearer ${anon}`, "content-type": "application/json", "prefer": "return=minimal" },
+        body: JSON.stringify({
+          metadata: { transcribe_status: "complete", transcript: j.text, segments: j.segments },
+        }),
+      });
+    }
+  } catch (_e) {}
 }

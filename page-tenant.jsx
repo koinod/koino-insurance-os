@@ -513,18 +513,17 @@ async function twilioReady() {
   return _twDevice;
 }
 
-window.repflowDial = async function (phone, leadName) {
+/* Twilio-only dial. Returns true if Twilio took the call, false if we should
+   fall through to the system dialer. Called by `window.repflowCall` in
+   page-platform.jsx — DO NOT call repflowCall back from here (circular loop). */
+window.repflowDialTwilio = async function (phone, leadName) {
   const dev = await twilioReady();
-  if (!dev) {
-    // Fallback to the existing repflow:// scheme + tel:
-    if (window.repflowCall) window.repflowCall(phone, leadName);
-    else window.location.href = `tel:${phone}`;
-    return;
-  }
+  if (!dev) return false;
   if (_twActive) { try { _twActive.disconnect(); } catch (_e) {} }
   _twActive = await dev.connect({ params: { To: phone, leadName: leadName || "" } });
   window.dispatchEvent(new CustomEvent("twilio:active", { detail: { phone, leadName } }));
   window.toast && window.toast(`Dialing ${leadName || phone}`, "info");
+  return true;
 };
 
 })();
