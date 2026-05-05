@@ -1376,4 +1376,64 @@ window.AppData.mutate = {
     );
   },
   quickLinkDelete: (id) => window.AppData.mutate._resourceDelete("agency_quick_links", "QUICK_LINKS", id),
+
+  /* ── Messaging (GAP-C2) — threads + messages ──────────────────────────── */
+  async threadEnsure({ memberHandles, kind = "dm", subject = "", relatedLeadId = null }) {
+    // Find an existing dm-kind thread whose membership matches exactly,
+    // otherwise create a new one. Idempotent — opening a DM twice between
+    // the same pair yields the same thread.
+    const list = (window.AppData.THREADS = window.AppData.THREADS || []);
+    const tmList = (window.AppData.THREAD_MEMBERS = window.AppData.THREAD_MEMBERS || []);
+    const sortedMembers = [...new Set(memberHandles)].sort();
+    if (kind === "dm") {
+      for (const t of list) {
+        if (t.kind !== "dm") continue;
+        const tm = tmList.filter(m => m.threadId === t.id).map(m => m.member).sort();
+        if (tm.length === sortedMembers.length && tm.every((h, i) => h === sortedMembers[i])) return t;
+      }
+    }
+    const tmpId = "thr-" + Date.now();
+    const row = { id: tmpId, kind, subject, relatedLeadId, lastMessageAt: new Date().toISOString() };
+    list.unshift(row);
+    sortedMembers.forEach(h => tmList.push({ id: "tm-" + Date.now() + "-" + h, threadId: tmpId, member: h, muted: false }));
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return row;
+      const { data, error } = await sb.from("threads").insert({ kind, subject, related_lead_id: relatedLeadId, last_message_at: row.lastMessageAt }).select().single();
+      if (error) { window.toast && window.toast(`Thread create failed: ${error.message}`, "error"); throw error; }
+      if (data?.id) {
+        // remap optimistic id
+        row.id = data.id;
+        tmList.forEach(m => { if (m.threadId === tmpId) m.threadId = data.id; });
+        // persist members
+        const memberRows = sortedMembers.map(h => ({ thread_id: data.id, member_handle: h, muted: false }));
+        await sb.from("thread_members").insert(memberRows);
+      }
+    }
+    _emitMutation("threads", "insert", row.id);
+    return row;
+  },
+
+  async messagePost({ threadId, body, metadata }) {
+    const list = (window.AppData.MESSAGES = window.AppData.MESSAGES || []);
+    const meIdent = window.me && window.me();
+    const sender = meIdent?.handle || "(self)";
+    const tmpId = "msg-" + Date.now();
+    const row = { id: tmpId, threadId, sender, body, createdAt: new Date().toISOString() };
+    list.push(row);
+    // Bump thread's lastMessageAt for sort order
+    const t = (window.AppData.THREADS || []).find(x => x.id === threadId);
+    if (t) t.lastMessageAt = row.createdAt;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return row;
+      const { data, error } = await sb.from("messages").insert({
+        thread_id: threadId, sender_handle: sender, body, metadata: metadata || null,
+      }).select().single();
+      if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
+      if (data?.id) row.id = data.id;
+      // Touch thread row
+      await sb.from("threads").update({ last_message_at: row.createdAt }).eq("id", threadId).then(() => {}).catch(() => {});
+    }
+    _emitMutation("messages", "insert", row.id);
+    return row;
+  },
 };
