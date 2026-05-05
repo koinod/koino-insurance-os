@@ -194,9 +194,25 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
     const { data: ag } = await sb.from("agencies").select("id, name").limit(1).single();
     if (!ag) { setLoading(false); return; }
     setAgency(ag);
-    const { data } = await sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
-    setItems(data || []);
-    setUnread((data || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    // GAP-C1 — notifications targeted to this rep, plus agency-wide broadcasts
+    // (recipient_rep_id IS NULL). Manager/owner see everything.
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const role = meIdent?.role || "rep";
+    const myRepId = meIdent?.rep_id || null;
+    let q = sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
+    if (role === "rep" && myRepId) {
+      q = q.or(`recipient_rep_id.is.null,recipient_rep_id.eq.${myRepId}`);
+    }
+    const { data, error } = await q;
+    if (error && /column.*recipient_rep_id.*does not exist/i.test(error.message || "")) {
+      // Migration 0011 not yet applied — fall back to unfiltered fetch
+      const { data: legacy } = await sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
+      setItems(legacy || []);
+      setUnread((legacy || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    } else {
+      setItems(data || []);
+      setUnread((data || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    }
     setLoading(false);
   }, [open]);
   React.useEffect(() => { load(); }, [load]);
