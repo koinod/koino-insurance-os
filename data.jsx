@@ -716,13 +716,122 @@ window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(
 window.AppData.mutate = {
   async pipelineStage(id, stage) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
+    const previousStage = row?.stage;
     if (row) { row.stage = stage; row.last = "Just now"; }
     _emitMutation("pipeline", "update", id);
     if (window.AppData.LIVE) {
-      const sb = window.getSupabase(); if (!sb) return;
-      const { error } = await sb.from("pipeline").update({ stage, updated_at: new Date().toISOString(), last_activity_text: "Just now" }).eq("id", id);
-      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      const sb = window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("pipeline").update({ stage, updated_at: new Date().toISOString(), last_activity_text: "Just now" }).eq("id", id);
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      }
     }
+    // ── Side-effect: keep POLICIES + commission ledger in sync ────────────
+    // Stage transitions used to be cosmetic. Now App In / Issued auto-create
+    // (or update) a POLICIES row so Today's number, Commissions, Performance,
+    // and Book Analytics actually reflect the kanban.
+    try {
+      if (row && (stage === "App In" || stage === "Issued")) {
+        await window.AppData.mutate._syncPolicyFromPipeline(row, stage, previousStage);
+      }
+    } catch (e) { /* swallow — kanban move shouldn't fail on policy side-effect */ }
+  },
+
+  // Internal: ensure a POLICIES row exists for a pipeline deal that has
+  // crossed into App In / Issued, and bump its status when the stage advances.
+  // Heuristics for filling missing fields:
+  //   • carrier — first carrier in CARRIERS that lists this product, fallback null
+  //   • product_text — pipeline.product (free-text)
+  //   • ap — pipeline.ap (defaults to 0; rep should still complete via Deal Write
+  //     for accurate AP, but the row exists so commission ledger is non-zero)
+  //   • comp_rate_pct — 22% default (the most common Med Supp first-year rate);
+  //     owner can adjust per carrier in Carriers / Resources later
+  // The user can still write a fully detailed deal via Floor → Deals to overwrite
+  // these defaults; the policyId is stored back on the pipeline row so we don't
+  // double-create.
+  async _syncPolicyFromPipeline(pipeRow, stage, previousStage) {
+    const policies = (window.AppData.POLICIES = window.AppData.POLICIES || []);
+    const status = stage === "Issued" ? "issued" : "submitted";
+    const existing = policies.find(p =>
+      (pipeRow.policyId && p.id === pipeRow.policyId) ||
+      (p.leadId === pipeRow.id)
+    );
+    if (existing) {
+      // Just bump status if it advanced.
+      if (existing.status !== status) {
+        existing.status = status;
+        if (stage === "Issued" && !existing.issuedAt) existing.issuedAt = new Date().toISOString();
+        _emitMutation("policies", "update", existing.id);
+        if (window.AppData.LIVE && typeof existing.id === "string" && !existing.id.startsWith("local-")) {
+          const sb = window.getSupabase();
+          if (sb) {
+            const upd = { status };
+            if (stage === "Issued") upd.submission_date = upd.submission_date || new Date().toISOString();
+            await sb.from("policies").update(upd).eq("id", existing.id).then(() => {}, () => {});
+          }
+        }
+      }
+      pipeRow.policyId = existing.id;
+      return existing;
+    }
+    // Auto-create a stub policy so commission ledger non-zero immediately.
+    const carriers = window.AppData.CARRIERS || [];
+    const productLower = String(pipeRow.product || "").toLowerCase();
+    const carrierGuess = carriers.find(c => {
+      const products = (c.products || []).map(p => String(p).toLowerCase());
+      return productLower.includes("med") ? products.some(p => p.includes("med") || p.includes("supp"))
+           : productLower.includes("annuity") ? products.some(p => p.includes("annuity"))
+           : productLower.includes("expense") ? products.some(p => p.includes("fe") || p.includes("expense"))
+           : true;
+    });
+    const ap = pipeRow.ap || 0;
+    const compRate = 22;
+    const expected = Math.round(ap * compRate / 100);
+    const newPolicy = {
+      id: "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+      leadId: pipeRow.id,
+      carrierId: carrierGuess?.id || null,
+      product: pipeRow.product || null,
+      ap, compRatePct: compRate, expectedCommission: expected,
+      issuedAt: stage === "Issued" ? new Date().toISOString() : null,
+      submissionDate: stage === "App In" ? new Date().toISOString() : null,
+      status,
+      owner: pipeRow.owner,
+      state: pipeRow.state,
+      autoCreated: true,  // Deal Write form can detect + complete these
+    };
+    policies.unshift(newPolicy);
+    pipeRow.policyId = newPolicy.id;
+    _emitMutation("policies", "insert", newPolicy.id);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb && typeof pipeRow.id === "string") {
+        try {
+          const { data } = await sb.from("policies").insert({
+            lead_pipeline_id: pipeRow.id,
+            carrier_id: newPolicy.carrierId,
+            product_text: newPolicy.product,
+            ap_cents: Math.round(ap * 100),
+            comp_rate_pct: compRate,
+            expected_commission_cents: Math.round(expected * 100),
+            status,
+            submission_date: newPolicy.submissionDate,
+            owner_rep_id: pipeRow.owner,
+            state: pipeRow.state,
+          }).select().single();
+          if (data?.id) {
+            newPolicy.id = data.id;
+            pipeRow.policyId = data.id;
+          }
+        } catch (_e) { /* keep local */ }
+      }
+    }
+    const verb = stage === "Issued" ? "Issued" : "Submitted";
+    window.toast && window.toast(
+      `${verb} · stub policy created · $${expected.toLocaleString()} expected commission. Open Floor → Deals to fill carrier + AP.`,
+      "success"
+    );
+    return newPolicy;
   },
 
   async pipelineOwner(id, ownerRepId) {

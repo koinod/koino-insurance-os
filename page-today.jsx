@@ -707,7 +707,7 @@ function TodayManager({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · Atlanta team — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
+          <div className="page-title">Today · {(() => { const m = window.me && window.me(); return m?.agency_name || "Team"; })()} — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
           <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>

@@ -87,6 +87,8 @@ const NAV = {
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "crm",         label: "CRM",          icon: "Users" },
+    { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
+    { id: "auto-quoter", label: "Auto Quoter",  icon: "Bolt" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
     { id: "compliance",  label: "Compliance",   icon: "Shield" },
     { id: "library",     label: "Library",      icon: "Book" },
@@ -153,18 +155,44 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         </button>
       </div>
 
-      <div className="sb-user">
-        <Avatar rep={AppData.REPS[0]} size={26}/>
-        <div className="sb-user-info">
-          <div className="sb-user-name">Marcus Avila</div>
-          <div className="sb-user-role">
-            <TierChip tier="platinum" compact/>
-            <span>· Atlanta</span>
-          </div>
-        </div>
-        <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
-      </div>
+      <SidebarUser setPage={setPage}/>
     </nav>
+  );
+};
+
+/* Resolve the actual signed-in viewer instead of hardcoding Marcus Avila /
+   Atlanta / platinum. Falls through to REPS[0] only when me() hasn't loaded
+   yet (first paint), then re-renders on the me:loaded event. */
+const SidebarUser = ({ setPage }) => {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("me:loaded", fn);
+    window.addEventListener("data:hydrated", fn);
+    return () => {
+      window.removeEventListener("me:loaded", fn);
+      window.removeEventListener("data:hydrated", fn);
+    };
+  }, []);
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const repRow = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+              || AppData.REPS?.[0]
+              || { name: "—", color: "var(--text-tertiary)" };
+  const name = meIdent?.full_name || repRow.name || "—";
+  const tier = meIdent?.tier || repRow.tier || "bronze";
+  const cityChip = meIdent?.agency_name ? `· ${meIdent.agency_name}` : (repRow.city ? `· ${repRow.city}` : "");
+  return (
+    <div className="sb-user">
+      <Avatar rep={repRow} size={26}/>
+      <div className="sb-user-info">
+        <div className="sb-user-name">{name}</div>
+        <div className="sb-user-role">
+          <TierChip tier={tier} compact/>
+          {cityChip && <span>{cityChip}</span>}
+        </div>
+      </div>
+      <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
+    </div>
   );
 };
 
@@ -521,4 +549,59 @@ const SectionPill = ({ items, value, onChange, dense }) => (
   </div>
 );
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill };
+/* Validation helpers — every form should reach for these instead of trusting
+   the input element. Phone uses a permissive E.164 (10-15 digits, optional +).
+   Age clamps to 0-120 to catch typos like 999. ZIP is 5 or 5+4. */
+const Validate = {
+  phone(v) {
+    if (!v) return { ok: true,  msg: "" };
+    const cleaned = String(v).replace(/[\s\-().]/g, "");
+    return /^\+?[1-9]\d{9,14}$/.test(cleaned)
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "Phone must be E.164 (10-15 digits, optional +)" };
+  },
+  age(v) {
+    if (v === "" || v == null) return { ok: true, msg: "" };
+    const n = Number(v);
+    if (!Number.isFinite(n))   return { ok: false, msg: "Age must be a number" };
+    if (n < 0 || n > 120)      return { ok: false, msg: "Age must be 0-120" };
+    return { ok: true, msg: "" };
+  },
+  zip(v) {
+    if (!v) return { ok: true, msg: "" };
+    return /^\d{5}(-\d{4})?$/.test(String(v).trim())
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "ZIP must be 5 digits (or 5+4)" };
+  },
+  state(v) {
+    if (!v) return { ok: true, msg: "" };
+    return /^[A-Z]{2}$/.test(String(v).trim().toUpperCase())
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "State must be 2-letter code" };
+  },
+  money(v) {
+    if (v === "" || v == null) return { ok: true, msg: "" };
+    const n = Number(String(v).replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(n)) return { ok: false, msg: "Must be a number" };
+    if (n < 0)               return { ok: false, msg: "Cannot be negative" };
+    return { ok: true, msg: "" };
+  },
+};
+
+/* ValidatedInput — text-input that shows inline error tone + message when the
+   value fails its kind's check. Use as drop-in: <ValidatedInput kind="phone"
+   value={...} onChange={...}/>. */
+const ValidatedInput = ({ kind, value, onChange, className = "text-input", ...rest }) => {
+  const v = Validate[kind] ? Validate[kind](value) : { ok: true, msg: "" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <input className={className} value={value || ""} onChange={onChange} {...rest}
+        style={{ ...(rest.style || {}), borderColor: !v.ok && value ? "var(--state-danger)" : undefined }}/>
+      {!v.ok && value && (
+        <span style={{ fontSize: 10.5, color: "var(--state-danger)" }}>{v.msg}</span>
+      )}
+    </div>
+  );
+};
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput };

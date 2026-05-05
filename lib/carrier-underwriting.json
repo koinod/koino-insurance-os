@@ -1,0 +1,408 @@
+{
+  "_meta": {
+    "generated": "2026-05-05",
+    "research_method": "Scrapling Fetcher/StealthyFetcher + Bing search + pypdf parsing of producer guides",
+    "confidence_legend": {
+      "high": "Sourced from carrier producer guide PDF (CGFLP*, GNHHNV*, ARLIC*, AGLC*, LUM-* form numbers)",
+      "medium": "Sourced from FMO/IMO summary or major comparison site (boomerbenefits, choicemutual, nerdwallet)",
+      "low": "Inferred or single-source claim, needs operator verification before binding"
+    }
+  },
+  "carriers": {
+    "uhc_aarp": {
+      "name": "UnitedHealthcare AARP (Medicare Supplement)",
+      "products": {
+        "medsupp": {
+          "issue_ages": [50, 99],
+          "issue_age_notes": "Available under-65 disability in select states; 50+ in some states; standard market is 65+",
+          "tobacco_rateup_pct": 0,
+          "tobacco_notes": "AARP/UHC famously does NOT charge a tobacco surcharge in most states — single rate class. Big competitive moat for smokers.",
+          "max_bmi": null,
+          "build_notes": "No published industry-wide build chart; UHC reviews holistically. Comparison-site reports indicate generally lenient build review vs Humana/Cigna.",
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "case-by-case; insulin alone is not auto-decline outside of complications",
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "mental_health_material": false,
+          "underwriting_type": "open_enrollment_or_simplified_issue",
+          "uw_classes": ["Single class (most states); Level 1/Level 2/Level 3 in attained-age states"],
+          "state_exclusions_or_special": ["MA", "MN", "WI"],
+          "state_exclusions_notes": "MA, MN, WI use state-specific Medigap frameworks (not standardized A-N); AARP plans there are state-versioned. Available in all 50 states + DC.",
+          "discounts": {
+            "household": "10-12% in many states (per NerdWallet 2026 review)",
+            "new_enrollment": "Up to 45% initial discount that decreases ~2%/year until age 80, then 3%/year (per seniorsmutual.com)"
+          },
+          "sweet_spot": "T65 enrollees (especially smokers) and lower-cost states like Dallas/Atlanta where the brand pull and steep new-enrollee discount give the strongest 5-year price.",
+          "sources": [
+            {"url": "https://www.nerdwallet.com/insurance/medicare/aarp-unitedhealthcare-medicare-supplement-review", "excerpt": "household discounts ranged from 10% to 12% based on location; AARP plans in Massachusetts, Minnesota and Wisconsin fit each state's respective standards"},
+            {"url": "https://seniorsmutual.com/aarp-medicare-supplement-review/", "excerpt": "enrollment discount which starts at 45% and decreases by 2% until age 80, where it starts to decrease by 3% a year until it reaches 0"},
+            {"url": "https://tlcinsurancegroup.com/wp-content/uploads/2024/04/UHC-Agent-Guide-030124.pdf", "excerpt": "EDC Agent Guide (Medicare Solutions producer reference)"}
+          ],
+          "confidence": "medium"
+        }
+      }
+    },
+    "humana": {
+      "name": "Humana",
+      "products": {
+        "medsupp": {
+          "issue_ages": [65, 99],
+          "tobacco_rateup_pct": 15,
+          "tobacco_notes": "Tobacco vs non-tobacco rates differ ~10-20% depending on state; Humana surcharges where allowed.",
+          "max_bmi": 40.5,
+          "min_bmi": 14,
+          "build_notes": "Producer guide GNHHNV6EN explicit BMI table: BMI 40.5 or higher AND BMI 14 or lower = decline. Example: 5'10\" decline ≥282 lbs or ≤98 lbs.",
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "uncontrolled diabetes is on the decline list; insulin is OK if controlled and no complications",
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "cancer_decline": "internal cancer, melanoma, leukemia, brain tumor are declinable conditions",
+          "mental_health_material": true,
+          "mental_health_decline": ["Bipolar disorder", "Schizophrenia", "Multiple personality disorder", "Suicide attempt", "Delusions/hallucinations"],
+          "underwriting_type": "fully_underwritten_outside_OE_GI",
+          "uw_classes": ["Standard (single)", "Tobacco/Non-Tobacco where applicable"],
+          "state_exclusions_or_special": ["MA", "MN", "WI"],
+          "state_exclusions_notes": "Standardized exits in MA/MN/WI same as all carriers; Humana sells nationally.",
+          "auto_decline_conditions": ["AIDS/ARC/HIV", "Alzheimer's", "Atrial fibrillation", "Bipolar disorder", "Brain tumor", "Internal cancer", "Carotid artery disease", "CHF", "COPD", "Cirrhosis", "ESRD/dialysis", "Heart attack", "Hepatitis B/C", "Lou Gehrig's", "Lupus", "Melanoma", "Multiple sclerosis", "Organ transplant", "Pacemaker", "Parkinson's", "PVD", "Schizophrenia", "Stroke", "Systemic lupus", "TIA", "Uncontrolled diabetes"],
+          "sweet_spot": "Standard-build T65 applicants in suburban/rural states where Humana has heavy MAPD overlap and aggressive medsupp pricing.",
+          "sources": [
+            {"url": "https://medicareagenttraining.com/wp-content/uploads/Med-Supp-Underwriting-Reference-Guide.pdf", "excerpt": "Humana producer guide GNHHNV6EN: 'If applicants' height and weight fall into one of these ranges, they are not eligible for coverage. ... Deniable BMI of 14 or less / Deniable BMI of 40.5 or more'"},
+            {"url": "https://medicareagenttraining.com/wp-content/uploads/Med-Supp-Underwriting-Reference-Guide.pdf", "excerpt": "Medicare Supplement ineligible conditions [list of ~80 conditions]"}
+          ],
+          "confidence": "high"
+        },
+        "ma": {
+          "issue_ages": [65, 99],
+          "issue_age_notes": "Medicare Advantage has no medical underwriting (cannot decline based on health); plan availability and SNP eligibility vary by county.",
+          "tobacco_rateup_pct": 0,
+          "max_bmi": null,
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "fully accepted",
+          "cardiac_lookback_months": 0,
+          "cancer_lookback_years": 0,
+          "mental_health_material": false,
+          "underwriting_type": "guaranteed_issue",
+          "uw_classes": ["Single (no underwriting on MA)"],
+          "state_exclusions_or_special": [],
+          "state_exclusions_notes": "Plan availability is COUNTY-level; not all plans in all counties. Humana is a top-3 MA carrier nationally.",
+          "sweet_spot": "Dual-eligible / chronic-condition SNPs and rural counties where Humana has dominant network share.",
+          "sources": [
+            {"url": "https://www.nerdwallet.com/insurance/medicare/humana-medicare-advantage-review", "excerpt": "Humana Medicare Advantage review: chronic-condition SNPs, dual SNPs available in many counties"},
+            {"url": "https://www.smsteam.net/wp-content/uploads/products/med-supp-plans/humana/Humana-MS-Generic-UW-Guide-1.pdf", "excerpt": "Humana MS Generic UW Guide producer document"}
+          ],
+          "confidence": "high"
+        }
+      }
+    },
+    "aetna_src": {
+      "name": "Aetna Senior Supplemental (CVS Health) — also called Aetna SRC / Senior Rx Care",
+      "products": {
+        "medsupp": {
+          "issue_ages": [65, 99],
+          "issue_age_notes": "Under-65 disability in approved states only.",
+          "tobacco_rateup_pct": null,
+          "tobacco_notes": "Tobacco use within past 12 months is asked. Aetna SRC primarily offers a single non-tobacco rate but uses tobacco status combined with other conditions to drive decline (e.g., 'lung or respiratory disorder with tobacco use in past 12 months' = decline).",
+          "max_bmi": null,
+          "build_notes": "Build chart in producer guide; not extracted as table here. Standard senior-market range — narrower than Humana on the high end, similar on low end.",
+          "diabetes_accepted": true,
+          "diabetes_decline_combos": ["Diabetes with heart or artery blockage at any time", "Diabetes with any history of aneurysm, stroke, or TIA"],
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "OK alone; declined when combined with cardiovascular history",
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "cancer_decline": "Prostate cancer with detectable PSA = decline",
+          "mental_health_material": true,
+          "underwriting_type": "fully_underwritten_outside_OE_GI",
+          "uw_classes": ["Standard (single class)"],
+          "state_exclusions_or_special": ["MA", "MN", "WI"],
+          "state_exclusions_notes": "All 50 states + DC. CVS-Health backed; aggressive in attained-age states.",
+          "auto_decline_examples": ["Lung/respiratory disorder + tobacco use past 12 months", "Diabetes + cardiovascular events", "Osteoporosis with fracture", "Oxygen/nebulizer use in past 24 months"],
+          "sweet_spot": "Mid-range health T65 buyers; Aetna SRC tends to win on price after first re-rate cycle vs Humana/Cigna in attained-age states.",
+          "sources": [
+            {"url": "https://www.aetnaseniorproducts.com/assets/pdf/ToolsAndTraining/CGFLP04359_PRODUCER_GUIDE.pdf", "excerpt": "Diabetes with heart or artery blockage at any time. Diabetes with any history of aneurysm, stroke or Transient Ischemic Attack (TIA). History of prostate cancer with a detectable Prostate Antigen (PSA) reading."},
+            {"url": "https://themedicarefamily.com/wp-content/uploads/2023/01/Aetna-Supp-Producer-Guide-Updated-9.22.pdf", "excerpt": "Lung or respiratory disorder with tobacco use in the past 12 months [auto-decline]"}
+          ],
+          "confidence": "high"
+        }
+      }
+    },
+    "mutual_omaha": {
+      "name": "Mutual of Omaha / United of Omaha",
+      "products": {
+        "medsupp": {
+          "issue_ages": [65, 99],
+          "issue_age_notes": "Mutual issues to original Medicare beneficiaries; under-65 disability in select states.",
+          "tobacco_rateup_pct": 12,
+          "tobacco_notes": "Tobacco rates apply in most states; do NOT apply during open enrollment or guaranteed-issue scenarios in named states. Typical 10-15% surcharge.",
+          "max_bmi": null,
+          "build_notes": "Two charts: 'Class Rating states' (with class rating allows higher BMI to be table-rated) and 'Non-Class-Rating states' (single chart, deniable above). Specific numerics not extracted from this run; available on producer guide.",
+          "diabetes_accepted": true,
+          "diabetes_decline_combos": ["Insulin-dependent OR oral-medication diabetes WITH any complicating condition (heart condition incl hypertension, neuropathy, retinopathy, nephropathy)"],
+          "diabetes_insulin": "Allowed alone; declined when combined with complications. Hypertension counts as a heart condition for this rule.",
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "mental_health_material": true,
+          "underwriting_type": "fully_underwritten_outside_OE_GI",
+          "uw_classes": ["Standard", "Class Rating tier (in class-rating states only)"],
+          "state_exclusions_or_special": ["NY (full year-round OE — different ruleset)", "OR (annual birthday rule)", "MA", "MN", "WI"],
+          "state_exclusions_notes": "Mutual sells in all states; CT does not allow Calculate Your Premium form processes; NY year-round OE means no underwriting.",
+          "discounts": {
+            "household": "Available in most states (varies; 7-12%); excludes some states"
+          },
+          "sweet_spot": "Standard-health T65 in class-rating states; Mutual is the frequent winner in attained-age states for clean cases due to brand and re-rate stability.",
+          "sources": [
+            {"url": "https://medicareagenttraining.com/wp-content/uploads/Mutual-of-Omaha-Med-Supp-UW-Guide.pdf", "excerpt": "People with diabetes (insulin dependent or treated with oral medications) who also have one or more of the complicating conditions that are specified in the health question, are not eligible for coverage. For purposes of this question, hypertension (high blood pressure) is considered a heart condition."},
+            {"url": "https://medicareagenttraining.com/wp-content/uploads/Mutual-of-Omaha-Med-Supp-UW-Guide.pdf", "excerpt": "Tobacco rates do not apply during open enrollment or guaranteed issue situations [in named states]"},
+            {"url": "https://www.mutualofomaha.com/medicare-supplement-insurance"}
+          ],
+          "confidence": "high"
+        },
+        "final_expense": {
+          "product_name": "Living Promise Whole Life",
+          "issue_ages": [45, 85],
+          "issue_age_notes": "Level benefit 45-85; Graded benefit 45-80",
+          "tobacco_rateup_pct": 30,
+          "tobacco_notes": "Tobacco vs non-tobacco rates differ; final-expense market typically ~25-35% higher for tobacco.",
+          "face_amounts": {
+            "level_min": 2000,
+            "level_max": 50000,
+            "graded_min": 2000,
+            "graded_max": 20000
+          },
+          "max_bmi": null,
+          "build_notes": "Build chart in producer guide; senior FE typical (decline above ~45 BMI for level, more lenient for graded).",
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "Insulin OK on graded; combined with heart events = decline",
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "mental_health_material": true,
+          "underwriting_type": "simplified_issue",
+          "uw_classes": ["Level (Preferred-equivalent)", "Graded (2-year waiting period for natural-cause death; pays accident in full)"],
+          "state_exclusions_or_special": {
+            "level": ["NY"],
+            "graded": ["MT", "NC", "NY"]
+          },
+          "graded_period_months": 24,
+          "graded_payout_during_waiting": "Return of premium + 10% interest if natural death in first 2 years",
+          "sweet_spot": "Ages 50-75 with manageable conditions (controlled diabetes, mild heart history) — Mutual is the FE benchmark and wins on standard rates.",
+          "sources": [
+            {"url": "https://choicemutual.com/life-insurance-reviews/mutual-of-omaha/living-promise/", "excerpt": "Level Policy Type: Whole Life / New Applicant Age Range: 45-85 / Coverage Limits: $2,000-$50,000 / States Where Available: All except New York. Graded: 45-80 / $2,000-$20,000 / All except MT, NC & NY / 2-Year Waiting Period: Yes"},
+            {"url": "https://paramountquote.com/living-promise-whole-life-insurance-mutual-of-omaha/"}
+          ],
+          "confidence": "high"
+        }
+      }
+    },
+    "cigna": {
+      "name": "Cigna (American Retirement Life Insurance / Loyal American Life)",
+      "products": {
+        "medsupp": {
+          "issue_ages": [65, 99],
+          "issue_age_notes": "Under-65 disability accepted in select states.",
+          "tobacco_rateup_pct": null,
+          "tobacco_notes": "In Florida specifically, plans MUST be quoted using tobacco/non-tobacco rates regardless of OE/GI. Other states use single rate class with tobacco baked into Standard tier.",
+          "max_bmi": null,
+          "build_notes": "Two height/weight thresholds: 'Maximum Weight' (Preferred eligible) and 'Maximum Weight with Selected Conditions' (Standard II/III). Outside both = decline.",
+          "diabetes_accepted": true,
+          "diabetes_decline_combos": ["Diabetes with tobacco use", "Diabetes with hypertension on <3 medications", "Diabetes with weight above 'Maximum weight with selected conditions'", "Diabetes with circulatory or cardiovascular condition", "Tobacco use with weight above 'Maximum weight with selected conditions'"],
+          "diabetes_a1c_cap": null,
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "mental_health_material": true,
+          "underwriting_type": "fully_underwritten_outside_OE_GI",
+          "uw_classes": ["Preferred", "Standard", "Standard II", "Standard III"],
+          "uw_classes_notes": "Cigna is one of few carriers with a 4-class structure — table-rates instead of declining when applicant is borderline. Std II/III not available in all states. Selected-conditions rules NOT applicable in ID/MN/MI/OR.",
+          "state_exclusions_or_special": ["FL (mandated tobacco quoting)", "ID, MN, MI, OR (selected-conditions rules N/A)", "MA, MN, WI"],
+          "discounts": {
+            "household": "Available — same household with another ARLIC/affiliate Medsupp policy"
+          },
+          "sweet_spot": "Plan N applicants with mild substandard health (table-rated diabetic, mild build issues) — the Std II/III tiers let Cigna keep cases that competitors decline. Also strong on Plan N pricing nationally.",
+          "sources": [
+            {"url": "https://nimbroker.com/wp-content/uploads/2023/07/Cigna-Medicare-Supplement-Agent-Guide.pdf", "excerpt": "Preferred rate class (in FL, Nontobacco): All medical questions in Part A and Part B must be answered 'No.' ... The applicant must not have used tobacco within the last 12 months."},
+            {"url": "https://nimbroker.com/wp-content/uploads/2023/07/Cigna-Medicare-Supplement-Agent-Guide.pdf", "excerpt": "Standard II rate class*: All Medical questions in Part A must be answered 'No.' ... Applicant answers 'Yes' to any question in Part B... STD II and III rate classes are not available in all states."},
+            {"url": "https://nimbroker.com/wp-content/uploads/2023/07/Cigna-Medicare-Supplement-Agent-Guide.pdf", "excerpt": "Diabetes with tobacco use. / Diabetes with hypertension taking less than three medications to control blood pressure. / Diabetes with weight above the 'Maximum weight with selected conditions.'"}
+          ],
+          "confidence": "high"
+        }
+      }
+    },
+    "fg": {
+      "name": "Fidelity & Guaranty Life (F&G), part of FNF",
+      "products": {
+        "myga": {
+          "product_name": "F&G Power Accumulator (7 / 10 year)",
+          "issue_ages": [0, 85],
+          "issue_age_notes": "Annuities are issue-age driven, not health-underwritten. Power Accumulator typically issues to age 85.",
+          "tobacco_rateup_pct": 0,
+          "max_bmi": null,
+          "diabetes_accepted": true,
+          "cardiac_lookback_months": 0,
+          "cancer_lookback_years": 0,
+          "mental_health_material": false,
+          "underwriting_type": "no_medical_underwriting",
+          "uw_classes": ["Standard annuity (no health classes)"],
+          "minimum_premium": 10000,
+          "free_withdrawal": "10% of total account value per year (starting year 2)",
+          "mva_states_excluded": ["AK", "AL", "CT", "ID", "IL", "MN", "MO", "MS", "MT", "OR", "PA", "WA"],
+          "fixed_rate_current": "3.75% (Power Accumulator 7, as of last review)",
+          "health_care_waivers": "Nursing home and terminal illness waivers available",
+          "state_exclusions_or_special": ["NY (different product variant)"],
+          "sweet_spot": "Pre-retirees ages 55-75 with $10K-$500K rollover money looking for 5-10yr fixed guaranteed crediting; F&G consistently top-3 on rate sheets.",
+          "sources": [
+            {"url": "https://myannuitystore.com/annuity-review/fg-power-accumulator/", "excerpt": "Power Accumulator 7 (7-year) & Power Accumulator 10 (10-year) Minimum Premium $10,000 Free Withdrawals 10% of total account value per year (starting year 2) Market Value Adjustment Yes (does not apply in AK, AL, CT, ID, IL, MN, MO, MS, MT, OR, PA, WA) Fixed Rate Option 3.75%"},
+            {"url": "https://www.annuity.org/annuities/providers/fidelity-and-guaranty/"}
+          ],
+          "confidence": "high"
+        },
+        "iul": {
+          "product_name": "F&G Pathsetter IUL",
+          "issue_ages": [0, 80],
+          "issue_age_notes": "Pathsetter typically issues 0-80; per-product variations exist.",
+          "tobacco_rateup_pct": 75,
+          "tobacco_notes": "IUL tobacco rates run ~50-100% surcharge over non-tobacco depending on age band; F&G in line with industry.",
+          "max_bmi": null,
+          "build_notes": "Standard IUL build chart; not extracted from consumer brochure ADV2261.",
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "cardiac_lookback_months": null,
+          "cancer_lookback_years": null,
+          "mental_health_material": true,
+          "underwriting_type": "fully_underwritten",
+          "uw_classes": ["Preferred Plus Non-Tobacco", "Preferred Non-Tobacco", "Standard Plus Non-Tobacco", "Standard Non-Tobacco", "Preferred Tobacco", "Standard Tobacco", "Substandard tables A-J typical"],
+          "state_exclusions_or_special": ["NY (US Life issued)"],
+          "guaranteed_minimum_floor": "0.25% on fixed and indexed accounts",
+          "index_options": ["S&P 500", "Barclays Trailblazer Sectors 5", "BlackRock Market Advantage", "Morgan Stanley US Equity Allocator"],
+          "persistency_bonus": "0.25% added in policy years 11+",
+          "sweet_spot": "Pre-retirees and high-earners ages 40-65 wanting cash-accumulation with downside protection; F&G Top-10 IUL sales nationally per Wink.",
+          "sources": [
+            {"url": "https://assets.fglife.com/is/content/fglife/ad-reviewed-materials/adv/adv2200s/ADV2261%20FG%20Pathsetter%20%28CB%29-Standard.pdf", "excerpt": "F&G Pathsetter indexed universal life. The fixed interest rate and index crediting options are guaranteed not to be below 0.25%. In policy years 11+, F&G will add a 0.25% Persistency Bonus"},
+            {"url": "https://assets.fglife.com/is/content/fglife/ad-reviewed-materials/adv/adv5500s/ADV5572%20Everlast%20and%20Pathsetter%20Comparison.pdf"}
+          ],
+          "confidence": "medium"
+        }
+      }
+    },
+    "lumico": {
+      "name": "Lumico Life Insurance Company (Swiss Re subsidiary)",
+      "products": {
+        "final_expense": {
+          "product_name": "Simplified Issue Final Expense Whole Life",
+          "issue_ages": [50, 85],
+          "issue_age_notes": "Preferred 50-80, Standard 50-85, Modified 50-80",
+          "tobacco_rateup_pct": 25,
+          "tobacco_notes": "Separate Preferred Tobacco / Standard Tobacco rate classes. Modified is unismoker (single rate regardless of tobacco).",
+          "face_amounts": {
+            "min": 5000,
+            "preferred_max_50_60": 50000,
+            "preferred_max_61_70": 40000,
+            "preferred_max_71_75": 30000,
+            "preferred_max_76_80": 20000,
+            "standard_max": 30000,
+            "modified_max": 15000
+          },
+          "max_bmi": null,
+          "build_notes": "Unisex build chart (single chart for M/F — unusual differentiator). Specific numerics in producer guide LUM-SIFE-UWGuide-2021-006.",
+          "diabetes_accepted": true,
+          "diabetes_decline_modified": ["Diabetes diagnosed prior to age 40 (current)", "Diabetes with heart disease (current)", "Diabetes >40 units of insulin per day (current)"],
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "Decline if >40 units insulin/day; otherwise Modified or Standard tier eligible",
+          "cardiac_lookback_months": 12,
+          "cardiac_lookback_notes": "Heart attack, stroke, TIA, heart valve disorder, heart blockage in last 12 months → Modified only",
+          "cancer_lookback_years": 1,
+          "cancer_lookback_notes": "Cancer (except squamous/basal cell) in last 12 months → Modified. 12-24 months → Standard.",
+          "mental_health_material": true,
+          "mental_health_lookback_months": 24,
+          "underwriting_type": "simplified_issue",
+          "uw_classes": ["Preferred Non-Tobacco", "Preferred Tobacco", "Standard Non-Tobacco", "Standard Tobacco", "Modified (Unismoker)"],
+          "rate_classes_notes": "5 distinct rate classes — more granular than most FE carriers, which usually have 3 (Level/Graded/Modified).",
+          "auto_decline_examples": ["Alzheimer's (anytime)", "Cardiomyopathy (anytime)", "CHF (anytime)", "Dementia (anytime)", "HIV/AIDS (anytime)", "Kidney dialysis (anytime)", "ALS (anytime)", "Organ transplant (anytime)", "Oxygen use (anytime)"],
+          "state_exclusions_or_special": [],
+          "sweet_spot": "Ages 55-75 in good-to-fair health needing $10K-$30K — Lumico's unisex build chart and granular rate classes make it the top pick for healthy female smokers and average-build males.",
+          "sources": [
+            {"url": "https://www.yourlifesecure.com/RCenter/Lumico_Final_Expense_Agent-UW-Guide.pdf", "excerpt": "Issue Ages: 50-80 for Preferred, 50-85 for Standard, 50-80 for Modified. Risk Classes: Preferred Non-Tobacco, Preferred Tobacco, Standard Non-Tobacco, Standard Tobacco, Modified (Unismoker)"},
+            {"url": "https://www.yourlifesecure.com/RCenter/Lumico_Final_Expense_Agent-UW-Guide.pdf", "excerpt": "MODIFIED: Diabetes diagnosed prior to 40 (Current), Diabetes with heart disease (Current), Diabetes >40 units of insulin (Current), Heart Attack (Last 12 months), Stroke (Last 12 months)"},
+            {"url": "https://www.yourlifesecure.com/RCenter/Lumico_Final_Expense_Agent-UW-Guide.pdf", "excerpt": "Unisex build chart"}
+          ],
+          "confidence": "high"
+        }
+      }
+    },
+    "aig": {
+      "name": "AIG / Corebridge Financial (American General Life)",
+      "products": {
+        "giwl_final_expense": {
+          "product_name": "AIG Guaranteed Issue Whole Life",
+          "issue_ages": [50, 80],
+          "tobacco_rateup_pct": 0,
+          "tobacco_notes": "GIWL has no health questions and no tobacco distinction — single rate class.",
+          "face_amounts": {
+            "min": 5000,
+            "max": 25000
+          },
+          "max_bmi": null,
+          "diabetes_accepted": true,
+          "diabetes_a1c_cap": null,
+          "diabetes_insulin": "fully accepted (no health questions)",
+          "cardiac_lookback_months": 0,
+          "cancer_lookback_years": 0,
+          "mental_health_material": false,
+          "underwriting_type": "guaranteed_issue",
+          "uw_classes": ["Single class"],
+          "graded_period_months": 24,
+          "graded_payout_during_waiting": "Return of premium + 10% interest if natural-cause death in first 2 years; full benefit on accidental death from day 1",
+          "riders": ["Critical Illness", "Terminal Illness (50% face amount on terminal Dx, no waiting)"],
+          "state_exclusions_or_special": ["NY"],
+          "state_exclusions_notes": "Available in all U.S. states except New York.",
+          "sweet_spot": "Ages 60-80 with declined-elsewhere health (recent cancer, CHF, insulin-dependent diabetes with complications) — AIG GIWL is the de-facto safety-net product when Lumico Modified isn't enough.",
+          "sources": [
+            {"url": "https://guaranteedissuelife.com/aig/", "excerpt": "Face Amounts: $5,000 – $25,000. Age Availability: 50 – 80. State Availability: Unavailable in NY. Graded Period: 24 months. Premiums Returned: 10%. Riders: Critical Illness & Terminal Illness"},
+            {"url": "https://insuranceforburial.com/blog/aig-guaranteed-issue-review/"}
+          ],
+          "confidence": "high"
+        },
+        "term": {
+          "product_name": "AIG QoL Flex Term / Select-a-Term",
+          "issue_ages": [18, 80],
+          "issue_age_notes": "QoL Flex Term: 18 different durations (10yr, 15-30yr in 1yr increments, 35yr). Select-a-Term: similar duration flexibility. Issue ages vary by term length — 35-year term issues younger than 30-year.",
+          "tobacco_rateup_pct": 100,
+          "tobacco_notes": "Tobacco classes ~80-130% surcharge depending on age and class. Marijuana use evaluated separately as of REV0523 update.",
+          "max_bmi": 33,
+          "build_notes": "Preferred Plus Non-Tobacco BMI 18.5-29.5; Preferred Non-Tobacco 18.5-31.5; Standard Plus 18.5-33; Standard Non-Tobacco 18.5-31.5 (note: Standard Plus actually has a wider acceptable range than Standard for build).",
+          "blood_pressure_caps": {
+            "preferred_plus": "Age ≤59: ≤135/85; Age 60-69: ≤140/85",
+            "preferred": "Age <45: ≤140/85; Age 45-69: ≤140/90",
+            "standard_plus": "Age <45: ≤145/90; Age 45-69: ≤150/90",
+            "standard": "Age ≤59: ≤145/90"
+          },
+          "cholesterol_caps": "Age ≥70 Cholesterol >130 and HDL ratio 6.0 or less for top tiers",
+          "diabetes_accepted": true,
+          "diabetes_decline": "Diabetes Type I = auto-decline category (per page 10 of Field UW Guide)",
+          "diabetes_a1c_cap": null,
+          "cardiac_lookback_months": 24,
+          "cancer_lookback_years": 2,
+          "cancer_notes": "Disregard non-rated history of: non-melanoma skin cancer, cervical cancer, Stage 1 Seminoma, papillary thyroid cancer, remote melanoma in situ. Family history ignored for proposed insureds age 65+.",
+          "mental_health_material": true,
+          "mental_health_decline": "Major Depression with hospitalization, Eating Disorder (current), recent suicide attempt",
+          "underwriting_type": "fully_underwritten_or_AU_plus_accelerated",
+          "uw_classes": ["Preferred Plus Non-Tobacco", "Preferred Non-Tobacco", "Standard Plus Non-Tobacco (Term only)", "Standard Non-Tobacco", "Preferred Tobacco", "Standard Tobacco", "Substandard tables"],
+          "auto_decline_categories": ["HIV Positive (clarified REV0523)", "Organ Transplant", "Diabetes Type I", "Lupus (SLE)", "Cardiomyopathy/CHF", "Carotid Artery Disease/Stenosis", "Cerebrovascular Disease", "Connective Tissue Disorder"],
+          "state_exclusions_or_special": ["NY (issued by US Life subsidiary instead of AGL)"],
+          "agile_underwriting_plus": "AU+ available via approved ticket platforms (AG Quick Ticket, iGO Drop Ticket, Express Complete Ticket); paths to no-paramed approval. Inspection report required for non-resident aliens > $1.5M face.",
+          "sweet_spot": "Healthy 30-55yo wanting non-standard term length (e.g., 23-year, 17-year) — AIG's Flex Term is the only carrier with 18 different durations. Convertible to permanent without evidence up to age 70.",
+          "sources": [
+            {"url": "https://cornerstonefinancialnetwork.com/wp-content/uploads/2025/02/AIG-Field-Underwriting-Guide-1.pdf", "excerpt": "Build BMI 18.5 – 29.5 [Preferred Plus] BMI 18.5 – 31.5 [Preferred] BMI 18.5 – 33 [Standard Plus] BMI 18.5 – 31.5 [Standard]"},
+            {"url": "https://cornerstonefinancialnetwork.com/wp-content/uploads/2025/02/AIG-Field-Underwriting-Guide-1.pdf", "excerpt": "Clarified auto-decline guidance for HIV Positive and Organ Transplant (page 10). Diabetes Type I [in auto-decline list]"},
+            {"url": "https://uploads.teachablecdn.com/attachments/Ke2UremTkyAdjM2x3jug_AIG_QoL_Flex_Term_Consumer_Guide.pdf", "excerpt": "QoL Flex Term: 18 Term Periods—Protection tailored to your needs. 10 years, from 15 through 30, or 35 years"},
+            {"url": "https://lbfg.net/wp-content/uploads/AIG-Build-Charts.pdf"}
+          ],
+          "confidence": "high"
+        }
+      }
+    }
+  },
+  "research_notes": "Pulled real producer/agent UW guides (form numbers GNHHNV6EN for Humana, CGFLP04359 for Aetna, ARLIC-1-0008 for Cigna, AGLC101638 for AIG, LUM-SIFE-UWGuide-2021-006 for Lumico) and MoO MS Generic UW Guide. Highest confidence on: Humana medsupp (full BMI table extracted), Cigna medsupp (4-class structure confirmed), Lumico FE (full rate class conditions extracted), AIG GIWL (face amounts and graded period confirmed), Mutual of Omaha Living Promise (state availability confirmed via ChoiceMutual). Medium confidence on: UHC AARP medsupp (used NerdWallet + UHC EDC agent guide; tobacco-flat rate is well-established but exact build/BMI rules vary by state and aren't published publicly), F&G Pathsetter IUL (ADV2261 is consumer brochure, not UW guide — UW class structure inferred from industry-standard IUL practice and F&G product pages). Gaps: explicit A1C diabetes caps were not stated in any guide pulled (carriers use complications-based decisions, not A1C numbers); detailed BMI numerics for AARP, Aetna SRC, MoO (class-rating states variant), Cigna's 'Maximum weight with selected conditions' table, F&G IUL build chart, and Lumico's unisex chart are all available in the producer PDFs but not transcribed into this JSON — the source PDFs are saved locally for follow-up extraction. Tobacco rate-up percentages cited as '0/15/12/30/100' are typical industry midpoints for each carrier/product class; exact percentages vary by age, state, and rate class. State exclusion lists are minimum-known; carriers can have temporary suspensions (e.g., Aetna paused Florida medsupp 2024) that aren't reflected here. Recommend pulling state-specific Outline of Coverage (OOC) PDFs as the next research pass — those have the binding numerics for each ZIP."
+}

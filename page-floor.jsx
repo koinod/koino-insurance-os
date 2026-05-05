@@ -134,48 +134,23 @@
       />
     );
   }
-  function _LegacyModeTabs({ mode, setMode }) {
-    const TABS = [
-      { id: "live",     label: "Live",     hint: "Dial queue + autodialer" },
-      { id: "pipeline", label: "Pipeline", hint: "Your book in motion" },
-      { id: "history",  label: "History",  hint: "Recent calls + recordings" },
-    ];
-    return (
-      <div style={{
-        display: "inline-flex", gap: 2, padding: 3, borderRadius: 10,
-        background: "var(--surface-elev)", border: "1px solid var(--border-subtle)"
-      }}>
-        {TABS.map(t => {
-          const active = mode === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              className="btn"
-              title={t.hint}
-              onClick={() => setMode(t.id)}
-              style={{
-                padding: "6px 14px",
-                fontSize: 13,
-                fontWeight: active ? 600 : 500,
-                background: active ? "var(--accent-status)" : "transparent",
-                color: active ? "var(--text-on-accent, #fff)" : "var(--text-primary)",
-                border: "none",
-                borderRadius: 8
-              }}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
-
   // ────────────────────────────────────────────────────────────────────────
   // Quick-stats strip — always visible at top of Live mode
   // ────────────────────────────────────────────────────────────────────────
   function FloorTopStrip({ role }) {
+    // Re-render on data:mutated so kanban stage moves + deal writes flip
+    // Today's number live without a refresh.
+    const [, force] = useState(0);
+    useEffect(() => {
+      const h = () => force(n => n + 1);
+      window.addEventListener("data:mutated", h);
+      window.addEventListener("data:hydrated", h);
+      return () => {
+        window.removeEventListener("data:mutated", h);
+        window.removeEventListener("data:hydrated", h);
+      };
+    }, []);
+
     // GAP-D1 — resolve the actual signed-in viewer instead of REPS[0]=Marcus.
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
@@ -185,13 +160,33 @@
     const myPipeline = (AppData.PIPELINE || []).filter(p =>
       !me || p.owner === me.id
     ).length;
+
+    // Live Today's number: seed value PLUS expected commission on any policies
+    // issued today owned by this rep. _syncPolicyFromPipeline (data.jsx) appends
+    // POLICIES rows when a kanban deal flips to App In / Issued, so this
+    // recomputes the moment the rep clicks the chip.
+    const TARGET = 1800;
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const myPolicies = (AppData.POLICIES || []).filter(p => !me || p.owner === me.id);
+    const todayBumped = myPolicies
+      .filter(p => (p.status === "issued" || p.status === "active") && (p.issuedAt || "").slice(0, 10) === todayISO)
+      .reduce((a, p) => a + (p.expectedCommission || Math.round((p.ap || 0) * (p.compRatePct || 22) / 100) || 0), 0);
+    const today = (me?.today || 0) + todayBumped;
+    const aheadBy = today - TARGET;
+    const todaySub = aheadBy >= 0
+      ? `$${aheadBy.toLocaleString()} ahead of $${TARGET.toLocaleString()}`
+      : `$${(TARGET - today).toLocaleString()} to target`;
+
     return (
       <div style={{
         display: "grid",
         gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
         gap: 10, marginBottom: 12
       }}>
-        <Shared.KpiCard label="Today's number"   value={me?.today != null ? `$${me.today.toLocaleString()}` : "—"} sub="vs $1,800 target"/>
+        <Shared.KpiCard label="Today's number"
+          value={`$${today.toLocaleString()}`}
+          sub={todaySub}
+          trend={aheadBy >= 0 ? "up" : undefined}/>
         <Shared.KpiCard label="Dial queue"       value={queueLen}                       sub="speed-to-lead"/>
         <Shared.KpiCard label="Open tasks"       value={tasksOpen}                       sub="due today"/>
         <Shared.KpiCard label="My pipeline"      value={myPipeline}                      sub="active leads"/>
@@ -204,8 +199,71 @@
   // and overlays the autodialer status. Falls back gracefully if PageQueue
   // hasn't compiled yet.
   // ────────────────────────────────────────────────────────────────────────
+  // Probe /api/twilio-token once on mount. If 503 (env vars missing), show a
+  // CTA so the rep knows why dials are routing to system dialer + transcription
+  // is mic-only. Cached on window so we don't re-probe across page changes.
+  function useTwilioStatus() {
+    const [status, setStatus] = useState(() => window.__twilioStatus || "unknown"); // unknown | ready | unconfigured | error
+    useEffect(() => {
+      if (window.__twilioStatus && window.__twilioStatus !== "unknown") { setStatus(window.__twilioStatus); return; }
+      let cancelled = false;
+      (async () => {
+        try {
+          const r = await fetch("/api/twilio-token", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+          if (cancelled) return;
+          const next = r.status === 503 ? "unconfigured" : r.ok ? "ready" : "error";
+          window.__twilioStatus = next;
+          setStatus(next);
+        } catch {
+          if (cancelled) return;
+          window.__twilioStatus = "error"; setStatus("error");
+        }
+      })();
+      return () => { cancelled = true; };
+    }, []);
+    return status;
+  }
+
+  function TwilioCTA() {
+    const goSettings = () => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" }}));
+    return (
+      <button onClick={goSettings} className="btn"
+        title="Click to open Settings → Calling and configure Twilio"
+        style={{
+          padding: "6px 12px", borderRadius: 999,
+          background: "color-mix(in oklch, var(--state-warning) 12%, var(--surface-elev))",
+          border: "1px solid color-mix(in oklch, var(--state-warning) 40%, transparent)",
+          color: "var(--state-warning)", fontSize: 12, fontWeight: 500,
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+        <Icons.AlertTriangle size={12}/> Twilio not configured
+        <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· dials route to system dialer · transcription mic-only</span>
+        <Icons.ArrowRight size={11}/>
+      </button>
+    );
+  }
+
   function LiveMode({ onCall, role, autodialer, setAutodialer }) {
     const Queue = window.PageQueue;
+    const Redial = window.RedialQueuePanel;
+    const Pacing = window.PacingBadge;
+    const twStatus = useTwilioStatus();
+
+    // Hot-key R = pull due retries into autodial
+    useEffect(() => {
+      const onKey = (e) => {
+        if (document.activeElement && /input|textarea|select/i.test(document.activeElement.tagName)) return;
+        if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          if (window.pullDueRetries) {
+            e.preventDefault();
+            window.pullDueRetries();
+          }
+        }
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+
     return (
       <div>
         <div style={{
@@ -213,20 +271,33 @@
           padding: "10px 14px", marginBottom: 12,
           background: "var(--surface-elev)",
           border: "1px solid var(--border-subtle)",
-          borderRadius: 10
+          borderRadius: 10,
+          gap: 10, flexWrap: "wrap",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             <span style={{ fontSize: 12, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
               Live floor
             </span>
             <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-              The queue auto-advances when the autodialer is ON.
-              Hit <strong style={{ color: "var(--text-primary)" }}>N</strong> to grab the next lead manually.
+              <strong style={{ color: "var(--text-primary)" }}>Start</strong> the autodialer · press <span className="kbd mono" style={{ fontSize: 10 }}>R</span> to pull due retries
             </span>
           </div>
-          <AutodialerPill state={autodialer} setState={setAutodialer}/>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {Pacing && (() => { const P = Pacing; return <P/>; })()}
+            {twStatus === "unconfigured" && <TwilioCTA/>}
+            <AutodialerPill state={autodialer} setState={setAutodialer}/>
+          </div>
         </div>
-        {Queue ? <Queue role={role} onCall={onCall}/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading queue…</div>}
+
+        {/* Two-col: queue on the left, redial queue panel on the right */}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 14, alignItems: "start" }}>
+          <div>
+            {Queue ? <Queue role={role} onCall={onCall}/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading queue…</div>}
+          </div>
+          <div>
+            {Redial ? <Redial compact/> : null}
+          </div>
+        </div>
       </div>
     );
   }
@@ -298,6 +369,13 @@
     const assigns   = window.AppData?.WORKFLOW_ASSIGNMENTS || [];
     const runs      = window.AppData?.FOLLOWUP_RUNS || [];
 
+    // Reps don't author follow-up systems — they execute them. Show an action
+    // queue (recent calls + active deals → 1-click trigger) plus today's
+    // queued runs. Managers/owners keep the template + workflow authoring UI.
+    if (isRep) {
+      return <RepActionQueue templates={templates} runs={runs} workflows={workflows} assignments={assigns} me={me}/>;
+    }
+
     // Manager scope: filter templates to those owned by downline reps.
     const downlineIds = (window.scopeRepIds && window.scopeRepIds()) || null;
     const visibleTemplates = isManager && downlineIds
@@ -326,6 +404,204 @@
           downlineIds={downlineIds}
         />
         <RunsSection runs={runs} templates={templates}/>
+      </div>
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Rep action queue — replaces the templates editor for reps.
+  //
+  // Design: reps execute, they don't build. The page shows three things:
+  //   1. Calls that just ended → "Send recap" / "Voicemail dropoff" / "Confirm appt"
+  //   2. Active deals owned by me → stage-aware next action ("Day-2 nudge" on App In, etc.)
+  //   3. Already-queued automations today → read-only proof that things are firing
+  //
+  // Every action chip calls AppData.mutate.followupDispatch(templateId, phone, leadId, repId)
+  // which inserts into FOLLOWUP_RUNS and broadcasts data:mutated, so the
+  // "Today's queued" panel updates instantly.
+  // ────────────────────────────────────────────────────────────────────────
+  function RepActionQueue({ templates, runs, workflows, assignments, me }) {
+    const repId = me?.rep_id;
+    const RECORDINGS = window.AppData?.RECORDINGS || [];
+    const PIPELINE   = window.AppData?.PIPELINE   || [];
+
+    // Filter to me. RECORDINGS often have no repId (demo seed), so fall back to "show all".
+    const myCalls = repId
+      ? (RECORDINGS.filter(r => r.repId === repId).length > 0
+          ? RECORDINGS.filter(r => r.repId === repId)
+          : RECORDINGS.slice(0, 5))
+      : RECORDINGS.slice(0, 5);
+    const myPipe = repId ? PIPELINE.filter(p => p.owner === repId) : PIPELINE;
+    const myRuns = (repId ? runs.filter(r => !r.repId || r.repId === repId) : runs).slice(0, 8);
+
+    // Active workflow assignments for me — read-only count, no toggle.
+    const myAssigns = (assignments || []).filter(a => a.repId === repId && a.enabled);
+    const myWorkflowCount = workflows.filter(w => myAssigns.some(a => a.workflowId === w.id)).length;
+
+    // Match templates to a triggering event, plus any "manual" templates as universal options.
+    const active = templates.filter(t => t.active !== false);
+    const tmplFor = (event) => [
+      ...active.filter(t => t.triggerEvent === event),
+      ...active.filter(t => t.triggerEvent === "manual"),
+    ];
+    const stageMap = {
+      // Suggested template event per pipeline stage
+      "New":        "after_voicemail",
+      "Contacted":  "after_call",
+      "Quoted":     "after_appt",
+      "App In":     "after_call",
+      "Issued":     "after_app",
+    };
+
+    const fire = async (template, lead) => {
+      if (!template) return;
+      const phone = lead.phone || "+15125550100";  // demo fallback
+      const leadKey = lead.id || lead.leadId || lead.lead;
+      await AppData.mutate.followupDispatch(template.id, phone, leadKey, repId);
+      window.toast && window.toast(`${template.name} queued for ${lead.lead || lead.name}`, "success");
+    };
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Just-ended calls — fire post-call automations */}
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Headset size={13}/>
+            <h3>Just-ended calls</h3>
+            <span className="meta">{myCalls.length} recent</span>
+            <span className="meta" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>
+              Click to fire the automation — no manager approval needed
+            </span>
+          </div>
+          {myCalls.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>No recent calls.</div>
+          )}
+          {myCalls.map(call => {
+            const callTmpls = tmplFor("after_call");
+            const vmTmpls   = tmplFor("after_voicemail");
+            const apptTmpls = tmplFor("after_appt");
+            return (
+              <div key={call.id} style={{
+                padding: "12px 14px", borderTop: "1px solid var(--border-subtle)",
+                display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center"
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{call.lead}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+                    {call.date} · score <span style={{ color: call.score >= 80 ? "var(--accent-money)" : call.score >= 60 ? "var(--state-warning)" : "var(--state-danger)" }}>{call.score}</span>
+                    {call.flags?.soa && call.flags.soa !== "n/a" && <> · SOA {call.flags.soa}</>}
+                  </div>
+                  {call.ai && <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.4 }}>{call.ai}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 360 }}>
+                  {callTmpls[0] && (
+                    <button className="btn btn-primary" style={{ fontSize: 11.5 }} onClick={() => fire(callTmpls[0], call)}>
+                      <Icons.Send size={11}/> {callTmpls[0].name}
+                    </button>
+                  )}
+                  {vmTmpls[0] && vmTmpls[0].id !== callTmpls[0]?.id && (
+                    <button className="btn" style={{ fontSize: 11.5 }} onClick={() => fire(vmTmpls[0], call)}>
+                      <Icons.Phone size={11}/> {vmTmpls[0].name}
+                    </button>
+                  )}
+                  {apptTmpls[0] && apptTmpls[0].id !== callTmpls[0]?.id && (
+                    <button className="btn" style={{ fontSize: 11.5 }} onClick={() => fire(apptTmpls[0], call)}>
+                      <Icons.Calendar size={11}/> {apptTmpls[0].name}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Active deals — stage-aware next action */}
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Pipeline size={13}/>
+            <h3>Active deals · suggested next action</h3>
+            <span className="meta">{myPipe.length}</span>
+          </div>
+          {myPipe.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>No active deals — go grab one from the queue.</div>
+          )}
+          {myPipe.slice(0, 8).map(p => {
+            const event = stageMap[p.stage] || "after_call";
+            const matches = tmplFor(event);
+            const primary = matches[0];
+            const secondary = matches[1] && matches[1].id !== primary?.id ? matches[1] : null;
+            return (
+              <div key={p.id} style={{
+                padding: "10px 14px", borderTop: "1px solid var(--border-subtle)",
+                display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: 10, alignItems: "center"
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{p.lead}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+                    {p.product} · {p.state} · {p.ap ? `$${p.ap.toLocaleString()}` : "—"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span className="chip" style={{ alignSelf: "flex-start", fontSize: 10.5 }}>{p.stage}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>next: {p.next}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {primary && (
+                    <button className="btn btn-primary" style={{ fontSize: 11.5 }} onClick={() => fire(primary, p)}>
+                      <Icons.Send size={11}/> {primary.name}
+                    </button>
+                  )}
+                  {secondary && (
+                    <button className="btn" style={{ fontSize: 11.5 }} onClick={() => fire(secondary, p)}>
+                      {secondary.name}
+                    </button>
+                  )}
+                  {!primary && (
+                    <span style={{ fontSize: 11, color: "var(--text-quaternary)" }}>no template wired</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Today's queued runs — read-only */}
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Clock size={13}/>
+            <h3>Queued for me today</h3>
+            <span className="meta">{myRuns.length}</span>
+            <span className="meta" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>
+              {myWorkflowCount} workflow{myWorkflowCount === 1 ? "" : "s"} running for you
+            </span>
+          </div>
+          {myRuns.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>
+              Nothing queued yet. Fire one above and it'll show up here.
+            </div>
+          )}
+          {myRuns.map(r => {
+            const t = templates.find(x => x.id === r.templateId);
+            const when = r.scheduledFor ? new Date(r.scheduledFor) : null;
+            const whenLbl = when ? `${when.getMonth()+1}/${when.getDate()} ${when.getHours()}:${String(when.getMinutes()).padStart(2,"0")}` : "—";
+            return (
+              <div key={r.id} style={{
+                padding: "8px 14px", borderTop: "1px solid var(--border-subtle)",
+                display: "grid", gridTemplateColumns: "1fr 100px 90px 80px", gap: 10, alignItems: "center", fontSize: 12
+              }}>
+                <div>{t?.name || r.templateId} <span style={{ color: "var(--text-tertiary)" }}>· {r.recipient}</span></div>
+                <div style={{ color: "var(--text-tertiary)" }}>{r.channel}</div>
+                <div style={{ color: "var(--text-tertiary)" }} className="tabular">{whenLbl}</div>
+                <div>
+                  <span className={`chip ${r.status === "sent" ? "chip-money" : r.status === "scheduled" ? "chip-info" : r.status === "failed" ? "" : ""}`}
+                        style={r.status === "failed" ? { color: "var(--state-danger)", borderColor: "var(--state-danger)" } : undefined}>
+                    {r.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -697,19 +973,6 @@
       try { localStorage.setItem("repflow.floor.mode", mode); } catch {}
     }, [mode]);
 
-    // Hotkey: N = next call (only in Live mode and only when autodialer is OFF)
-    useEffect(() => {
-      const handler = (e) => {
-        if (mode !== "live") return;
-        if (document.activeElement && /input|textarea|select/i.test(document.activeElement.tagName)) return;
-        if ((e.key === "n" || e.key === "N") && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          e.preventDefault();
-          onCall && onCall();
-        }
-      };
-      window.addEventListener("keydown", handler);
-      return () => window.removeEventListener("keydown", handler);
-    }, [mode, onCall]);
 
     return (
       <div className="page-pad">
@@ -722,8 +985,9 @@
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <ModeTabs mode={mode} setMode={setMode}/>
-            <button className="btn btn-primary" onClick={onCall} title="Hotkey: N">
-              <Icons.Phone size={13}/> Next call
+            {/* Quote tool — extracted from InCall so reps can run carrier rankings without being on a call */}
+            <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("quotetool:open"))} title="Carrier quote tool">
+              <Icons.Calculator size={13}/> Quote tool
             </button>
           </div>
         </div>

@@ -121,119 +121,336 @@ window.OnboardingTour = OnboardingTour;
 /* ──────────────────────────────────────────────────────────────────────────
    5. CSV import — parse leads CSV into Pipeline
    ────────────────────────────────────────────────────────────────────────── */
-function CSVImport({ onClose }) {
-  const [text, setText]   = React.useState("");
-  const [parsed, setParsed] = React.useState([]);
-  const [step, setStep]   = React.useState("paste"); // paste | preview | done
+/* RFC-4180-ish CSV parser — handles quoted fields, escaped quotes, CR/LF.
+   Returns { headers: [...], rows: [{header: value, ...}, ...] }. */
+function parseCsvText(input) {
+  const text = String(input || "").replace(/^﻿/, "");  // strip BOM
+  const out = [];
+  let row = [], cell = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i], next = text[i + 1];
+    if (inQuotes) {
+      if (ch === '"' && next === '"') { cell += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { cell += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\r") { /* swallow — \r\n handled by \n branch */ }
+      else if (ch === "\n") { row.push(cell); out.push(row); row = []; cell = ""; }
+      else { cell += ch; }
+    }
+  }
+  if (cell.length || row.length) { row.push(cell); out.push(row); }
+  // Drop trailing blank rows
+  while (out.length && out[out.length - 1].every(v => !String(v).trim())) out.pop();
+  if (out.length === 0) return { headers: [], rows: [] };
+  const headers = out[0].map(h => String(h).trim());
+  const rows = out.slice(1).map(arr => {
+    const o = {};
+    headers.forEach((h, i) => { o[h] = (arr[i] !== undefined ? String(arr[i]) : "").trim(); });
+    return o;
+  });
+  return { headers, rows };
+}
 
-  const parseCSV = () => {
-    const lines = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length < 2) { window.toast("CSV needs a header + at least one row", "error"); return; }
-    const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-    const rows = lines.slice(1).map(line => {
-      const cells = line.split(",").map(c => c.trim());
-      const o = {};
-      headers.forEach((h, i) => o[h] = cells[i] || "");
-      return o;
-    });
-    setParsed(rows);
-    setStep("preview");
+/* Auto-map CSV header names to our pipeline fields. Fuzzy: lowercases,
+   strips non-alnum, then matches against alias lists. */
+const CSV_FIELD_ALIASES = {
+  lead:   ["lead", "leadname", "name", "fullname", "contact", "client"],
+  phone:  ["phone", "phonenumber", "mobile", "cell", "tel", "telephone", "number"],
+  email:  ["email", "emailaddress", "mail"],
+  age:    ["age", "yearsold"],
+  state:  ["state", "stateabbrev", "stateabbreviation", "region"],
+  product: ["product", "plan", "policy", "interest"],
+  ap:     ["ap", "annualizedpremium", "premium", "ann premium"],
+  source: ["source", "leadsource", "campaign", "vendor"],
+  owner:  ["owner", "ownerrepid", "rep", "agent", "assignedto", "assignedrep"],
+};
+function normHeader(h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function autoMapHeaders(headers) {
+  const map = {};  // field -> headerName | ""
+  for (const field of Object.keys(CSV_FIELD_ALIASES)) {
+    const aliases = CSV_FIELD_ALIASES[field].map(normHeader);
+    const hit = headers.find(h => aliases.includes(normHeader(h)));
+    map[field] = hit || "";
+  }
+  return map;
+}
+function normalizePhone(raw) {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length === 10) return "+1" + digits;
+  if (digits.length === 11 && digits[0] === "1") return "+" + digits;
+  if (digits.length >= 7) return "+" + digits;
+  return "";
+}
+
+function CSVImport({ onClose }) {
+  const [text, setText]       = React.useState("");
+  const [parsedHeaders, setParsedHeaders] = React.useState([]);
+  const [parsedRows, setParsedRows]       = React.useState([]);
+  const [mapping, setMapping] = React.useState({});
+  const [step, setStep]       = React.useState("paste"); // paste | map | preview | importing | done
+  const [progress, setProgress] = React.useState({ done: 0, failed: 0, skipped: 0 });
+  const [errors, setErrors]   = React.useState([]);
+  const [dragOver, setDragOver] = React.useState(false);
+
+  const REPS    = (typeof AppData !== "undefined" && AppData.REPS) || [];
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myRepId = meIdent?.rep_id || REPS[0]?.id || null;
+
+  const parseInput = (raw) => {
+    const { headers, rows } = parseCsvText(raw);
+    if (headers.length === 0 || rows.length === 0) {
+      window.toast && window.toast("CSV needs a header row + at least one data row", "error");
+      return;
+    }
+    setParsedHeaders(headers);
+    setParsedRows(rows);
+    setMapping(autoMapHeaders(headers));
+    setStep("map");
+  };
+  const handleParseClick = () => parseInput(text);
+  const handleFile = async (file) => {
+    if (!file) return;
+    const t = await file.text();
+    setText(t);
+    parseInput(t);
   };
 
+  // Build mapped row objects from parsed CSV using current mapping
+  const mappedRows = React.useMemo(() => {
+    return parsedRows.map(raw => {
+      const get = (field) => mapping[field] ? raw[mapping[field]] || "" : "";
+      const phone = normalizePhone(get("phone"));
+      const owner = get("owner")
+        || (REPS.find(r => r.handle === get("owner") || r.id === get("owner") || r.name === get("owner"))?.id)
+        || myRepId;
+      return {
+        lead:    get("lead"),
+        phone,
+        email:   get("email").toLowerCase(),
+        age:     parseInt(get("age"), 10) || null,
+        state:   (get("state") || "").toUpperCase().slice(0, 2),
+        stage:   "New",
+        product: get("product") || null,
+        ap:      parseFloat(String(get("ap")).replace(/[$,]/g, "")) || 0,
+        source:  get("source") || "CSV import",
+        owner,
+        consent: "verified",
+        heat:    "fresh",
+        days:    0,
+        last:    "Imported",
+        next:    "First dial",
+      };
+    });
+  }, [parsedRows, mapping, myRepId]);
+
+  // Validation + dedup against existing pipeline (by phone)
+  const validation = React.useMemo(() => {
+    const existingPhones = new Set(((AppData.PIPELINE || []).map(p => normalizePhone(p.phone)).filter(Boolean)));
+    const seen = new Set();
+    return mappedRows.map((r, i) => {
+      const issues = [];
+      if (!r.lead) issues.push("missing name");
+      if (r.phone && existingPhones.has(r.phone)) issues.push("duplicate phone");
+      if (r.phone && seen.has(r.phone)) issues.push("duplicate in CSV");
+      if (r.phone) seen.add(r.phone);
+      return { row: r, idx: i, issues };
+    });
+  }, [mappedRows]);
+
+  const importable = validation.filter(v => v.issues.length === 0 || v.issues.every(x => x === "duplicate phone" || x === "duplicate in CSV"));
+  const skipped    = validation.filter(v => v.issues.includes("duplicate phone") || v.issues.includes("duplicate in CSV"));
+  const blocked    = validation.filter(v => v.issues.includes("missing name"));
+
   const importNow = async () => {
-    const sb = window.getSupabase && window.getSupabase();
-    if (sb && AppData.LIVE) {
-      // Push to Supabase
-      const ok = await sb.from("pipeline").insert(parsed.map(r => ({
-        lead_name: r.name || r.lead || r.lead_name,
-        age: parseInt(r.age) || null,
-        state: (r.state || "").toUpperCase(),
-        stage: r.stage || "New",
-        product: r.product || "Med Supp Plan G",
-        ap_cents: Math.round(parseFloat(r.ap || 0) * 100),
-        days_in_stage: 0,
-        last_activity_text: "Imported",
-        next_action: "First dial",
-        source: r.source || "CSV import",
-        owner_rep_id: r.owner || AppData.REPS[0].id,
-        consent: "verified",
-        heat: "fresh",
-      })));
-      if (ok.error) { window.toast("Import failed: " + ok.error.message, "error"); return; }
-      window.toast(`Imported ${parsed.length} leads to Supabase`, "success");
-      window.hydrateFromSupabase && window.hydrateFromSupabase();
-    } else {
-      // Demo mode: just append to in-memory
-      AppData.PIPELINE = [...parsed.map((r, i) => ({
-        id: 1000 + i,
-        lead: r.name || r.lead || r.lead_name,
-        age: parseInt(r.age) || 65,
-        state: (r.state || "TX").toUpperCase(),
-        stage: r.stage || "New",
-        product: r.product || "Med Supp Plan G",
-        ap: parseFloat(r.ap || 0),
-        days: 0,
-        last: "Imported",
-        next: "First dial",
-        source: r.source || "CSV import",
-        owner: r.owner || AppData.REPS[0].id,
-        consent: "verified",
-        heat: "fresh",
-      })), ...AppData.PIPELINE];
-      window.dispatchEvent(new CustomEvent("data:hydrated"));
-      window.toast(`Imported ${parsed.length} leads (demo mode)`, "success");
+    setStep("importing");
+    setProgress({ done: 0, failed: 0, skipped: skipped.length });
+    setErrors([]);
+    const toImport = validation.filter(v => v.issues.length === 0).map(v => v.row);
+    let done = 0, failed = 0;
+    const errs = [];
+    for (const row of toImport) {
+      try {
+        await AppData.mutate.pipelineInsert({
+          ...row,
+          // pipelineInsert assigns id internally on the AppData side; provide tmp for optimistic
+          id: "tmp-csv-" + Date.now() + "-" + done,
+        });
+        done++;
+      } catch (e) {
+        failed++;
+        errs.push({ name: row.lead, error: e?.message || "insert failed" });
+      }
+      setProgress({ done, failed, skipped: skipped.length });
     }
+    setErrors(errs);
     setStep("done");
-    setTimeout(onClose, 600);
+    window.toast && window.toast(`Imported ${done} of ${toImport.length} leads${failed ? ` · ${failed} failed` : ""}${skipped.length ? ` · ${skipped.length} skipped (dupes)` : ""}`, failed ? "warn" : "success");
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDragOver(false);
+    const f = e.dataTransfer?.files?.[0];
+    if (f) handleFile(f);
   };
 
   return (
-    <Shared.Modal title="Import leads from CSV" width={620} onClose={onClose} actions={
+    <Shared.Modal title="Import leads from CSV" width={720} onClose={onClose} actions={
       step === "paste" ? (
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={parseCSV} disabled={!text.trim()}>Parse →</button>
+          <button className="btn btn-primary" onClick={handleParseClick} disabled={!text.trim()}>Parse →</button>
+        </>
+      ) : step === "map" ? (
+        <>
+          <button className="btn btn-ghost" onClick={() => setStep("paste")}>← Back</button>
+          <button className="btn btn-primary" onClick={() => setStep("preview")} disabled={!mapping.lead}>Preview →</button>
         </>
       ) : step === "preview" ? (
         <>
-          <button className="btn btn-ghost" onClick={() => setStep("paste")}>← Back</button>
-          <button className="btn btn-primary" onClick={importNow}><Icons.Check size={11}/> Import {parsed.length}</button>
+          <button className="btn btn-ghost" onClick={() => setStep("map")}>← Back</button>
+          <button className="btn btn-primary" onClick={importNow} disabled={validation.filter(v => v.issues.length === 0).length === 0}>
+            <Icons.Check size={11}/> Import {validation.filter(v => v.issues.length === 0).length}
+          </button>
         </>
+      ) : step === "done" ? (
+        <button className="btn btn-primary" onClick={onClose}>Close</button>
       ) : null
     }>
       {step === "paste" && (
         <>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10 }}>
-            Paste a CSV with columns: <span className="mono">name, age, state, product, ap, source, owner</span>. First row = headers.
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10, lineHeight: 1.55 }}>
+            Drop a <span className="mono">.csv</span> file or paste below. We auto-detect column names — common formats from Convoso, GoHighLevel, Excel exports all work. Required columns: <strong>name + phone</strong>. Optional: email, age, state, product, AP, source, owner.
           </div>
-          <textarea className="text-input" rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="name,age,state,product,ap,source,owner&#10;Cheryl Hampton,67,TX,Med Supp Plan G,1840,FB Lead Form,marc&#10;Robert Mendez,71,FL,Final Expense $15K,1320,Inbound call,dani" style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-mono)", fontSize: 12 }}/>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            style={{
+              padding: 18, marginBottom: 10,
+              border: `2px dashed ${dragOver ? "var(--accent-money)" : "var(--border-subtle)"}`,
+              borderRadius: 8,
+              background: dragOver ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "var(--bg-raised)",
+              textAlign: "center", fontSize: 12.5, color: "var(--text-secondary)", cursor: "pointer",
+            }}
+            onClick={() => document.getElementById("csv-file-input")?.click()}
+          >
+            <Icons.ArrowUpRight size={16} style={{ color: "var(--text-tertiary)", marginBottom: 6 }}/>
+            <div>{dragOver ? "Drop the CSV here" : "Drop CSV here or click to choose"}</div>
+            <input id="csv-file-input" type="file" accept=".csv,text/csv,text/plain" style={{ display: "none" }}
+              onChange={(e) => handleFile(e.target.files?.[0])}/>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center", marginBottom: 6 }}>— or paste text —</div>
+          <textarea className="text-input" rows={8} value={text} onChange={(e) => setText(e.target.value)}
+            placeholder={`name,phone,email,age,state,product,ap,source\nCheryl Hampton,+15125551234,cheryl@example.com,67,TX,Med Supp Plan G,1840,FB Lead Form\nRobert Mendez,(305) 555-9821,,71,FL,Final Expense $15K,1320,Inbound call`}
+            style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-mono)", fontSize: 11.5 }}/>
         </>
       )}
+
+      {step === "map" && (
+        <>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10 }}>
+            {parsedRows.length} row{parsedRows.length === 1 ? "" : "s"} parsed. Confirm column mapping — we auto-detected what we could.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            {Object.keys(CSV_FIELD_ALIASES).map(field => {
+              const required = field === "lead";
+              return (
+                <React.Fragment key={field}>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)", textAlign: "right", paddingRight: 8 }}>
+                    {field}{required && <span style={{ color: "var(--state-danger)" }}> *</span>}
+                  </span>
+                  <Shared.Select
+                    value={mapping[field] || ""}
+                    onChange={(v) => setMapping(m => ({ ...m, [field]: v }))}
+                    options={[{ v: "", l: "(none)" }, ...parsedHeaders.map(h => ({ v: h, l: h }))]}
+                  />
+                </React.Fragment>
+              );
+            })}
+          </div>
+          {!mapping.lead && (
+            <div style={{ padding: 8, fontSize: 11.5, color: "var(--state-warning)", background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", borderRadius: 6 }}>
+              Map the <strong>lead</strong> column before continuing.
+            </div>
+          )}
+          {mapping.lead && !mapping.phone && (
+            <div style={{ padding: 8, fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8 }}>
+              No phone column mapped — leads will import without phone numbers and won't be dialable until enriched.
+            </div>
+          )}
+        </>
+      )}
+
       {step === "preview" && (
         <>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 8 }}>{parsed.length} rows ready to import</div>
-          <div className="list" style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 50px 60px 1.2fr 80px 1fr" }}>
-              <div>Name</div><div>Age</div><div>State</div><div>Product</div><div className="tabular" style={{ textAlign: "right" }}>AP</div><div>Source</div>
+          <div style={{ fontSize: 12, marginBottom: 8, color: "var(--text-secondary)" }}>
+            <strong>{validation.filter(v => v.issues.length === 0).length}</strong> ready to import
+            {skipped.length > 0 && <span style={{ color: "var(--text-tertiary)" }}> · <strong>{skipped.length}</strong> skipped (duplicate phone)</span>}
+            {blocked.length > 0 && <span style={{ color: "var(--state-danger)" }}> · <strong>{blocked.length}</strong> blocked (missing name)</span>}
+          </div>
+          <div className="list" style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+            <div className="list-h" style={{ gridTemplateColumns: "1.3fr 130px 1.2fr 50px 50px 1fr 100px" }}>
+              <div>Name</div><div>Phone</div><div>Email</div><div>Age</div><div>St</div><div>Product</div><div>Status</div>
             </div>
-            {parsed.slice(0, 50).map((r, i) => (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 50px 60px 1.2fr 80px 1fr" }}>
-                <div>{r.name || r.lead || r.lead_name}</div>
-                <div className="tabular">{r.age}</div>
-                <div>{r.state}</div>
-                <div className="cell-truncate">{r.product}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${parseFloat(r.ap || 0).toLocaleString()}</div>
-                <div className="cell-truncate">{r.source}</div>
+            {validation.slice(0, 100).map((v, i) => (
+              <div key={i} className="row" style={{ gridTemplateColumns: "1.3fr 130px 1.2fr 50px 50px 1fr 100px" }}>
+                <div className="cell-truncate" style={{ color: v.issues.includes("missing name") ? "var(--state-danger)" : undefined }}>{v.row.lead || <em>—</em>}</div>
+                <div className="cell-truncate mono" style={{ fontSize: 11 }}>{v.row.phone || <span style={{ color: "var(--text-quaternary)" }}>—</span>}</div>
+                <div className="cell-truncate" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{v.row.email || "—"}</div>
+                <div className="tabular">{v.row.age || "—"}</div>
+                <div>{v.row.state || "—"}</div>
+                <div className="cell-truncate" style={{ fontSize: 11.5 }}>{v.row.product || "—"}</div>
+                <div>
+                  {v.issues.length === 0
+                    ? <span className="chip chip-money" style={{ fontSize: 10 }}>ready</span>
+                    : v.issues.includes("missing name")
+                      ? <span className="chip" style={{ fontSize: 10, color: "var(--state-danger)" }}>blocked</span>
+                      : <span className="chip" style={{ fontSize: 10, color: "var(--text-tertiary)" }}>dupe</span>}
+                </div>
               </div>
             ))}
           </div>
+          {validation.length > 100 && <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>… {validation.length - 100} more rows not shown in preview</div>}
         </>
       )}
-      {step === "done" && <div style={{ padding: 30, textAlign: "center", color: "var(--accent-money)" }}><Icons.Check size={20}/><div>Done.</div></div>}
+
+      {step === "importing" && (
+        <div style={{ padding: 30, textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Importing… {progress.done} done · {progress.failed} failed</div>
+          <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden", marginBottom: 8 }}>
+            <div style={{ width: `${(progress.done + progress.failed) / Math.max(1, validation.filter(v => v.issues.length === 0).length) * 100}%`, height: "100%", background: "var(--accent-money)", transition: "width 200ms" }}/>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Each lead is written through the standard pipelineInsert mutator — RLS, audit, realtime fan-out all fire.</div>
+        </div>
+      )}
+
+      {step === "done" && (
+        <div style={{ padding: 24, textAlign: "center" }}>
+          <Icons.Check size={28} style={{ color: "var(--accent-money)" }}/>
+          <div style={{ fontSize: 16, fontWeight: 500, marginTop: 8 }}>Done.</div>
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--accent-money)" }}>{progress.done}</strong> imported{" · "}
+            <strong style={{ color: progress.failed ? "var(--state-danger)" : "var(--text-tertiary)" }}>{progress.failed}</strong> failed{" · "}
+            <strong style={{ color: "var(--text-tertiary)" }}>{progress.skipped}</strong> skipped (dupes)
+          </div>
+          {errors.length > 0 && (
+            <div style={{ marginTop: 14, textAlign: "left", maxHeight: 140, overflowY: "auto", padding: 10, background: "color-mix(in oklch, var(--state-danger) 8%, transparent)", borderRadius: 6, fontSize: 11.5 }}>
+              {errors.slice(0, 10).map((e, i) => (
+                <div key={i}><strong>{e.name}</strong> — <span style={{ color: "var(--state-danger)" }}>{e.error}</span></div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Shared.Modal>
   );
 }
 window.CSVImport = CSVImport;
+window.parseCsvText = parseCsvText;
 
 /* ──────────────────────────────────────────────────────────────────────────
    6. Export — CSV / Excel-flavored / PDF (HTML print)

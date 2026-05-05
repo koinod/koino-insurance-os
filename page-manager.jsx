@@ -978,3 +978,8 @@ function RepDrillSlideout({ rep, onClose, onAddNote }) {
 
 window.PageTeam = PageTeam;
 window.PageCoaching = PageCoaching;
+// Expose role-specific inner components so the Training hub can embed them
+// without the wrapper's outer header. See CoachingPane in page-extras.jsx.
+window.CoachingRep = CoachingRep;
+window.CoachingManager = CoachingManager;
+window.CoachingOwner = CoachingOwner;

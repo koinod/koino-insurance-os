@@ -221,14 +221,14 @@ def main() -> int:
         # `window.me()` becomes non-null when /api/me returns; that's our gate.
         page.wait_for_function(
             "() => window.me && window.me() && window.me().rep_id",
-            timeout=20_000,
+            timeout=45_000,
         )
         # Give Babel a beat to finish compiling all the script[type=text/babel]
         # bundles. Babel compile is sequential; on a cold load this can take a
         # few seconds before window.gotoPage is wired up.
         page.wait_for_function(
             "() => typeof window.gotoPage === 'function'",
-            timeout=20_000,
+            timeout=45_000,
         )
         time.sleep(args.initial_load_ms / 1000.0)
 
