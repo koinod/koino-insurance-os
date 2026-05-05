@@ -33,14 +33,29 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
   const verifyNipr = async () => {
     if (!form.npn.trim() || form.license_states.length === 0) return;
     setNiprBusy(true);
+    // GAP-A2: 5s timeout so the wizard never strands the rep when NIPR is
+    // slow or unconfigured. On timeout/error, fall back to self-attested.
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
     try {
-      const r = await fetch("/api/nipr-verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ npn: form.npn, states: form.license_states }) });
+      const r = await fetch("/api/nipr-verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ npn: form.npn, states: form.license_states }),
+        signal: ctrl.signal,
+      });
       const j = await r.json();
-      // Both 200 (real verify) and 503 (graceful self-attested) include results
       setNiprResults({ configured: r.ok, results: j.results || [] });
     } catch (_e) {
-      setNiprResults({ configured: false, results: form.license_states.map(s => ({ state: s, status: "self-attested" })) });
-    } finally { setNiprBusy(false); }
+      setNiprResults({
+        configured: false,
+        results: form.license_states.map(s => ({ state: s, status: "self-attested", note: "NIPR unreachable in 5s — self-attested for now; we'll re-verify in the background" })),
+      });
+      window.toast && window.toast("NIPR slow — proceeding self-attested, we'll re-verify later", "warn");
+    } finally {
+      clearTimeout(t);
+      setNiprBusy(false);
+    }
   };
 
   const STEPS = ["Profile", "Licenses", "Carriers", "Done"];
@@ -61,7 +76,11 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
       if (error) throw error;
       window.toast && window.toast(`Welcome, ${form.name.split(" ")[0]}`, "success");
       window.hydrateFromSupabase && window.hydrateFromSupabase();
+      // GAP-A1: route fresh rep to Floor (live mode) so the first thing they
+      // see is "make your first dial" not an empty Today.
+      try { sessionStorage.setItem("repflow.firstDialPending", "1"); } catch {}
       onComplete && onComplete();
+      setTimeout(() => { window.gotoPage && window.gotoPage("floor"); }, 250);
     } catch (e) {
       setErr(String(e.message || e));
     } finally { setBusy(false); }

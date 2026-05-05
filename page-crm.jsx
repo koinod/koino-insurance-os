@@ -105,6 +105,14 @@ function PageCrm({ role = "owner" }) {
   const [addLeadOpen, setAddLeadOpen] = React.useState(false);
   const [csvOpen, setCsvOpen]         = React.useState(false);
 
+  // GAP-D4 — Today's "Log activity" tile dispatches crm:addLead, which we
+  // pick up here to pop the Add-lead modal automatically on landing.
+  React.useEffect(() => {
+    const fn = () => setAddLeadOpen(true);
+    window.addEventListener("crm:addLead", fn);
+    return () => window.removeEventListener("crm:addLead", fn);
+  }, []);
+
   const sources  = deriveSources(useSample);
   const pipeline = (window.AppData && window.AppData.PIPELINE) || [];
   const reps     = (window.AppData && window.AppData.REPS)     || [];

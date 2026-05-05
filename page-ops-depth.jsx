@@ -62,11 +62,18 @@ function PageNIGO({ role = "manager" }) {
     });
   })();
   const baseNigos = liveNigos && liveNigos.length > 0 ? liveNigos : NIGOS;
+  // GAP-MP2 — manager view scopes NIGOs to their downline. Owner sees the
+  // fleet. The owner === rep_id check folds in unassigned items so a manager
+  // can claim them.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && role === "manager")
+    ? new Set(window.scopeRepIds())
+    : null;
   const visible = baseNigos
     .map(n => ({ ...n, status: statusOverrides[n.id] ?? n.status }))
     .filter(n =>
       (filter.status === "all" || n.status === filter.status) &&
-      (filter.priority === "all" || n.priority === filter.priority)
+      (filter.priority === "all" || n.priority === filter.priority) &&
+      (!scopeIds || !n.owner || scopeIds.has(n.owner))
     );
 
   const setStatus = async (id, newStatus) => {
