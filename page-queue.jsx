@@ -456,31 +456,17 @@ function InCall({ onClose, lead }) {
 
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, padding: 20, overflowY: "auto" }}>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 10 }}>Live transcript</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
-                { who: "You",    t: "00:04", body: "Hi Cheryl, this is Marcus from Atlas. You filled out a form about Medicare Supplement?" },
-                { who: "Cheryl", t: "00:09", body: "Yes — I'm 67 and I think I have Plan F? Or Advantage? I'm honestly not sure." },
-                { who: "You",    t: "00:18", body: "That's super common, no problem at all. Walk me through your day — what's the morning look like with medications?" },
-                { who: "Cheryl", t: "00:34", body: "Well I take metformin, and a blood pressure pill, and now they want to add another one for cholesterol..." },
-              ].map((m, i) => (
-                <div key={i}>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", display: "flex", gap: 8 }}>
-                    <span className="mono">{m.t}</span><span style={{ fontWeight: 500, color: m.who === "You" ? "var(--accent-money)" : "var(--text-secondary)" }}>{m.who}</span>
-                  </div>
-                  <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{m.body}</div>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--text-tertiary)", fontSize: 11 }}>
-                <span className="dot dot-live"></span> transcribing...
-              </div>
-            </div>
+            {/* Real-time transcription via /api/transcribe (Whisper).
+                Captures the rep's mic + the Twilio remote audio when active. */}
+            {window.LiveTranscriber
+              ? (() => { const T = window.LiveTranscriber; return <T active={!onHold} leadName={activeLead.lead}/>; })()
+              : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcriber loading…</div>}
 
             <div style={{ marginTop: 18, padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--accent-money)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 <Icons.Sparkles size={11}/> AI suggests
               </div>
-              <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-primary)" }}>"Cheryl mentioned 3 medications. Pivot to <b>Plan G's drug-free coverage gap solve</b> — pair with Part D suggestion."</div>
+              <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-primary)" }}>AI suggestions populate from the live transcript as the call progresses.</div>
             </div>
           </div>
 

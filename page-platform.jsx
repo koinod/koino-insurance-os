@@ -161,11 +161,18 @@ function DeployAgentModal({ onClose, presetAgent }) {
 }
 window.DeployAgentModal = DeployAgentModal;
 
-/* ─── Click-to-call: Twilio softphone first → repflow:// scheme → tel: ─── */
+/* ─── Click-to-call: Twilio softphone first → repflow:// scheme → tel: ───
+   FIX: removed circular `repflowCall → repflowDial → repflowCall` recursion.
+   - `__repflowSystemDial` is the OS-level cascade (desktop helper → tel:),
+     never loops back into Twilio.
+   - `repflowCall` is the public entrypoint and does the cascade itself:
+     Twilio softphone (if `repflowDialTwilio` ready) → system dial.
+   - `repflowDial` is preserved as an alias for backwards-compat with old
+     callsites; it just forwards to `repflowCall`. */
 const _origRepflowCall = function (phone, leadName) {
   if (!phone) {
     window.toast && window.toast("No phone on file", "error");
-    return;
+    return false;
   }
   const cleaned = String(phone).replace(/[^\d+]/g, "");
   const ts = Date.now();
@@ -187,14 +194,25 @@ const _origRepflowCall = function (phone, leadName) {
   const onHide = () => { clearTimeout(fallback); document.removeEventListener("visibilitychange", onHide); };
   document.addEventListener("visibilitychange", onHide);
   window.toast && window.toast(`Calling ${leadName || cleaned}`, "info");
+  return true;
 };
+window.__repflowSystemDial = _origRepflowCall;
 
 // Public dial entrypoint: Twilio in-browser softphone if connector configured,
-// otherwise fall through to repflow:// (desktop helper) → tel: (system dialer)
-window.repflowCall = function (phone, leadName) {
-  if (window.repflowDial) { window.repflowDial(phone, leadName); }
-  else _origRepflowCall(phone, leadName);
+// otherwise fall through to repflow:// (desktop helper) → tel: (system dialer).
+// page-tenant.jsx exposes `window.repflowDialTwilio(phone, leadName)` returning
+// a boolean — true means Twilio took the call and we shouldn't fall through.
+window.repflowCall = async function (phone, leadName) {
+  if (typeof window.repflowDialTwilio === "function") {
+    try {
+      const took = await window.repflowDialTwilio(phone, leadName);
+      if (took) return true;
+    } catch (_e) { /* fall through to system dial */ }
+  }
+  return _origRepflowCall(phone, leadName);
 };
+// Backwards-compat alias — old callsites that expected window.repflowDial keep working.
+window.repflowDial = function (phone, leadName) { return window.repflowCall(phone, leadName); };
 
 /* ─── Settings: Calling tab — Repflow Desktop helper install ─────────── */
 function CallingSetup() {

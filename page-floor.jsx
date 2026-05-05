@@ -48,6 +48,38 @@
       status === "on"     ? "var(--accent-money)" :
       status === "paused" ? "var(--state-warning)" :
                             "var(--text-tertiary)";
+
+    // FIX: previously the Start/Pause/Stop buttons only flipped localStorage.
+    // Now they actually drive the global AutoDialBar via the autodial:* events
+    // it already listens for. Queue is built from the rep's QUEUE rows.
+    function buildAutodialQueue() {
+      const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+      const myId = me?.rep_id || null;
+      const queue = (AppData.QUEUE || []).slice();
+      const mine = myId
+        ? queue.filter(q => q.assignedRepId === myId || !q.assignedRepId)
+        : queue;
+      mine.sort((a, b) => (a.elapsed - b.elapsed) || (b.score - a.score));
+      return mine.map(q => ({
+        id: q.id, lead: q.lead, age: q.age, state: q.state, source: q.source,
+        product: q.product, ap: 0, days: 0,
+        heat: q.elapsed < 30 ? "hot" : q.elapsed < 90 ? "fresh" : "warm",
+        phone: q.phone || null,
+      }));
+    }
+    const startAutodial = () => {
+      const queue = buildAutodialQueue();
+      if (queue.length === 0) {
+        window.toast && window.toast("Queue empty — nothing to autodial", "warn");
+        return;
+      }
+      setState(s => ({ ...s, on: true, paused: false }));
+      window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue } }));
+    };
+    const pauseAutodial  = () => { setState(s => ({ ...s, paused: true  })); window.dispatchEvent(new CustomEvent("autodial:pause")); };
+    const resumeAutodial = () => { setState(s => ({ ...s, paused: false })); window.dispatchEvent(new CustomEvent("autodial:resume")); };
+    const stopAutodial   = () => { setState(s => ({ ...s, on: false, paused: false })); window.dispatchEvent(new CustomEvent("autodial:stop")); };
+
     return (
       <div style={{
         display: "flex", alignItems: "center", gap: 10, padding: "6px 12px",
@@ -60,26 +92,22 @@
           {on && <span style={{ color: "var(--text-tertiary)" }}> · {ratePerHr}/hr</span>}
         </span>
         {!on && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}
-            onClick={() => setState(s => ({ ...s, on: true, paused: false }))}>
+          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={startAutodial}>
             Start
           </button>
         )}
         {on && !paused && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}
-            onClick={() => setState(s => ({ ...s, paused: true }))}>
+          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={pauseAutodial}>
             Pause
           </button>
         )}
         {on && paused && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}
-            onClick={() => setState(s => ({ ...s, paused: false }))}>
+          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={resumeAutodial}>
             Resume
           </button>
         )}
         {on && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11, color: "var(--state-danger)" }}
-            onClick={() => setState(s => ({ ...s, on: false, paused: false }))}>
+          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11, color: "var(--state-danger)" }} onClick={stopAutodial}>
             Stop
           </button>
         )}
@@ -148,8 +176,11 @@
   // Quick-stats strip — always visible at top of Live mode
   // ────────────────────────────────────────────────────────────────────────
   function FloorTopStrip({ role }) {
-    const me = AppData.REPS && AppData.REPS[0];
-    const tasksOpen = (AppData.TASKS || []).filter(t => t.status === "open").length;
+    // GAP-D1 — resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+            || (AppData.REPS && AppData.REPS[0]);
+    const tasksOpen = (AppData.TASKS || []).filter(t => t.status === "open" && (!me || !t.repId || t.repId === me.id)).length;
     const queueLen  = (AppData.QUEUE || []).length;
     const myPipeline = (AppData.PIPELINE || []).filter(p =>
       !me || p.owner === me.id
@@ -213,7 +244,9 @@
   function DealsMode({ role }) {
     const Form = window.DealWriteForm;
     const Recent = window.RecentDeals;
-    const me = AppData.REPS && AppData.REPS[0];
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+            || (AppData.REPS && AppData.REPS[0]);
     const [refreshKey, setRefreshKey] = useState(0);
     if (!Form || !Recent) {
       return <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading deal-write form…</div>;

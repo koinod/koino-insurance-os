@@ -107,7 +107,10 @@
 
     async function submit() {
       setError(null);
-      const me = AppData.REPS && AppData.REPS[0];
+      // GAP-D1 — resolve the signed-in producer instead of REPS[0]=Marcus.
+      const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+      const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+              || (AppData.REPS && AppData.REPS[0]);
       if (!leadId)     return setError("Pick a linked lead");
       if (!carrierId)  return setError("Pick a carrier");
       if (!productId)  return setError("Pick a product");

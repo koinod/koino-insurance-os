@@ -130,15 +130,27 @@ function AutoDialBar() {
       setQueue(q); setIdx(0); setPaused(false); setResults({});
       setStage("dialing");
     };
-    window.addEventListener("autodial:start", onStart);
-    return () => window.removeEventListener("autodial:start", onStart);
+    const onPause  = () => setPaused(true);
+    const onResume = () => setPaused(false);
+    const onStop   = () => { setQueue([]); setIdx(0); setStage("idle"); };
+    window.addEventListener("autodial:start",  onStart);
+    window.addEventListener("autodial:pause",  onPause);
+    window.addEventListener("autodial:resume", onResume);
+    window.addEventListener("autodial:stop",   onStop);
+    return () => {
+      window.removeEventListener("autodial:start",  onStart);
+      window.removeEventListener("autodial:pause",  onPause);
+      window.removeEventListener("autodial:resume", onResume);
+      window.removeEventListener("autodial:stop",   onStop);
+    };
   }, []);
 
   // Fire the dial when stage flips to dialing on a fresh index
   React.useEffect(() => {
     if (stage !== "dialing" || !current || paused) return;
-    const phone = "+1512555" + String(current.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
-    window.repflowDial && window.repflowDial(phone, current.lead);
+    // Prefer the real phone field; only fall back to a synthetic test number for demo/seed leads.
+    const phone = current.phone || ("+1512555" + String(current.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4));
+    window.repflowCall && window.repflowCall(phone, current.lead);
     // After 3s, swap to outcome capture (in real wiring this would listen for call.ended event)
     const t = setTimeout(() => setStage("outcome"), 3000);
     return () => clearTimeout(t);
