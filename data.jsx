@@ -232,6 +232,7 @@ window.hydrateFromSupabase = async function () {
         recruitingCampaignsR, recruitingApplicantsR, recruitingMessagesR,
         followupTemplatesR, workflowAssignmentsR, followupRunsR,
         onboardingProgressR,
+        automationRulesR, automationRunsR,
         threadsR, threadMembersR, messagesR, messageReadsR,
         notificationsR,
         tasksR, followupRulesR,
@@ -276,6 +277,8 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("workflow_assignments").select("*")),
         scope(sb.from("followup_runs").select("*").order("scheduled_for", { ascending: false }).limit(200)),
         scope(sb.from("onboarding_progress").select("*")),
+        scope(sb.from("automation_rules").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("automation_runs").select("*").order("scheduled_for", { ascending: false }).limit(200)),
         scope(sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50)),
         scope(sb.from("thread_members").select("*")),
         scope(sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500)),
@@ -450,6 +453,18 @@ window.hydrateFromSupabase = async function () {
         kitShipped: p.kit_shipped, kitShippedAt: p.kit_shipped_at,
         firstDial: p.first_dial, firstDialAt: p.first_dial_at,
         notes: p.notes, updatedAt: p.updated_at,
+      }));
+      window.AppData.AUTOMATION_RULES = mapRows(automationRulesR, r => ({
+        id: r.id, ownerRepId: r.owner_rep_id, name: r.name,
+        triggerEvent: r.trigger_event, triggerFilter: r.trigger_filter || {},
+        channels: r.channels || [], templateId: r.template_id,
+        active: r.active, scope: r.scope, updatedAt: r.updated_at,
+      }));
+      window.AppData.AUTOMATION_RUNS = mapRows(automationRunsR, r => ({
+        id: r.id, ruleId: r.rule_id, repId: r.rep_id, leadId: r.lead_id,
+        channel: r.channel, recipient: r.recipient, body: r.body_snapshot,
+        scheduledFor: r.scheduled_for, sentAt: r.sent_at, status: r.status,
+        failureDetail: r.failure_detail, createdAt: r.created_at,
       }));
       window.AppData.INTERVIEWS = mapRows(interviewsR, i => ({
         id: i.id, recruitId: i.recruit_id, scheduledAt: i.scheduled_at,
