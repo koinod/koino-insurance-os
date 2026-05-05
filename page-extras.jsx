@@ -1061,7 +1061,23 @@ function useLocalArray(key, seed) {
 }
 
 function VideoLibrary({ canEdit = true }) {
-  const [videos, setVideos]       = useLocalArray("repflow:videos", DEFAULT_VIDEOS);
+  // Resource data is now agency-shared via AppData.VIDEOS (migration 0010);
+  // fall back to seed when nothing has been added yet so the page never
+  // renders empty for fresh agencies.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    window.addEventListener("data:realtime", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+      window.removeEventListener("data:realtime", fn);
+    };
+  }, []);
+  const live   = (window.AppData && window.AppData.VIDEOS) || [];
+  const videos = live.length > 0 ? live : DEFAULT_VIDEOS;
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [sel, setSel]             = React.useState(null);
@@ -1073,38 +1089,36 @@ function VideoLibrary({ canEdit = true }) {
 
   const startNew  = () => setEditing({ id: null, title: "", cat: "Med Supp", durMin: "", url: "" });
   const startEdit = (v) => {
-    // Convert embed src back to original-ish url for editing convenience
     const guess = v.src && v.src.includes("/embed/")
       ? v.src.replace("youtube.com/embed/", "youtube.com/watch?v=").replace("player.vimeo.com/video/", "vimeo.com/")
-      : v.src;
+      : v.sourceUrl || v.src;
     setEditing({ id: v.id, title: v.title, cat: v.cat, durMin: v.durMin || "", url: guess || "" });
   };
-  const saveVideo = () => {
+  const saveVideo = async () => {
     const url = (editing.url || "").trim();
     if (!editing.title.trim() || !url) return;
     const src = toEmbedSrc(url);
     const thumb = thumbFromUrl(url) || editing.thumb || "";
-    const next = {
-      id: editing.id || ("v-" + Date.now()),
-      title: editing.title.trim(),
-      cat: editing.cat,
-      durMin: +editing.durMin || 0,
-      src,
-      thumb,
-      sourceLabel: detectVideoSourceLabel(url),
-    };
-    if (editing.id) {
-      setVideos(vs => vs.map(v => v.id === editing.id ? { ...v, ...next } : v));
-    } else {
-      setVideos(vs => [next, ...vs]);
+    try {
+      await window.AppData.mutate.videoUpsert({
+        id: editing.id,
+        title: editing.title.trim(),
+        cat: editing.cat,
+        durMin: +editing.durMin || 0,
+        src, thumb,
+        sourceUrl: url,
+        sourceLabel: detectVideoSourceLabel(url),
+      });
+      window.toast && window.toast(editing.id ? "Video updated" : "Video added", "success");
+      setEditing(null);
+    } catch (_e) {
+      // toast already raised by mutator
     }
-    window.toast && window.toast(editing.id ? "Video updated" : "Video added", "success");
-    setEditing(null);
   };
-  const removeVideo = (id) => {
-    setVideos(vs => vs.filter(v => v.id !== id));
+  const removeVideo = async (id) => {
     if (sel?.id === id) setSel(null);
-    window.toast && window.toast("Video removed", "info");
+    try { await window.AppData.mutate.videoDelete(id); window.toast && window.toast("Video removed", "info"); }
+    catch (_e) {}
   };
 
   return (
@@ -1216,7 +1230,22 @@ function VideoLibrary({ canEdit = true }) {
 }
 
 function ScriptsLibrary() {
-  const [scripts, setScripts]     = useLocalArray("repflow:scripts", DEFAULT_SCRIPTS);
+  // Agency-shared via AppData.SCRIPTS_LIB (migration 0010); seed fallback for
+  // empty agencies so the page renders content immediately.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    window.addEventListener("data:realtime", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+      window.removeEventListener("data:realtime", fn);
+    };
+  }, []);
+  const live    = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
+  const scripts = live.length > 0 ? live : DEFAULT_SCRIPTS;
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [openId, setOpenId]       = React.useState(null);
@@ -1231,20 +1260,23 @@ function ScriptsLibrary() {
 
   const startNew  = () => setEditing({ id: null, title: "", cat: "Open", body: "" });
   const startEdit = (s) => setEditing({ id: s.id, title: s.title, cat: s.cat, body: s.body });
-  const save = () => {
+  const save = async () => {
     if (!editing.title.trim() || !editing.body.trim()) return;
-    if (editing.id) {
-      setScripts(ss => ss.map(s => s.id === editing.id ? { ...s, title: editing.title, cat: editing.cat, body: editing.body, updated: "Just now" } : s));
-    } else {
-      setScripts(ss => [{ id: "s-" + Date.now(), title: editing.title, cat: editing.cat, body: editing.body, version: "v1.0", updated: "Just now" }, ...ss]);
-    }
-    window.toast && window.toast(editing.id ? "Script updated" : "Script added", "success");
-    setEditing(null);
+    try {
+      await window.AppData.mutate.scriptUpsert({
+        id: editing.id,
+        title: editing.title.trim(),
+        cat: editing.cat,
+        body: editing.body,
+      });
+      window.toast && window.toast(editing.id ? "Script updated" : "Script added", "success");
+      setEditing(null);
+    } catch (_e) {}
   };
-  const remove = (id) => {
-    setScripts(ss => ss.filter(s => s.id !== id));
+  const remove = async (id) => {
     if (openId === id) setOpenId(null);
-    window.toast && window.toast("Script removed", "info");
+    try { await window.AppData.mutate.scriptDelete(id); window.toast && window.toast("Script removed", "info"); }
+    catch (_e) {}
   };
   const copyBody = async (s) => {
     try {

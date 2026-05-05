@@ -13,11 +13,7 @@ function DialQueueView({ onCall }) {
       <div className="page-h">
         <div>
           <div className="page-title">Dial Queue</div>
-          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · TPMO disclaimer auto-fires on connect</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Filter size={13}/> Filters</button>
-          <button className="btn btn-primary" onClick={onCall}><Icons.Phone size={13}/> Start dialing</button>
+          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · use the autodialer pill above to start a session</div>
         </div>
       </div>
 
@@ -263,10 +259,22 @@ const FALLBACK_SCRIPTS = [
 ];
 
 function InCallScripts() {
-  const [scripts] = React.useState(() => {
-    try { const raw = localStorage.getItem("repflow:scripts"); if (raw) return JSON.parse(raw); } catch (_e) {}
-    return FALLBACK_SCRIPTS;
-  });
+  // Reads agency-shared scripts from AppData.SCRIPTS_LIB (migration 0010);
+  // falls back to FALLBACK_SCRIPTS for empty agencies / offline use.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    window.addEventListener("data:realtime", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+      window.removeEventListener("data:realtime", fn);
+    };
+  }, []);
+  const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
+  const scripts = liveScripts.length > 0 ? liveScripts : FALLBACK_SCRIPTS;
   const [openId, setOpenId] = React.useState(null);
   const [q, setQ]           = React.useState("");
   const filtered = scripts.filter(s => !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()));
@@ -356,17 +364,29 @@ function CarrierQuoteTool() {
   );
 }
 
-function InCall({ onClose, lead }) {
+function InCall({ onClose, lead, autodial }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
   const [sec, setSec] = React.useState(0);
   const [muted, setMuted]         = React.useState(false);
   const [onHold, setOnHold]       = React.useState(false);
+
+  // Mirror AutoDialBar's state so this modal can render as the autodialer
+  // dashboard: queue progress at top, outcome buttons at bottom.
+  const [adState, setAdState] = React.useState(() => window.__autodialState || null);
+  React.useEffect(() => {
+    const onChange = (e) => setAdState(e.detail || null);
+    window.addEventListener("autodial:state-change", onChange);
+    return () => window.removeEventListener("autodial:state-change", onChange);
+  }, []);
+  // Reset call timer + TPMO flag every time the lead changes (next call in autodial)
+  React.useEffect(() => { setSec(0); setTpmoFired(false); setMuted(false); setOnHold(false); }, [lead && lead.id]);
+
   React.useEffect(() => {
     if (onHold) return;  // freeze timer while on hold
     const t = setInterval(() => setSec(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [onHold]);
+  }, [onHold, lead && lead.id]);
   React.useEffect(() => { if (sec >= 8) setTpmoFired(true); }, [sec]);
 
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
@@ -374,6 +394,9 @@ function InCall({ onClose, lead }) {
 
   // Demo lead used by AutoDialBar / UI when caller didn't pass one in
   const activeLead = lead || { id: "demo-cheryl", lead: "Cheryl Hampton", state: "TX", product: "Med Supp Plan G" };
+  const isAutodial = autodial || (adState && adState.active);
+  const stage = adState?.stage;
+  const paused = adState?.paused;
 
   const toggleMute = () => {
     setMuted(m => !m);
@@ -392,23 +415,61 @@ function InCall({ onClose, lead }) {
   const onSendAppLink = () => window.sendAppLink && window.sendAppLink(activeLead);
   const onSendSMS     = () => window.smsCompose  && window.smsCompose(activeLead, activeLead.phone);
 
+  // Outcome dispatchers (only used in autodial mode)
+  const fireOutcome = (outcome) => window.dispatchEvent(new CustomEvent("autodial:outcome", { detail: { outcome }}));
+  const fireSkip    = () => window.dispatchEvent(new CustomEvent("autodial:skip"));
+  const fireStop    = () => window.dispatchEvent(new CustomEvent("autodial:stop-request"));
+  const firePause   = () => window.dispatchEvent(new CustomEvent("autodial:pause"));
+  const fireResume  = () => window.dispatchEvent(new CustomEvent("autodial:resume"));
+
   return (
     <div className="incall" onClick={onClose}>
       <div className="incall-card" onClick={(e) => e.stopPropagation()}>
+        {/* Autodial dashboard header — queue progress + Pause/Skip/Stop. Only when in autodial. */}
+        {isAutodial && adState && (
+          <div style={{
+            gridColumn: "1 / -1",
+            padding: "10px 16px",
+            background: "color-mix(in oklch, var(--accent-money) 8%, var(--bg-elevated))",
+            borderBottom: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <Icons.Phone size={13} style={{ color: "var(--accent-money)" }}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+                Autodialer <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {(adState.idx ?? 0) + 1} of {adState.total} · {stage === "outcome" ? "log outcome" : paused ? "paused" : "calling"}</span>
+              </div>
+              <div style={{ height: 3, background: "var(--bg-raised)", borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
+                <div style={{ width: `${(((adState.idx ?? 0) + 1) / Math.max(1, adState.total)) * 100}%`, height: "100%", background: "var(--accent-money)" }}/>
+              </div>
+            </div>
+            <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={paused ? fireResume : firePause}>
+              {paused ? <><Icons.Play size={11}/> Resume</> : <><Icons.Pause size={11}/> Pause</>}
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={fireSkip}>
+              <Icons.ArrowRight size={11}/> Skip
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11, color: "var(--state-danger)" }} onClick={fireStop}>
+              <Icons.X size={11}/> Stop
+            </button>
+          </div>
+        )}
         <div style={{ padding: 20, borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="dot dot-live" style={{ width: 8, height: 8 }}></span>
             <span style={{ color: "var(--accent-money)", fontWeight: 500, fontSize: 12 }}>LIVE</span>
             <span className="tabular mono" style={{ marginLeft: "auto", fontSize: 13, color: "var(--text-secondary)" }}>{mm}:{ss}</span>
           </div>
-          <div style={{ marginTop: 14, fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Cheryl Hampton</div>
-          <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>67 · Travis County, TX · zip 78704 · T65 list</div>
+          <div style={{ marginTop: 14, fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>{activeLead.lead}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>
+            {[activeLead.age && `${activeLead.age}`, activeLead.state, activeLead.source].filter(Boolean).join(" · ") || "—"}
+          </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <span className="chip chip-info">Plan G eligible</span>
-            <span className="chip">No prior Med Supp</span>
-            <span className="chip">Spouse 64</span>
-            <span className="chip chip-money">LeadiD ✓ verified</span>
+            {activeLead.product   && <span className="chip chip-info">{activeLead.product}</span>}
+            {activeLead.heat      && <span className="chip">{activeLead.heat}</span>}
+            {activeLead.consent   && <span className="chip chip-money">consent · {activeLead.consent}</span>}
+            {!activeLead.product && !activeLead.heat && !activeLead.consent && <span className="chip">no enrichment yet</span>}
           </div>
 
           <div style={{ marginTop: 14, padding: 12, background: tpmoFired ? "color-mix(in oklch, var(--accent-money) 10%, transparent)" : "color-mix(in oklch, var(--accent-heat) 12%, transparent)", border: `1px solid ${tpmoFired ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "color-mix(in oklch, var(--accent-heat) 30%, transparent)"}`, borderRadius: 8 }}>
@@ -470,19 +531,37 @@ function InCall({ onClose, lead }) {
             </div>
           </div>
 
-          <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className={muted ? "btn btn-primary" : "btn"} onClick={toggleMute}>
-              <Icons.Mic size={12}/> {muted ? "Unmute" : "Mute"}
-            </button>
-            <button className={onHold ? "btn btn-primary" : "btn"} onClick={toggleHold}>
-              <Icons.Pause size={12}/> {onHold ? "Resume" : "Hold"}
-            </button>
-            <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
-            <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
-            <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
-            <div style={{ flex: 1 }}></div>
-            <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}><Icons.Stop size={12}/> End call</button>
-          </div>
+          {isAutodial && stage === "outcome" ? (
+            // Autodial outcome capture — replaces the End-call strip with the 5
+            // outcome buttons. Picking one advances to the next lead automatically.
+            <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Log outcome:</span>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("no_answer")}><span className="kbd mono">1</span> No answer</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("voicemail")}><span className="kbd mono">2</span> VM</button>
+              <button className="btn btn-primary" onClick={() => fireOutcome("appointment")}><span className="kbd mono">3</span> Appt</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("not_interested")}><span className="kbd mono">4</span> Not int.</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("callback")}><span className="kbd mono">5</span> Callback</button>
+              <div style={{ flex: 1 }}/>
+              <button className="btn" onClick={fireSkip}><Icons.ArrowRight size={11}/> Skip</button>
+            </div>
+          ) : (
+            // Standard in-call action strip — Mute / Hold / SMS / SOA / Send link / End
+            <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className={muted ? "btn btn-primary" : "btn"} onClick={toggleMute}>
+                <Icons.Mic size={12}/> {muted ? "Unmute" : "Mute"}
+              </button>
+              <button className={onHold ? "btn btn-primary" : "btn"} onClick={toggleHold}>
+                <Icons.Pause size={12}/> {onHold ? "Resume" : "Hold"}
+              </button>
+              <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
+              <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
+              <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
+              <div style={{ flex: 1 }}></div>
+              <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}>
+                <Icons.Stop size={12}/> {isAutodial ? "Close · keep dialing" : "End call"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -491,3 +570,5 @@ function InCall({ onClose, lead }) {
 
 window.PageQueue = PageQueue;
 window.InCall = InCall;
+window.CarrierQuoteTool = CarrierQuoteTool;  // standalone use via FloorActionsHost
+window.InCallScripts    = InCallScripts;

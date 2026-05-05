@@ -195,8 +195,15 @@ function PageResources({ role = "owner" }) {
   const [spendOverrides, setSpendOv]  = useLocalArray("repflow:resources:spendOverrides", {});
   const [spendLog, setSpendLog]       = useLocalArray("repflow:resources:spendLog", []);
   const [logDraft, setLogDraft]       = React.useState({ vendorId: "", amount: "", leads: "", note: "" });
-  const [scripts]                     = useLocalArray("repflow:scripts", SCRIPT_SEED);
-  const [docs, setDocs]               = useLocalArray("repflow:owner:docs", DOC_SEED);
+  // Resource data is now agency-shared via AppData (migration 0010); fall
+  // back to seed when nothing has been added yet.
+  const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
+  const scripts     = liveScripts.length > 0 ? liveScripts : SCRIPT_SEED;
+  const liveDocs    = (window.AppData && window.AppData.DOCS) || [];
+  const docs        = liveDocs.length > 0 ? liveDocs : DOC_SEED;
+  const liveLinks   = (window.AppData && window.AppData.QUICK_LINKS) || [];
+  const links       = liveLinks.length > 0 ? liveLinks : DEFAULT_LINKS;
+
   const [docDraft, setDocDraft]       = React.useState({ title: "", cat: "Internal", url: "" });
   const [docAdd, setDocAdd]           = React.useState(false);
   const [docPreview, setDocPreview]   = React.useState(null);   // { title, body }
@@ -206,7 +213,6 @@ function PageResources({ role = "owner" }) {
   const [scriptOpen, setScriptOpen]   = React.useState(null);
   const [scriptCat, setScriptCat]     = React.useState("All");
   const [scriptQ, setScriptQ]         = React.useState("");
-  const [links, setLinks]             = useLocalArray("repflow:owner:links", DEFAULT_LINKS);
   const [linkEditId, setLinkEditId]   = React.useState(null);
   const [linkAdd, setLinkAdd]         = React.useState(false);
   const [linkDraft, setLinkDraft]     = React.useState({ cat: "Carrier portal", label: "", url: "" });
@@ -284,17 +290,19 @@ function PageResources({ role = "owner" }) {
     catch (_e) { window.toast && window.toast("Copy failed", "danger"); }
   };
 
-  // ─── Docs ──────────────────────────────────────────────────────────────
-  const addDoc = () => {
+  // ─── Docs (persisted via AppData.mutate.docUpsert / docDelete) ─────────
+  const addDoc = async () => {
     const title = docDraft.title.trim(), url = docDraft.url.trim();
     if (!title) return;
     const safeUrl = url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : "";
-    setDocs(ds => [...ds, { id: "doc-" + Date.now(), title, cat: docDraft.cat, url: safeUrl }]);
-    setDocDraft({ title: "", cat: "Internal", url: "" });
-    setDocAdd(false);
-    window.toast && window.toast("Document added", "success");
+    try {
+      await window.AppData.mutate.docUpsert({ title, cat: docDraft.cat, url: safeUrl, kind: "link" });
+      setDocDraft({ title: "", cat: "Internal", url: "" });
+      setDocAdd(false);
+      window.toast && window.toast("Document added", "success");
+    } catch (_e) {}
   };
-  const removeDoc = (id) => setDocs(ds => ds.filter(d => d.id !== id));
+  const removeDoc = async (id) => { try { await window.AppData.mutate.docDelete(id); } catch (_e) {} };
 
   // ─── File upload (drag-drop) → Supabase storage `vault` bucket ─────────
   const guessCat = (name) => {
@@ -319,15 +327,12 @@ function PageResources({ role = "owner" }) {
         return { ok: false, error: e?.message || "upload failed" };
       }
     }
-    setDocs(ds => [...ds, {
-      id: "doc-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-      title: file.name,
-      cat: guessCat(file.name),
-      url,
-      kind: "upload",
-      ext,
-      sizeBytes: file.size,
-    }]);
+    try {
+      await window.AppData.mutate.docUpsert({
+        title: file.name, cat: guessCat(file.name), url,
+        kind: "upload", ext, sizeBytes: file.size, storagePath: path,
+      });
+    } catch (e) { return { ok: false, error: e?.message || "save failed" }; }
     return { ok: true };
   };
   const handleFiles = async (fileList) => {
@@ -362,15 +367,16 @@ function PageResources({ role = "owner" }) {
         window.toast && window.toast(data.error || "Import failed", "danger");
         return;
       }
-      setDocs(ds => [...ds, {
-        id: "gdoc-" + data.docId,
-        title: data.title,
-        cat: data.kind === "spreadsheet" ? "Carrier" : "Internal",
-        url: data.originalUrl,
-        kind: "gdoc",
-        gdocKind: data.kind,
-        text: data.text || "",
-      }]);
+      try {
+        await window.AppData.mutate.docUpsert({
+          title: data.title,
+          cat: data.kind === "spreadsheet" ? "Carrier" : "Internal",
+          url: data.originalUrl,
+          kind: "gdoc",
+          gdocKind: data.kind,
+          text: data.text || "",
+        });
+      } catch (_e) {}
       setGdocUrl("");
       window.toast && window.toast(`Imported "${data.title}"`, "success");
     } catch (e) {
@@ -384,19 +390,20 @@ function PageResources({ role = "owner" }) {
   const startLinkAdd  = () => { setLinkDraft({ cat: "Carrier portal", label: "", url: "" }); setLinkAdd(true); setLinkEditId(null); };
   const startLinkEdit = (l) => { setLinkDraft({ cat: l.cat, label: l.label, url: l.url }); setLinkEditId(l.id); setLinkAdd(false); };
   const cancelLink    = () => { setLinkEditId(null); setLinkAdd(false); };
-  const saveLink      = () => {
+  const saveLink      = async () => {
     const label = linkDraft.label.trim(), url = linkDraft.url.trim();
     if (!label || !url) return;
     const safeUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    if (linkAdd) {
-      setLinks(ls => [...ls, { id: "lk-" + Date.now(), cat: linkDraft.cat, label, url: safeUrl }]);
-    } else if (linkEditId) {
-      setLinks(ls => ls.map(l => l.id === linkEditId ? { ...l, cat: linkDraft.cat, label, url: safeUrl } : l));
-    }
-    cancelLink();
-    window.toast && window.toast(linkAdd ? "Link added" : "Link updated", "success");
+    try {
+      await window.AppData.mutate.quickLinkUpsert({
+        id: linkAdd ? null : linkEditId,
+        cat: linkDraft.cat, label, url: safeUrl,
+      });
+      cancelLink();
+      window.toast && window.toast(linkAdd ? "Link added" : "Link updated", "success");
+    } catch (_e) {}
   };
-  const removeLink = (id) => { setLinks(ls => ls.filter(l => l.id !== id)); window.toast && window.toast("Link removed", "info"); };
+  const removeLink = async (id) => { try { await window.AppData.mutate.quickLinkDelete(id); window.toast && window.toast("Link removed", "info"); } catch (_e) {} };
   const groupedLinks = LINK_CATEGORIES
     .map(c => ({ cat: c, items: links.filter(l => l.cat === c) }))
     .filter(g => g.items.length > 0 || (linkAdd && linkDraft.cat === g.cat));
