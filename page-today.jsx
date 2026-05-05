@@ -544,7 +544,7 @@ function TodayRep({ aep }) {
           <ActionTile icon="Plus"           label="Log activity"      sub="referral / walk-in / event" onClick={openLogActivity}/>
           <ActionTile icon="MessageSquare"  label={myManagerRow ? `DM ${myManagerRow.name.split(" ")[0]}` : "Messages"}
                                                                  sub={myManagerRow ? "your upline" : "open inbox"}  onClick={dmManager}/>
-          <ActionTile icon="Folder"         label="Pull a script"     sub="Plan G · FE · TPMO"     onClick={() => window.gotoPage && window.gotoPage("resources")}/>
+          <ActionTile icon="Folder"         label="Pull a script"     sub="Plan G · FE · TPMO"     onClick={() => window.gotoPage && window.gotoPage("library")}/>
         </div>
       </div>
 
@@ -613,28 +613,54 @@ function TodayRep({ aep }) {
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-h">
-              <Icons.Trophy size={14} style={{ color: "var(--accent-status)" }}/>
-              <h3>Tier progress</h3>
-              <Shared.TierChip tier="platinum"/>
-            </div>
-            <div style={{ padding: "14px 16px" }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 600, letterSpacing: "-0.02em" }}>$42,310</span>
-                <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>MTD AP</span>
+          {(() => {
+            // GAP — replace hardcoded $42,310 / 82% / 3 days with live computed values.
+            const tierKey   = (myRow.tier || "bronze").toLowerCase();
+            const tierData  = TIER_TARGETS[tierKey] || TIER_TARGETS.bronze;
+            const nextTier  = tierData.next || null;
+            const nextThr   = nextTier ? (TIER_TARGETS[nextTier]?.threshold ?? tierData.threshold) : tierData.threshold;
+            const baseThr   = tierData.threshold || 0;
+            const mtd       = mtdNum;
+            const span      = Math.max(1, nextThr - baseThr);
+            const pctOfBand = nextTier ? Math.min(100, Math.max(0, ((mtd - baseThr) / span) * 100)) : 100;
+            const remaining = nextTier ? Math.max(0, nextThr - mtd) : 0;
+            // Days left in month + pace needed
+            const now       = new Date();
+            const lastDay   = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const daysLeft  = Math.max(0, lastDay - now.getDate());
+            const dailyNeed = daysLeft > 0 && remaining > 0 ? Math.round(remaining / daysLeft) : 0;
+            return (
+              <div className="panel">
+                <div className="panel-h">
+                  <Icons.Trophy size={14} style={{ color: "var(--accent-status)" }}/>
+                  <h3>Tier progress</h3>
+                  <Shared.TierChip tier={tierKey}/>
+                </div>
+                <div style={{ padding: "14px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 600, letterSpacing: "-0.02em" }}>${Math.round(mtd).toLocaleString()}</span>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>MTD AP</span>
+                  </div>
+                  <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+                    <div style={{ width: pctOfBand + "%", height: "100%", background: nextTier ? `linear-gradient(90deg, var(--tier-${tierKey}), var(--tier-${nextTier}))` : "var(--accent-money)" }}></div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                    <span><Shared.TierChip tier={tierKey} compact/> ${(baseThr/1000).toFixed(0)}K</span>
+                    {nextTier
+                      ? <span className="tabular" style={{ color: "var(--accent-money)" }}>${remaining.toLocaleString()} to {nextTier}</span>
+                      : <span className="tabular" style={{ color: "var(--accent-money)" }}>top tier — keep stacking</span>}
+                    {nextTier && <span><Shared.TierChip tier={nextTier} compact/> ${(nextThr/1000).toFixed(0)}K</span>}
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                    {daysLeft} day{daysLeft === 1 ? "" : "s"} left in month
+                    {nextTier && remaining > 0 && (
+                      <> · pace: <span className="tabular" style={{ color: "var(--accent-money)" }}>+${dailyNeed.toLocaleString()}/day needed</span></>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                <div style={{ width: "82%", height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                <span><Shared.TierChip tier="platinum" compact/> $35K</span>
-                <span className="tabular" style={{ color: "var(--accent-money)" }}>$8,690 to Diamond</span>
-                <span><Shared.TierChip tier="diamond" compact/> $50K</span>
-              </div>
-              <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>3 days left in month · pace: <span className="tabular" style={{ color: "var(--accent-money)" }}>+$1,420/day needed</span></div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
       </div>
 
