@@ -103,6 +103,7 @@ function PageCrm({ role = "owner" }) {
   const [connectOpen, setConnectOpen] = React.useState(false);
   const [activeLead, setActiveLead]   = React.useState(null);
   const [addLeadOpen, setAddLeadOpen] = React.useState(false);
+  const [csvOpen, setCsvOpen]         = React.useState(false);
 
   const sources  = deriveSources(useSample);
   const pipeline = (window.AppData && window.AppData.PIPELINE) || [];
@@ -213,6 +214,9 @@ function PageCrm({ role = "owner" }) {
           <button className="btn btn-ghost" onClick={exportCsv} title="Export filtered leads as CSV">
             <Icons.ArrowDown size={12}/> Export CSV
           </button>
+          <button className="btn btn-ghost" onClick={() => setCsvOpen(true)} title="Bulk import leads from CSV">
+            <Icons.ArrowUp size={12}/> Import CSV
+          </button>
           <button className="btn btn-ghost" onClick={() => setAddLeadOpen(true)}>
             <Icons.Plus size={12}/> Add lead
           </button>
@@ -241,7 +245,232 @@ function PageCrm({ role = "owner" }) {
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
       {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}
       {addLeadOpen   && <AddLeadModal reps={reps} sourceNames={sourceNames} onClose={() => setAddLeadOpen(false)} onSave={addLead}/>}
+      {csvOpen       && <CsvImportModal reps={reps} onClose={() => setCsvOpen(false)}/>}
     </div>
+  );
+}
+
+// ═══ CSV import modal ═════════════════════════════════════════════════════
+// Fully client-side: parse the file in the browser, auto-map columns by
+// header name, let the operator override, then batch-insert via AppData
+// mutations so each row hits Supabase + the realtime channel.
+const CSV_FIELDS = [
+  { k: "name",    l: "Name",    aliases: ["lead_name", "full_name", "fullname", "name", "first_name+last_name", "contact"] },
+  { k: "phone",   l: "Phone",   aliases: ["phone", "phone_number", "mobile", "cell", "primary_phone"] },
+  { k: "email",   l: "Email",   aliases: ["email", "email_address", "primary_email"] },
+  { k: "age",     l: "Age",     aliases: ["age", "dob_age"] },
+  { k: "state",   l: "State",   aliases: ["state", "state_code", "region"] },
+  { k: "product", l: "Product", aliases: ["product", "product_interest", "plan"] },
+  { k: "source",  l: "Source",  aliases: ["source", "lead_source", "vendor", "utm_source"] },
+  { k: "ap",      l: "AP $",    aliases: ["ap", "annual_premium", "premium"] },
+  { k: "stage",   l: "Stage",   aliases: ["stage", "status"] },
+];
+const SKIP_VALUE = "__skip__";
+
+// RFC-4180-ish CSV row parser. Handles quoted fields with embedded commas
+// and "" escapes. Does NOT handle multi-line quoted values across newlines —
+// good enough for 99% of vendor exports.
+function parseCsv(text) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n").filter(l => l.trim().length > 0);
+  if (!lines.length) return { headers: [], rows: [] };
+  const splitRow = (line) => {
+    const out = []; let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === ",") { out.push(cur); cur = ""; }
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  };
+  const headers = splitRow(lines[0]);
+  const rows = lines.slice(1).map(splitRow);
+  return { headers, rows };
+}
+
+function autoMapColumns(headers) {
+  const lc = headers.map(h => h.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
+  const map = {};
+  CSV_FIELDS.forEach(f => {
+    const idx = lc.findIndex(h => f.aliases.includes(h));
+    if (idx >= 0) map[f.k] = idx;
+  });
+  return map;
+}
+
+function CsvImportModal({ reps, onClose }) {
+  const [file, setFile]       = React.useState(null);
+  const [headers, setHeaders] = React.useState([]);
+  const [rows, setRows]       = React.useState([]);
+  const [mapping, setMapping] = React.useState({});
+  const [defaultOwner, setDefaultOwner] = React.useState(reps[0]?.id || "");
+  const [defaultSource, setDefaultSource] = React.useState("CSV import");
+  const [importing, setImporting] = React.useState(false);
+  const [progress, setProgress]   = React.useState({ done: 0, total: 0, errors: 0 });
+  const fileRef = React.useRef(null);
+
+  const onFile = async (f) => {
+    if (!f) return;
+    const text = await f.text();
+    const { headers, rows } = parseCsv(text);
+    setFile(f);
+    setHeaders(headers);
+    setRows(rows);
+    setMapping(autoMapColumns(headers));
+  };
+
+  const importNow = async () => {
+    if (!rows.length) return;
+    setImporting(true);
+    setProgress({ done: 0, total: rows.length, errors: 0 });
+    let done = 0, errors = 0;
+    for (const cells of rows) {
+      const get = (k) => mapping[k] != null && mapping[k] !== SKIP_VALUE ? cells[mapping[k]] : "";
+      let name = get("name");
+      if (!name) {
+        // Try first_name + last_name composition
+        const fnIdx = headers.findIndex(h => /^first[ _]?name$/i.test(h));
+        const lnIdx = headers.findIndex(h => /^last[ _]?name$/i.test(h));
+        if (fnIdx >= 0 || lnIdx >= 0) name = [cells[fnIdx], cells[lnIdx]].filter(Boolean).join(" ");
+      }
+      if (!name) { errors++; setProgress(p => ({ ...p, errors })); continue; }
+      const apRaw = get("ap");
+      const ap = apRaw ? parseFloat(String(apRaw).replace(/[^0-9.]/g, "")) : 0;
+      const row = {
+        id: "tmp-" + Date.now() + "-" + done,
+        lead: name,
+        phone: get("phone") || null,
+        email: get("email") || null,
+        age:   get("age") ? parseInt(get("age"), 10) : null,
+        state: (get("state") || "").toUpperCase().slice(0, 2) || null,
+        product: get("product") || "Med Supp Plan G",
+        source: get("source") || defaultSource,
+        stage: get("stage") || "New",
+        ap,
+        days: 0,
+        last: "Imported just now",
+        next: "First dial",
+        owner: defaultOwner,
+        consent: "verified",
+        heat: "fresh",
+      };
+      try {
+        await window.AppData.mutate.pipelineInsert(row);
+        done++;
+      } catch (e) {
+        errors++;
+      }
+      setProgress({ done, total: rows.length, errors });
+    }
+    setImporting(false);
+    window.toast && window.toast(`Imported ${done} of ${rows.length} leads${errors ? ` · ${errors} skipped` : ""}`, errors ? "warn" : "success");
+    if (errors === 0) onClose();
+  };
+
+  const previewRows = rows.slice(0, 5);
+
+  return (
+    <Shared.Modal title="Import leads from CSV" width={760} onClose={importing ? null : onClose}>
+      {!file && (
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}
+          onClick={() => fileRef.current?.click()}
+          style={{
+            padding: 36, textAlign: "center", border: "1px dashed var(--border-subtle)",
+            borderRadius: 8, background: "var(--bg-raised)", cursor: "pointer",
+          }}>
+          <Icons.ArrowUp size={20} style={{ color: "var(--text-tertiary)", marginBottom: 8 }}/>
+          <div style={{ fontSize: 13, fontWeight: 500 }}>Drop a CSV file or click to browse</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+            First row must be the header. We'll auto-detect <code>name</code>, <code>phone</code>, <code>email</code>, <code>age</code>, <code>state</code>, <code>product</code>, <code>source</code>, <code>ap</code>, <code>stage</code>.
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+            onChange={(e) => onFile(e.target.files?.[0])}/>
+        </div>
+      )}
+
+      {file && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10, background: "var(--bg-raised)", borderRadius: 6, marginBottom: 12, fontSize: 12 }}>
+            <Icons.FileText size={12} style={{ color: "var(--text-tertiary)" }}/>
+            <span style={{ flex: 1, fontWeight: 500 }}>{file.name}</span>
+            <span style={{ color: "var(--text-tertiary)" }}>{rows.length} rows · {headers.length} columns</span>
+            <button className="btn btn-ghost" style={{ height: 24, padding: "0 8px", fontSize: 11 }} onClick={() => { setFile(null); setRows([]); setHeaders([]); }}>Choose another</button>
+          </div>
+
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Column mapping</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+            {CSV_FIELDS.map(f => (
+              <div key={f.k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 70, fontSize: 11.5, color: "var(--text-secondary)" }}>{f.l}</span>
+                <Shared.Select
+                  value={mapping[f.k] != null ? String(mapping[f.k]) : SKIP_VALUE}
+                  onChange={(v) => setMapping(m => ({ ...m, [f.k]: v === SKIP_VALUE ? undefined : Number(v) }))}
+                  options={[
+                    { v: SKIP_VALUE, l: "— skip —" },
+                    ...headers.map((h, i) => ({ v: String(i), l: h || `(col ${i + 1})` })),
+                  ]}/>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+            <Shared.Field label="Default source (when CSV has none)">
+              <input className="text-input" value={defaultSource} onChange={(e) => setDefaultSource(e.target.value)}/>
+            </Shared.Field>
+            <Shared.Field label="Assign all to">
+              <Shared.Select value={defaultOwner} onChange={setDefaultOwner} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+            </Shared.Field>
+          </div>
+
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Preview ({previewRows.length} of {rows.length})</div>
+          <div style={{ overflow: "auto", maxHeight: 180, border: "1px solid var(--border-subtle)", borderRadius: 5, marginBottom: 14 }}>
+            <table style={{ width: "100%", fontSize: 11.5, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "var(--bg-raised)" }}>
+                  {headers.map((h, i) => <th key={i} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 500, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)" }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((r, i) => (
+                  <tr key={i}>
+                    {r.map((c, j) => <td key={j} style={{ padding: "5px 8px", borderBottom: "1px solid var(--border-subtle)", color: "var(--text-secondary)", whiteSpace: "nowrap", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{c}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {importing && (
+            <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 6 }}>
+                <span>Importing… {progress.done} / {progress.total}</span>
+                {progress.errors > 0 && <span style={{ color: "var(--state-warning)" }}>{progress.errors} skipped</span>}
+              </div>
+              <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: ((progress.done + progress.errors) / progress.total) * 100 + "%", height: "100%", background: "var(--accent-money)" }}/>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary" disabled={!rows.length || importing || mapping.name == null} onClick={importNow}>
+              {importing ? `Importing…` : `Import ${rows.length} leads`}
+            </button>
+            <button className="btn btn-ghost" disabled={importing} onClick={onClose}>Cancel</button>
+            {mapping.name == null && <span style={{ alignSelf: "center", fontSize: 11, color: "var(--state-warning)" }}>Map a Name column to continue</span>}
+          </div>
+        </div>
+      )}
+    </Shared.Modal>
   );
 }
 
