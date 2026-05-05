@@ -231,6 +231,7 @@ window.hydrateFromSupabase = async function () {
         recruitsR, interviewsR,
         recruitingCampaignsR, recruitingApplicantsR, recruitingMessagesR,
         followupTemplatesR, workflowAssignmentsR, followupRunsR,
+        onboardingProgressR,
         threadsR, threadMembersR, messagesR, messageReadsR,
         notificationsR,
         tasksR, followupRulesR,
@@ -274,6 +275,7 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("followup_templates").select("*").order("created_at", { ascending: false })),
         scope(sb.from("workflow_assignments").select("*")),
         scope(sb.from("followup_runs").select("*").order("scheduled_for", { ascending: false }).limit(200)),
+        scope(sb.from("onboarding_progress").select("*")),
         scope(sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50)),
         scope(sb.from("thread_members").select("*")),
         scope(sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500)),
@@ -439,6 +441,15 @@ window.hydrateFromSupabase = async function () {
         scheduledFor: r.scheduled_for, sentAt: r.sent_at, status: r.status,
         channel: r.channel, recipient: r.recipient, body: r.body_snapshot,
         failureDetail: r.failure_detail, createdAt: r.created_at
+      }));
+      window.AppData.ONBOARDING_PROGRESS = mapRows(onboardingProgressR, p => ({
+        repId: p.rep_id,
+        licenseSigned: p.license_signed, licenseSignedAt: p.license_signed_at,
+        niprVerified: p.nipr_verified, niprVerifiedAt: p.nipr_verified_at,
+        bankingSet: p.banking_set, bankingSetAt: p.banking_set_at,
+        kitShipped: p.kit_shipped, kitShippedAt: p.kit_shipped_at,
+        firstDial: p.first_dial, firstDialAt: p.first_dial_at,
+        notes: p.notes, updatedAt: p.updated_at,
       }));
       window.AppData.INTERVIEWS = mapRows(interviewsR, i => ({
         id: i.id, recruitId: i.recruit_id, scheduledAt: i.scheduled_at,
@@ -847,6 +858,31 @@ window.AppData.mutate = {
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
     _emitMutation("recruiting_campaigns", "update", id);
+  },
+
+  /* ── Onboarding progress ──────────────────────────────────────────── */
+  async onboardingStepSet(repId, stepKey, value) {
+    // stepKey ∈ license_signed / nipr_verified / banking_set / kit_shipped / first_dial
+    const list = window.AppData.ONBOARDING_PROGRESS = window.AppData.ONBOARDING_PROGRESS || [];
+    let p = list.find(x => x.repId === repId);
+    const camelKey = stepKey.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const atKey = camelKey + "At";
+    const now = new Date().toISOString();
+    if (!p) {
+      p = { repId, [camelKey]: value, [atKey]: value ? now : null };
+      list.push(p);
+    } else {
+      p[camelKey] = value;
+      p[atKey] = value ? now : null;
+    }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const me = window.me && window.me();
+      const payload = { rep_id: repId, agency_id: me && me.agency_id, [stepKey]: value, [stepKey + "_at"]: value ? now : null, updated_at: now };
+      const { error } = await sb.from("onboarding_progress").upsert(payload, { onConflict: "rep_id" });
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("onboarding_progress", "update", repId);
   },
 
   /* ── Workflows ──────────────────────────────────────────────────────── */

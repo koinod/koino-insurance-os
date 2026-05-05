@@ -13,7 +13,7 @@ function DialQueueView({ onCall }) {
       <div className="page-h">
         <div>
           <div className="page-title">Dial Queue</div>
-          <div className="page-sub">47 leads · scored & sequenced · TPMO disclaimer auto-fires on connect</div>
+          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · TPMO disclaimer auto-fires on connect</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn"><Icons.Filter size={13}/> Filters</button>
@@ -53,8 +53,20 @@ function DialQueueView({ onCall }) {
                   <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} onClick={() => i === 0 ? onCall && onCall() : window.repflowCall && window.repflowCall("+15125550" + l.id.replace(/\D/g, "").slice(0, 3), l.lead)}><Icons.Phone size={12}/></button>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}><Icons.MessageSquare size={12}/></button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Dial"
+                      onClick={() => i === 0
+                        ? (onCall && onCall())
+                        : window.repflowCall && window.repflowCall(l.phone || "+15125550" + l.id.replace(/\D/g, "").slice(0, 3), l.lead)}>
+                      <Icons.Phone size={12}/>
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Send SMS"
+                      onClick={() => window.smsCompose && window.smsCompose(l, l.phone)}>
+                      <Icons.MessageSquare size={12}/>
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Schedule SOA"
+                      onClick={() => window.scheduleSOA && window.scheduleSOA(l)}>
+                      <Icons.Calendar size={12}/>
+                    </button>
                   </div>
                 </div>
               );
@@ -193,18 +205,192 @@ function DispatchView({ onCall }) {
   );
 }
 
-function InCall({ onClose }) {
+// ─── Carrier underwriting niches (used by the in-call Quote tool) ────────
+// Score 0-100 = "fit for THIS product + THIS health profile". Tunable as
+// the agency learns. Lives here so reps see ranked carriers mid-call.
+const CARRIER_NICHES = [
+  { id: "uhc",     name: "UnitedHealthcare", products: ["medsupp"],          fit: (i) => ({
+      score: 90 - (i.tobacco ? 25 : 0) - (i.diabetes ? 10 : 0) - (i.bpHigh ? 5 : 0) + (i.age >= 65 && i.age <= 70 ? 5 : 0),
+      reason: i.tobacco ? "rated up for tobacco" : "T65 sweet-spot · clean health"
+  }) },
+  { id: "humana",  name: "Humana",            products: ["medsupp", "mapd"],   fit: (i) => ({
+      score: 85 - (i.bpHigh ? 5 : 0) + (i.tobacco ? 5 : 0) + (i.diabetes ? 8 : 0),
+      reason: i.diabetes ? "tolerates type-2 diabetes well" : i.tobacco ? "tobacco-friendly underwriting" : "broad product line"
+  }) },
+  { id: "aetna",   name: "Aetna SRC",         products: ["medsupp"],          fit: (i) => ({
+      score: (i.age <= 75 ? 85 : 50) - (i.tobacco ? 30 : 0) - (i.bpHigh ? 10 : 0) - (i.diabetes ? 8 : 0),
+      reason: i.age > 75 ? "rate spike after 75" : i.tobacco ? "strict tobacco rate-up" : "competitive Plan G under 75"
+  }) },
+  { id: "moo",     name: "Mutual of Omaha",   products: ["medsupp", "fe"],     fit: (i) => ({
+      score: 75 + (i.product === "fe" ? 10 : 0) + (i.age >= 70 ? 5 : 0) - (i.bmi > 35 ? 10 : 0),
+      reason: i.product === "fe" ? "FE up to age 80, simplified issue" : "household discount available"
+  }) },
+  { id: "cigna",   name: "Cigna",             products: ["medsupp"],          fit: (i) => ({
+      score: 80 - (i.tobacco ? 15 : 0) - (i.bmi > 35 ? 8 : 0),
+      reason: "Plan N standout — lower premium, copay structure"
+  }) },
+  { id: "fg",      name: "F&G",                products: ["annuity", "iul"],    fit: (i) => ({
+      score: i.product === "annuity" || i.product === "iul" ? 90 : 0,
+      reason: "MYGA + IUL with strong cap rates"
+  }) },
+  { id: "lumico",  name: "Lumico",             products: ["fe"],                fit: (i) => ({
+      score: i.product === "fe" ? (75 - (i.bmi > 40 ? 15 : 0) - (i.diabetes && i.bpHigh ? 10 : 0)) : 0,
+      reason: "FE with mid-tier health acceptance"
+  }) },
+  { id: "aig",     name: "AIG",                products: ["fe", "term"],         fit: (i) => ({
+      score: i.product === "fe" ? 70 : i.product === "term" ? 80 : 0,
+      reason: i.product === "fe" ? "GIWL no exam · graded benefit" : "competitive term to age 75"
+  }) },
+];
+
+const PRODUCT_OPTIONS = [
+  { v: "medsupp", l: "Med Supp" },
+  { v: "mapd",    l: "Medicare Advantage" },
+  { v: "fe",      l: "Final Expense" },
+  { v: "term",    l: "Term Life" },
+  { v: "iul",     l: "IUL" },
+  { v: "annuity", l: "Annuity" },
+];
+
+const FALLBACK_SCRIPTS = [
+  { id: "f-open",   title: "Med Supp Plan G — open",      cat: "Open",       version: "v3.1", body: "Hi {{lead_name}}, this is {{rep_first}} with Atlas. The reason for my call is to make sure your Medicare Supplement gives you the same Plan G coverage at a lower rate. Quick question — are you most concerned about the monthly cost or the network freedom?" },
+  { id: "f-fe",     title: "Final Expense — empathy",      cat: "Open",       version: "v2.4", body: "Most of my clients tell me the hardest part isn't paying for a policy, it's the thought of leaving the people they love with a bill on top of grief. Can I ask — if something happened tomorrow, who would you not want to leave that burden on?" },
+  { id: "f-tpmo",   title: "TPMO disclosure (verbatim)",   cat: "Compliance", version: "v1.0", body: "We do not offer every plan available in your area. Currently we represent N organizations which offer N products in your area. Please contact Medicare.gov or 1-800-MEDICARE for all options." },
+  { id: "f-rebut1", title: "Rebuttal — 'too expensive'",   cat: "Cross-sell", version: "v1.0", body: "I hear you. Quick math — if a hospital stay last year cost you $1,200 out-of-pocket on Advantage, and Plan G's max is $240, the premium pays for itself the first time you use it. What's your typical year look like?" },
+  { id: "f-rebut2", title: "Rebuttal — 'I need to think'", cat: "Cross-sell", version: "v1.2", body: "Totally fair. The only reason I push to lock today is the rate I quoted is tied to today's underwriting class — if your med count changes by next week, the rate moves. What part are you sitting on?" },
+  { id: "f-rebut3", title: "Rebuttal — 'send in mail'",    cat: "Cross-sell", version: "v1.0", body: "Happy to. Before I do — the rate sheet is 18 pages and 80% of it doesn't apply to you. Want me to send the one-page summary tailored to your meds and doctors, or the full deck?" },
+  { id: "f-aep",    title: "AEP — switch reasons",          cat: "Open",       version: "v4.2", body: "Three reasons people switch during AEP: (1) the drug list changed, (2) their doctor dropped, (3) the premium jumped. Which of those is hitting you hardest this year?" },
+];
+
+function InCallScripts() {
+  const [scripts] = React.useState(() => {
+    try { const raw = localStorage.getItem("repflow:scripts"); if (raw) return JSON.parse(raw); } catch (_e) {}
+    return FALLBACK_SCRIPTS;
+  });
+  const [openId, setOpenId] = React.useState(null);
+  const [q, setQ]           = React.useState("");
+  const filtered = scripts.filter(s => !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()));
+  const copy = (s) => { try { navigator.clipboard.writeText(s.body); window.toast && window.toast("Script copied", "success"); } catch (_e) {} };
+  return (
+    <div>
+      <input className="text-input" style={{ width: "100%", marginBottom: 8 }} placeholder="Search scripts…" value={q} onChange={(e) => setQ(e.target.value)}/>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {filtered.map(s => {
+          const open = openId === s.id;
+          const Chev = open ? Icons.ChevronDown : Icons.ChevronRight;
+          return (
+            <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", cursor: "pointer" }} onClick={() => setOpenId(open ? null : s.id)}>
+                <Chev size={11} style={{ color: "var(--text-tertiary)" }}/>
+                <span style={{ flex: 1, fontWeight: 500, fontSize: 12 }} className="cell-truncate">{s.title}</span>
+                <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
+              </div>
+              {open && (
+                <div style={{ padding: "8px 10px 10px 24px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                  {s.body}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No scripts match.</div>}
+      </div>
+    </div>
+  );
+}
+
+function CarrierQuoteTool() {
+  const [product,  setProduct]  = React.useState("medsupp");
+  const [age,      setAge]      = React.useState(67);
+  const [tobacco,  setTobacco]  = React.useState(false);
+  const [diabetes, setDiabetes] = React.useState(false);
+  const [bpHigh,   setBpHigh]   = React.useState(false);
+  const [bmi,      setBmi]      = React.useState(28);
+  const inputs = { product, age: +age, tobacco, diabetes, bpHigh, bmi: +bmi };
+  const ranked = CARRIER_NICHES
+    .filter(c => c.products.includes(product))
+    .map(c => ({ ...c, ...c.fit(inputs) }))
+    .filter(c => c.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <Shared.Field label="Product"><Shared.Select value={product} onChange={setProduct} options={PRODUCT_OPTIONS}/></Shared.Field>
+        <Shared.Field label="Age"><input className="text-input" type="number" value={age} onChange={(e) => setAge(e.target.value)}/></Shared.Field>
+        <Shared.Field label="BMI"><input className="text-input" type="number" value={bmi} onChange={(e) => setBmi(e.target.value)}/></Shared.Field>
+        <div/>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {[
+          { l: "Tobacco",      v: tobacco,  set: setTobacco },
+          { l: "Type-2 diab.", v: diabetes, set: setDiabetes },
+          { l: "High BP",      v: bpHigh,   set: setBpHigh },
+        ].map(t => (
+          <button key={t.l} onClick={() => t.set(!t.v)} className="btn"
+            style={{ padding: "4px 10px", fontSize: 11.5, background: t.v ? "var(--accent-heat)" : "var(--bg-raised)", color: t.v ? "white" : "var(--text-secondary)" }}>{t.l}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+        Recommended ({ranked.length})
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {ranked.map((c, i) => (
+          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", background: i === 0 ? "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))" : "var(--bg-raised)", borderRadius: 5, border: i === 0 ? "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)" : "1px solid transparent" }}>
+            <span style={{ fontWeight: 600, fontSize: 11.5, minWidth: 100 }}>{c.name}</span>
+            <span style={{ flex: 1, fontSize: 11, color: "var(--text-tertiary)" }}>{c.reason}</span>
+            <div style={{ width: 50, height: 4, background: "var(--bg-overlay)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ width: Math.max(0, Math.min(100, c.score)) + "%", height: "100%", background: c.score >= 80 ? "var(--accent-money)" : c.score >= 60 ? "var(--state-warning)" : "var(--state-danger)" }}/>
+            </div>
+            <span className="tabular" style={{ fontSize: 11, color: "var(--text-secondary)", minWidth: 24, textAlign: "right" }}>{Math.round(c.score)}</span>
+          </div>
+        ))}
+        {ranked.length === 0 && (
+          <div style={{ padding: 12, textAlign: "center", color: "var(--text-tertiary)", fontSize: 11.5 }}>
+            No carriers appointed for {product}. Add appointment in Resources → Carriers.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InCall({ onClose, lead }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
   const [sec, setSec] = React.useState(0);
+  const [muted, setMuted]         = React.useState(false);
+  const [onHold, setOnHold]       = React.useState(false);
   React.useEffect(() => {
+    if (onHold) return;  // freeze timer while on hold
     const t = setInterval(() => setSec(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [onHold]);
   React.useEffect(() => { if (sec >= 8) setTpmoFired(true); }, [sec]);
 
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
+
+  // Demo lead used by AutoDialBar / UI when caller didn't pass one in
+  const activeLead = lead || { id: "demo-cheryl", lead: "Cheryl Hampton", state: "TX", product: "Med Supp Plan G" };
+
+  const toggleMute = () => {
+    setMuted(m => !m);
+    // If a Twilio Voice connection is active, mute its outbound audio track.
+    try {
+      const conn = window.__twActive || (window.Twilio && window.Twilio.Device && window.Twilio.Device.activeConnection && window.Twilio.Device.activeConnection());
+      if (conn && typeof conn.mute === "function") conn.mute(!muted);
+    } catch (_e) {}
+    window.toast && window.toast(!muted ? "Muted" : "Unmuted", "info");
+  };
+  const toggleHold = () => {
+    setOnHold(h => !h);
+    window.toast && window.toast(!onHold ? "On hold" : "Resumed", "info");
+  };
+  const onScheduleSOA = () => window.scheduleSOA && window.scheduleSOA(activeLead);
+  const onSendAppLink = () => window.sendAppLink && window.sendAppLink(activeLead);
+  const onSendSMS     = () => window.smsCompose  && window.smsCompose(activeLead, activeLead.phone);
 
   return (
     <div className="incall" onClick={onClose}>
@@ -235,20 +421,20 @@ function InCall({ onClose }) {
           </div>
 
           <div className="divider"></div>
-          <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-            {["script","rebuttals","detail"].map(t => (
-              <button key={t} onClick={() => setTab(t)} className={tab === t ? "btn" : "btn btn-ghost"} style={{ textTransform: "capitalize", padding: "3px 10px" }}>{t}</button>
+          <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+            {[
+              { k: "script",    l: "Scripts" },
+              { k: "quote",     l: "Quote" },
+              { k: "rebuttals", l: "Rebuttals" },
+              { k: "detail",    l: "Lead detail" },
+            ].map(t => (
+              <button key={t.k} onClick={() => setTab(t.k)} className={tab === t.k ? "btn" : "btn btn-ghost"} style={{ padding: "3px 10px" }}>{t.l}</button>
             ))}
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", fontSize: 12.5, lineHeight: 1.55, color: "var(--text-secondary)" }}>
-            {tab === "script" && (
-              <>
-                <p style={{ margin: 0 }}><b style={{ color: "var(--text-primary)" }}>Open:</b> "Cheryl, thanks for filling out the form. Walk me through your day — when you wake up, what does the morning look like with your medications?"</p>
-                <p style={{ marginTop: 10 }}><b style={{ color: "var(--text-primary)" }}>Discovery:</b> Pain points · cost surprises · doctor relationships · spouse's coverage</p>
-                <p style={{ marginTop: 10 }}><b style={{ color: "var(--text-primary)" }}>Anchor:</b> "If a hospital stay last year cost you $1,200 out-of-pocket on Advantage, and Plan G's max is $240..."</p>
-              </>
-            )}
+          <div style={{ flex: 1, overflowY: "auto", fontSize: 12.5, lineHeight: 1.55, color: "var(--text-secondary)", paddingRight: 4 }}>
+            {tab === "script"    && <InCallScripts/>}
+            {tab === "quote"     && <CarrierQuoteTool/>}
             {tab === "rebuttals" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {["I already have coverage", "It's too expensive", "Let me think about it", "Send me something in the mail"].map(r => (
@@ -299,10 +485,15 @@ function InCall({ onClose }) {
           </div>
 
           <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn"><Icons.Mic size={12}/> Mute</button>
-            <button className="btn"><Icons.MessageSquare size={12}/> Hold</button>
-            <button className="btn"><Icons.Calendar size={12}/> Schedule SOA</button>
-            <button className="btn"><Icons.Check size={12}/> Send app link</button>
+            <button className={muted ? "btn btn-primary" : "btn"} onClick={toggleMute}>
+              <Icons.Mic size={12}/> {muted ? "Unmute" : "Mute"}
+            </button>
+            <button className={onHold ? "btn btn-primary" : "btn"} onClick={toggleHold}>
+              <Icons.Pause size={12}/> {onHold ? "Resume" : "Hold"}
+            </button>
+            <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
+            <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
+            <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
             <div style={{ flex: 1 }}></div>
             <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}><Icons.Stop size={12}/> End call</button>
           </div>
