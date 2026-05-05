@@ -230,6 +230,7 @@ window.hydrateFromSupabase = async function () {
         householdsR, clientsR, bookEntriesR,
         recruitsR, interviewsR,
         recruitingCampaignsR, recruitingApplicantsR, recruitingMessagesR,
+        followupTemplatesR, workflowAssignmentsR, followupRunsR,
         threadsR, threadMembersR, messagesR, messageReadsR,
         notificationsR,
         tasksR, followupRulesR,
@@ -270,6 +271,9 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("recruiting_campaigns").select("*").order("created_at", { ascending: false })),
         scope(sb.from("recruiting_applicants").select("*").order("enrolled_at", { ascending: false })),
         scope(sb.from("recruiting_messages").select("*").order("sent_at", { ascending: false }).limit(500)),
+        scope(sb.from("followup_templates").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("workflow_assignments").select("*")),
+        scope(sb.from("followup_runs").select("*").order("scheduled_for", { ascending: false }).limit(200)),
         scope(sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50)),
         scope(sb.from("thread_members").select("*")),
         scope(sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500)),
@@ -418,6 +422,23 @@ window.hydrateFromSupabase = async function () {
         id: m.id, applicantId: m.applicant_id, direction: m.direction,
         channel: m.channel, body: m.body, aiDrafted: m.ai_drafted,
         sentAt: m.sent_at
+      }));
+      window.AppData.FOLLOWUP_TEMPLATES = mapRows(followupTemplatesR, t => ({
+        id: t.id, ownerRepId: t.owner_rep_id, name: t.name, body: t.body,
+        channel: t.channel, delayMinutes: t.delay_minutes,
+        triggerEvent: t.trigger_event, scope: t.scope, active: t.active,
+        createdAt: t.created_at, updatedAt: t.updated_at
+      }));
+      window.AppData.WORKFLOW_ASSIGNMENTS = mapRows(workflowAssignmentsR, a => ({
+        id: a.id, workflowId: a.workflow_id, repId: a.rep_id,
+        enabled: a.enabled, enabledByManagerId: a.enabled_by_manager_id,
+        enabledAt: a.enabled_at
+      }));
+      window.AppData.FOLLOWUP_RUNS = mapRows(followupRunsR, r => ({
+        id: r.id, templateId: r.template_id, repId: r.rep_id, leadId: r.lead_id,
+        scheduledFor: r.scheduled_for, sentAt: r.sent_at, status: r.status,
+        channel: r.channel, recipient: r.recipient, body: r.body_snapshot,
+        failureDetail: r.failure_detail, createdAt: r.created_at
       }));
       window.AppData.INTERVIEWS = mapRows(interviewsR, i => ({
         id: i.id, recruitId: i.recruit_id, scheduledAt: i.scheduled_at,
@@ -838,6 +859,120 @@ window.AppData.mutate = {
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
     _emitMutation("workflows", "update", id);
+  },
+
+  /* ── Workflow assignments (rep-level toggle) ───────────────────────── */
+  async workflowAssignmentSetEnabled(workflowId, repId, enabled) {
+    const list = window.AppData.WORKFLOW_ASSIGNMENTS = window.AppData.WORKFLOW_ASSIGNMENTS || [];
+    const a = list.find(x => x.workflowId === workflowId && x.repId === repId);
+    if (a) a.enabled = enabled;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const me = window.me && window.me();
+      const agencyId = me && me.agency_id;
+      if (a) {
+        const { error } = await sb.from("workflow_assignments")
+          .update({ enabled }).eq("workflow_id", workflowId).eq("rep_id", repId);
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      } else if (agencyId) {
+        const { error } = await sb.from("workflow_assignments")
+          .insert({ workflow_id: workflowId, rep_id: repId, agency_id: agencyId, enabled });
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        list.push({ workflowId, repId, enabled, enabledAt: new Date().toISOString() });
+      }
+    } else if (!a) {
+      list.push({ workflowId, repId, enabled, enabledAt: new Date().toISOString() });
+    }
+    _emitMutation("workflow_assignments", "update", workflowId + ":" + repId);
+  },
+
+  /* ── Follow-up templates ───────────────────────────────────────────── */
+  async followupTemplateSave(template) {
+    const list = window.AppData.FOLLOWUP_TEMPLATES = window.AppData.FOLLOWUP_TEMPLATES || [];
+    const isNew = !template.id;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const me = window.me && window.me();
+        const payload = {
+          owner_rep_id: template.ownerRepId,
+          name: template.name,
+          body: template.body,
+          channel: template.channel,
+          delay_minutes: template.delayMinutes,
+          trigger_event: template.triggerEvent,
+          scope: template.scope,
+          active: template.active !== false,
+          updated_at: new Date().toISOString(),
+        };
+        if (isNew) payload.agency_id = me && me.agency_id;
+        const q = isNew
+          ? sb.from("followup_templates").insert(payload).select().single()
+          : sb.from("followup_templates").update(payload).eq("id", template.id).select().single();
+        const { data, error } = await q;
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) template.id = data.id;
+      }
+    }
+    if (isNew) list.unshift({ ...template });
+    else {
+      const idx = list.findIndex(x => x.id === template.id);
+      if (idx >= 0) list[idx] = { ...list[idx], ...template };
+    }
+    _emitMutation("followup_templates", isNew ? "insert" : "update", template.id);
+  },
+
+  async followupTemplateDelete(id) {
+    const list = window.AppData.FOLLOWUP_TEMPLATES = window.AppData.FOLLOWUP_TEMPLATES || [];
+    const idx = list.findIndex(x => x.id === id);
+    if (idx >= 0) list.splice(idx, 1);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("followup_templates").delete().eq("id", id);
+      if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("followup_templates", "delete", id);
+  },
+
+  /* ── Follow-up dispatch (creates a scheduled run) ──────────────────── */
+  async followupDispatch(templateId, recipientPhone, leadId, repId) {
+    const me = window.me && window.me();
+    const t = (window.AppData.FOLLOWUP_TEMPLATES || []).find(x => x.id === templateId);
+    if (!t) return;
+    const scheduledFor = new Date(Date.now() + (t.delayMinutes || 0) * 60 * 1000).toISOString();
+    const run = {
+      id: "run-" + Date.now(),
+      templateId, repId: repId || (me && me.rep_id),
+      leadId, scheduledFor, status: "scheduled",
+      channel: t.channel, recipient: recipientPhone,
+      body: t.body, createdAt: new Date().toISOString(),
+    };
+    if (window.AppData.LIVE) {
+      try {
+        const r = await fetch("/api/followup/dispatch", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            template_id: templateId, recipient: recipientPhone,
+            lead_id: leadId, rep_id: run.repId,
+          }),
+        });
+        const json = await r.json().catch(() => ({}));
+        if (r.ok && json.run) {
+          run.id = json.run.id;
+          run.status = json.run.status;
+        } else {
+          run.status = "failed";
+          run.failureDetail = (json.error || ("HTTP " + r.status));
+        }
+      } catch (e) {
+        run.status = "failed";
+        run.failureDetail = String(e);
+      }
+    }
+    (window.AppData.FOLLOWUP_RUNS = window.AppData.FOLLOWUP_RUNS || []).unshift(run);
+    _emitMutation("followup_runs", "insert", run.id);
+    return run;
   },
 
   /* ── Routing rules ──────────────────────────────────────────────────── */
