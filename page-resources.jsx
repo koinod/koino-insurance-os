@@ -116,7 +116,8 @@ function deriveVendors(useSample, spendOverrides) {
   const policies   = (window.AppData && window.AppData.POLICIES)        || [];
 
   const empty = sources.length === 0;
-  if (useSample || empty) {
+  const isDemo = window.isDemoAgency && window.isDemoAgency();
+  if ((useSample || empty) && isDemo) {
     return SAMPLE_VENDORS.map(v => {
       const extra = spendOverrides[v.id] || { spend: 0, leads: 0 };
       const spend  = (v._leads * v.costPerLead) + extra.spend;
@@ -162,7 +163,8 @@ function deriveCarriers(useSample) {
   const appts    = (window.AppData && window.AppData.APPOINTMENTS) || [];
   const book     = (window.AppData && window.AppData.BOOK_ENTRIES) || [];
 
-  if (useSample || carriers.length === 0) {
+  const isDemoC = window.isDemoAgency && window.isDemoAgency();
+  if ((useSample || carriers.length === 0) && isDemoC) {
     return SAMPLE_CARRIERS.map(c => ({
       id: c.id, name: c.name, category: c.category,
       appts: c._appts, advances: c._advances, cycle: c._cycle,
@@ -196,13 +198,15 @@ function PageResources({ role = "owner" }) {
   const [spendLog, setSpendLog]       = useLocalArray("repflow:resources:spendLog", []);
   const [logDraft, setLogDraft]       = React.useState({ vendorId: "", amount: "", leads: "", note: "" });
   // Resource data is now agency-shared via AppData (migration 0010); fall
-  // back to seed when nothing has been added yet.
+  // back to seed ONLY when viewer is in the demo agency. Real agencies see
+  // empty states + add/import CTAs instead of contaminated Atlas seed.
+  const isDemo      = window.isDemoAgency && window.isDemoAgency();
   const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
-  const scripts     = liveScripts.length > 0 ? liveScripts : SCRIPT_SEED;
+  const scripts     = liveScripts.length > 0 ? liveScripts : (isDemo ? SCRIPT_SEED : []);
   const liveDocs    = (window.AppData && window.AppData.DOCS) || [];
-  const docs        = liveDocs.length > 0 ? liveDocs : DOC_SEED;
+  const docs        = liveDocs.length > 0 ? liveDocs : (isDemo ? DOC_SEED : []);
   const liveLinks   = (window.AppData && window.AppData.QUICK_LINKS) || [];
-  const links       = liveLinks.length > 0 ? liveLinks : DEFAULT_LINKS;
+  const links       = liveLinks.length > 0 ? liveLinks : (isDemo ? DEFAULT_LINKS : []);
 
   const [docDraft, setDocDraft]       = React.useState({ title: "", cat: "Internal", url: "" });
   const [docAdd, setDocAdd]           = React.useState(false);

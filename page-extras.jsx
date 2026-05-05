@@ -1089,7 +1089,7 @@ function VideoLibrary({ canEdit = true }) {
     };
   }, []);
   const live   = (window.AppData && window.AppData.VIDEOS) || [];
-  const videos = live.length > 0 ? live : DEFAULT_VIDEOS;
+  const videos = live.length > 0 ? live : (window.isDemoAgency && window.isDemoAgency() ? DEFAULT_VIDEOS : []);
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [sel, setSel]             = React.useState(null);
@@ -1257,7 +1257,7 @@ function ScriptsLibrary() {
     };
   }, []);
   const live    = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
-  const scripts = live.length > 0 ? live : DEFAULT_SCRIPTS;
+  const scripts = live.length > 0 ? live : (window.isDemoAgency && window.isDemoAgency() ? DEFAULT_SCRIPTS : []);
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [openId, setOpenId]       = React.useState(null);

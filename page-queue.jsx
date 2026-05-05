@@ -727,7 +727,7 @@ function InCallScripts({ lead }) {
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const ctx = { lead, me: meIdent };
   const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
-  const scripts = liveScripts.length > 0 ? liveScripts : FALLBACK_SCRIPTS;
+  const scripts = liveScripts.length > 0 ? liveScripts : (window.isDemoAgency && window.isDemoAgency() ? FALLBACK_SCRIPTS : []);
   const [openId, setOpenId] = React.useState(null);
   const [q, setQ]           = React.useState("");
   const filtered = scripts.filter(s => !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()));

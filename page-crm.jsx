@@ -73,7 +73,9 @@ function deriveSources(useSample) {
   const touch    = (window.AppData && window.AppData.TOUCHPOINTS)  || [];
   const attr     = (window.AppData && window.AppData.ATTRIBUTIONS) || [];
   const policies = (window.AppData && window.AppData.POLICIES)     || [];
-  if (useSample || sources.length === 0) return SAMPLE_SOURCES;
+  const isDemo = window.isDemoAgency && window.isDemoAgency();
+  if ((useSample || sources.length === 0) && isDemo) return SAMPLE_SOURCES;
+  if (sources.length === 0) return [];
   return sources.map(s => {
     const sourceTouches = touch.filter(t => t.sourceId === s.id);
     const leadIds = new Set(sourceTouches.map(t => t.leadId));

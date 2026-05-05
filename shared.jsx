@@ -824,5 +824,18 @@ const AgencyTime = (() => {
   };
 })();
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime };
+/* Demo agency guard — every fallback to seed/sample data must check this so
+   a real signed-in agency never sees Atlas / Cheryl / Marcus content.
+   Real agencies hit empty states with import/add CTAs instead. */
+const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
+const isDemoAgency = () => {
+  const m = window.me && window.me();
+  if (!m) return true;                                  // pre-auth = treat as demo
+  if (m.is_demo === true) return true;
+  if (m.agency_id && String(m.agency_id) === DEMO_AGENCY_ID) return true;
+  return false;
+};
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID };
+window.isDemoAgency = isDemoAgency;
 window.AgencyTime = AgencyTime;
