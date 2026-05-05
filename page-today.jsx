@@ -330,6 +330,13 @@ function TodayRep({ aep }) {
   const spark1 = [12,18,15,22,30,28,35,42];
   const spark2 = [4,6,5,8,11,9,12,14];
 
+  // GAP-A1 — first-action CTA. Show a hero banner whenever the rep has done
+  // nothing today (no dials, no apps, no commissions) so a brand-new producer
+  // is not staring at a wall of zeros wondering what to click first.
+  const dayIsBlank = dialsToday === 0 && appsToday === 0 && todayCommission === 0;
+  const queueDepth = (QUEUE || []).length;
+  const goFloor = () => window.gotoPage && window.gotoPage("floor");
+
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -342,9 +349,39 @@ function TodayRep({ aep }) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn"><Icons.Calendar size={13}/> Schedule</button>
-          <button className="btn btn-primary"><Icons.Phone size={13}/> Power Hour</button>
+          <button className="btn btn-primary" onClick={goFloor}><Icons.Phone size={13}/> Power Hour</button>
         </div>
       </div>
+
+      {dayIsBlank && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "14px 18px", marginBottom: 14,
+          background: "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))",
+          border: "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)",
+          borderRadius: 10,
+        }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "color-mix(in oklch, var(--accent-money) 22%, transparent)", color: "var(--accent-money)",
+          }}>
+            <Icons.Phone size={16}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)" }}>
+              Start the day with a dial
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+              {queueDepth > 0
+                ? `${queueDepth} lead${queueDepth === 1 ? "" : "s"} are waiting in your queue. The first one is fresh — speed-to-lead beats every other variable.`
+                : "Your queue is empty. Pull a list from CRM → Inbox or wait for inbound, then dial."}
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={goFloor}>
+            <Icons.Phone size={12}/> {queueDepth > 0 ? "Make your first dial" : "Open Floor"}
+          </button>
+        </div>
+      )}
 
       <SpendStrip items={[
         { l: "Cost / issued (you)",  v: "$112",  tone: "money" },

@@ -246,6 +246,55 @@ window.CONNECTOR_SCHEMAS = {
     ],
     envVars: ["TRUSTEDFORM_API_KEY"]
   },
+  twilio: {
+    name: "Twilio · SMS + Voice",
+    fields: [
+      { k: "account_sid",       label: "Account SID",        hint: "ACxxxx...",        type: "text" },
+      { k: "api_key_sid",       label: "API Key SID",        hint: "SKxxxx...",        type: "text" },
+      { k: "api_key_secret",    label: "API Key Secret",     type: "password" },
+      { k: "twiml_app_sid",     label: "TwiML App SID",      hint: "APxxxx...",        type: "text" },
+      { k: "caller_id",         label: "Caller ID phone",    hint: "+15551234567",     type: "text" },
+    ],
+    envVars: ["TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_TWIML_APP_SID", "TWILIO_CALLER_ID"],
+    docs: "https://www.twilio.com/docs/voice"
+  },
+  sendblue: {
+    name: "SendBlue · iMessage",
+    fields: [
+      { k: "api_key",       label: "API Key",       type: "password" },
+      { k: "api_secret",    label: "API Secret",    type: "password" },
+      { k: "from_phone",    label: "From phone",    hint: "+15551234567", type: "text" },
+    ],
+    envVars: ["SENDBLUE_API_KEY", "SENDBLUE_API_SECRET", "SENDBLUE_FROM_PHONE"],
+    docs: "https://docs.sendblue.co/"
+  },
+  openai: {
+    name: "OpenAI · Whisper transcription + GPT",
+    fields: [
+      { k: "api_key", label: "API Key", hint: "sk-...", type: "password" },
+      { k: "transcribe_model", label: "Transcribe model", hint: "whisper-1 (default) or gpt-4o-transcribe", type: "text" },
+    ],
+    envVars: ["OPENAI_API_KEY", "OPENAI_TRANSCRIBE_MODEL"],
+    docs: "https://platform.openai.com/docs/api-reference/audio"
+  },
+  fathom: {
+    name: "Fathom · Call recordings + transcripts",
+    fields: [
+      { k: "api_token", label: "API Token (JWT)", type: "password" },
+      { k: "team_id",   label: "Team ID",          type: "text" },
+    ],
+    envVars: ["FATHOM_API_TOKEN", "FATHOM_TEAM_ID"],
+    docs: "https://developers.fathom.ai/"
+  },
+  phone_link: {
+    name: "Phone Link · macOS / Windows desktop",
+    fields: [
+      { k: "platform", label: "Platform", hint: "mac | windows", type: "text" },
+      { k: "device_label", label: "Audio device label", hint: "e.g. 'iPhone Microphone' or 'BlackHole 2ch'", type: "text" },
+    ],
+    envVars: [],
+    docs: "https://support.apple.com/guide/mac-help/take-phone-calls-and-make-calls-on-your-mac-mchl5b0ce5fa/mac"
+  },
 };
 
 function ConnectorConfigModal({ connectorId, onClose }) {

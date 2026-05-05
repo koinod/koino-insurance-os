@@ -1,40 +1,156 @@
 /* Pages: Operations (Connections, Hardware, Agents, Workflows) + simple stubs */
 function PageConnections() {
   const { CONNECTIONS } = AppData;
-  const grouped = CONNECTIONS.reduce((a, c) => { (a[c.category] ||= []).push(c); return a; }, {});
+  const [adding,    setAdding]    = React.useState(false);
+  const [editing,   setEditing]   = React.useState(null); // connector id being configured
+  const [testing,   setTesting]   = React.useState(null); // id mid-test
+  const [testResult, setTestResult] = React.useState({}); // { id: { ok, detail } }
+  const [, force]   = React.useState(0);
+  React.useEffect(() => {
+    const h = () => force(n => n + 1);
+    window.addEventListener("data:mutated", h);
+    window.addEventListener("data:hydrated", h);
+    return () => { window.removeEventListener("data:mutated", h); window.removeEventListener("data:hydrated", h); };
+  }, []);
+
+  const schemas = window.CONNECTOR_SCHEMAS || {};
+  const connected = (CONNECTIONS || []).reduce((a, c) => { a[c.id] = c; return a; }, {});
+  const grouped = (CONNECTIONS || []).reduce((a, c) => { (a[c.category] ||= []).push(c); return a; }, {});
+
+  const test = async (id) => {
+    setTesting(id);
+    setTestResult(r => ({ ...r, [id]: null }));
+    try {
+      const r = await fetch("/api/connector/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connector_id: id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setTestResult(rr => ({ ...rr, [id]: { ok: r.ok && j.ok, detail: j.detail || j.error || (r.ok ? "Connected" : "Test failed") } }));
+    } catch (e) {
+      setTestResult(rr => ({ ...rr, [id]: { ok: false, detail: String(e) } }));
+    } finally { setTesting(null); }
+  };
+
+  const remove = async (id) => {
+    if (!confirm(`Remove "${(connected[id] && connected[id].name) || id}" connection?`)) return;
+    if (window.AppData.mutate.connectionRemove) {
+      try { await window.AppData.mutate.connectionRemove(id); } catch {}
+    } else {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) await sb.from("connections").delete().eq("id", id);
+      window.AppData.CONNECTIONS = (window.AppData.CONNECTIONS || []).filter(c => c.id !== id);
+      window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "connections", kind: "delete", id } }));
+    }
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
-        <div><div className="page-title">Connections</div><div className="page-sub">Your connected services · carrier-agnostic · {CONNECTIONS.length} active</div></div>
-        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> Add connection</button>
+        <div>
+          <div className="page-title">Connections</div>
+          <div className="page-sub">Your connected services · carrier-agnostic · {(CONNECTIONS || []).length} configured · {Object.keys(schemas).length} available</div>
+        </div>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setAdding(true)}>
+          <Icons.Plus size={13}/> Add connection
+        </button>
       </div>
+
       {Object.entries(grouped).map(([cat, items]) => (
         <div key={cat} style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 8 }}>{cat}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            {items.map(c => (
-              <div key={c.id} className="panel" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--bg-raised)", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--text-secondary)" }}>{c.name[0]}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{c.category}</div>
+            {items.map(c => {
+              const tr = testResult[c.id];
+              return (
+                <div key={c.id} className="panel" style={{ padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--bg-raised)", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--text-secondary)" }}>{c.name[0]}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{c.category}</div>
+                    </div>
+                    <span className={`dot dot-${c.status === "ok" ? "live" : "warn"}`}></span>
                   </div>
-                  <span className={`dot dot-${c.status === "ok" ? "live" : "warn"}`}></span>
+                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.meta}</div>
+                  {tr && (
+                    <div style={{
+                      marginTop: 8, padding: "4px 8px", borderRadius: 4, fontSize: 11,
+                      color: tr.ok ? "var(--accent-money)" : "var(--state-warning)",
+                      background: tr.ok ? "color-mix(in oklch, var(--accent-money) 10%, transparent)" : "color-mix(in oklch, var(--state-warning) 10%, transparent)",
+                    }}>
+                      {tr.ok ? "✓ " : "⚠ "}{tr.detail}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(c.id)}>
+                      <Icons.Edit size={11}/> Configure
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => test(c.id)} disabled={testing === c.id}>
+                      {testing === c.id ? "Testing…" : <><Icons.Check size={11}/> Test</>}
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11, color: "var(--state-danger)", marginLeft: "auto" }} onClick={() => remove(c.id)}>
+                      <Icons.X size={11}/>
+                    </button>
+                  </div>
                 </div>
-                <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.meta}</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Test</button>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>Rotate</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
+
+      {(CONNECTIONS || []).length === 0 && (
+        <div className="panel" style={{ padding: 18, textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>No connections yet</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 12 }}>Add Twilio for dialing, OpenAI for transcripts, SendBlue for iMessage, etc.</div>
+          <button className="btn btn-primary" onClick={() => setAdding(true)}>
+            <Icons.Plus size={11}/> Add your first connection
+          </button>
+        </div>
+      )}
+
+      {adding && window.ConnectorPicker && (() => {
+        const P = window.ConnectorPicker;
+        return <P onPick={(id) => { setAdding(false); setEditing(id); }} onClose={() => setAdding(false)}/>;
+      })()}
+      {editing && window.ConnectorConfigModal && (() => {
+        const M = window.ConnectorConfigModal;
+        return <M connectorId={editing} onClose={() => setEditing(null)}/>;
+      })()}
     </div>
   );
 }
+
+/* ConnectorPicker — modal listing all connector schemas, click to open
+   the existing ConnectorConfigModal for that one. */
+function ConnectorPicker({ onPick, onClose }) {
+  const schemas = window.CONNECTOR_SCHEMAS || {};
+  const existing = ((window.AppData && window.AppData.CONNECTIONS) || []).reduce((a, c) => { a[c.id] = true; return a; }, {});
+  const entries = Object.entries(schemas).map(([id, s]) => ({ id, name: s.name, configured: !!existing[id] }));
+  return (
+    <Shared.Modal title="Add connection" width={620} onClose={onClose} actions={<button className="btn btn-ghost" onClick={onClose}>Cancel</button>}>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 12 }}>Pick a service to configure. We'll save the public config to the connection record; secret values stay in Vercel env.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {entries.map(({ id, name, configured }) => (
+          <button key={id}
+            onClick={() => onPick(id)}
+            className="btn btn-ghost"
+            style={{
+              justifyContent: "flex-start", textAlign: "left", padding: "10px 12px",
+              fontSize: 12.5, border: "1px solid var(--border-subtle)", borderRadius: 6,
+              opacity: configured ? 0.8 : 1,
+            }}>
+            <span style={{ flex: 1 }}>{name}</span>
+            {configured && <span style={{ fontSize: 10, color: "var(--accent-money)" }}>configured</span>}
+          </button>
+        ))}
+      </div>
+    </Shared.Modal>
+  );
+}
+window.ConnectorPicker = ConnectorPicker;
 
 function PageHardware() {
   const [enrollOpen, setEnrollOpen] = React.useState(false);
