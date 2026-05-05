@@ -136,7 +136,7 @@ function App() {
       case "commissions": return <PageCommissions role={role}/>;
       case "training":    return <PageTraining role={role}/>;
       case "vault":       return <PageVault role={role}/>;
-      case "resources":   return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
+      case "resources":   return (() => { const P = window.PageResources;   return P ? <P role={role}/> : null; })();
       case "book":        return <PageBook/>;
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;

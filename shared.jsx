@@ -63,6 +63,7 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "commissions", label: "Commissions",  icon: "Wallet" },
     { id: "training",    label: "Training",     icon: "Book" },
+    { id: "resources",   label: "Resources",    icon: "Folder" },
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
@@ -76,6 +77,7 @@ const NAV = {
     { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
     { id: "training",    label: "Training",     icon: "Book" },
+    { id: "resources",   label: "Resources",    icon: "Folder" },
   ],
   owner: [
     { id: "admin",       label: "Admin",            icon: "Shield" },
