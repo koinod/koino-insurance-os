@@ -102,6 +102,7 @@ function PageCrm({ role = "owner" }) {
   const [q, setQ]                 = React.useState("");
   const [connectOpen, setConnectOpen] = React.useState(false);
   const [activeLead, setActiveLead]   = React.useState(null);
+  const [addLeadOpen, setAddLeadOpen] = React.useState(false);
 
   const sources  = deriveSources(useSample);
   const pipeline = (window.AppData && window.AppData.PIPELINE) || [];
@@ -150,6 +151,44 @@ function PageCrm({ role = "owner" }) {
     }
   };
 
+  // ── Manual lead create + CSV export ─────────────────────────────────────
+  const addLead = (form) => {
+    const mut = window.AppData?.mutate;
+    const row = {
+      id: "lead-" + Date.now(),
+      lead: form.name, age: +form.age || null, state: form.state, phone: form.phone,
+      stage: "New", product: form.product, ap: 0, days: 0,
+      last: "Just now", next: "First dial",
+      source: form.source || "Manual entry",
+      owner: form.owner || (reps[0]?.id),
+      consent: "verified", heat: "fresh",
+    };
+    if (mut?.pipelineCreate) mut.pipelineCreate(row);
+    else if (window.AppData?.PIPELINE) window.AppData.PIPELINE.unshift(row);
+    setAddLeadOpen(false);
+    window.toast && window.toast(`Added ${form.name}`, "success");
+  };
+
+  const exportCsv = () => {
+    if (!filteredLeads.length) { window.toast && window.toast("No leads to export", "info"); return; }
+    const cols = ["lead","age","state","source","product","stage","owner","ap","days","heat","consent"];
+    const esc = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const ownerName = (id) => reps.find(r => r.id === id)?.name || id || "";
+    const rows = filteredLeads.map(l => cols.map(c => c === "owner" ? esc(ownerName(l.owner)) : esc(l[c])).join(","));
+    const csv = [cols.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    window.toast && window.toast(`Exported ${filteredLeads.length} leads`, "success");
+  };
+
   const TABS = [
     { k: "inbox",     l: "Inbox",     icon: "Bell",     badge: filteredLeads.length },
     { k: "sources",   l: "Sources",   icon: "Plug",     badge: sources.length },
@@ -171,8 +210,14 @@ function PageCrm({ role = "owner" }) {
               <input type="checkbox" checked={useSample} onChange={(e) => setUseSample(e.target.checked)}/> sample
             </label>
           )}
+          <button className="btn btn-ghost" onClick={exportCsv} title="Export filtered leads as CSV">
+            <Icons.ArrowDown size={12}/> Export CSV
+          </button>
+          <button className="btn btn-ghost" onClick={() => setAddLeadOpen(true)}>
+            <Icons.Plus size={12}/> Add lead
+          </button>
           <button className="btn btn-primary" onClick={() => setConnectOpen(true)}>
-            <Icons.Plus size={12}/> Connect source
+            <Icons.Plug size={12}/> Connect source
           </button>
         </div>
       </div>
@@ -195,7 +240,53 @@ function PageCrm({ role = "owner" }) {
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
       {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}
+      {addLeadOpen   && <AddLeadModal reps={reps} sourceNames={sourceNames} onClose={() => setAddLeadOpen(false)} onSave={addLead}/>}
     </div>
+  );
+}
+
+// ═══ Add lead modal ═══════════════════════════════════════════════════════
+function AddLeadModal({ reps, sourceNames, onClose, onSave }) {
+  const [form, setForm] = React.useState({
+    name: "", phone: "", age: "", state: "", product: "Med Supp Plan G",
+    source: sourceNames[0] || "Manual entry", owner: reps[0]?.id || "",
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const valid = form.name.trim().length > 0;
+  return (
+    <Shared.Modal title="Add a lead manually" width={520} onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Shared.Field label="Full name *">
+          <input className="text-input" value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus/>
+        </Shared.Field>
+        <Shared.Field label="Phone (E.164)">
+          <input className="text-input" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+15125550199"/>
+        </Shared.Field>
+        <Shared.Field label="Age">
+          <input className="text-input" type="number" value={form.age} onChange={(e) => set("age", e.target.value)} placeholder="65"/>
+        </Shared.Field>
+        <Shared.Field label="State">
+          <input className="text-input" value={form.state} onChange={(e) => set("state", e.target.value.toUpperCase().slice(0, 2))} placeholder="TX"/>
+        </Shared.Field>
+        <Shared.Field label="Product">
+          <input className="text-input" value={form.product} onChange={(e) => set("product", e.target.value)}/>
+        </Shared.Field>
+        <Shared.Field label="Source">
+          <Shared.Select value={form.source} onChange={(v) => set("source", v)}
+            options={[{ v: "Manual entry", l: "Manual entry" }, ...sourceNames.map(n => ({ v: n, l: n }))]}/>
+        </Shared.Field>
+        <Shared.Field label="Assign to">
+          <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+        </Shared.Field>
+        <div/>
+      </div>
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <button className="btn btn-primary" disabled={!valid} onClick={() => onSave(form)}>
+          <Icons.Plus size={11}/> Add lead
+        </button>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+      </div>
+    </Shared.Modal>
   );
 }
 
