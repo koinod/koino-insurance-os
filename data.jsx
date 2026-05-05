@@ -229,6 +229,7 @@ window.hydrateFromSupabase = async function () {
         vaultFilesR,
         householdsR, clientsR, bookEntriesR,
         recruitsR, interviewsR,
+        recruitingCampaignsR, recruitingApplicantsR, recruitingMessagesR,
         threadsR, threadMembersR, messagesR, messageReadsR,
         notificationsR,
         tasksR, followupRulesR,
@@ -266,6 +267,9 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("book_entries").select("*")),
         scope(sb.from("recruits").select("*").order("created_at", { ascending: false })),
         scope(sb.from("interviews").select("*").order("scheduled_at", { ascending: false })),
+        scope(sb.from("recruiting_campaigns").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("recruiting_applicants").select("*").order("enrolled_at", { ascending: false })),
+        scope(sb.from("recruiting_messages").select("*").order("sent_at", { ascending: false }).limit(500)),
         scope(sb.from("threads").select("*").order("last_message_at", { ascending: false }).limit(50)),
         scope(sb.from("thread_members").select("*")),
         scope(sb.from("messages").select("*").order("created_at", { ascending: false }).limit(500)),
@@ -397,6 +401,23 @@ window.hydrateFromSupabase = async function () {
         email: r.contact_email, phone: r.contact_phone,
         state: r.license_state, hasLicense: r.has_license,
         status: r.status, recruiter: r.recruiter_handle, createdAt: r.created_at
+      }));
+      window.AppData.RECRUITING_CAMPAIGNS = mapRows(recruitingCampaignsR, c => ({
+        id: c.id, name: c.name, status: c.status, source: c.source,
+        budget: cents(c.budget_cents), applied: c.applied || 0,
+        contracted: c.contracted || 0, producing: c.producing || 0,
+        cpa: cents(c.cpa_cents), createdAt: c.created_at,
+        ownerRepId: c.owner_rep_id, pipelineStage: c.pipeline_stage
+      }));
+      window.AppData.RECRUITING_APPLICANTS = mapRows(recruitingApplicantsR, a => ({
+        id: a.id, campaignId: a.campaign_id, name: a.name, handle: a.handle,
+        state: a.state, status: a.status, enrolledAt: a.enrolled_at,
+        recruiterId: a.recruiter_id
+      }));
+      window.AppData.RECRUITING_MESSAGES = mapRows(recruitingMessagesR, m => ({
+        id: m.id, applicantId: m.applicant_id, direction: m.direction,
+        channel: m.channel, body: m.body, aiDrafted: m.ai_drafted,
+        sentAt: m.sent_at
       }));
       window.AppData.INTERVIEWS = mapRows(interviewsR, i => ({
         id: i.id, recruitId: i.recruit_id, scheduledAt: i.scheduled_at,
@@ -756,8 +777,25 @@ window.AppData.mutate = {
         if (data) applicant.id = data.id;
       }
     }
-    (window.AppData.APPLICANTS = window.AppData.APPLICANTS || []).unshift(applicant);
+    const local = {
+      id: applicant.id, campaignId: applicant.campaign_id, name: applicant.name,
+      handle: applicant.handle, state: applicant.state, status: applicant.status,
+      enrolledAt: applicant.enrolled_at || new Date().toISOString(),
+      recruiterId: applicant.recruiter_id,
+    };
+    (window.AppData.RECRUITING_APPLICANTS = window.AppData.RECRUITING_APPLICANTS || []).unshift(local);
     _emitMutation("recruiting_applicants", "insert", applicant.id);
+  },
+
+  async recruitingApplicantSetStatus(id, status) {
+    const a = (window.AppData.RECRUITING_APPLICANTS || []).find(x => x.id === id);
+    if (a) a.status = status;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("recruiting_applicants").update({ status }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("recruiting_applicants", "update", id);
   },
 
   async recruitingMessageSend(applicantId, body, channel = "instagram", aiDrafted = false) {
@@ -770,12 +808,18 @@ window.AppData.mutate = {
         if (data) msg.id = data.id;
       }
     }
-    (window.AppData.RECRUIT_MSGS = window.AppData.RECRUIT_MSGS || []).unshift(msg);
+    const local = {
+      id: msg.id, applicantId: msg.applicant_id, direction: msg.direction,
+      channel: msg.channel, body: msg.body, aiDrafted: msg.ai_drafted, sentAt: msg.sent_at,
+    };
+    (window.AppData.RECRUITING_MESSAGES = window.AppData.RECRUITING_MESSAGES || []).unshift(local);
     _emitMutation("recruiting_messages", "insert", msg.id);
-    return msg;
+    return local;
   },
 
   async recruitingCampaignToggle(id, status) {
+    const c = (window.AppData.RECRUITING_CAMPAIGNS || []).find(x => x.id === id);
+    if (c) c.status = status;
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("recruiting_campaigns").update({ status }).eq("id", id);
@@ -848,5 +892,115 @@ window.AppData.mutate = {
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
     _emitMutation("connections", "update", id);
+  },
+
+  /* ── Queue claim / release (GAP-D2) ─────────────────────────────────────
+     Lets a rep claim an unassigned queue lead so peers stop seeing it in
+     their "Unassigned" view. Persists locally today; attempts a tolerant
+     Supabase write so it starts persisting the moment the migration adds
+     `queue.assigned_rep_id`. */
+  async queueClaim(queueId, repId) {
+    const row = (window.AppData.QUEUE || []).find(q => q.id === queueId);
+    if (row) row.assignedRepId = repId;
+    _emitMutation("queue", "update", queueId);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      try {
+        const { error } = await sb.from("queue").update({ assigned_rep_id: repId }).eq("id", queueId);
+        if (error && !/column.*does not exist/i.test(error.message || "")) throw error;
+      } catch (_e) { /* tolerant — column may not yet exist */ }
+    }
+  },
+  async queueRelease(queueId) {
+    const row = (window.AppData.QUEUE || []).find(q => q.id === queueId);
+    if (row) row.assignedRepId = null;
+    _emitMutation("queue", "update", queueId);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      try {
+        const { error } = await sb.from("queue").update({ assigned_rep_id: null }).eq("id", queueId);
+        if (error && !/column.*does not exist/i.test(error.message || "")) throw error;
+      } catch (_e) {}
+    }
+  },
+
+  /* ── Coaching ───────────────────────────────────────────────────────── */
+  async coachingNoteCreate(repId, body, sessionId = null) {
+    const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const note = {
+      id: "tmp-" + Date.now(),
+      sessionId, repId, body,
+      createdBy: me?.handle || "system",
+      createdAt: new Date().toISOString(),
+    };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("coaching_notes").insert({
+          session_id: sessionId, rep_id: repId, body,
+          created_by: me?.handle || null,
+        }).select().single();
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        if (data) note.id = data.id;
+      }
+    }
+    (window.AppData.COACHING_NOTES = window.AppData.COACHING_NOTES || []).unshift(note);
+    _emitMutation("coaching_notes", "insert", note.id);
+    return note;
+  },
+
+  async coachingSessionResolve(id, outcome, rating, notes) {
+    const row = (window.AppData.COACHING_SESSIONS || []).find(s => s.id === id);
+    if (row) {
+      row.completedAt = new Date().toISOString();
+      if (outcome) row.outcome = outcome;
+      if (rating != null) row.rating = rating;
+      if (notes) row.notes = notes;
+    }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const patch = { completed_at: new Date().toISOString() };
+      if (outcome) patch.outcome = outcome;
+      if (rating != null) patch.rating = rating;
+      if (notes) patch.notes = notes;
+      const { error } = await sb.from("coaching_sessions").update(patch).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("coaching_sessions", "update", id);
+  },
+
+  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ── */
+  async notificationCreate({ repId = null, recipientHandle = null, kind = "focus", severity = "info", title, body, pageLink = null }) {
+    const note = {
+      id: "tmp-" + Date.now(),
+      kind, severity, title, body,
+      pageLink, repId, recipientHandle,
+      createdAt: new Date().toISOString(),
+      readBy: [],
+    };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        // Prefer the create_notification RPC when available (it does fan-out + audit)
+        const rpc = await sb.rpc("create_notification", {
+          p_kind: kind, p_severity: severity,
+          p_title: title, p_body: body,
+          p_page_link: pageLink, p_ref_id: repId,
+        }).then(r => r).catch(() => ({ error: { message: "rpc_unavailable" } }));
+        if (rpc?.error) {
+          // Fallback: direct insert
+          const { data, error } = await sb.from("agency_notifications").insert({
+            kind, severity, title, body, page_link: pageLink, ref_id: repId,
+          }).select().single();
+          if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
+          if (data) note.id = data.id;
+        } else if (rpc.data) {
+          note.id = rpc.data;
+        }
+      }
+    }
+    (window.AppData.NOTIFICATIONS = window.AppData.NOTIFICATIONS || []).unshift(note);
+    _emitMutation("agency_notifications", "insert", note.id);
+    return note;
   },
 };

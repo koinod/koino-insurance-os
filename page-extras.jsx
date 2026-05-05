@@ -680,10 +680,302 @@ function CommissionsOwner() {
 /* ─────────────────────────────────────────────────────────────────────────
    4. Training — rep / mgr / owner
    ───────────────────────────────────────────────────────────────────────── */
-function PageTraining({ role = "rep" }) {
-  if (role === "manager") return <TrainingManager/>;
-  if (role === "owner")   return <TrainingOwner/>;
-  return <TrainingRep/>;
+/* ─── ProductTraining store ───────────────────────────────────────────────
+   Persists three things to localStorage and broadcasts a "training:changed"
+   event so every Training pane stays in sync after edits:
+     • courses        — owner-authored library (sections + lessons)
+     • progress       — per-rep, per-course completedLessons + completedAt
+     • assignments    — manager assigns courseId → repIds with optional dueDate
+   Status is derived (not stored) so the source of truth is always progress. */
+const ProductTraining = (() => {
+  const K_COURSES     = "repflow:product_training_courses";
+  const K_PROGRESS    = "repflow:product_training_progress";
+  const K_ASSIGNMENTS = "repflow:product_training_assignments";
+
+  function seedCourses() {
+    return (AppData.COURSES || []).map((c, i) => ({
+      ...c,
+      required: c.required ?? (i < 2),  // first two seed courses default to required onboarding
+      description: c.description || "",
+      sections: c.sections || [],
+    }));
+  }
+  function loadJSON(key, fallback) {
+    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (_e) {}
+    return fallback;
+  }
+  function saveJSON(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_e) {}
+  }
+  function broadcast() {
+    window.dispatchEvent(new CustomEvent("training:changed"));
+  }
+  function loadCourses()     { return loadJSON(K_COURSES, seedCourses()); }
+  function loadProgress()    { return loadJSON(K_PROGRESS, {}); }
+  function loadAssignments() { return loadJSON(K_ASSIGNMENTS, []); }
+
+  function totalLessons(course) {
+    return (course.sections || []).reduce((a, s) => a + (s.lessons?.length || 0), 0);
+  }
+  function lessonIds(course) {
+    const ids = [];
+    (course.sections || []).forEach((s, si) => (s.lessons || []).forEach((_, li) => ids.push(`${si}.${li}`)));
+    return ids;
+  }
+  function getProgress(progress, repId, courseId) {
+    return (progress[repId] && progress[repId][courseId]) || { completedLessons: [], completedAt: null };
+  }
+  function deriveStatus(course, prog, assignment) {
+    const total = totalLessons(course);
+    const done  = prog.completedLessons.length;
+    if (total > 0 && done >= total) return "complete";
+    if (done > 0) return "in-progress";
+    if (assignment?.dueDate) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (assignment.dueDate < today) return "overdue";
+    }
+    if (assignment) return "assigned";
+    if (course.required) return "due";  // required courses are implicitly assigned
+    return course.status || "assigned";
+  }
+  function statusFor(repId, course, progress, assignments) {
+    const prog = getProgress(progress, repId, course.id);
+    const a    = assignments.find(x => x.courseId === course.id && (x.repIds || []).includes(repId));
+    return deriveStatus(course, prog, a);
+  }
+  function percentFor(repId, course, progress) {
+    const total = totalLessons(course);
+    if (total === 0) return course.status === "complete" ? 100 : 0;
+    return Math.round((getProgress(progress, repId, course.id).completedLessons.length / total) * 100);
+  }
+  function isComplete(repId, course, progress) {
+    return statusFor(repId, course, progress, []) === "complete";
+  }
+
+  // React hooks — every Training pane subscribes via these and re-renders on change.
+  function useStore() {
+    const [, force] = React.useState(0);
+    React.useEffect(() => {
+      const onChange = () => force(n => n + 1);
+      window.addEventListener("training:changed", onChange);
+      return () => window.removeEventListener("training:changed", onChange);
+    }, []);
+    return {
+      courses: loadCourses(),
+      progress: loadProgress(),
+      assignments: loadAssignments(),
+      saveCourses: (next) => {
+        const v = typeof next === "function" ? next(loadCourses()) : next;
+        saveJSON(K_COURSES, v); broadcast();
+      },
+      saveProgress: (next) => {
+        const v = typeof next === "function" ? next(loadProgress()) : next;
+        saveJSON(K_PROGRESS, v); broadcast();
+      },
+      saveAssignments: (next) => {
+        const v = typeof next === "function" ? next(loadAssignments()) : next;
+        saveJSON(K_ASSIGNMENTS, v); broadcast();
+      },
+    };
+  }
+
+  function markLessonComplete(repId, courseId, lessonId) {
+    const all = loadProgress();
+    const repProg = all[repId] || {};
+    const cur = repProg[courseId] || { completedLessons: [], completedAt: null };
+    if (!cur.completedLessons.includes(lessonId)) {
+      cur.completedLessons = [...cur.completedLessons, lessonId];
+    }
+    repProg[courseId] = cur;
+    all[repId] = repProg;
+
+    // Auto-flag completedAt when all lessons done.
+    const courses = loadCourses();
+    const course = courses.find(c => c.id === courseId);
+    if (course) {
+      const total = totalLessons(course);
+      if (total > 0 && cur.completedLessons.length >= total && !cur.completedAt) {
+        cur.completedAt = new Date().toISOString();
+        all[repId][courseId] = cur;
+      }
+    }
+    saveJSON(K_PROGRESS, all); broadcast();
+  }
+
+  function unmarkLessonComplete(repId, courseId, lessonId) {
+    const all = loadProgress();
+    const cur = (all[repId] || {})[courseId];
+    if (!cur) return;
+    cur.completedLessons = cur.completedLessons.filter(x => x !== lessonId);
+    cur.completedAt = null;
+    all[repId][courseId] = cur;
+    saveJSON(K_PROGRESS, all); broadcast();
+  }
+
+  // Required course = required flag OR explicit assignment. Open = not yet complete.
+  function requiredCoursesFor(repId, courses, progress, assignments) {
+    return courses.filter(c => {
+      if (c.required) return true;
+      return assignments.some(a => a.courseId === c.id && (a.repIds || []).includes(repId));
+    });
+  }
+  function openRequiredCount(repId, courses, progress, assignments) {
+    return requiredCoursesFor(repId, courses, progress, assignments)
+      .filter(c => statusFor(repId, c, progress, assignments) !== "complete")
+      .length;
+  }
+
+  return {
+    useStore, totalLessons, lessonIds, getProgress, statusFor, percentFor, isComplete,
+    requiredCoursesFor, openRequiredCount, markLessonComplete, unmarkLessonComplete,
+  };
+})();
+
+/* ─── Embed helpers — accept Loom / YouTube / Vimeo / direct mp4 ─────── */
+function toEmbedSrc(url = "") {
+  const u = String(url).trim();
+  if (!u) return "";
+  const loom = u.match(/loom\.com\/share\/([a-z0-9]+)/i);
+  if (loom) return `https://www.loom.com/embed/${loom[1]}`;
+  const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  const vm = u.match(/vimeo\.com\/(\d+)/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  return u;
+}
+function isDirectVideo(url = "") {
+  return /\.(mp4|webm|ogg)(\?|$)/i.test(url) || url.startsWith("data:video/");
+}
+
+const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity", "Compliance"];
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. Training — unified hub: Call Coaching · Call Library · Product Training
+   The legacy /coaching route in index.html now lands here with defaultTab="coaching".
+   ───────────────────────────────────────────────────────────────────────── */
+function PageTraining({ role = "rep", defaultTab = "coaching" }) {
+  const [tab, setTab] = React.useState(defaultTab);
+  const store = ProductTraining.useStore();
+  const meId = AppData.REPS[0].id;
+  const requiredOpen = ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments);
+
+  const tabs = [
+    { k: "coaching", l: "Call Coaching",    icon: "Activity" },
+    { k: "library",  l: "Call Library",     icon: "Headset" },
+    { k: "product",  l: "Product Training", icon: "Book", badge: role === "rep" && requiredOpen > 0 ? requiredOpen : undefined },
+  ];
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Training</div>
+          <div className="page-sub">
+            {tab === "coaching" && "Coaching cards · scorecards · drill replays"}
+            {tab === "library"  && "Recorded calls · waveform · AI scoring"}
+            {tab === "product"  && (role === "owner" ? "Course library · authoring · required onboarding" : "Courses · videos · scripts · cert progress")}
+          </div>
+        </div>
+      </div>
+
+      <Shared.SectionPill items={tabs} value={tab} onChange={setTab}/>
+
+      {tab === "coaching" && <CoachingPane role={role}/>}
+      {tab === "library"  && <CallLibraryPane role={role}/>}
+      {tab === "product"  && <ProductTrainingPane role={role} store={store} meId={meId} requiredOpen={requiredOpen}/>}
+    </div>
+  );
+}
+
+/* Defer to the existing PageCoaching — it already handles all three roles.
+   We strip its outer page-pad since we're already inside one. */
+function CoachingPane({ role }) {
+  const C = window.PageCoaching;
+  if (!C) return <div style={{ padding: 30, color: "var(--text-tertiary)" }}>Coaching module loading…</div>;
+  return (
+    <div style={{ marginTop: -8, marginInline: -16, marginBottom: -16 }}>
+      <C role={role}/>
+    </div>
+  );
+}
+
+function CallLibraryPane({ role }) {
+  const { RECORDINGS, REPS } = AppData;
+  const meId = REPS[0].id;
+  const visible = role === "rep" ? RECORDINGS.filter(r => !r.repId || r.repId === meId) : RECORDINGS;
+
+  const [selId, setSelId] = React.useState(visible[0]?.id);
+  const [q, setQ]         = React.useState("");
+  const filtered = visible.filter(r => !q || r.lead.toLowerCase().includes(q.toLowerCase()));
+  const sel = filtered.find(r => r.id === selId) || filtered[0];
+
+  return (
+    <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
+      <div className="panel">
+        <div className="panel-h">
+          <h3>Recordings</h3>
+          <span className="meta">{filtered.length}</span>
+          <input className="text-input" style={{ width: 140, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
+        </div>
+        <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto" }}>
+          {filtered.map(r => (
+            <button key={r.id} onClick={() => setSelId(r.id)} className="btn btn-ghost" style={{ justifyContent: "flex-start", padding: 10, background: sel?.id === r.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                <strong style={{ fontSize: 12.5 }}>{r.lead}</strong>
+                <span className="tabular" style={{ color: r.score >= 80 ? "var(--accent-money)" : r.score >= 60 ? "var(--state-warning)" : "var(--state-danger)", fontSize: 11.5 }}>{r.score}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-tertiary)", fontSize: 11 }}>
+                <span>{r.date}</span>
+                <span className="mono">{Math.floor(r.durSec / 60)}:{String(r.durSec % 60).padStart(2, "0")}</span>
+              </div>
+            </button>
+          ))}
+          {filtered.length === 0 && <div style={{ padding: 20, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>No recordings match.</div>}
+        </div>
+      </div>
+
+      {sel && (
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Headset size={13}/>
+            <h3>{sel.lead} · score {sel.score}</h3>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Summarize the call with ${sel.lead} and grade my open-ended question rate`, context: "Call · " + sel.lead }}))}><Icons.Sparkles size={11}/> Analyze</button>
+            </div>
+          </div>
+          <div style={{ padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 11 }}>
+              <span className="mono">00:00</span>
+              <div style={{ flex: 1, height: 36, position: "relative", background: "var(--bg-raised)", borderRadius: 4, overflow: "hidden" }}>
+                <svg width="100%" height="36" viewBox="0 0 240 36" preserveAspectRatio="none">
+                  {Array.from({ length: 80 }).map((_, i) => {
+                    const h = 4 + Math.abs(Math.sin(i * 0.5 + (sel.id?.length || 0))) * 26 + (i % 7 === 0 ? 4 : 0);
+                    return <rect key={i} x={i * 3} y={(36 - h) / 2} width="1.6" height={h} fill={i < 48 ? "var(--accent-money)" : "var(--text-quaternary)"}/>;
+                  })}
+                </svg>
+              </div>
+              <span className="mono">{Math.floor(sel.durSec / 60)}:{String(sel.durSec % 60).padStart(2, "0")}</span>
+            </div>
+            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <span className={`chip ${sel.talkRatio < 50 ? "chip-money" : "chip-status"}`}>Talk: {sel.talkRatio}%</span>
+              <span className="chip">Open Q: {sel.openQ}</span>
+              <span className={`chip ${sel.flags?.tpmo === "ok" ? "chip-money" : "chip-status"}`}>TPMO {sel.flags?.tpmo === "ok" ? "✓" : "?"}</span>
+              <span className={`chip ${sel.flags?.soa === "captured" || sel.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel.flags?.soa}</span>
+            </div>
+            <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel.ai}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProductTrainingPane({ role, store, meId, requiredOpen }) {
+  if (role === "owner")   return <ProductTrainingOwner store={store}/>;
+  if (role === "manager") return <ProductTrainingManager store={store}/>;
+  return <ProductTrainingRep store={store} meId={meId} requiredOpen={requiredOpen}/>;
 }
 
 /* ─── Default video library + scripts library ─────────────────────────────
@@ -932,149 +1224,612 @@ function ScriptsLibrary() {
   );
 }
 
-function TrainingRep() {
-  const { COURSES } = AppData;
-  const [tab, setTab] = React.useState("courses");
+/* ─── Status chip helper used across rep/manager/owner views ─────────── */
+const STATUS_CHIP_CLASS = {
+  "complete":    "chip-money",
+  "in-progress": "chip-info",
+  "due":         "chip-status",
+  "overdue":     "chip-status",
+  "assigned":    "",
+};
+function StatusChip({ status }) {
+  return <span className={`chip ${STATUS_CHIP_CLASS[status] || ""}`} style={status === "overdue" ? { color: "var(--state-danger)", borderColor: "var(--state-danger)" } : undefined}>{status}</span>;
+}
+
+/* ─── Reusable course list with real progress bars ────────────────────── */
+function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
+  return (
+    <div className="list">
+      <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 1fr 110px 110px" }}>
+        <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Progress</div><div>Status</div><div></div>
+      </div>
+      {courses.map(c => {
+        const status = ProductTraining.statusFor(repId, c, store.progress, store.assignments);
+        const pct    = ProductTraining.percentFor(repId, c, store.progress);
+        const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
+        return (
+          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 1fr 110px 110px" }}>
+            <div>
+              <div style={{ fontWeight: 500 }}>{c.title}</div>
+              {showRequiredFlag && c.required && <div style={{ fontSize: 10.5, color: "var(--accent-status)", marginTop: 2 }}>required</div>}
+            </div>
+            <div><span className="chip">{c.track}</span></div>
+            <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingRight: 12 }}>
+              <div style={{ flex: 1, height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "var(--accent-money)" : "var(--accent-status)" }}></div>
+              </div>
+              <span className="tabular" style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 30, textAlign: "right" }}>{pct}%</span>
+            </div>
+            <div><StatusChip status={status}/></div>
+            <div><button className="btn btn-ghost" onClick={() => onOpen(c)}><Icons.Play size={11}/> {cta}</button></div>
+          </div>
+        );
+      })}
+      {courses.length === 0 && (
+        <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No courses here.</div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Course viewer (rep) — walks sections + lessons, marks complete ──── */
+function CourseViewerModal({ course, repId, store, onClose }) {
+  const sections = course.sections || [];
+  const lessons = sections.flatMap((s, si) => (s.lessons || []).map((l, li) => ({ ...l, _sec: s.title, _i: `${si}.${li}` })));
+  const total = lessons.length;
+  const prog  = ProductTraining.getProgress(store.progress, repId, course.id);
+
+  // Resume at first incomplete lesson, else 0.
+  const initial = Math.max(0, lessons.findIndex(l => !prog.completedLessons.includes(l._i)));
+  const [idx, setIdx] = React.useState(initial === -1 ? 0 : initial);
+  const lesson = lessons[idx];
+  const isDone = lesson ? prog.completedLessons.includes(lesson._i) : false;
+  const completedCount = prog.completedLessons.length;
+  const pct = total ? Math.round((completedCount / total) * 100) : 0;
+
+  const toggle = () => {
+    if (!lesson) return;
+    if (isDone) ProductTraining.unmarkLessonComplete(repId, course.id, lesson._i);
+    else        ProductTraining.markLessonComplete(repId,   course.id, lesson._i);
+    if (!isDone && idx < lessons.length - 1) setIdx(idx + 1);  // auto-advance on complete
+  };
 
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Training · Me</div>
-          <div className="page-sub">Courses · video library · live scripts · AEP cert progress</div>
+    <Shared.Modal title={course.title} width={920} onClose={onClose}>
+      {total === 0 ? (
+        <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+          This course doesn't have any lessons yet.
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2 }}>
-          {[
-            { k: "courses", l: "Courses",  icon: "Book" },
-            { k: "videos",  l: "Videos",   icon: "Video" },
-            { k: "scripts", l: "Scripts",  icon: "FileText" },
-          ].map(t => {
-            const Ic = Icons[t.icon];
-            return (
-              <button key={t.k} onClick={() => setTab(t.k)} className="btn btn-ghost"
-                style={{ padding: "4px 12px", display: "flex", alignItems: "center", gap: 6, background: tab === t.k ? "var(--bg-raised)" : "transparent", color: tab === t.k ? "var(--text-primary)" : "var(--text-tertiary)" }}>
-                <Ic size={12}/> {t.l}
-              </button>
-            );
-          })}
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, fontSize: 12, color: "var(--text-tertiary)" }}>
+            <div style={{ flex: 1, height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "var(--accent-money)" : "var(--accent-status)" }}></div>
+            </div>
+            <span className="tabular">{completedCount} of {total} complete · {pct}%</span>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 14, minHeight: 420 }}>
+            <div style={{ borderRight: "1px solid var(--border-subtle)", paddingRight: 12, maxHeight: 460, overflowY: "auto" }}>
+              {sections.map((s, si) => (
+                <div key={si} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)", marginBottom: 4 }}>{s.title}</div>
+                  {(s.lessons || []).map((l, li) => {
+                    const lid = `${si}.${li}`;
+                    const flat = lessons.findIndex(x => x._i === lid);
+                    const done = prog.completedLessons.includes(lid);
+                    return (
+                      <button key={li} onClick={() => setIdx(flat)} className="btn btn-ghost"
+                        style={{ display: "flex", justifyContent: "flex-start", width: "100%", padding: "6px 8px", fontSize: 12, background: flat === idx ? "var(--bg-raised)" : "transparent", marginBottom: 2, gap: 6 }}>
+                        {done
+                          ? <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>
+                          : <Icons.Play size={10} style={{ color: "var(--text-tertiary)" }}/>}
+                        <span style={{ flex: 1, textAlign: "left", color: done ? "var(--text-tertiary)" : "var(--text-primary)" }}>{l.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+
+            <div>
+              {lesson && (
+                <>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>{lesson._sec}</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{lesson.title}</div>
+                  {lesson.videoUrl ? (
+                    isDirectVideo(lesson.videoUrl) ? (
+                      <video src={lesson.videoUrl} controls style={{ width: "100%", borderRadius: 6, background: "black" }}/>
+                    ) : (
+                      <div style={{ position: "relative", paddingTop: "56.25%", background: "black", borderRadius: 6, overflow: "hidden" }}>
+                        <iframe src={toEmbedSrc(lesson.videoUrl)} title={lesson.title} allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen
+                          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}/>
+                      </div>
+                    )
+                  ) : (
+                    <div style={{ padding: 30, textAlign: "center", background: "var(--bg-raised)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 13 }}>
+                      No video on this lesson yet.
+                    </div>
+                  )}
+                  {lesson.description && (
+                    <div style={{ marginTop: 12, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, lineHeight: 1.55, color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
+                      {lesson.description}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
+                    <button className="btn" disabled={idx === 0} onClick={() => setIdx(i => Math.max(0, i - 1))}>
+                      <Icons.ArrowRight size={11} style={{ transform: "rotate(180deg)" }}/> Previous
+                    </button>
+                    <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Lesson {idx + 1} of {total}</span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className={isDone ? "btn" : "btn btn-primary"} onClick={toggle}>
+                        {isDone ? <><Icons.X size={11}/> Mark incomplete</> : <><Icons.Check size={11}/> Mark complete</>}
+                      </button>
+                      <button className="btn" disabled={idx === lessons.length - 1} onClick={() => setIdx(i => Math.min(lessons.length - 1, i + 1))}>
+                        Next <Icons.ArrowRight size={11}/>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </Shared.Modal>
+  );
+}
+
+/* ─── Rep · Product Training ──────────────────────────────────────────── */
+function ProductTrainingRep({ store, meId, requiredOpen }) {
+  const [tab, setTab] = React.useState("courses");
+  const [openCourse, setOpenCourse] = React.useState(null);
+
+  const required = ProductTraining.requiredCoursesFor(meId, store.courses, store.progress, store.assignments);
+  const optional = store.courses.filter(c => !required.includes(c));
+  const activeCount = store.courses.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) !== "complete").length;
+
+  return (
+    <>
+      {requiredOpen > 0 && (
+        <div style={{ marginBottom: 12, padding: 12, background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid var(--accent-status)", borderRadius: 6, display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+          <Icons.Bell size={14} style={{ color: "var(--accent-status)" }}/>
+          <div style={{ flex: 1 }}>
+            <strong>{requiredOpen}</strong> required onboarding course{requiredOpen === 1 ? "" : "s"} remaining. Complete these before taking your first live calls.
+          </div>
         </div>
+      )}
+
+      <div style={{ display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2, width: "fit-content", marginBottom: 12 }}>
+        {[
+          { k: "courses", l: "Courses",  icon: "Book" },
+          { k: "videos",  l: "Videos",   icon: "Video" },
+          { k: "scripts", l: "Scripts",  icon: "FileText" },
+        ].map(t => {
+          const Ic = Icons[t.icon];
+          return (
+            <button key={t.k} onClick={() => setTab(t.k)} className="btn btn-ghost"
+              style={{ padding: "4px 12px", display: "flex", alignItems: "center", gap: 6, background: tab === t.k ? "var(--bg-raised)" : "transparent", color: tab === t.k ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+              <Ic size={12}/> {t.l}
+            </button>
+          );
+        })}
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard label="Active courses" value={COURSES.filter(c => c.status !== "complete").length}/>
+        <Shared.KpiCard label="Required remaining" value={requiredOpen} sub={requiredOpen === 0 ? "onboarding complete" : "must finish"}/>
+        <Shared.KpiCard label="Active courses" value={activeCount}/>
         <Shared.KpiCard label="Cert progress" value="62%" sub="AEP 2026 cert" trend="up"/>
         <Shared.KpiCard label="CE hours · YTD" value="14.5"/>
       </div>
 
       {tab === "courses" && (
-        <div className="panel">
-          <div className="panel-h"><Icons.Book size={13}/><h3>My courses</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
-              <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Status</div><div></div>
+        <>
+          {required.length > 0 && (
+            <div className="panel" style={{ marginBottom: 12 }}>
+              <div className="panel-h">
+                <Icons.Shield size={13} style={{ color: "var(--accent-status)" }}/>
+                <h3>Required onboarding</h3>
+                <span className="meta">{required.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) === "complete").length} of {required.length} complete</span>
+              </div>
+              <CourseList courses={required} store={store} repId={meId} onOpen={setOpenCourse}/>
             </div>
-            {COURSES.map(c => (
-              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 100px 100px" }}>
-                <div style={{ fontWeight: 500 }}>{c.title}</div>
-                <div><span className="chip">{c.track}</span></div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
-                <div><span className={`chip ${
-                  c.status === "complete" ? "chip-money" :
-                  c.status === "in-progress" ? "chip-info" :
-                  c.status === "due" ? "chip-status" : ""
-                }`}>{c.status}</span></div>
-                <div><button className="btn btn-ghost"><Icons.Play size={11}/> {c.status === "complete" ? "Review" : "Start"}</button></div>
+          )}
+          <div className="panel">
+            <div className="panel-h"><Icons.Book size={13}/><h3>My courses</h3></div>
+            <CourseList courses={optional} store={store} repId={meId} onOpen={setOpenCourse}/>
+          </div>
+        </>
+      )}
+
+      {tab === "videos"  && <VideoLibrary/>}
+      {tab === "scripts" && <ScriptsLibrary/>}
+
+      {openCourse && <CourseViewerModal course={openCourse} repId={meId} store={store} onClose={() => setOpenCourse(null)}/>}
+    </>
+  );
+}
+
+/* ─── Manager · Product Training ─────────────────────────────────────── */
+function ProductTrainingManager({ store }) {
+  const { REPS } = AppData;
+  const [showAssign, setShowAssign] = React.useState(false);
+
+  // Per-rep: # required courses overdue or stuck.
+  const atRisk = REPS.map(r => {
+    const required = ProductTraining.requiredCoursesFor(r.id, store.courses, store.progress, store.assignments);
+    const overdue  = required.filter(c => ProductTraining.statusFor(r.id, c, store.progress, store.assignments) === "overdue");
+    const open     = required.filter(c => ProductTraining.statusFor(r.id, c, store.progress, store.assignments) !== "complete");
+    return { rep: r, overdue, open };
+  }).filter(x => x.overdue.length > 0 || (x.open.length >= 2));
+
+  // Avg completion rate column per rep across all courses.
+  const repAvg = (rep) => {
+    if (store.courses.length === 0) return 0;
+    const sum = store.courses.reduce((a, c) => a + ProductTraining.percentFor(rep.id, c, store.progress), 0);
+    return Math.round(sum / store.courses.length);
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, gap: 6 }}>
+        <button className="btn btn-primary" onClick={() => setShowAssign(true)}><Icons.Plus size={13}/> Assign course</button>
+      </div>
+
+      {atRisk.length > 0 && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-h">
+            <Icons.Bell size={13} style={{ color: "var(--state-danger)" }}/>
+            <h3>At-risk producers</h3>
+            <span className="meta">{atRisk.length} need attention</span>
+          </div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px 140px" }}>
+              <div>Producer</div><div>Concern</div><div className="tabular" style={{ textAlign: "right" }}>Overdue</div><div className="tabular" style={{ textAlign: "right" }}>Open req.</div><div></div>
+            </div>
+            {atRisk.map(({ rep, overdue, open }) => (
+              <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px 140px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Shared.Avatar rep={rep} size={20}/>
+                  <span style={{ fontWeight: 500 }}>{rep.name}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+                  {overdue.length > 0 ? overdue.map(c => c.title).slice(0, 2).join(" · ") : "Multiple open required courses"}
+                </div>
+                <div className="tabular" style={{ textAlign: "right", color: overdue.length > 0 ? "var(--state-danger)" : "var(--text-tertiary)" }}>{overdue.length}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{open.length}</div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" onClick={() => window.toast && window.toast(`Check-in sent to ${rep.name.split(" ")[0]}`, "success")}><Icons.MessageSquare size={11}/> Check in</button>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {tab === "videos"  && <VideoLibrary/>}
-      {tab === "scripts" && <ScriptsLibrary/>}
-    </div>
-  );
-}
-
-function TrainingManager() {
-  const { REPS, COURSES } = AppData;
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Training · Team</div>
-          <div className="page-sub">Enrollment matrix · completion rates · due-date alerts</div>
-        </div>
-        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> Assign course</button>
-      </div>
-
       <div className="panel">
-        <div className="panel-h"><h3>Enrollment matrix</h3><span className="meta">{REPS.length} producers × {COURSES.length} courses</span></div>
+        <div className="panel-h"><h3>Enrollment matrix</h3><span className="meta">{REPS.length} producers × {store.courses.length} courses</span></div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: `1.4fr repeat(${COURSES.length}, 1fr)` }}>
+          <div className="list-h" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
             <div>Producer</div>
-            {COURSES.map(c => <div key={c.id} className="cell-truncate" style={{ fontSize: 11 }}>{c.title}</div>)}
+            {store.courses.map(c => <div key={c.id} className="cell-truncate" style={{ fontSize: 11 }} title={c.title}>{c.title}</div>)}
+            <div className="tabular" style={{ textAlign: "right" }}>Avg %</div>
           </div>
-          {REPS.map(r => (
-            <div key={r.id} className="row" style={{ gridTemplateColumns: `1.4fr repeat(${COURSES.length}, 1fr)` }}>
+          {REPS.map(rep => (
+            <div key={rep.id} className="row" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Shared.Avatar rep={r} size={20}/>
-                <span style={{ fontWeight: 500 }}>{r.name}</span>
+                <Shared.Avatar rep={rep} size={20}/>
+                <span style={{ fontWeight: 500 }}>{rep.name}</span>
               </div>
-              {COURSES.map((c, i) => {
-                // synthesized status per (rep, course) — deterministic
-                const hash = (r.id.charCodeAt(0) + i * 17) % 4;
-                const status = ["complete","in-progress","due","assigned"][hash];
+              {store.courses.map(c => {
+                const status = ProductTraining.statusFor(rep.id, c, store.progress, store.assignments);
+                const pct    = ProductTraining.percentFor(rep.id, c, store.progress);
                 return (
-                  <div key={c.id}><span className={`chip ${
-                    status === "complete" ? "chip-money" :
-                    status === "in-progress" ? "chip-info" :
-                    status === "due" ? "chip-status" : ""
-                  }`}>{status}</span></div>
+                  <div key={c.id} title={`${c.title} · ${pct}%`}>
+                    <span className={`chip ${STATUS_CHIP_CLASS[status] || ""}`} style={status === "overdue" ? { color: "var(--state-danger)", borderColor: "var(--state-danger)" } : undefined}>
+                      {pct > 0 && pct < 100 ? `${pct}%` : status}
+                    </span>
+                  </div>
                 );
               })}
+              <div className="tabular" style={{ textAlign: "right", color: repAvg(rep) >= 80 ? "var(--accent-money)" : repAvg(rep) >= 50 ? "var(--text-secondary)" : "var(--state-warning)" }}>{repAvg(rep)}%</div>
             </div>
           ))}
         </div>
       </div>
-    </div>
+
+      {showAssign && <AssignCourseModal store={store} onClose={() => setShowAssign(false)}/>}
+    </>
   );
 }
 
-function TrainingOwner() {
-  const { COURSES } = AppData;
+/* ─── Manager · Assign Course modal ───────────────────────────────────── */
+function AssignCourseModal({ store, onClose }) {
+  const { REPS } = AppData;
+  const [courseId, setCourseId] = React.useState(store.courses[0]?.id || "");
+  const [repIds, setRepIds]     = React.useState([]);
+  const [dueDate, setDueDate]   = React.useState("");
+  const toggle = (id) => setRepIds(rs => rs.includes(id) ? rs.filter(x => x !== id) : [...rs, id]);
+
+  const save = () => {
+    if (!courseId || repIds.length === 0) return;
+    const a = {
+      id: "asgn-" + Date.now(),
+      courseId,
+      repIds,
+      dueDate: dueDate || null,
+      assignedAt: new Date().toISOString(),
+    };
+    store.saveAssignments(prev => [...prev, a]);
+    window.toast && window.toast(`Assigned to ${repIds.length} producer${repIds.length === 1 ? "" : "s"}`, "success");
+    onClose();
+  };
+
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Training · Authoring</div>
-          <div className="page-sub">Library · version history · compliance-cert audit trail</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.ArrowUpRight size={13}/> Audit trail</button>
-          <button className="btn btn-primary"><Icons.Plus size={13}/> New course</button>
-        </div>
+    <Shared.Modal title="Assign course" width={560} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={!courseId || repIds.length === 0}>
+          <Icons.Check size={11}/> Assign
+        </button>
+      </>
+    }>
+      <Shared.Field label="Course">
+        <Shared.Select value={courseId} onChange={setCourseId} options={store.courses.map(c => ({ v: c.id, l: c.title }))}/>
+      </Shared.Field>
+      <Shared.Field label="Due date (optional)">
+        <input className="text-input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}/>
+      </Shared.Field>
+      <div className="field-l" style={{ marginTop: 8 }}>Producers · {repIds.length} selected</div>
+      <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+        {REPS.map(r => (
+          <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
+            <input type="checkbox" checked={repIds.includes(r.id)} onChange={() => toggle(r.id)}/>
+            <Shared.Avatar rep={r} size={20}/>
+            <span style={{ flex: 1 }}>{r.name}</span>
+            <span className="meta" style={{ fontSize: 11 }}>{r.handle}</span>
+          </label>
+        ))}
+      </div>
+    </Shared.Modal>
+  );
+}
+
+/* ─── Owner · Product Training authoring (Course Builder) ────────────── */
+function ProductTrainingOwner({ store }) {
+  const { REPS } = AppData;
+  const [editing, setEditing] = React.useState(null);
+
+  const newCourse = () => setEditing({
+    id: "c-" + Date.now(),
+    title: "",
+    track: "Onboarding",
+    durMin: 0,
+    status: "assigned",
+    required: false,
+    description: "",
+    sections: [],
+    _isNew: true,
+  });
+  const editCourse = (c) => setEditing({ ...c, sections: (c.sections || []).map(s => ({ ...s, lessons: [...(s.lessons || [])] })) });
+  const removeCourse = (id) => {
+    if (!confirm("Delete this course? This can't be undone.")) return;
+    store.saveCourses(cs => cs.filter(c => c.id !== id));
+    window.toast && window.toast("Course deleted", "info");
+  };
+  const saveCourse = (course) => {
+    const { _isNew, ...c } = course;
+    if (_isNew) store.saveCourses(cs => [...cs, c]);
+    else        store.saveCourses(cs => cs.map(x => x.id === c.id ? c : x));
+    window.toast && window.toast(_isNew ? "Course created" : "Course saved", "success");
+    setEditing(null);
+  };
+  const toggleRequired = (id) => {
+    store.saveCourses(cs => cs.map(c => c.id === id ? { ...c, required: !c.required } : c));
+  };
+
+  // Owner library row stats: enrollment + completion rate.
+  const enrolledCount = (course) => REPS.filter(r => {
+    if (course.required) return true;
+    return store.assignments.some(a => a.courseId === course.id && (a.repIds || []).includes(r.id));
+  }).length;
+  const completionRate = (course) => {
+    const enrolled = REPS.filter(r => course.required || store.assignments.some(a => a.courseId === course.id && (a.repIds || []).includes(r.id)));
+    if (enrolled.length === 0) return 0;
+    const done = enrolled.filter(r => ProductTraining.statusFor(r.id, course, store.progress, store.assignments) === "complete").length;
+    return Math.round((done / enrolled.length) * 100);
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 8 }}>
+        <button className="btn"><Icons.ArrowUpRight size={13}/> Audit trail</button>
+        <button className="btn btn-primary" onClick={newCourse}><Icons.Plus size={13}/> New course</button>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><h3>Library</h3><span className="meta">{COURSES.length}</span></div>
+        <div className="panel-h"><h3>Course library</h3><span className="meta">{store.courses.length}</span></div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 90px 90px 100px" }}>
-            <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div className="tabular" style={{ textAlign: "right" }}>Versions</div><div className="tabular" style={{ textAlign: "right" }}>Enrolled</div><div></div>
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 90px 90px 110px 100px" }}>
+            <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Sec.</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div className="tabular" style={{ textAlign: "right" }}>Enrolled</div><div className="tabular" style={{ textAlign: "right" }}>Complete %</div><div>Required</div><div></div>
           </div>
-          {COURSES.map((c, i) => (
-            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 90px 90px 100px" }}>
-              <div style={{ fontWeight: 500 }}>{c.title}</div>
-              <div><span className="chip">{c.track}</span></div>
-              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
-              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{3 + (i % 4)}</div>
-              <div className="tabular" style={{ textAlign: "right" }}>{4 + i}</div>
-              <div><button className="btn btn-ghost">Edit</button></div>
+          {store.courses.map(c => {
+            const lessonCount = (c.sections || []).reduce((a, s) => a + (s.lessons?.length || 0), 0);
+            const enrolled = enrolledCount(c);
+            const completed = completionRate(c);
+            return (
+              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 90px 90px 110px 100px" }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{c.title || <span style={{ color: "var(--text-tertiary)" }}>Untitled</span>}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{lessonCount} lesson{lessonCount === 1 ? "" : "s"}</div>
+                </div>
+                <div><span className="chip">{c.track}</span></div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{(c.sections || []).length}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{enrolled}</div>
+                <div className="tabular" style={{ textAlign: "right", color: completed >= 80 ? "var(--accent-money)" : completed >= 50 ? "var(--text-secondary)" : "var(--state-warning)" }}>{completed}%</div>
+                <div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!c.required} onChange={() => toggleRequired(c.id)}/>
+                    {c.required ? <span style={{ color: "var(--accent-status)" }}>required</span> : <span style={{ color: "var(--text-tertiary)" }}>optional</span>}
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  <button className="icon-btn" onClick={() => editCourse(c)} title="Edit"><Icons.Edit size={11}/></button>
+                  <button className="icon-btn" onClick={() => removeCourse(c.id)} title="Delete"><Icons.X size={11}/></button>
+                </div>
+              </div>
+            );
+          })}
+          {store.courses.length === 0 && (
+            <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              No courses yet. Click <strong>New course</strong> to start building.
             </div>
-          ))}
+          )}
         </div>
       </div>
-    </div>
+
+      {editing && <CourseBuilderModal course={editing} setCourse={setEditing} onSave={saveCourse} onCancel={() => setEditing(null)}/>}
+    </>
+  );
+}
+
+/* ─── Course Builder modal — sections, lessons, video upload/embed ───── */
+function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
+  const c = course;
+  const update = (patch) => setCourse({ ...c, ...patch });
+  const updateSection = (si, patch) => update({ sections: c.sections.map((s, i) => i === si ? { ...s, ...patch } : s) });
+  const updateLesson = (si, li, patch) => update({
+    sections: c.sections.map((s, i) => i !== si ? s : ({ ...s, lessons: s.lessons.map((l, j) => j === li ? { ...l, ...patch } : l) })),
+  });
+  const addSection = () => update({ sections: [...c.sections, { title: `Section ${c.sections.length + 1}`, lessons: [] }] });
+  const removeSection = (si) => update({ sections: c.sections.filter((_, i) => i !== si) });
+  const moveSection = (si, dir) => {
+    const ns = [...c.sections]; const j = si + dir;
+    if (j < 0 || j >= ns.length) return;
+    [ns[si], ns[j]] = [ns[j], ns[si]];
+    update({ sections: ns });
+  };
+  const addLesson = (si) => update({
+    sections: c.sections.map((s, i) => i === si ? { ...s, lessons: [...s.lessons, { title: "New lesson", videoUrl: "", description: "" }] } : s),
+  });
+  const removeLesson = (si, li) => update({
+    sections: c.sections.map((s, i) => i === si ? { ...s, lessons: s.lessons.filter((_, j) => j !== li) } : s),
+  });
+  const moveLesson = (si, li, dir) => {
+    update({
+      sections: c.sections.map((s, i) => {
+        if (i !== si) return s;
+        const ls = [...s.lessons]; const j = li + dir;
+        if (j < 0 || j >= ls.length) return s;
+        [ls[li], ls[j]] = [ls[j], ls[li]];
+        return { ...s, lessons: ls };
+      }),
+    });
+  };
+  const onUploadVideo = (si, li, file) => {
+    if (!file) return;
+    if (file.size > 6 * 1024 * 1024) {
+      window.toast && window.toast("Files >6MB won't persist in browser storage — paste a Loom link instead", "warn");
+    }
+    const reader = new FileReader();
+    reader.onload = () => updateLesson(si, li, { videoUrl: reader.result });
+    reader.readAsDataURL(file);
+  };
+
+  const canSave = !!c.title.trim();
+
+  return (
+    <Shared.Modal title={c._isNew ? "New course" : "Edit course"} width={860} onClose={onCancel} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+        <button className="btn btn-primary" onClick={() => onSave(c)} disabled={!canSave}>
+          <Icons.Check size={11}/> {c._isNew ? "Create course" : "Save changes"}
+        </button>
+      </>
+    }>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Shared.Field label="Title">
+          <input className="text-input" value={c.title} onChange={(e) => update({ title: e.target.value })} placeholder="Final Expense Closing 101" autoFocus/>
+        </Shared.Field>
+        <Shared.Field label="Track">
+          <Shared.Select value={c.track} onChange={(v) => update({ track: v })} options={COURSE_TRACKS.map(t => ({ v: t, l: t }))}/>
+        </Shared.Field>
+      </div>
+      <Shared.Field label="Description">
+        <textarea className="text-input" rows={2} value={c.description} onChange={(e) => update({ description: e.target.value })}
+          placeholder="What this course teaches and who should take it" style={{ width: "100%", lineHeight: 1.55 }}/>
+      </Shared.Field>
+      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, alignItems: "center" }}>
+        <Shared.Field label="Duration (min)">
+          <input className="text-input" type="number" value={c.durMin} onChange={(e) => update({ durMin: +e.target.value || 0 })}/>
+        </Shared.Field>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 18 }}>
+          <input type="checkbox" checked={!!c.required} onChange={(e) => update({ required: e.target.checked })}/>
+          <span>Required for new reps · must be completed before first live calls</span>
+        </label>
+      </div>
+
+      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+          <strong style={{ fontSize: 13 }}>Sections</strong>
+          <span className="meta" style={{ marginLeft: 8 }}>{c.sections.length}</span>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={addSection}><Icons.Plus size={11}/> Add section</button>
+        </div>
+
+        {c.sections.length === 0 && (
+          <div style={{ padding: 20, textAlign: "center", background: "var(--bg-raised)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No sections yet. Click <strong>Add section</strong> to start.
+          </div>
+        )}
+
+        {c.sections.map((s, si) => (
+          <div key={si} style={{ marginBottom: 10, border: "1px solid var(--border-subtle)", borderRadius: 6, background: "var(--bg-raised)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid var(--border-subtle)" }}>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 22 }}>#{si + 1}</span>
+              <input className="text-input" value={s.title} onChange={(e) => updateSection(si, { title: e.target.value })} placeholder="Section title" style={{ flex: 1 }}/>
+              <button className="icon-btn" onClick={() => moveSection(si, -1)} disabled={si === 0} title="Move up"><Icons.ArrowRight size={11} style={{ transform: "rotate(-90deg)" }}/></button>
+              <button className="icon-btn" onClick={() => moveSection(si,  1)} disabled={si === c.sections.length - 1} title="Move down"><Icons.ArrowRight size={11} style={{ transform: "rotate(90deg)" }}/></button>
+              <button className="icon-btn" onClick={() => removeSection(si)} title="Remove section"><Icons.X size={11}/></button>
+            </div>
+
+            <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              {s.lessons.map((l, li) => (
+                <div key={li} style={{ padding: 10, background: "var(--bg-elevated)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", minWidth: 28 }}>L{si + 1}.{li + 1}</span>
+                    <input className="text-input" value={l.title} onChange={(e) => updateLesson(si, li, { title: e.target.value })} placeholder="Lesson title" style={{ flex: 1 }}/>
+                    <button className="icon-btn" onClick={() => moveLesson(si, li, -1)} disabled={li === 0} title="Move up"><Icons.ArrowRight size={11} style={{ transform: "rotate(-90deg)" }}/></button>
+                    <button className="icon-btn" onClick={() => moveLesson(si, li,  1)} disabled={li === s.lessons.length - 1} title="Move down"><Icons.ArrowRight size={11} style={{ transform: "rotate(90deg)" }}/></button>
+                    <button className="icon-btn" onClick={() => removeLesson(si, li)} title="Remove lesson"><Icons.X size={11}/></button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, alignItems: "center" }}>
+                    <input className="text-input"
+                      value={l.videoUrl?.startsWith("data:") ? "(uploaded file)" : (l.videoUrl || "")}
+                      readOnly={l.videoUrl?.startsWith("data:")}
+                      onChange={(e) => updateLesson(si, li, { videoUrl: e.target.value })}
+                      placeholder="Paste Loom / YouTube / Vimeo link or upload →"/>
+                    <label className="btn btn-ghost" style={{ cursor: "pointer", whiteSpace: "nowrap" }}>
+                      <Icons.ArrowUpRight size={11}/> Upload
+                      <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => onUploadVideo(si, li, e.target.files?.[0])}/>
+                    </label>
+                  </div>
+                  <textarea className="text-input" rows={2} value={l.description} onChange={(e) => updateLesson(si, li, { description: e.target.value })}
+                    placeholder="What this lesson covers (optional)" style={{ width: "100%", marginTop: 6, lineHeight: 1.5 }}/>
+                  {l.videoUrl && !l.videoUrl.startsWith("data:") && (
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                      Embed: <code style={{ fontSize: 10.5 }}>{toEmbedSrc(l.videoUrl).slice(0, 70)}{toEmbedSrc(l.videoUrl).length > 70 ? "…" : ""}</code>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <button className="btn btn-ghost" style={{ alignSelf: "flex-start" }} onClick={() => addLesson(si)}><Icons.Plus size={11}/> Add lesson</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Shared.Modal>
   );
 }
 
