@@ -67,10 +67,10 @@ const NAV = {
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
+    { id: "floor",       label: "Floor",        icon: "Phone",  badge: "184" },
+    { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "team",        label: "Team Board",   icon: "Users" },
     { id: "coaching",    label: "Coaching",     icon: "Activity" },
-    { id: "pipeline",    label: "Pipeline",     icon: "Pipeline", badge: "184" },
-    { id: "queue",       label: "Dispatch",     icon: "Kanban" },
     { id: "calls",       label: "Calls",        icon: "Headset" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "commissions", label: "Commissions",  icon: "Wallet" },
@@ -81,6 +81,8 @@ const NAV = {
   ],
   owner: [
     { id: "admin",       label: "Admin",            icon: "Shield" },
+    { id: "floor",       label: "Floor",            icon: "Phone" },
+    { id: "crm",         label: "CRM",              icon: "Users" },
     { id: "pnl",         label: "P&L",              icon: "TrendingUp" },
     { id: "tree",        label: "Org Tree",         icon: "Users" },
     { id: "performance", label: "Performance",      icon: "Trophy" },
