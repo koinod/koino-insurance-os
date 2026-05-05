@@ -67,13 +67,61 @@
     return "";
   }
 
-  function LiveTranscriber({ active, leadName, onSegment }) {
-    const [status,   setStatus]   = useState("idle");      // idle | starting | live | unavailable | error
-    const [transcript, setTranscript] = useState([]);      // [{who, text, t}]
-    const recRef    = useRef(null);
-    const ctxRef    = useRef(null);
+  // Audio source modes:
+  //   "auto"       — mic + Twilio remote (when call active) + nothing else
+  //   "mic"        — local mic only
+  //   "system"     — mic + getDisplayMedia({audio:true}) for system audio
+  //                  (covers macOS Continuity, Phone Link, Bluetooth handsets,
+  //                  any call routed through the computer's speakers)
+  //   "twilio"     — mic + Twilio remote stream only
+  const SOURCE_LABEL = {
+    auto:   "Auto (mic + Twilio if calling)",
+    mic:    "Mic only",
+    system: "Mic + system audio (Phone Link / Continuity / Bluetooth)",
+    twilio: "Mic + Twilio remote",
+  };
+
+  async function captureSystemAudio() {
+    // Chrome/Edge expose getDisplayMedia({audio:true}); Safari/Firefox don't yet.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      return { stream: null, reason: "browser-unsupported" };
+    }
+    try {
+      // The user must pick a tab/window AND tick "Share audio" in the picker.
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,    // Chrome rejects audio-only — capture video then drop it
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      // Drop the video tracks immediately — we only want audio.
+      stream.getVideoTracks().forEach(t => t.stop());
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        stream.getTracks().forEach(t => t.stop());
+        return { stream: null, reason: "no-audio-track" };
+      }
+      const audioOnly = new MediaStream(audioTracks);
+      return { stream: audioOnly, reason: null };
+    } catch (e) {
+      return { stream: null, reason: (e && e.name) || "denied" };
+    }
+  }
+
+  function LiveTranscriber({ active, leadName, onSegment, defaultSource = "auto" }) {
+    const [status,    setStatus]    = useState("idle");
+    const [source,    setSource]    = useState(() => {
+      try { return localStorage.getItem("repflow.transcribe.source") || defaultSource; } catch { return defaultSource; }
+    });
+    const [transcript, setTranscript] = useState([]);
+    const [sourceNote, setSourceNote] = useState(null);
+    const recRef     = useRef(null);
+    const ctxRef     = useRef(null);
     const streamsRef = useRef([]);
-    const aliveRef  = useRef(true);
+    const remoteOnRef = useRef(false);
+    const aliveRef   = useRef(true);
+
+    useEffect(() => {
+      try { localStorage.setItem("repflow.transcribe.source", source); } catch {}
+    }, [source]);
 
     useEffect(() => {
       aliveRef.current = true;
@@ -84,7 +132,7 @@
       if (active) start();
       else stop();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active]);
+    }, [active, source]);
 
     const stop = () => {
       try { recRef.current && recRef.current.state !== "inactive" && recRef.current.stop(); } catch (_e) {}
@@ -116,13 +164,35 @@
       }
       streamsRef.current.push(mic);
 
-      // 2) Remote (lead) audio if a Twilio call is active
-      const conn = getActiveTwilioConnection();
-      const remote = getRemoteAudioStream(conn);
-      if (remote) streamsRef.current.push(remote);
+      // 2) Source-specific extra streams.
+      remoteOnRef.current = false;
+      let remote = null;
+      if (source === "auto" || source === "twilio") {
+        const conn = getActiveTwilioConnection();
+        remote = getRemoteAudioStream(conn);
+        if (remote) { streamsRef.current.push(remote); remoteOnRef.current = true; }
+      }
+      if (source === "system") {
+        const { stream: sys, reason } = await captureSystemAudio();
+        if (sys) {
+          streamsRef.current.push(sys);
+          remoteOnRef.current = true;
+          setSourceNote("Capturing mic + system audio. Speak normally.");
+        } else {
+          setSourceNote(
+            reason === "browser-unsupported"
+              ? "This browser doesn't support system-audio capture (use Chrome/Edge, or pair via Twilio instead)."
+            : reason === "no-audio-track"
+              ? "Screen-share didn't include audio — re-share and tick 'Share audio'."
+              : "System-audio share was denied. Falling back to mic only."
+          );
+        }
+      } else {
+        setSourceNote(remote ? "Capturing mic + caller audio (Twilio)." : null);
+      }
 
-      // 3) Mix into one stream for MediaRecorder
-      const { stream, ctx } = mixStreams([mic, remote].filter(Boolean));
+      // 3) Mix every captured stream (mic + remote/system if any) into one.
+      const { stream, ctx } = mixStreams(streamsRef.current);
       ctxRef.current = ctx;
 
       const mime = pickMimeType();
@@ -153,9 +223,9 @@
           const j = await r.json();
           const text = (j.text || "").trim();
           if (!text) return;
-          // Diarization-lite: assume rep mic dominant when only mic stream;
-          // otherwise tag "Call" and let downstream classifier split.
-          const seg = { who: remote ? "Call" : "You", text, t: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) };
+          // Diarization-lite: when we have a 2nd source (Twilio remote OR
+          // system audio), tag "Call". Otherwise it's just the rep's mic.
+          const seg = { who: remoteOnRef.current ? "Call" : "You", text, t: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) };
           setTranscript(arr => [...arr, seg]);
           onSegment && onSegment(seg);
           window.dispatchEvent(new CustomEvent("transcript:segment", { detail: seg }));
@@ -187,7 +257,25 @@
           <span style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: status === "live" ? "var(--accent-money)" : "var(--text-tertiary)" }}>
             {status === "live" ? "Live transcript · Whisper" : status === "starting" ? "Starting…" : "Idle"}
           </span>
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            title="Audio source"
+            style={{
+              marginLeft: "auto", fontSize: 10.5, padding: "2px 6px",
+              border: "1px solid var(--border-subtle)", borderRadius: 4,
+              background: "var(--bg-raised)", color: "var(--text-secondary)",
+            }}>
+            {Object.entries(SOURCE_LABEL).map(([k, l]) => (
+              <option key={k} value={k}>{l}</option>
+            ))}
+          </select>
         </div>
+        {sourceNote && (
+          <div style={{ marginBottom: 10, padding: "6px 10px", background: "var(--bg-raised)", borderRadius: 4, fontSize: 10.5, color: "var(--text-tertiary)" }}>
+            {sourceNote}
+          </div>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {transcript.length === 0 && status === "live" && (
             <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Listening… first segment lands in ~5s.</div>
