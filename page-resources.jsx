@@ -187,8 +187,9 @@ function deriveCarriers(useSample) {
 }
 
 // ─── Component ───────────────────────────────────────────────────────────
-function PageResources() {
+function PageResources({ role = "owner" }) {
   useAppDataTick();
+  const isRep = role === "rep";
   const [tab, setTab]                 = useLocalValue("repflow:resources:tab", "overview");
   const [useSample, setUseSample]     = useLocalValue("repflow:resources:sample", true);
   const [spendOverrides, setSpendOv]  = useLocalArray("repflow:resources:spendOverrides", {});
@@ -312,13 +313,21 @@ function PageResources() {
     .map(c => ({ cat: c, items: links.filter(l => l.cat === c) }))
     .filter(g => g.items.length > 0 || (linkAdd && linkDraft.cat === g.cat));
 
+  // Reps don't manage lead vendor spend — hide that tab. Owner + manager
+  // see all 5.
   const TABS = [
     { k: "overview", l: "Overview",     icon: "Activity" },
-    { k: "vendors",  l: "Lead vendors", icon: "Wallet",   badge: vendors.length },
+    !isRep && { k: "vendors",  l: "Lead vendors", icon: "Wallet",   badge: vendors.length },
     { k: "carriers", l: "Carriers",     icon: "Shield",   badge: carriers.length },
     { k: "scripts",  l: "Scripts & docs", icon: "FileText", badge: scripts.length + docs.length },
     { k: "links",    l: "Quick links",  icon: "Bookmark", badge: links.length },
-  ];
+  ].filter(Boolean);
+
+  // Auto-route reps off the vendors tab if they ever land on it via stale
+  // localStorage (it was their last selected tab as owner before).
+  React.useEffect(() => {
+    if (isRep && tab === "vendors") setTab("overview");
+  }, [isRep, tab, setTab]);
 
   return (
     <div className="page-pad">
@@ -342,7 +351,7 @@ function PageResources() {
 
       <Shared.SectionPill items={TABS} value={tab} onChange={setTab}/>
 
-      {tab === "overview"  && <OverviewSection {...{ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab }}/>}
+      {tab === "overview"  && <OverviewSection {...{ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab, isRep }}/>}
       {tab === "vendors"   && <VendorsSection  {...{ vendors, totals, blendedRoas, blendedCpl, blendedCpa, logDraft, setLogDraft, logSpend, spendLog }}/>}
       {tab === "carriers"  && <CarriersSection {...{ carriers, phone, setPhone, age, setAge, zip, setZip, scrubResults, runScrub }}/>}
       {tab === "scripts"   && <ScriptsDocsSection {...{ scripts: filteredScripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc }}/>}
@@ -352,16 +361,19 @@ function PageResources() {
 }
 
 // ═══ Overview ═════════════════════════════════════════════════════════════
-function OverviewSection({ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab }) {
+function OverviewSection({ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab, isRep }) {
   return (
     <div>
-      {/* KPI row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-        <Shared.KpiCard label="Lead spend (period)"   prefix="$" value={Math.round(totals.spend).toLocaleString()} sub={`${totals.leads} leads · ${fmtMoney(blendedCpl)} CPL`}/>
-        <Shared.KpiCard label="Blended ROAS"           value={blendedRoas.toFixed(2) + "x"} sub={`${fmtMoney(totals.ap)} AP / ${fmtMoney(totals.spend)} spend`} trend={blendedRoas >= 3 ? "up" : blendedRoas >= 1.5 ? null : "down"}/>
-        <Shared.KpiCard label="Issued / close rate"    value={totals.issued + " · " + fmtPct(closeRate, 0)} sub={`${fmtMoney(blendedCpa)} CPA`}/>
-        <Shared.KpiCard label="Avg persistency"        value={carrierAvgPersist != null ? fmtPct(carrierAvgPersist, 0) : "—"} sub={`avg NIGO ${fmtPct(carrierAvgNigo)}`}/>
-      </div>
+      {/* KPI row — only owners + managers care about lead-spend economics.
+          Reps land directly on the Quick-jump strip. */}
+      {!isRep && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+          <Shared.KpiCard label="Lead spend (period)"   prefix="$" value={Math.round(totals.spend).toLocaleString()} sub={`${totals.leads} leads · ${fmtMoney(blendedCpl)} CPL`}/>
+          <Shared.KpiCard label="Blended ROAS"           value={blendedRoas.toFixed(2) + "x"} sub={`${fmtMoney(totals.ap)} AP / ${fmtMoney(totals.spend)} spend`} trend={blendedRoas >= 3 ? "up" : blendedRoas >= 1.5 ? null : "down"}/>
+          <Shared.KpiCard label="Issued / close rate"    value={totals.issued + " · " + fmtPct(closeRate, 0)} sub={`${fmtMoney(blendedCpa)} CPA`}/>
+          <Shared.KpiCard label="Avg persistency"        value={carrierAvgPersist != null ? fmtPct(carrierAvgPersist, 0) : "—"} sub={`avg NIGO ${fmtPct(carrierAvgNigo)}`}/>
+        </div>
+      )}
 
       {/* Leaders strip */}
       <div className="panel" style={{ marginBottom: 14 }}>
