@@ -13,11 +13,7 @@ function DialQueueView({ onCall }) {
       <div className="page-h">
         <div>
           <div className="page-title">Dial Queue</div>
-          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · TPMO disclaimer auto-fires on connect</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Filter size={13}/> Filters</button>
-          <button className="btn btn-primary" onClick={onCall}><Icons.Phone size={13}/> Start dialing</button>
+          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · use the autodialer pill above to start a session</div>
         </div>
       </div>
 
@@ -53,14 +49,20 @@ function DialQueueView({ onCall }) {
                   <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Dial"
-                      onClick={() => i === 0
-                        ? (onCall && onCall())
-                        : window.repflowCall && window.repflowCall(l.phone || "+15125550" + l.id.replace(/\D/g, "").slice(0, 3), l.lead)}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
+                      title={l.phone ? `Dial ${l.phone}` : "No phone on file — add one in lead detail"}
+                      disabled={!l.phone && i !== 0}
+                      onClick={() => {
+                        if (i === 0) { onCall && onCall(); return; }
+                        if (!l.phone) { window.toast && window.toast("No phone on file — add one in lead detail", "warn"); return; }
+                        window.repflowCall && window.repflowCall(l.phone, l.lead);
+                      }}>
                       <Icons.Phone size={12}/>
                     </button>
-                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Send SMS"
-                      onClick={() => window.smsCompose && window.smsCompose(l, l.phone)}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
+                      title={l.phone ? `Send SMS to ${l.phone}` : "No phone on file"}
+                      disabled={!l.phone}
+                      onClick={() => l.phone && window.smsCompose && window.smsCompose(l, l.phone)}>
                       <Icons.MessageSquare size={12}/>
                     </button>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Schedule SOA"
@@ -263,10 +265,22 @@ const FALLBACK_SCRIPTS = [
 ];
 
 function InCallScripts() {
-  const [scripts] = React.useState(() => {
-    try { const raw = localStorage.getItem("repflow:scripts"); if (raw) return JSON.parse(raw); } catch (_e) {}
-    return FALLBACK_SCRIPTS;
-  });
+  // Reads agency-shared scripts from AppData.SCRIPTS_LIB (migration 0010);
+  // falls back to FALLBACK_SCRIPTS for empty agencies / offline use.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    window.addEventListener("data:realtime", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+      window.removeEventListener("data:realtime", fn);
+    };
+  }, []);
+  const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
+  const scripts = liveScripts.length > 0 ? liveScripts : FALLBACK_SCRIPTS;
   const [openId, setOpenId] = React.useState(null);
   const [q, setQ]           = React.useState("");
   const filtered = scripts.filter(s => !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()));
@@ -356,17 +370,195 @@ function CarrierQuoteTool() {
   );
 }
 
-function InCall({ onClose, lead }) {
+/* ─────────────────────────────────────────────────────────────────────────
+   CallCopilot — real-time analysis pane for the in-call panel.
+
+   Subscribes to `transcript:segment` events emitted by LiveTranscriber and:
+     • counts words per speaker → live talk-ratio meter with target band
+     • detects TPMO disclosure fragments in the rep's stream → flips the
+       compliance flag without relying on the 8s timer
+     • pattern-matches caller utterances against an objection map → surfaces
+       AI-suggested rebuttals as actionable chips that drop a script into
+       Scripts/Send-SMS pipeline
+     • shows contextual nudges based on rolling state (talk-ratio >60% for
+       30s+, no open question in 90s, no TPMO read at 30s, etc.)
+     • one-click "Drop call to Vault" button — uses vaultArtifactInsert.
+
+   Stays cheap: all logic is local string matching + counters. Hooks into
+   the existing transcriber; no extra network calls.
+   ───────────────────────────────────────────────────────────────────────── */
+function CallCopilot({ lead, sec, tpmoFired, setTpmoFired }) {
+  const [segments, setSegments] = React.useState([]);
+  const [dropped, setDropped]   = React.useState(false);
+
+  React.useEffect(() => {
+    const onSeg = (e) => {
+      const s = e.detail;
+      if (!s || !s.text) return;
+      setSegments(prev => [...prev, { who: s.who || "You", text: s.text, t: s.t || sec }]);
+    };
+    window.addEventListener("transcript:segment", onSeg);
+    return () => window.removeEventListener("transcript:segment", onSeg);
+  }, [sec]);
+
+  // Reset when the lead changes (next call in autodial)
+  React.useEffect(() => { setSegments([]); setDropped(false); }, [lead && lead.id]);
+
+  // ── Derived signals ─────────────────────────────────────────────────────
+  const repText    = segments.filter(s => s.who === "You").map(s => s.text).join(" ").toLowerCase();
+  const callerText = segments.filter(s => s.who !== "You").map(s => s.text).join(" ").toLowerCase();
+  const repWords   = repText.split(/\s+/).filter(Boolean).length;
+  const callerWords= callerText.split(/\s+/).filter(Boolean).length;
+  const totalWords = repWords + callerWords;
+  const talkRatio  = totalWords === 0 ? null : Math.round((repWords / totalWords) * 100);
+  const openQs     = (repText.match(/\b(what|how|why|when|where|tell me|walk me through)\b/g) || []).length;
+
+  // TPMO auto-detect: any of these phrases in the rep stream flips compliance.
+  const TPMO_PHRASES = [
+    "do not offer every plan",
+    "limited to those plans",
+    "1-800-medicare",
+    "medicare.gov",
+  ];
+  React.useEffect(() => {
+    if (tpmoFired) return;
+    if (TPMO_PHRASES.some(p => repText.includes(p))) setTpmoFired(true);
+  }, [repText, tpmoFired, setTpmoFired]);
+
+  // Objection map: caller phrase → { label, action }
+  const OBJECTIONS = [
+    { match: /\b(too expensive|can'?t afford|out of (my )?budget|too pricey)\b/, label: "Price objection", reply: "Plan G covers everything Original Medicare doesn't — the question isn't 'can I afford this premium,' it's 'can I afford a $9,000 hospital deductible.' Walk me through what hospital stays would cost you today without it." },
+    { match: /\b(already have|have coverage|got insurance|covered already)\b/,    label: "Already covered", reply: "That's good — most of my clients had something. The reason I called is the rates jumped 14% on average for renewals this year. What carrier and plan are you on right now?" },
+    { match: /\b(let me think|need to think|call me back|send me|in the mail)\b/, label: "Stalling",         reply: "Of course. What I want to make sure is that when you do think about it, you have everything you need. What's the one piece of information that would make this an easy yes or no?" },
+    { match: /\b(spouse|wife|husband|partner|talk to my)\b/,                       label: "Spouse decision", reply: "Smart — what's your spouse's biggest concern about Medicare costs? I can run a quote for them too in 60 seconds." },
+    { match: /\b(medication|prescription|pharmacy|drug)\b/,                        label: "Drug coverage",   reply: "Let me pull up your medication list. What you take matters more than the premium for choosing the right plan. What are you on right now?" },
+  ];
+  const detectedObj = OBJECTIONS.find(o => o.match.test(callerText));
+
+  // Nudges: tactical real-time prompts, ordered by urgency
+  const nudges = [];
+  if (sec >= 30 && !tpmoFired)            nudges.push({ kind: "warn", msg: "Read the TPMO disclosure now — you've been on for 30s." });
+  if (talkRatio !== null && talkRatio > 60 && sec >= 30) nudges.push({ kind: "warn", msg: `Talking ${talkRatio}% — ask: "Walk me through your day."` });
+  if (openQs === 0 && repWords > 50)      nudges.push({ kind: "tip", msg: "No open-ended questions yet. Lead with one." });
+  if (detectedObj)                         nudges.push({ kind: "obj", msg: `Caller said "${detectedObj.label}" — try the rebuttal below.` });
+
+  const targetMin = 35, targetMax = 50;  // healthy talk-ratio band
+
+  const dropToVault = async () => {
+    try {
+      const transcriptText = segments.map(s => `${s.who}: ${s.text}`).join("\n");
+      const me = (typeof window !== "undefined" && window.me && window.me()) || {};
+      await AppData.mutate.vaultArtifactInsert({
+        kind: "Recording",
+        lead_name: lead?.lead || lead?.name || "Live call",
+        rep_id: me.rep_id || null,
+        retention: "10y",
+        status: "complete",
+        metadata: {
+          duration_seconds: sec,
+          talk_ratio: talkRatio,
+          open_questions: openQs,
+          tpmo_compliant: tpmoFired,
+          transcript: transcriptText,
+        },
+      });
+      setDropped(true);
+      window.toast && window.toast("Call dropped to Vault — 10y retention applied", "success");
+    } catch (_e) {
+      window.toast && window.toast("Vault drop failed — check Supabase", "warn");
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Talk-ratio meter */}
+      <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Icons.Activity size={11} style={{ color: "var(--accent-money)" }}/>
+          <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>Talk ratio</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>target {targetMin}–{targetMax}%</span>
+        </div>
+        {talkRatio === null ? (
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Listening for first words…</div>
+        ) : (
+          <>
+            <div style={{ position: "relative", height: 8, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden" }}>
+              {/* Target band */}
+              <div style={{ position: "absolute", left: `${targetMin}%`, width: `${targetMax - targetMin}%`, height: "100%", background: "color-mix(in oklch, var(--accent-money) 16%, transparent)" }}/>
+              {/* Rep talk fill */}
+              <div style={{ width: `${talkRatio}%`, height: "100%", background: talkRatio > targetMax ? "var(--state-warning)" : talkRatio < targetMin ? "var(--text-tertiary)" : "var(--accent-money)" }}/>
+            </div>
+            <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)" }}>
+              <span>You: <strong style={{ color: talkRatio > targetMax ? "var(--state-warning)" : "var(--accent-money)" }}>{talkRatio}%</strong></span>
+              <span>Caller: {100 - talkRatio}%</span>
+              <span>Open Qs: <strong style={{ color: openQs >= 3 ? "var(--accent-money)" : "var(--text-secondary)" }}>{openQs}</strong></span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* AI nudges */}
+      <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--accent-money)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <Icons.Sparkles size={11}/> AI nudges
+        </div>
+        {nudges.length === 0 ? (
+          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-tertiary)" }}>Looking good. Keep them talking.</div>
+        ) : (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {nudges.map((n, i) => (
+              <div key={i} style={{
+                fontSize: 12, lineHeight: 1.5, padding: "6px 10px", borderRadius: 6,
+                background: n.kind === "warn" ? "color-mix(in oklch, var(--state-warning) 12%, transparent)"
+                          : n.kind === "obj"  ? "color-mix(in oklch, var(--accent-status) 12%, transparent)"
+                          : "color-mix(in oklch, var(--accent-money) 8%, transparent)",
+                color: n.kind === "warn" ? "var(--state-warning)"
+                     : n.kind === "obj"  ? "var(--accent-status)"
+                     : "var(--text-primary)",
+                borderLeft: `3px solid ${n.kind === "warn" ? "var(--state-warning)" : n.kind === "obj" ? "var(--accent-status)" : "var(--accent-money)"}`,
+              }}>{n.msg}</div>
+            ))}
+          </div>
+        )}
+        {detectedObj && (
+          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-overlay)", borderRadius: 6, fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.55 }}>
+            <div style={{ fontSize: 10.5, color: "var(--accent-status)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Try this →</div>
+            "{detectedObj.reply}"
+          </div>
+        )}
+      </div>
+
+      {/* Vault drop — single click, end-of-call action */}
+      <button className={dropped ? "btn" : "btn btn-primary"} onClick={dropToVault} disabled={dropped} style={{ alignSelf: "flex-start" }}>
+        <Icons.Shield size={11}/> {dropped ? "In Vault · 10y retention" : "Drop call → Vault"}
+      </button>
+    </div>
+  );
+}
+
+function InCall({ onClose, lead, autodial }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
   const [sec, setSec] = React.useState(0);
   const [muted, setMuted]         = React.useState(false);
   const [onHold, setOnHold]       = React.useState(false);
+
+  // Mirror AutoDialBar's state so this modal can render as the autodialer
+  // dashboard: queue progress at top, outcome buttons at bottom.
+  const [adState, setAdState] = React.useState(() => window.__autodialState || null);
+  React.useEffect(() => {
+    const onChange = (e) => setAdState(e.detail || null);
+    window.addEventListener("autodial:state-change", onChange);
+    return () => window.removeEventListener("autodial:state-change", onChange);
+  }, []);
+  // Reset call timer + TPMO flag every time the lead changes (next call in autodial)
+  React.useEffect(() => { setSec(0); setTpmoFired(false); setMuted(false); setOnHold(false); }, [lead && lead.id]);
+
   React.useEffect(() => {
     if (onHold) return;  // freeze timer while on hold
     const t = setInterval(() => setSec(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [onHold]);
+  }, [onHold, lead && lead.id]);
   React.useEffect(() => { if (sec >= 8) setTpmoFired(true); }, [sec]);
 
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
@@ -374,6 +566,9 @@ function InCall({ onClose, lead }) {
 
   // Demo lead used by AutoDialBar / UI when caller didn't pass one in
   const activeLead = lead || { id: "demo-cheryl", lead: "Cheryl Hampton", state: "TX", product: "Med Supp Plan G" };
+  const isAutodial = autodial || (adState && adState.active);
+  const stage = adState?.stage;
+  const paused = adState?.paused;
 
   const toggleMute = () => {
     setMuted(m => !m);
@@ -392,23 +587,72 @@ function InCall({ onClose, lead }) {
   const onSendAppLink = () => window.sendAppLink && window.sendAppLink(activeLead);
   const onSendSMS     = () => window.smsCompose  && window.smsCompose(activeLead, activeLead.phone);
 
+  // Outcome dispatchers (only used in autodial mode)
+  const fireOutcome = (outcome) => window.dispatchEvent(new CustomEvent("autodial:outcome", { detail: { outcome }}));
+  const fireSkip    = () => window.dispatchEvent(new CustomEvent("autodial:skip"));
+  const fireStop    = () => window.dispatchEvent(new CustomEvent("autodial:stop-request"));
+  const firePause   = () => window.dispatchEvent(new CustomEvent("autodial:pause"));
+  const fireResume  = () => window.dispatchEvent(new CustomEvent("autodial:resume"));
+
   return (
     <div className="incall" onClick={onClose}>
       <div className="incall-card" onClick={(e) => e.stopPropagation()}>
+        {/* Autodial dashboard header — queue progress + Pause/Skip/Stop. Only when in autodial. */}
+        {isAutodial && adState && (
+          <div style={{
+            gridColumn: "1 / -1",
+            padding: "10px 16px",
+            background: "color-mix(in oklch, var(--accent-money) 8%, var(--bg-elevated))",
+            borderBottom: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <Icons.Phone size={13} style={{ color: "var(--accent-money)" }}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+                Autodialer <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {(adState.idx ?? 0) + 1} of {adState.total} · {stage === "outcome" ? "log outcome" : paused ? "paused" : "calling"}</span>
+              </div>
+              <div style={{ height: 3, background: "var(--bg-raised)", borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
+                <div style={{ width: `${(((adState.idx ?? 0) + 1) / Math.max(1, adState.total)) * 100}%`, height: "100%", background: "var(--accent-money)" }}/>
+              </div>
+            </div>
+            <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={paused ? fireResume : firePause}>
+              {paused ? <><Icons.Play size={11}/> Resume</> : <><Icons.Pause size={11}/> Pause</>}
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={fireSkip}>
+              <Icons.ArrowRight size={11}/> Skip
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11, color: "var(--state-danger)" }} onClick={fireStop}>
+              <Icons.X size={11}/> Stop
+            </button>
+          </div>
+        )}
         <div style={{ padding: 20, borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="dot dot-live" style={{ width: 8, height: 8 }}></span>
             <span style={{ color: "var(--accent-money)", fontWeight: 500, fontSize: 12 }}>LIVE</span>
             <span className="tabular mono" style={{ marginLeft: "auto", fontSize: 13, color: "var(--text-secondary)" }}>{mm}:{ss}</span>
           </div>
-          <div style={{ marginTop: 14, fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Cheryl Hampton</div>
-          <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>67 · Travis County, TX · zip 78704 · T65 list</div>
+          <div style={{ marginTop: 14, fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>{activeLead.lead}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>
+            {[activeLead.age && `${activeLead.age}`, activeLead.state, activeLead.source].filter(Boolean).join(" · ") || "—"}
+          </div>
+          {(activeLead.phone || activeLead.email) && (
+            <div style={{ marginTop: 6, display: "flex", gap: 12, fontSize: 11.5, color: "var(--text-secondary)", flexWrap: "wrap" }}>
+              {activeLead.phone && <span><Icons.Phone size={10} style={{ verticalAlign: "middle", color: "var(--text-tertiary)" }}/> <span className="mono">{activeLead.phone}</span></span>}
+              {activeLead.email && <span><Icons.Mail  size={10} style={{ verticalAlign: "middle", color: "var(--text-tertiary)" }}/> <span className="mono" style={{ fontSize: 11 }}>{activeLead.email}</span></span>}
+            </div>
+          )}
+          {!activeLead.phone && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--state-warning)" }}>
+              No phone on file — add one in the lead detail drawer to dial / SMS.
+            </div>
+          )}
 
           <div style={{ marginTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <span className="chip chip-info">Plan G eligible</span>
-            <span className="chip">No prior Med Supp</span>
-            <span className="chip">Spouse 64</span>
-            <span className="chip chip-money">LeadiD ✓ verified</span>
+            {activeLead.product   && <span className="chip chip-info">{activeLead.product}</span>}
+            {activeLead.heat      && <span className="chip">{activeLead.heat}</span>}
+            {activeLead.consent   && <span className="chip chip-money">consent · {activeLead.consent}</span>}
+            {!activeLead.product && !activeLead.heat && !activeLead.consent && <span className="chip">no enrichment yet</span>}
           </div>
 
           <div style={{ marginTop: 14, padding: 12, background: tpmoFired ? "color-mix(in oklch, var(--accent-money) 10%, transparent)" : "color-mix(in oklch, var(--accent-heat) 12%, transparent)", border: `1px solid ${tpmoFired ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "color-mix(in oklch, var(--accent-heat) 30%, transparent)"}`, borderRadius: 8 }}>
@@ -462,27 +706,45 @@ function InCall({ onClose, lead }) {
               ? (() => { const T = window.LiveTranscriber; return <T active={!onHold} leadName={activeLead.lead}/>; })()
               : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcriber loading…</div>}
 
-            <div style={{ marginTop: 18, padding: 12, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--accent-money)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                <Icons.Sparkles size={11}/> AI suggests
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-primary)" }}>AI suggestions populate from the live transcript as the call progresses.</div>
-            </div>
+            {window.QuoteCard && (() => {
+              const Q = window.QuoteCard;
+              return <Q active={!onHold} leadName={activeLead.lead} leadId={activeLead.leadId || activeLead.id} callId={activeLead.callId}/>;
+            })()}
+
+            <CallCopilot lead={activeLead} sec={sec} tpmoFired={tpmoFired} setTpmoFired={setTpmoFired}/>
           </div>
 
-          <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className={muted ? "btn btn-primary" : "btn"} onClick={toggleMute}>
-              <Icons.Mic size={12}/> {muted ? "Unmute" : "Mute"}
-            </button>
-            <button className={onHold ? "btn btn-primary" : "btn"} onClick={toggleHold}>
-              <Icons.Pause size={12}/> {onHold ? "Resume" : "Hold"}
-            </button>
-            <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
-            <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
-            <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
-            <div style={{ flex: 1 }}></div>
-            <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}><Icons.Stop size={12}/> End call</button>
-          </div>
+          {isAutodial && stage === "outcome" ? (
+            // Autodial outcome capture — replaces the End-call strip with the 5
+            // outcome buttons. Picking one advances to the next lead automatically.
+            <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Log outcome:</span>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("no_answer")}><span className="kbd mono">1</span> No answer</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("voicemail")}><span className="kbd mono">2</span> VM</button>
+              <button className="btn btn-primary" onClick={() => fireOutcome("appointment")}><span className="kbd mono">3</span> Appt</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("not_interested")}><span className="kbd mono">4</span> Not int.</button>
+              <button className="btn btn-ghost" onClick={() => fireOutcome("callback")}><span className="kbd mono">5</span> Callback</button>
+              <div style={{ flex: 1 }}/>
+              <button className="btn" onClick={fireSkip}><Icons.ArrowRight size={11}/> Skip</button>
+            </div>
+          ) : (
+            // Standard in-call action strip — Mute / Hold / SMS / SOA / Send link / End
+            <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className={muted ? "btn btn-primary" : "btn"} onClick={toggleMute}>
+                <Icons.Mic size={12}/> {muted ? "Unmute" : "Mute"}
+              </button>
+              <button className={onHold ? "btn btn-primary" : "btn"} onClick={toggleHold}>
+                <Icons.Pause size={12}/> {onHold ? "Resume" : "Hold"}
+              </button>
+              <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
+              <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
+              <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
+              <div style={{ flex: 1 }}></div>
+              <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}>
+                <Icons.Stop size={12}/> {isAutodial ? "Close · keep dialing" : "End call"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -491,3 +753,5 @@ function InCall({ onClose, lead }) {
 
 window.PageQueue = PageQueue;
 window.InCall = InCall;
+window.CarrierQuoteTool = CarrierQuoteTool;  // standalone use via FloorActionsHost
+window.InCallScripts    = InCallScripts;

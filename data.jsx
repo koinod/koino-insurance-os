@@ -165,13 +165,16 @@ window.hydrateFromSupabase = async function () {
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
-        owner: p.owner_rep_id, consent: p.consent, heat: p.heat
+        owner: p.owner_rep_id, consent: p.consent, heat: p.heat,
+        phone: p.phone || null, email: p.email || null,
       }));
     }
     if (queue.data?.length) {
       window.AppData.QUEUE = queue.data.map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
-        product: q.product, elapsed: q.elapsed_seconds, score: q.score
+        product: q.product, elapsed: q.elapsed_seconds, score: q.score,
+        phone: q.phone || null, email: q.email || null,
+        assignedRepId: q.assigned_rep_id || null,
       }));
     }
     if (courses.data?.length) {
@@ -537,6 +540,45 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] v2 hydrate skipped:", v2err?.message ?? v2err);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Resources hydrate — migration 0010 (agency-shared scripts/videos/docs/
+    // links). Without this, every operator sees only their own browser's
+    // localStorage which means a manager-uploaded video is invisible to reps.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const [scriptsR, videosR, docsR, linksR] = await Promise.all([
+        scope(sb.from("agency_scripts").select("*").order("updated_at", { ascending: false })),
+        scope(sb.from("agency_videos").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("agency_docs").select("*").order("created_at", { ascending: false })),
+        scope(sb.from("agency_quick_links").select("*").order("sort_order", { ascending: true })),
+      ]);
+      const mapRowsR = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+      window.AppData.SCRIPTS_LIB = mapRowsR(scriptsR, r => ({
+        id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body,
+        createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at,
+      }));
+      window.AppData.VIDEOS = mapRowsR(videosR, r => ({
+        id: r.id, title: r.title, cat: r.cat, src: r.src,
+        sourceUrl: r.source_url, sourceLabel: r.source_label,
+        thumb: r.thumb, durMin: r.dur_min || 0,
+        createdBy: r.created_by, createdAt: r.created_at,
+      }));
+      window.AppData.DOCS = mapRowsR(docsR, r => ({
+        id: r.id, title: r.title, cat: r.cat, url: r.url,
+        kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext,
+        sizeBytes: r.size_bytes, storagePath: r.storage_path,
+        text: r.text_excerpt,
+        createdBy: r.created_by, createdAt: r.created_at,
+      }));
+      window.AppData.QUICK_LINKS = mapRowsR(linksR, r => ({
+        id: r.id, cat: r.cat, label: r.label, url: r.url,
+        sortOrder: r.sort_order || 0, createdAt: r.created_at,
+      }));
+    } catch (resErr) {
+      // Migration 0010 may not be applied yet — components fall back to seed.
+      console.warn("[supabase] resources hydrate skipped:", resErr?.message ?? resErr);
+    }
+
     window.AppData.LIVE = true;
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
@@ -585,12 +627,17 @@ window.subscribeRealtime = function () {
     workflows:   "WORKFLOWS",
     agent_deployments: "DEPLOYMENTS",
     agent_runs:        "AGENT_RUNS",
+    // 0010 — resource tables sync across browsers in real time
+    agency_scripts:     "SCRIPTS_LIB",
+    agency_videos:      "VIDEOS",
+    agency_docs:        "DOCS",
+    agency_quick_links: "QUICK_LINKS",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
   const toJs = (table, r) => {
-    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, owner: r.owner_rep_id, consent: r.consent, heat: r.heat };
-    if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score };
+    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, owner: r.owner_rep_id, consent: r.consent, heat: r.heat, phone: r.phone || null, email: r.email || null };
+    if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score, phone: r.phone || null, email: r.email || null, assignedRepId: r.assigned_rep_id || null };
     if (table === "reps")       return { id: r.id, name: r.name, handle: r.handle, tier: r.tier, mtd: Math.round(r.mtd_cents/100), today: Math.round(r.today_cents/100), streak: r.streak_days, dials: r.dials, presence: r.presence, appts: r.appts, color: r.color };
     if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
     if (table === "ai_agents")  return { id: r.id, name: r.name, host: r.host_id, reqs: r.reqs_per_day, success: parseFloat(r.success_rate), last: "live", desc: r.description };
@@ -598,6 +645,10 @@ window.subscribeRealtime = function () {
     if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run };
     if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
     if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
+    if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
+    if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
     return r;
   };
 
@@ -665,14 +716,37 @@ window.AppData.mutate = {
           product: row.product, ap_cents: Math.round((row.ap || 0) * 100),
           days_in_stage: row.days || 0, last_activity_text: row.last, next_action: row.next,
           source: row.source, owner_rep_id: row.owner, consent: row.consent, heat: row.heat,
+          phone: row.phone || null, email: row.email || null,
         };
-        const { data, error } = await sb.from("pipeline").insert(dbRow).select().single();
+        // Tolerant insert — strip phone/email if the migration hasn't landed yet.
+        let { data, error } = await sb.from("pipeline").insert(dbRow).select().single();
+        if (error && /column.*does not exist/i.test(error.message || "")) {
+          const { phone, email, ...legacy } = dbRow;
+          ({ data, error } = await sb.from("pipeline").insert(legacy).select().single());
+        }
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
         if (data?.id) row.id = data.id;
       }
     }
     window.AppData.PIPELINE.unshift(row);
     _emitMutation("pipeline", "insert", row.id);
+  },
+
+  async pipelineContact(id, patch) {
+    // Patch phone / email (and any other future contact fields) on a pipeline row.
+    const row = window.AppData.PIPELINE.find(p => p.id === id);
+    if (row) Object.assign(row, patch);
+    _emitMutation("pipeline", "update", id);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const dbPatch = {};
+      if (patch.phone !== undefined) dbPatch.phone = patch.phone || null;
+      if (patch.email !== undefined) dbPatch.email = patch.email || null;
+      try {
+        const { error } = await sb.from("pipeline").update(dbPatch).eq("id", id);
+        if (error && !/column.*does not exist/i.test(error.message || "")) throw error;
+      } catch (_e) { /* tolerant — column may not yet exist */ }
+    }
   },
 
   async pipelineDelete(id) {
@@ -693,7 +767,8 @@ window.AppData.mutate = {
     const newPipeRow = {
       lead: q.lead, age: q.age, state: q.state, stage: "New",
       product: q.product, ap: 0, days: 0, last: "Just routed",
-      next: "First dial", source: q.source, owner: repId, consent: "verified", heat: "fresh"
+      next: "First dial", source: q.source, owner: repId, consent: "verified", heat: "fresh",
+      phone: q.phone || null, email: q.email || null,
     };
     await this.pipelineInsert(newPipeRow);
     // Remove from queue locally
@@ -1189,4 +1264,87 @@ window.AppData.mutate = {
     _emitMutation("agency_notifications", "insert", note.id);
     return note;
   },
+
+  /* ── Resources (migration 0010) — agency_scripts / videos / docs / links ──
+     Each helper writes to AppData optimistically AND, when LIVE, persists to
+     Supabase so any operator on any browser sees the same library. */
+  async _resourceUpsert(table, key, jsRow, dbRow) {
+    const list = (window.AppData[key] = window.AppData[key] || []);
+    const idx = jsRow.id ? list.findIndex(x => x.id === jsRow.id) : -1;
+    if (idx >= 0) list[idx] = { ...list[idx], ...jsRow };
+    else list.unshift(jsRow);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return jsRow;
+      const me = window.me && window.me();
+      const payload = { ...dbRow, agency_id: me && me.agency_id };
+      let resp;
+      if (jsRow.id && !String(jsRow.id).startsWith("tmp-")) {
+        resp = await sb.from(table).update(payload).eq("id", jsRow.id).select().single();
+      } else {
+        resp = await sb.from(table).insert(payload).select().single();
+      }
+      const { data, error } = resp;
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      if (data?.id && data.id !== jsRow.id) {
+        // swap optimistic id → real one
+        const i2 = list.findIndex(x => x.id === jsRow.id);
+        if (i2 >= 0) list[i2].id = data.id;
+        jsRow.id = data.id;
+      }
+    }
+    _emitMutation(table, jsRow.id ? "update" : "insert", jsRow.id);
+    return jsRow;
+  },
+  async _resourceDelete(table, key, id) {
+    const list = (window.AppData[key] = window.AppData[key] || []);
+    const idx = list.findIndex(x => x.id === id);
+    if (idx >= 0) list.splice(idx, 1);
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from(table).delete().eq("id", id);
+      if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation(table, "delete", id);
+  },
+
+  scriptUpsert(s) {
+    const id = s.id || ("tmp-" + Date.now());
+    const updatedAt = new Date().toISOString();
+    return window.AppData.mutate._resourceUpsert(
+      "agency_scripts", "SCRIPTS_LIB",
+      { id, title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body, updatedAt },
+      { title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body, updated_at: updatedAt },
+    );
+  },
+  scriptDelete: (id) => window.AppData.mutate._resourceDelete("agency_scripts", "SCRIPTS_LIB", id),
+
+  videoUpsert(v) {
+    const id = v.id || ("tmp-" + Date.now());
+    return window.AppData.mutate._resourceUpsert(
+      "agency_videos", "VIDEOS",
+      { id, title: v.title, cat: v.cat || "Med Supp", src: v.src, sourceUrl: v.sourceUrl, sourceLabel: v.sourceLabel, thumb: v.thumb || "", durMin: v.durMin || 0 },
+      { title: v.title, cat: v.cat || "Med Supp", src: v.src, source_url: v.sourceUrl || null, source_label: v.sourceLabel || null, thumb: v.thumb || null, dur_min: v.durMin || 0 },
+    );
+  },
+  videoDelete: (id) => window.AppData.mutate._resourceDelete("agency_videos", "VIDEOS", id),
+
+  docUpsert(d) {
+    const id = d.id || ("tmp-" + Date.now());
+    return window.AppData.mutate._resourceUpsert(
+      "agency_docs", "DOCS",
+      { id, title: d.title, cat: d.cat || "Internal", url: d.url || "", kind: d.kind || "link", gdocKind: d.gdocKind, ext: d.ext, sizeBytes: d.sizeBytes, storagePath: d.storagePath, text: d.text },
+      { title: d.title, cat: d.cat || "Internal", url: d.url || null, kind: d.kind || "link", gdoc_kind: d.gdocKind || null, ext: d.ext || null, size_bytes: d.sizeBytes || null, storage_path: d.storagePath || null, text_excerpt: d.text || null },
+    );
+  },
+  docDelete: (id) => window.AppData.mutate._resourceDelete("agency_docs", "DOCS", id),
+
+  quickLinkUpsert(l) {
+    const id = l.id || ("tmp-" + Date.now());
+    return window.AppData.mutate._resourceUpsert(
+      "agency_quick_links", "QUICK_LINKS",
+      { id, cat: l.cat || "Internal", label: l.label, url: l.url, sortOrder: l.sortOrder || 0 },
+      { cat: l.cat || "Internal", label: l.label, url: l.url, sort_order: l.sortOrder || 0 },
+    );
+  },
+  quickLinkDelete: (id) => window.AppData.mutate._resourceDelete("agency_quick_links", "QUICK_LINKS", id),
 };
