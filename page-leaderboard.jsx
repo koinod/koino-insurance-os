@@ -1,9 +1,33 @@
-/* Page: Leaderboard */
-function PageLeaderboard() {
+/* Page: Leaderboard
+   GAP-P2 — when role === 'rep', other reps' exact $$ are masked. The rep
+   sees their own number in clear; everyone else shows a relative bar +
+   percentile. Manager + owner views show real numbers (those roles have a
+   right to know the org-level economics). */
+function PageLeaderboard({ role = "rep" }) {
   const { REPS } = AppData;
   const sorted = [...REPS].sort((a, b) => b.mtd - a.mtd);
-  const max = sorted[0].mtd;
+  const max = sorted[0]?.mtd || 1;
   const [period, setPeriod] = React.useState("MTD");
+
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myId = meIdent?.rep_id || (REPS[0] && REPS[0].id);
+  const masksOthers = role === "rep";
+  const formatMoney = (n) => "$" + Math.round(n).toLocaleString();
+  // Percentile-based bands so reps can still feel competitive context
+  // without a teammate's exact paycheck.
+  const bandFor = (rank, total) => {
+    const pct = 1 - (rank / total);                    // 0..1, top=1
+    if (pct >= 0.9) return { label: "Top 10%",   tone: "var(--accent-status)" };
+    if (pct >= 0.7) return { label: "Top 30%",   tone: "var(--accent-money)"  };
+    if (pct >= 0.4) return { label: "Mid pack",  tone: "var(--text-secondary)"};
+    return                  { label: "Bottom 40%", tone: "var(--text-tertiary)" };
+  };
+  const displayMtd = (r, rank) => (masksOthers && r.id !== myId)
+    ? bandFor(rank, sorted.length).label
+    : formatMoney(r.mtd);
+  const displayMtdTone = (r, rank) => (masksOthers && r.id !== myId)
+    ? bandFor(rank, sorted.length).tone
+    : "var(--text-primary)";
 
   return (
     <div className="page-pad">
@@ -40,8 +64,8 @@ function PageLeaderboard() {
                   </div>
                 </div>
                 <div style={{ marginTop: 10 }}><Shared.TierChip tier={r.tier}/></div>
-                <div className="tabular" style={{ marginTop: 10, fontFamily: "var(--font-display)", fontSize: podium ? 36 : 26, fontWeight: 600, letterSpacing: "-0.025em" }}>${r.mtd.toLocaleString()}</div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>MTD AP · streak {r.streak}d</div>
+                <div className="tabular" style={{ marginTop: 10, fontFamily: "var(--font-display)", fontSize: podium ? 36 : 26, fontWeight: 600, letterSpacing: "-0.025em", color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{(masksOthers && r.id !== myId) ? "Relative band" : "MTD AP"} · streak {r.streak}d</div>
               </div>
             </div>
           );
@@ -63,12 +87,12 @@ function PageLeaderboard() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Shared.Avatar rep={r} size={22}/>
                 <div>
-                  <div style={{ fontWeight: 500 }}>{r.name} {r.id === "marc" && <span className="chip" style={{ marginLeft: 4, fontSize: 9.5 }}>YOU</span>}</div>
+                  <div style={{ fontWeight: 500 }}>{r.name} {r.id === myId && <span className="chip chip-money" style={{ marginLeft: 4, fontSize: 9.5 }}>YOU</span>}</div>
                   <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.handle} · {r.dials} dials today</div>
                 </div>
               </div>
               <div><Shared.TierChip tier={r.tier}/></div>
-              <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${r.mtd.toLocaleString()}</div>
+              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
               <div className="tabular" style={{ textAlign: "right", color: r.streak > 0 ? "var(--accent-heat)" : "var(--text-quaternary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
                 {r.streak > 0 && <Icons.Flame size={11}/>}{r.streak}d
               </div>
