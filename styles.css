@@ -1123,3 +1123,9 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 /* Training section pill — promote it to feel like a real horizontal tab strip */
 .training-tabs.section-pill { margin: 4px 0 16px; padding: 4px; font-size: 13px; }
 .training-tabs.section-pill > button { padding: 7px 16px; font-size: 13px; }
+
+/* Skeleton shimmer — used by Shared.Skeleton */
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  @keyframes shimmer { 0%, 100% { background-position: 0 0; } }
+}

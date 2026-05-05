@@ -1546,3 +1546,49 @@ window.AppData.mutate = {
     return row;
   },
 };
+
+/* ────────────────────────────────────────────────────────────────────────
+   Lead quote persistence (migration 0013).
+   ──────────────────────────────────────────────────────────────────────── */
+window.AppData.mutate.leadQuoteSave = async function ({ leadId, repId, product, inputs, ranked, recommendedCarrierId, notes }) {
+  const sb = window.getSupabase && window.getSupabase();
+  if (!sb) { window.toast && window.toast("Supabase not connected", "warn"); return null; }
+  const me = window.me && window.me();
+  const row = {
+    agency_id: me?.agency_id, lead_id: leadId || null, rep_id: repId || me?.rep_id || null,
+    product, inputs, ranked, recommended_carrier_id: recommendedCarrierId || null, notes: notes || null,
+  };
+  const { data, error } = await sb.from("lead_quotes").insert(row).select().single();
+  if (error) { window.toast && window.toast(`Quote save failed: ${error.message}`, "error"); throw error; }
+  _emitMutation("lead_quotes", "insert", data?.id);
+  return data;
+};
+
+/* ────────────────────────────────────────────────────────────────────────
+   Onboarding auto-events.
+   Listen for the first dial of the signed-in rep's session and flip
+   onboarding_progress.first_dial = true. Idempotent — once set, the
+   listener no-ops via a sessionStorage flag.
+   ──────────────────────────────────────────────────────────────────────── */
+(function () {
+  const FLAG = "repflow:onboarding:firstDial";
+  function maybeFlip() {
+    try { if (sessionStorage.getItem(FLAG)) return; } catch (_e) {}
+    const me = window.me && window.me();
+    const repId = me?.rep_id || (window.AppData?.REPS?.[0]?.id);
+    if (!repId) return;
+    const row = (window.AppData?.ONBOARDING_PROGRESS || []).find(p => p.repId === repId);
+    if (row && row.firstDial) { try { sessionStorage.setItem(FLAG, "1"); } catch (_e) {} return; }
+    if (window.AppData?.mutate?.onboardingStepSet) {
+      window.AppData.mutate.onboardingStepSet(repId, "first_dial", true)
+        .then(() => { try { sessionStorage.setItem(FLAG, "1"); } catch (_e) {} })
+        .catch(() => {});
+    }
+  }
+  window.addEventListener("incall:opened", maybeFlip);
+  // Belt-and-suspenders: any direct call to repflowDial / repflowCall flips too.
+  const origCall = window.repflowCall;
+  if (typeof origCall === "function") {
+    window.repflowCall = function (...args) { try { maybeFlip(); } catch (_e) {} return origCall.apply(this, args); };
+  }
+})();

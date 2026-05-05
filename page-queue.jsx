@@ -1229,6 +1229,22 @@ function InCallQuoteAssist({ lead }) {
   const quoted = ranked.filter(r => !r.decline);
   const declined = ranked.filter(r => r.decline);
 
+  // GAP — save the current quote snapshot to the lead via lead_quotes (migration 0013)
+  const saveQuote = async () => {
+    const me = window.me && window.me();
+    try {
+      await window.AppData.mutate.leadQuoteSave({
+        leadId: lead?.id || null,
+        repId: me?.rep_id,
+        product: profile.product,
+        inputs: { age: profile.age, state: profile.state, tobacco: profile.tobacco, bmi, healthDetail: profile.healthDetail, planVariant: profile.planVariant },
+        ranked: quoted.map(r => ({ carrierId: r.carrierId, name: r.name, score: r.score, reason: r.reason, premium: r.premium || null })),
+        recommendedCarrierId: quoted[0]?.carrierId || null,
+      });
+      window.toast && window.toast("Quote saved to lead", "success");
+    } catch (_e) {}
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {/* Auto-extracted profile preview */}
@@ -1236,7 +1252,10 @@ function InCallQuoteAssist({ lead }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
           <Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/>
           <strong style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Auto-extracted</strong>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "2px 6px" }} onClick={() => setManualOpen(o => !o)}>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "2px 6px" }} onClick={saveQuote} disabled={!quoted.length} title={quoted.length ? "Save this quote to the lead's record" : "No quote yet"}>
+            <Icons.Check size={10}/> Save to lead
+          </button>
+          <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => setManualOpen(o => !o)}>
             {manualOpen ? "Hide" : "Edit"}
           </button>
         </div>
