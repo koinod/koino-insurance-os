@@ -91,6 +91,35 @@ const WORKFLOWS = [
 
 window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS, LIVE: false };
 
+// ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
+// Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
+//   window.AppData.exportCsv(rows, "filename", [{k:"name",l:"Name"}, ...])
+// Properly escapes embedded commas, quotes, newlines.
+window.AppData.exportCsv = function (rows, filename, columns) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    window.toast && window.toast("Nothing to export", "info");
+    return;
+  }
+  const cols = columns || Object.keys(rows[0]).map(k => ({ k, l: k }));
+  const esc = (v) => {
+    const s = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.map(c => esc(c.l)).join(",");
+  const body   = rows.map(r => cols.map(c => esc(typeof c.fmt === "function" ? c.fmt(r[c.k], r) : r[c.k])).join(",")).join("\n");
+  const csv    = header + "\n" + body;
+  const blob   = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url;
+  a.download = (filename || "export") + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.toast && window.toast(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"}`, "success");
+};
+
 /* ────────────────────────────────────────────────────────────────────────────
    Live Supabase hydration. The publishable key is intentionally public-tier
    (RLS-protected). When the Supabase JS SDK loads (via UMD <script> in

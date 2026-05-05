@@ -42,6 +42,22 @@ function PageLeaderboard({ role = "rep" }) {
               <button key={p} onClick={() => setPeriod(p)} className="btn btn-ghost" style={{ padding: "3px 10px", background: period === p ? "var(--bg-raised)" : "transparent", color: period === p ? "var(--text-primary)" : "var(--text-tertiary)" }}>{p}</button>
             ))}
           </div>
+          {!masksOthers && (
+            <button className="btn" onClick={() => window.AppData.exportCsv(
+              sorted.map((r, i) => ({ ...r, rank: i + 1 })),
+              `leaderboard-${period.toLowerCase()}`,
+              [
+                { k: "rank",   l: "Rank" },
+                { k: "name",   l: "Producer" },
+                { k: "handle", l: "Handle" },
+                { k: "tier",   l: "Tier" },
+                { k: "mtd",    l: "MTD AP",     fmt: (v) => "$" + (v || 0) },
+                { k: "streak", l: "Streak (d)" },
+                { k: "dials",  l: "Dials today" },
+              ])}>
+              <Icons.ArrowDown size={13}/> Export
+            </button>
+          )}
           <button className="btn"><Icons.Calendar size={13}/> Issue challenge</button>
         </div>
       </div>
