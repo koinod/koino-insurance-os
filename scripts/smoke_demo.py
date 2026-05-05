@@ -51,6 +51,7 @@ NAV = {
         ("leaderboard", "Leaderboard"),
         ("commissions", "Commissions"),
         ("training", "Training"),
+        ("resources", "Resources"),
     ],
     "manager": [
         ("today", "Today"),
@@ -64,6 +65,7 @@ NAV = {
         ("nigo", "NIGO Queue"),
         ("recruiting", "Recruiting"),
         ("training", "Training"),
+        ("resources", "Resources"),
     ],
     "owner": [
         ("admin", "Admin"),
