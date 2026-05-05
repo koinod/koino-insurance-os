@@ -199,6 +199,10 @@ function PageResources({ role = "owner" }) {
   const [docs, setDocs]               = useLocalArray("repflow:owner:docs", DOC_SEED);
   const [docDraft, setDocDraft]       = React.useState({ title: "", cat: "Internal", url: "" });
   const [docAdd, setDocAdd]           = React.useState(false);
+  const [docPreview, setDocPreview]   = React.useState(null);   // { title, body }
+  const [gdocUrl, setGdocUrl]         = React.useState("");
+  const [importing, setImporting]     = React.useState(false);
+  const [uploads, setUploads]         = React.useState([]);     // [{name, status, error}]
   const [scriptOpen, setScriptOpen]   = React.useState(null);
   const [scriptCat, setScriptCat]     = React.useState("All");
   const [scriptQ, setScriptQ]         = React.useState("");
@@ -292,6 +296,90 @@ function PageResources({ role = "owner" }) {
   };
   const removeDoc = (id) => setDocs(ds => ds.filter(d => d.id !== id));
 
+  // ─── File upload (drag-drop) → Supabase storage `vault` bucket ─────────
+  const guessCat = (name) => {
+    const lc = name.toLowerCase();
+    if (/soa|tpmo|cms|hipaa|nigo/.test(lc)) return "Compliance";
+    if (/rate|carrier|plan/.test(lc))       return "Carrier";
+    if (/script|training|ahip|guide/.test(lc)) return "Training";
+    return "Internal";
+  };
+  const uploadFile = async (file) => {
+    const sb = window.getSupabase && window.getSupabase();
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const path = `docs/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    let url = "";
+    if (sb) {
+      try {
+        const { error } = await sb.storage.from("vault").upload(path, file, { upsert: false, cacheControl: "3600" });
+        if (error) throw error;
+        const { data } = sb.storage.from("vault").getPublicUrl(path);
+        url = data?.publicUrl || "";
+      } catch (e) {
+        return { ok: false, error: e?.message || "upload failed" };
+      }
+    }
+    setDocs(ds => [...ds, {
+      id: "doc-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      title: file.name,
+      cat: guessCat(file.name),
+      url,
+      kind: "upload",
+      ext,
+      sizeBytes: file.size,
+    }]);
+    return { ok: true };
+  };
+  const handleFiles = async (fileList) => {
+    const arr = Array.from(fileList || []);
+    if (!arr.length) return;
+    setUploads(arr.map(f => ({ name: f.name, status: "uploading" })));
+    for (const f of arr) {
+      const res = await uploadFile(f);
+      setUploads(us => us.map(u => u.name === f.name ? { ...u, status: res.ok ? "done" : "error", error: res.error } : u));
+    }
+    window.toast && window.toast(`Uploaded ${arr.filter(f => f).length} file(s)`, "success");
+    setTimeout(() => setUploads([]), 2500);
+  };
+
+  // ─── Google Doc / Sheet / Slides import ────────────────────────────────
+  const importGoogleDoc = async () => {
+    const url = gdocUrl.trim();
+    if (!url) return;
+    if (!/docs\.google\.com\/(document|spreadsheets|presentation)/.test(url)) {
+      window.toast && window.toast("Not a Google Docs/Sheets/Slides URL", "danger");
+      return;
+    }
+    setImporting(true);
+    try {
+      const r = await fetch("/api/import-gdoc", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        window.toast && window.toast(data.error || "Import failed", "danger");
+        return;
+      }
+      setDocs(ds => [...ds, {
+        id: "gdoc-" + data.docId,
+        title: data.title,
+        cat: data.kind === "spreadsheet" ? "Carrier" : "Internal",
+        url: data.originalUrl,
+        kind: "gdoc",
+        gdocKind: data.kind,
+        text: data.text || "",
+      }]);
+      setGdocUrl("");
+      window.toast && window.toast(`Imported "${data.title}"`, "success");
+    } catch (e) {
+      window.toast && window.toast("Import failed: " + (e?.message || "unknown"), "danger");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // ─── Quick links ───────────────────────────────────────────────────────
   const startLinkAdd  = () => { setLinkDraft({ cat: "Carrier portal", label: "", url: "" }); setLinkAdd(true); setLinkEditId(null); };
   const startLinkEdit = (l) => { setLinkDraft({ cat: l.cat, label: l.label, url: l.url }); setLinkEditId(l.id); setLinkAdd(false); };
@@ -354,7 +442,7 @@ function PageResources({ role = "owner" }) {
       {tab === "overview"  && <OverviewSection {...{ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab, isRep }}/>}
       {tab === "vendors"   && <VendorsSection  {...{ vendors, totals, blendedRoas, blendedCpl, blendedCpa, logDraft, setLogDraft, logSpend, spendLog }}/>}
       {tab === "carriers"  && <CarriersSection {...{ carriers, phone, setPhone, age, setAge, zip, setZip, scrubResults, runScrub }}/>}
-      {tab === "scripts"   && <ScriptsDocsSection {...{ scripts: filteredScripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc }}/>}
+      {tab === "scripts"   && <ScriptsDocsSection {...{ scripts: filteredScripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc, handleFiles, gdocUrl, setGdocUrl, importGoogleDoc, importing, uploads, docPreview, setDocPreview }}/>}
       {tab === "links"     && <QuickLinksSection {...{ groupedLinks, links, linkAdd, linkEditId, linkDraft, setLinkDraft, startLinkAdd, startLinkEdit, cancelLink, saveLink, removeLink }}/>}
     </div>
   );
@@ -605,7 +693,21 @@ function CarriersSection({ carriers, phone, setPhone, age, setAge, zip, setZip, 
 }
 
 // ═══ Scripts & docs ═══════════════════════════════════════════════════════
-function ScriptsDocsSection({ scripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc }) {
+function ScriptsDocsSection({ scripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc, handleFiles, gdocUrl, setGdocUrl, importGoogleDoc, importing, uploads, docPreview, setDocPreview }) {
+  const [dragActive, setDragActive] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
+    else {
+      const url = e.dataTransfer?.getData?.("text/plain");
+      if (url && /docs\.google\.com/.test(url)) {
+        setGdocUrl(url);
+        setTimeout(importGoogleDoc, 50);
+      }
+    }
+  };
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
       {/* Scripts */}
@@ -658,40 +760,109 @@ function ScriptsDocsSection({ scripts, scriptOpen, setScriptOpen, scriptCat, set
           <h3>Document hub</h3>
           <span className="meta">{docs.length}</span>
           <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setDocAdd(a => !a)}>
-            <Icons.Plus size={12}/> Add doc
+            <Icons.Plus size={12}/> Add link
           </button>
         </div>
         <div style={{ padding: 14 }}>
+          {/* Dropzone + Google Doc import */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              padding: 18, marginBottom: 10,
+              border: `1px dashed ${dragActive ? "var(--accent-money)" : "var(--border-subtle)"}`,
+              borderRadius: 8, background: dragActive ? "var(--bg-overlay)" : "var(--bg-raised)",
+              textAlign: "center", cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            <Icons.ArrowUp size={18} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)", marginBottom: 6 }}/>
+            <div style={{ fontSize: 12.5, fontWeight: 500 }}>
+              {dragActive ? "Drop to upload" : "Drag files here, or click to browse"}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+              PDFs · rate sheets · onboarding docs · scripts · anything. Stored in Supabase vault.
+            </div>
+            <input ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}/>
+          </div>
+
+          {/* Google Doc URL */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, marginBottom: 10 }}>
+            <input className="text-input"
+              placeholder="Paste Google Doc / Sheet / Slides URL to import…"
+              value={gdocUrl}
+              onChange={(e) => setGdocUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") importGoogleDoc(); }}/>
+            <button className="btn btn-primary" onClick={importGoogleDoc} disabled={importing} style={{ height: 32 }}>
+              {importing ? "Importing…" : <><Icons.ArrowUpRight size={11}/> Import</>}
+            </button>
+          </div>
+
+          {/* In-flight uploads */}
+          {uploads.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+              {uploads.map(u => (
+                <div key={u.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--bg-overlay)", borderRadius: 5, fontSize: 11.5 }}>
+                  <span className={`dot dot-${u.status === "done" ? "live" : u.status === "error" ? "danger" : "warn"}`}/>
+                  <span style={{ flex: 1 }} className="cell-truncate">{u.name}</span>
+                  <span style={{ color: "var(--text-tertiary)" }}>{u.status === "uploading" ? "uploading…" : u.status === "done" ? "done" : (u.error || "error")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Manual URL form */}
           {docAdd && (
             <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, marginBottom: 8, display: "grid", gridTemplateColumns: "1fr 100px", gap: 6 }}>
               <input className="text-input" placeholder="Title" value={docDraft.title} onChange={(e) => setDocDraft({ ...docDraft, title: e.target.value })} autoFocus/>
               <Shared.Select value={docDraft.cat} onChange={(v) => setDocDraft({ ...docDraft, cat: v })}
                 options={DOC_CATS.map(c => ({ v: c, l: c }))}/>
-              <input className="text-input" style={{ gridColumn: "1 / -1" }} placeholder="URL or upload path (optional)" value={docDraft.url} onChange={(e) => setDocDraft({ ...docDraft, url: e.target.value })}/>
-              <button className="btn btn-primary" style={{ gridColumn: "1 / -1", height: 28 }} onClick={addDoc}>Save document</button>
+              <input className="text-input" style={{ gridColumn: "1 / -1" }} placeholder="URL (https://…)" value={docDraft.url} onChange={(e) => setDocDraft({ ...docDraft, url: e.target.value })}/>
+              <button className="btn btn-primary" style={{ gridColumn: "1 / -1", height: 28 }} onClick={addDoc}>Save link</button>
             </div>
           )}
+
+          {/* Doc list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {docs.map(d => (
-              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 5 }}>
-                <Icons.FileText size={11} style={{ color: "var(--text-tertiary)", flex: "0 0 auto" }}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {d.url ? (
-                    <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "none", fontSize: 12, fontWeight: 500 }} className="cell-truncate">{d.title}</a>
-                  ) : (
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-tertiary)" }} className="cell-truncate">{d.title} <span style={{ fontSize: 10 }}>(no URL)</span></span>
+            {docs.map(d => {
+              const Ico = d.kind === "gdoc" ? Icons.ArrowUpRight : d.kind === "upload" ? Icons.Folder : Icons.FileText;
+              return (
+                <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 5 }}>
+                  <Ico size={11} style={{ color: "var(--text-tertiary)", flex: "0 0 auto" }}/>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {d.url ? (
+                      <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "none", fontSize: 12, fontWeight: 500 }} className="cell-truncate">{d.title}</a>
+                    ) : (
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-tertiary)" }} className="cell-truncate">{d.title}</span>
+                    )}
+                    {d.sizeBytes && <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-tertiary)" }}>{Math.round(d.sizeBytes / 1024)} KB</span>}
+                  </div>
+                  {d.kind === "gdoc" && <span className="chip" style={{ fontSize: 9.5 }}>{d.gdocKind}</span>}
+                  {d.kind === "upload" && d.ext && <span className="chip" style={{ fontSize: 9.5 }}>{d.ext}</span>}
+                  <span className="chip" style={{ fontSize: 9.5 }}>{d.cat}</span>
+                  {d.text && (
+                    <button className="icon-btn" onClick={() => setDocPreview({ title: d.title, body: d.text })} title="Preview"><Icons.FileText size={11}/></button>
                   )}
+                  <button className="icon-btn" onClick={() => removeDoc(d.id)} title="Remove" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
                 </div>
-                <span className="chip" style={{ fontSize: 9.5 }}>{d.cat}</span>
-                <button className="icon-btn" onClick={() => removeDoc(d.id)} title="Remove" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
-              </div>
-            ))}
-            {docs.length === 0 && !docAdd && (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No documents yet.</div>
+              );
+            })}
+            {docs.length === 0 && (
+              <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Drop a file or paste a Google Doc URL above to start.</div>
             )}
           </div>
         </div>
       </div>
+
+      {docPreview && (
+        <Shared.Modal title={docPreview.title} width={760} onClose={() => setDocPreview(null)}>
+          <div style={{ maxHeight: "60vh", overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.6, color: "var(--text-secondary)", padding: 4 }}>
+            {docPreview.body || "(empty)"}
+          </div>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
