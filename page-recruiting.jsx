@@ -227,6 +227,32 @@
       window.AppData.mutate.recruitingApplicantSetStatus(a.id, next);
     };
 
+    // GAP-MR2 — send a real onboarding invite (mint_invite RPC) so the
+    // applicant gets a magic link instead of staying stuck in pre-application
+    // limbo.
+    const sendInvite = async (e) => {
+      e.stopPropagation();
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { window.toast && window.toast("Supabase not connected", "warn"); return; }
+      try {
+        const { data, error } = await sb.rpc("mint_invite", {
+          p_role: "rep",
+          p_email_hint: a.email || a.handle || null,
+        });
+        if (error) throw error;
+        const token = data?.token || data;
+        if (token) {
+          const link = `${window.location.origin}/?invite=${token}`;
+          try { await navigator.clipboard.writeText(link); } catch (_e) {}
+          window.toast && window.toast("Invite link copied to clipboard", "success");
+        } else {
+          window.toast && window.toast("Invite minted", "success");
+        }
+      } catch (err) {
+        window.toast && window.toast(`Invite failed: ${err.message || err}`, "error");
+      }
+    };
+
     return (
       <div onClick={onOpen} style={{
         background: "var(--bg-raised)", borderRadius: 6, padding: "10px 12px",
@@ -247,12 +273,20 @@
             <Icons.MessageSquare size={10}/> {ago(lastMsg.sentAt)}
           </div>
         )}
-        {idx >= 0 && idx < STAGES.length - 2 && (
-          <button className="btn btn-ghost" onClick={advance}
-            style={{ marginTop: 6, padding: "3px 8px", fontSize: 10.5 }}>
-            advance → {STAGES[idx + 1].label}
-          </button>
-        )}
+        <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {idx >= 0 && idx < STAGES.length - 2 && (
+            <button className="btn btn-ghost" onClick={advance}
+              style={{ padding: "3px 8px", fontSize: 10.5 }}>
+              advance → {STAGES[idx + 1].label}
+            </button>
+          )}
+          {(a.status === "applied" || a.status === "in_review") && (
+            <button className="btn btn-ghost" onClick={sendInvite}
+              style={{ padding: "3px 8px", fontSize: 10.5 }} title="Mint an onboarding magic-link invite">
+              <Icons.Send size={9}/> send invite
+            </button>
+          )}
+        </div>
       </div>
     );
   }

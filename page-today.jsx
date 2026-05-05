@@ -29,14 +29,77 @@ function SpendStrip({ items }) {
   );
 }
 
-/* ───── AEP banner + Tasks live panels (used by all role views) ─────────── */
-function AEPBanner({ repId }) {
+/* GAP-P3 — single goal column. Bar tinted by progress band. */
+function GoalRow({ label, actual, target, pct }) {
+  const tone = pct >= 100 ? "var(--accent-money)" : pct >= 60 ? "var(--state-warning)" : "var(--state-danger)";
+  return (
+    <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
+      <div style={{ display: "flex", alignItems: "baseline", marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-tertiary)" }}>{label}</span>
+        <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 600, color: tone }}>${Math.round(actual).toLocaleString()}</span>
+        <span style={{ marginLeft: 4, fontSize: 11, color: "var(--text-tertiary)" }}>/ ${Math.round(target).toLocaleString()}</span>
+      </div>
+      <div style={{ height: 6, background: "var(--bg-overlay)", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ width: pct + "%", height: "100%", background: tone }}/>
+      </div>
+      <div style={{ marginTop: 4, fontSize: 10.5, color: "var(--text-tertiary)" }}>{Math.round(pct)}% of target</div>
+    </div>
+  );
+}
+
+/* Quick-action tile used by GAP-D4 + GAP-OC1. */
+function ActionTile({ icon, label, sub, onClick }) {
+  const Ico = Icons[icon] || Icons.ArrowRight;
+  return (
+    <button onClick={onClick} className="btn btn-ghost"
+      style={{ padding: 12, height: "auto", display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+      <Ico size={14} style={{ color: "var(--text-secondary)" }}/>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 500 }}>{label}</div>
+        <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{sub}</div>
+      </div>
+      <Icons.ChevronRight size={11} style={{ color: "var(--text-tertiary)" }}/>
+    </button>
+  );
+}
+
+/* GAP-D5 — Resolve the actual AEP state for the viewer instead of hardcoding
+   "AEP Day 14". Returns null when there's no active period, or when the role
+   is 'rep' but the rep has no assignment row for it. */
+function useAepContext(repId, role) {
   const periods = AppData.AEP_PERIODS || [];
   const active = periods.find(p => p.status === "active") || periods.find(p => p.status === "planned");
   if (!active) return null;
   const myAssign = (AppData.AEP_ASSIGNMENTS || []).find(a => a.periodId === active.id && a.repId === repId);
-  const daysToStart = active.startsAt ? Math.ceil((new Date(active.startsAt) - new Date()) / (1000*60*60*24)) : null;
+  if (role === "rep" && !myAssign) return null;
   const isLive = active.status === "active";
+  const today = new Date();
+  const start = active.startsAt ? new Date(active.startsAt) : null;
+  const dayN = isLive && start
+    ? Math.max(1, Math.ceil((today - start) / (1000 * 60 * 60 * 24)))
+    : null;
+  const daysToStart = !isLive && start
+    ? Math.max(0, Math.ceil((start - today) / (1000 * 60 * 60 * 24)))
+    : null;
+  return { active, myAssign, isLive, dayN, daysToStart };
+}
+
+/* AEP title chip — shown next to the page title when there's an active or
+   planned period applicable to the viewer. Replaces the hardcoded
+   <span>AEP Day 14</span> contamination from the original design. */
+function AepTitleChip({ ctx }) {
+  if (!ctx) return null;
+  const label = ctx.isLive
+    ? `AEP Day ${ctx.dayN}`
+    : (ctx.daysToStart != null ? `AEP opens in ${ctx.daysToStart}d` : "AEP planned");
+  return <span style={{ color: "var(--accent-heat)" }}>{label}</span>;
+}
+
+/* ───── AEP banner + Tasks live panels (used by all role views) ─────────── */
+function AEPBanner({ repId, role = "rep" }) {
+  const ctx = useAepContext(repId, role);
+  if (!ctx) return null;
+  const { active, myAssign, isLive, daysToStart } = ctx;
   const pctApps = myAssign && myAssign.targetApps > 0 ? Math.round((myAssign.completedApps / myAssign.targetApps) * 100) : 0;
   return (
     <div className="panel" style={{ padding: "12px 16px", marginBottom: 14, background: "color-mix(in oklch, var(--accent-heat) 6%, transparent)", borderColor: "color-mix(in oklch, var(--accent-heat) 30%, transparent)" }}>
@@ -336,13 +399,60 @@ function TodayRep({ aep }) {
   const dayIsBlank = dialsToday === 0 && appsToday === 0 && todayCommission === 0;
   const queueDepth = (QUEUE || []).length;
   const goFloor = () => window.gotoPage && window.gotoPage("floor");
+  const goCrm   = () => window.gotoPage && window.gotoPage("crm");
+  const goMessages = () => window.gotoPage && window.gotoPage("messages");
+
+  // GAP-P3 — my-goals card data. Daily target derives from tier threshold /
+  // 22 workdays, weekly = daily × 5, monthly = tier threshold. Real targets
+  // can override via tier-specific goals schema later.
+  const dailyTarget   = Math.round((tierInfo.threshold || 12000) / 22);
+  const weeklyTarget  = dailyTarget * 5;
+  const monthlyTarget = tierInfo.threshold || 12000;
+  const dailyPct   = Math.min(100, (todayCommission / Math.max(1, dailyTarget))   * 100);
+  const monthlyPct = Math.min(100, (mtdNum         / Math.max(1, monthlyTarget)) * 100);
+
+  // GAP-A4 — onboarding checklist progress. Pulls live from
+  // AppData.ONBOARDING_PROGRESS where available; treats every step as false
+  // when no row exists yet so brand-new reps see a 0/5 banner with all
+  // todos visible. Hides itself once 5/5 complete.
+  const onboardingRow = (AppData.ONBOARDING_PROGRESS || []).find(p => p.repId === myRow?.id) || {};
+  const onboardingSteps = [
+    { k: "licenseSigned", l: "Sign producer agreement",   icon: "Edit"   },
+    { k: "niprVerified",  l: "Verify NIPR license",       icon: "Shield" },
+    { k: "bankingSet",    l: "Set up direct deposit",     icon: "Wallet" },
+    { k: "kitShipped",    l: "Producer kit shipped",      icon: "Folder" },
+    { k: "firstDial",     l: "Make your first dial",      icon: "Phone"  },
+  ];
+  const onboardingDone = onboardingSteps.filter(s => onboardingRow[s.k]).length;
+  const showOnboarding = onboardingDone < onboardingSteps.length;
+
+  // GAP-OC1 — DM-your-manager. Resolve upline rep from me().upline_id when
+  // available; fall back to first manager-role rep. Click → Messages page
+  // with a thread auto-opened to that manager.
+  const myManagerId = meIdent?.upline_id || null;
+  const myManagerRow = REPS.find(r => myManagerId && r.id === myManagerId) || null;
+  const dmManager = async () => {
+    if (!myManagerRow) return goMessages();
+    try {
+      await window.AppData.mutate.threadEnsure({ memberHandles: [myRow.handle, myManagerRow.handle], kind: "dm" });
+    } catch (_e) {}
+    goMessages();
+  };
+
+  // GAP-D4 — log-activity quick action. Opens the existing CRM Add-lead flow
+  // pre-scoped to the rep so anything they touch outside the dialer (a
+  // referral, a walk-in, an event lead) gets captured before it falls out.
+  const openLogActivity = () => {
+    window.gotoPage && window.gotoPage("crm");
+    setTimeout(() => window.dispatchEvent(new CustomEvent("crm:addLead")), 100);
+  };
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">
-            Today — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}
+            Today — {aep ? (() => { const ctx = useAepContext(myRow?.id, "rep"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}
             {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, marginLeft: 8, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
           </div>
           <div className="page-sub">{subline}</div>
@@ -382,6 +492,61 @@ function TodayRep({ aep }) {
           </button>
         </div>
       )}
+
+      {showOnboarding && (
+        /* GAP-A4 — onboarding checklist. Persistent until all 5 steps done. */
+        <div className="panel" style={{ marginBottom: 14, padding: 14, background: "var(--bg-elevated)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <Icons.ListChecks size={14} style={{ color: "var(--accent-status)" }}/>
+            <strong style={{ fontSize: 13 }}>Get production-ready</strong>
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-tertiary)" }}>{onboardingDone} / {onboardingSteps.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+            {onboardingSteps.map(s => {
+              const Ico = Icons[s.icon] || Icons.Check;
+              const done = !!onboardingRow[s.k];
+              return (
+                <div key={s.k} style={{
+                  padding: 10, borderRadius: 6,
+                  background: done ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
+                  border: `1px solid ${done ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "var(--border-subtle)"}`,
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <Ico size={12} style={{ color: done ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
+                  <span style={{ flex: 1, fontSize: 11.5, color: done ? "var(--text-primary)" : "var(--text-secondary)", textDecoration: done ? "line-through" : "none" }}>{s.l}</span>
+                  {done && <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* GAP-P3 — my goals · target vs actual */}
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <div className="panel-h">
+          <Icons.Trophy size={13}/>
+          <h3>My goals</h3>
+          <span className="meta">tier {(myRow.tier || "—").toUpperCase()} · derived from threshold</span>
+        </div>
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <GoalRow label="Today"   actual={todayCommission} target={dailyTarget}   pct={dailyPct}/>
+          <GoalRow label="Week"    actual={(myRow.mtd || 0) / 4} target={weeklyTarget} pct={Math.min(100, ((myRow.mtd || 0) / 4) / Math.max(1, weeklyTarget) * 100)}/>
+          <GoalRow label="Month"   actual={mtdNum}          target={monthlyTarget} pct={monthlyPct}/>
+        </div>
+      </div>
+
+      {/* GAP-D4 + OC1 — quick actions row */}
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <div className="panel-h"><Icons.Bolt size={13}/><h3>Quick actions</h3></div>
+        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+          <ActionTile icon="Phone"          label="Power Hour"        sub="open Floor + autodialer" onClick={goFloor}/>
+          <ActionTile icon="Plus"           label="Log activity"      sub="referral / walk-in / event" onClick={openLogActivity}/>
+          <ActionTile icon="MessageSquare"  label={myManagerRow ? `DM ${myManagerRow.name.split(" ")[0]}` : "Messages"}
+                                                                 sub={myManagerRow ? "your upline" : "open inbox"}  onClick={dmManager}/>
+          <ActionTile icon="Folder"         label="Pull a script"     sub="Plan G · FE · TPMO"     onClick={() => window.gotoPage && window.gotoPage("resources")}/>
+        </div>
+      </div>
 
       <SpendStrip items={[
         { l: "Cost / issued (you)",  v: "$112",  tone: "money" },
@@ -542,7 +707,7 @@ function TodayManager({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · Atlanta team — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}</div>
+          <div className="page-title">Today · Atlanta team — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
           <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -678,7 +843,7 @@ function TodayOwner({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {agencyName} — {aep ? <span style={{ color: "var(--accent-heat)" }}>AEP Day 14</span> : "Q2"}</div>
+          <div className="page-title">Today · {agencyName} — {aep ? (() => { const ctx = useAepContext(null, "owner"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
           <div className="page-sub">{REPS.length} producers · ${teamToday.toLocaleString()} AP closed today · ${teamMTD.toLocaleString()} MTD</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
