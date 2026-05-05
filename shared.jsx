@@ -56,44 +56,40 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
    Pages shared across roles render role-aware variants (driven by `role` prop).
    The NAV map decides which role sees which page in their sidebar. */
 const NAV = {
+  // Each role's nav is graded by frequency × depth. Daily glance items live
+  // at top; workspaces (commissions deep dive, training, etc.) get folded in.
+  // Commissions is now context-rebound:
+  //   rep    → folded into Today as a Pay tab (glance only)
+  //   manager→ standalone "Pay" workspace (downline payouts + override review)
+  //   owner  → folded into P&L as a Comp tab (aggregate line item)
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
-    { id: "commissions", label: "Commissions",  icon: "Wallet" },
-    { id: "training",    label: "Training",     icon: "Book" },
-    { id: "resources",   label: "Resources",    icon: "Folder" },
+    { id: "library",     label: "Library",      icon: "Book" },
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone",  badge: "184" },
     { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
-    { id: "team",        label: "Team Board",   icon: "Users" },
-    { id: "calls",       label: "Calls",        icon: "Headset" },
-    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
-    { id: "commissions", label: "Commissions",  icon: "Wallet" },
+    { id: "team",        label: "Team",         icon: "Users" },
     { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
-    { id: "training",    label: "Training",     icon: "Book" },
-    { id: "resources",   label: "Resources",    icon: "Folder" },
+    { id: "pay",         label: "Pay",          icon: "Wallet" },
+    { id: "library",     label: "Library",      icon: "Book" },
   ],
   owner: [
-    { id: "admin",       label: "Admin",            icon: "Shield" },
-    { id: "floor",       label: "Floor",            icon: "Phone" },
-    { id: "crm",         label: "CRM",              icon: "Users" },
-    { id: "messages",    label: "Messages",         icon: "MessageSquare" },
-    { id: "pnl",         label: "P&L",              icon: "TrendingUp" },
-    { id: "tree",        label: "Org Tree",         icon: "Users" },
-    { id: "performance", label: "Performance",      icon: "Trophy" },
-    { id: "book",        label: "Book Analytics",   icon: "Activity" },
-    { id: "attribution", label: "Lead Vendors",     icon: "Wallet" },
-    { id: "recruiting",  label: "Recruiting",       icon: "ArrowUpRight" },
-    { id: "commissions", label: "Commissions",      icon: "Wallet" },
-    { id: "training",    label: "Training",         icon: "Book" },
-    { id: "vault",       label: "Compliance Vault", icon: "Shield" },
-    { id: "resources",   label: "Resources",        icon: "Folder" },
+    { id: "admin",       label: "Admin",        icon: "Shield" },
+    { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
+    { id: "org",         label: "Org",          icon: "Users" },
+    { id: "book",        label: "Book",         icon: "Activity" },
+    { id: "floor",       label: "Floor",        icon: "Phone" },
+    { id: "crm",         label: "CRM",          icon: "Users" },
+    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "compliance",  label: "Compliance",   icon: "Shield" },
+    { id: "library",     label: "Library",      icon: "Book" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },

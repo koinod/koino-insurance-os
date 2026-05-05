@@ -26,6 +26,7 @@
 
 <script src="lib/supabase-config.js?v=36"></script>
 <script src="lib/me.js?v=36"></script>
+<script src="lib/dial-rules.js?v=36"></script>
 <script type="text/babel" src="tweaks-panel.jsx?v=36"></script>
 <script type="text/babel" src="data.jsx?v=36"></script>
 <script type="text/babel" src="icons.jsx?v=36"></script>
@@ -175,8 +176,19 @@ function App() {
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
 
+      // Consolidated NAV aliases (NAV restructure 2026-05-05).
+      // Old routes (vault/tree/performance/attribution/training/resources/
+      // commissions) still have direct case handlers above for deep-link
+      // back-compat — these are the new top-level NAV ids.
+      case "library":     return role === "rep"
+                                   ? ((() => { const P = window.PageResources; return P ? <P role={role}/> : null; })())
+                                   : <PageTraining role={role}/>;
+      case "org":         return <PageOrgTree/>;
+      case "compliance":  return <PageVault role={role}/>;
+      case "pay":         return <PageCommissions role={role}/>;
+
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
-      // owner nav consolidation. They redirect into the consolidated pages.
+      // earlier owner nav consolidation. They redirect into related pages.
       case "tiering":     return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
       case "forecast":    return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
       case "carriers":    return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
