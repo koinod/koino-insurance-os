@@ -19,6 +19,7 @@ function PageAdmin({ role = "owner" }) {
   const [invites,  setInvites]  = React.useState([]);
   const [audit,    setAudit]    = React.useState([]);
   const [loading,  setLoading]  = React.useState(true);
+  const [broadcastOpen, setBroadcastOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -65,6 +66,9 @@ function PageAdmin({ role = "owner" }) {
           <div className="page-sub">Mission control for the {liveAgency.plan} plan · {liveAgency.state} · {members.length || reps.length} members · {AppData.LIVE ? "live data" : "demo data"}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => setBroadcastOpen(true)}>
+            <Icons.MessageSquare size={13}/> Broadcast
+          </button>
           <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" }}))}>
             <Icons.Settings size={13}/> Settings
           </button>
@@ -73,6 +77,8 @@ function PageAdmin({ role = "owner" }) {
           </button>
         </div>
       </div>
+
+      {broadcastOpen && <BroadcastModal agencyId={agency?.id} reps={reps} onClose={() => setBroadcastOpen(false)}/>}
 
       <div className="kpi-row">
         <Shared.KpiCard hero label="Producers" value={reps.length} sub={`${reps.filter(r => r.presence === "live").length} live now`} trend="up"/>
@@ -194,9 +200,25 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
     const { data: ag } = await sb.from("agencies").select("id, name").limit(1).single();
     if (!ag) { setLoading(false); return; }
     setAgency(ag);
-    const { data } = await sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
-    setItems(data || []);
-    setUnread((data || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    // GAP-C1 — notifications targeted to this rep, plus agency-wide broadcasts
+    // (recipient_rep_id IS NULL). Manager/owner see everything.
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const role = meIdent?.role || "rep";
+    const myRepId = meIdent?.rep_id || null;
+    let q = sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
+    if (role === "rep" && myRepId) {
+      q = q.or(`recipient_rep_id.is.null,recipient_rep_id.eq.${myRepId}`);
+    }
+    const { data, error } = await q;
+    if (error && /column.*recipient_rep_id.*does not exist/i.test(error.message || "")) {
+      // Migration 0011 not yet applied — fall back to unfiltered fetch
+      const { data: legacy } = await sb.from("agency_notifications").select("*").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40);
+      setItems(legacy || []);
+      setUnread((legacy || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    } else {
+      setItems(data || []);
+      setUnread((data || []).filter(n => !(n.read_by || []).includes(userId)).length);
+    }
     setLoading(false);
   }, [open]);
   React.useEffect(() => { load(); }, [load]);
@@ -275,5 +297,84 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
   );
 }
 window.PerAgencyNotificationsPanel = PerAgencyNotificationsPanel;
+
+// ─── Owner broadcast tool (GAP-OC2) ─────────────────────────────────────
+// Posts to agency_notifications. recipient_rep_id IS NULL → everyone in
+// the agency sees it on their next panel open + via realtime channel.
+// Targeted broadcast supported by selecting a single rep in the modal.
+function BroadcastModal({ agencyId, reps, onClose }) {
+  const [title, setTitle]         = React.useState("");
+  const [body, setBody]           = React.useState("");
+  const [severity, setSeverity]   = React.useState("info");
+  const [recipient, setRecipient] = React.useState("");           // "" = everyone
+  const [pageLink, setPageLink]   = React.useState("");
+  const [sending, setSending]     = React.useState(false);
+
+  const send = async () => {
+    if (!title.trim()) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !agencyId) {
+      window.toast && window.toast("Not connected to Supabase yet", "warn");
+      return;
+    }
+    setSending(true);
+    const row = {
+      agency_id: agencyId,
+      title: title.trim(),
+      body: body.trim() || null,
+      severity,
+      kind: recipient ? "direct_message" : "broadcast",
+      page_link: pageLink.trim() || null,
+      recipient_rep_id: recipient || null,
+    };
+    const { error } = await sb.from("agency_notifications").insert(row);
+    setSending(false);
+    if (error) {
+      window.toast && window.toast(`Send failed: ${error.message}`, "error");
+      return;
+    }
+    const audience = recipient ? (reps.find(r => r.id === recipient)?.name || "rep") : `${reps.length} producer${reps.length === 1 ? "" : "s"}`;
+    window.toast && window.toast(`Sent to ${audience}`, "success");
+    onClose();
+  };
+
+  return (
+    <Shared.Modal title="Broadcast to agency" width={520} onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Shared.Field label="Audience">
+          <Shared.Select value={recipient} onChange={setRecipient}
+            options={[{ v: "", l: `Everyone (${reps.length})` }, ...reps.map(r => ({ v: r.id, l: r.name }))]}/>
+        </Shared.Field>
+        <Shared.Field label="Title *">
+          <input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="AEP Power Hour at 4pm — show up" autoFocus/>
+        </Shared.Field>
+        <Shared.Field label="Body">
+          <textarea className="text-input" rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Optional details. Markdown not parsed."/>
+        </Shared.Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Shared.Field label="Severity">
+            <Shared.Select value={severity} onChange={setSeverity}
+              options={[
+                { v: "info",    l: "Info" },
+                { v: "success", l: "Success / win" },
+                { v: "warn",    l: "Warning" },
+                { v: "danger",  l: "Urgent / danger" },
+              ]}/>
+          </Shared.Field>
+          <Shared.Field label="Deep link (optional)">
+            <input className="text-input" value={pageLink} onChange={(e) => setPageLink(e.target.value)} placeholder="floor / crm / nigo …"/>
+          </Shared.Field>
+        </div>
+      </div>
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <button className="btn btn-primary" disabled={!title.trim() || sending} onClick={send}>
+          {sending ? "Sending…" : <><Icons.Send size={11}/> {recipient ? "Send DM" : "Broadcast"}</>}
+        </button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={sending}>Cancel</button>
+      </div>
+    </Shared.Modal>
+  );
+}
+window.BroadcastModal = BroadcastModal;
 
 })();

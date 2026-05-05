@@ -1,17 +1,45 @@
-/* Mobile rep view — swipe-to-act on real data */
+/* Mobile rep view — swipe-to-act on real data.
+   GAP-M1 — scope cards to "my queue" (own pipeline rows + unassigned inbound)
+   instead of the global QUEUE. Resolves the rep identity via me() so SMS
+   bodies and outbound dials use the actual signed-in producer rather than
+   the seeded Marcus row. */
 function MobileRep() {
   const [tab, setTab] = React.useState("dial");
-  const [cards, setCards] = React.useState(() => (AppData.QUEUE || []).slice(0, 6));
   const [drag, setDrag] = React.useState({ x: 0, y: 0 });
   const [actionFlash, setActionFlash] = React.useState(null); // {dir, label}
   const startRef = React.useRef(null);
 
-  // Re-pull cards when realtime swaps the queue
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
+  const myFirst = (meIdent?.full_name || (AppData.REPS && AppData.REPS[0]?.name) || "your producer").split(" ")[0];
+
+  // Build "my queue" — own pipeline (New + Contacted) merged with the global
+  // unassigned inbound queue, scored highest-heat first. Mirrors the GAP-D2
+  // semantics on the desktop Dial Queue.
+  const buildCards = React.useCallback(() => {
+    const myPipe = (AppData.PIPELINE || [])
+      .filter(p => p.owner === myRepId && (p.stage === "New" || p.stage === "Contacted"))
+      .map(p => ({
+        id: "p-" + p.id, lead: p.lead, age: p.age, state: p.state,
+        source: p.source, product: p.product, phone: p.phone || null,
+        score: p.heat === "hot" ? 92 : p.heat === "fresh" ? 88 : p.heat === "warm" ? 78 : 60,
+      }));
+    const inbound = (AppData.QUEUE || []).map(q => ({ ...q, _inbound: true }));
+    return [...myPipe, ...inbound].slice(0, 8);
+  }, [myRepId]);
+
+  const [cards, setCards] = React.useState(buildCards);
   React.useEffect(() => {
-    const refresh = () => setCards((AppData.QUEUE || []).slice(0, 6));
+    const refresh = () => setCards(buildCards());
     window.addEventListener("data:hydrated", refresh);
-    return () => window.removeEventListener("data:hydrated", refresh);
-  }, []);
+    window.addEventListener("data:mutated", refresh);
+    window.addEventListener("data:realtime", refresh);
+    return () => {
+      window.removeEventListener("data:hydrated", refresh);
+      window.removeEventListener("data:mutated", refresh);
+      window.removeEventListener("data:realtime", refresh);
+    };
+  }, [buildCards]);
 
   const top = cards[0];
 
@@ -34,26 +62,33 @@ function MobileRep() {
 
   const handleSwipe = (dir, lead) => {
     if (!lead) return;
-    const phone = "+1512555" + String(lead.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
+    const phone = lead.phone || null;
     if (dir === "right") {
-      // Dial — call via repflowDial (Twilio first, then helper, then tel:)
+      // Dial — only when we have a real phone on file
+      if (!phone) {
+        window.toast && window.toast(`No phone on file for ${lead.lead}`, "warn");
+        flash("right", "NO #");
+        return;
+      }
       window.repflowDial && window.repflowDial(phone, lead.lead);
       flash("right", "DIAL");
     } else if (dir === "left") {
-      // Skip — toast and pop
       window.toast && window.toast(`Skipped ${lead.lead}`, "info");
       flash("left", "SKIP");
     } else if (dir === "up") {
-      // SMS — fire SMS intent + log activity
-      const sms = `sms:${phone}?body=${encodeURIComponent("Hi " + (lead.lead || "").split(" ")[0] + ", this is Marcus from Atlas — got a sec to talk Med Supp?")}`;
+      if (!phone) {
+        window.toast && window.toast(`No phone on file for ${lead.lead}`, "warn");
+        flash("up", "NO #");
+        return;
+      }
+      const sms = `sms:${phone}?body=${encodeURIComponent("Hi " + (lead.lead || "").split(" ")[0] + ", this is " + myFirst + " — got a sec to talk " + (lead.product || "Medicare") + "?")}`;
       window.location.href = sms;
       flash("up", "SMS");
     } else if (dir === "down") {
-      // Re-queue — push to back
       setCards(c => [...c.slice(1), c[0]]);
       window.toast && window.toast(`${lead.lead} re-queued`, "info");
       flash("down", "LATER");
-      return; // don't pop
+      return;
     }
     setCards(c => c.slice(1));
   };

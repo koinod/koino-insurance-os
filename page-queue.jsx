@@ -7,13 +7,41 @@ function PageQueue({ onCall, role = "rep" }) {
 }
 
 function DialQueueView({ onCall }) {
-  const { QUEUE } = AppData;
+  const { QUEUE, PIPELINE } = AppData;
+  // GAP-D2 — reps see "their" queue by default: their own assigned pipeline
+  // leads (New + Contacted) merged into a dial-ready list. The shared inbound
+  // funnel is one click away via the "Inbound (all)" tab so nobody loses
+  // speed-to-lead access. Manager + owner views (DispatchView / Floor's
+  // role-aware queue) already see fleet-wide.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
+
+  const [tab, setTab] = React.useState("mine");
+
+  const myPipeline = (PIPELINE || [])
+    .filter(p => p.owner === myRepId && (p.stage === "New" || p.stage === "Contacted"))
+    .map(p => ({
+      id: "p-" + p.id,
+      lead: p.lead, age: p.age, state: p.state,
+      source: p.source || "—", product: p.product,
+      elapsed: typeof p.days === "number" ? p.days * 86400 : 9999,
+      score: p.heat === "hot" ? 92 : p.heat === "fresh" ? 88 : p.heat === "warm" ? 78 : 60,
+      phone: p.phone || null,
+      _pipelineId: p.id,
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const visible = tab === "mine" ? myPipeline : (QUEUE || []);
+  const subline = tab === "mine"
+    ? `${myPipeline.length} lead${myPipeline.length === 1 ? "" : "s"} assigned to you · ${(QUEUE || []).length} more in inbound funnel`
+    : `${(QUEUE || []).length} inbound lead${(QUEUE || []).length === 1 ? "" : "s"} · scored & sequenced · grab the top one`;
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Dial Queue</div>
-          <div className="page-sub">{QUEUE.length} lead{QUEUE.length === 1 ? "" : "s"} · scored & sequenced · use the autodialer pill above to start a session</div>
+          <div className="page-sub">{subline}</div>
         </div>
       </div>
 
@@ -24,17 +52,33 @@ function DialQueueView({ onCall }) {
         { l: "Quote rate",       v: "11%" },
       ]}/>
 
+      <Shared.SectionPill
+        items={[
+          { k: "mine",    l: "My queue",      icon: "Phone", badge: myPipeline.length },
+          { k: "inbound", l: "Inbound (all)", icon: "Bell",  badge: (QUEUE || []).length },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+
       <div className="queue-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
         <div className="panel">
           <div className="panel-h">
-            <h3>Queue · Med Supp + FE</h3>
-            <span className="meta">sort: speed-to-lead</span>
+            <h3>{tab === "mine" ? "My follow-ups · scored" : "Inbound · Med Supp + FE"}</h3>
+            <span className="meta">sort: {tab === "mine" ? "highest-heat first" : "speed-to-lead"}</span>
           </div>
           <div className="list">
             <div className="list-h" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px" }}>
-              <div></div><div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{textAlign:"right"}}>Score</div><div style={{textAlign:"right"}}>SLA</div><div></div>
+              <div></div><div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{textAlign:"right"}}>Score</div><div style={{textAlign:"right"}}>{tab === "mine" ? "Last" : "SLA"}</div><div></div>
             </div>
-            {QUEUE.map((l, i) => {
+            {visible.length === 0 && (
+              <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                {tab === "mine"
+                  ? "No leads assigned to you yet. Switch to Inbound to grab the next one, or import from CRM → Inbox."
+                  : "Inbound queue is clear."}
+              </div>
+            )}
+            {visible.map((l, i) => {
               const c = l.elapsed < 30 ? "var(--accent-money)" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
               return (
                 <div key={l.id} className="row" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px" }}>
@@ -108,27 +152,124 @@ function DialQueueView({ onCall }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Smart routing — score each rep against each lead.
+
+   Inputs: rep presence, tier, current load (in-flight assignments + appts),
+   and a stub product/carrier match. Returns score + 1-2-word reason chip
+   so the manager can see *why* a rep was suggested.
+
+   This stub uses heuristics; the real routing connects to:
+     - rep.appointed_carriers[product][state] → carrier_appt
+     - rep.languages → language match
+     - rep.live_call_sec → "in flight" capacity
+   When that data lands, swap the score function — the rest of the UI is wired.
+   ───────────────────────────────────────────────────────────────────────── */
+function scoreRepForLead(rep, lead, picks) {
+  if (rep.presence === "off") return { score: -1, reasons: ["off"] };
+  let score = 50;
+  const reasons = [];
+
+  if (rep.presence === "idle")      { score += 30; reasons.push("idle now"); }
+  else if (rep.presence === "live") { score += 12; reasons.push("on call"); }
+
+  const tierRank = { diamond: 5, platinum: 4, gold: 3, silver: 2, bronze: 1 };
+  const t = tierRank[rep.tier] || 0;
+  if ((lead.score || 0) >= 90 && t >= 4)      { score += 18; reasons.push(`Tier ${rep.tier}`); }
+  else if ((lead.score || 0) >= 80 && t >= 3) { score += 10; reasons.push(`Tier ${rep.tier}`); }
+  else if (t <= 1 && (lead.score || 0) >= 90) score -= 20;  // don't waste a hot lead on bronze
+
+  // In-flight load — both this session's picks and active appts.
+  const inFlight = Object.values(picks).filter(rid => rid === rep.id).length + (rep.appts || 0);
+  score -= inFlight * 6;
+  if (inFlight >= 6) reasons.push("over capacity");
+
+  // Product/carrier match stub — gold+ are appointed broadly; bronze is MS-only.
+  const product = String(lead.product || "").toLowerCase();
+  const isMedSupp = product.includes("med") || product.includes("supp");
+  const isAnnuity = product.includes("annuity");
+  const productFit = isMedSupp ? true : isAnnuity ? t >= 4 : t >= 2;
+  if (productFit) reasons.push(`appt ${product.split(" ")[0] || "OK"}`);
+  else            { score -= 25; reasons.push("no carrier appt"); }
+
+  return { score, reasons };
+}
+
 function DispatchView({ onCall }) {
   const { QUEUE, REPS } = AppData;
-  const [picks, setPicks] = React.useState({});  // queueId -> repId
-  const [filter, setFilter] = React.useState({ heat: "all", product: "all" });
+  const [picks, setPicks]         = React.useState({});  // queueId -> repId
+  const [filter, setFilter]       = React.useState({ heat: "all", product: "all" });
+  const [autoRoute, setAutoRoute] = React.useState(false);
+  const [showRules, setShowRules] = React.useState(false);
 
-  const setPick = (qid, rid) => setPicks({ ...picks, [qid]: rid });
   const filtered = QUEUE.filter(q =>
     (filter.heat === "all" || (filter.heat === "hot" ? q.elapsed < 30 : q.elapsed >= 30)) &&
     (filter.product === "all" || q.product === filter.product)
   );
+
+  // Best rep per lead (memoize across changing picks → reasons stay current)
+  const suggestionFor = (lead) => {
+    const ranked = REPS
+      .map(r => ({ rep: r, ...scoreRepForLead(r, lead, picks) }))
+      .filter(x => x.score >= 0)
+      .sort((a, b) => b.score - a.score);
+    return ranked[0] || { rep: REPS[0], reasons: ["fallback"] };
+  };
+
+  const setPick = (qid, rid) => setPicks(p => ({ ...p, [qid]: rid }));
+
+  // Auto-route: when toggled on, fill picks with the suggestion for any lead
+  // that isn't already explicitly assigned. Also re-runs when QUEUE changes.
+  React.useEffect(() => {
+    if (!autoRoute) return;
+    setPicks(prev => {
+      const next = { ...prev };
+      QUEUE.forEach(q => {
+        if (!next[q.id]) {
+          const s = suggestionFor(q);
+          next[q.id] = s.rep.id;
+        }
+      });
+      return next;
+    });
+  // eslint-disable-next-line
+  }, [autoRoute, QUEUE.length]);
+
+  const sendOne = async (q, rid) => {
+    setPick(q.id, rid);
+    try {
+      if (AppData.mutate?.queueAssign) await AppData.mutate.queueAssign(q.id, rid);
+    } catch (_e) {}
+    const rep = REPS.find(r => r.id === rid);
+    window.toast && window.toast(`Sent ${q.lead} → ${rep?.name?.split(" ")[0] || rid}`, "success");
+  };
+
+  const sendAllSuggested = async () => {
+    const queue = filtered.filter(q => !picks[q.id]);
+    for (const q of queue) {
+      const s = suggestionFor(q);
+      // eslint-disable-next-line no-await-in-loop
+      await sendOne(q, s.rep.id);
+    }
+  };
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Dispatch</div>
-          <div className="page-sub">Route inbound queue across {REPS.filter(r => r.presence === "live").length} live producers · auto-suggested by capacity</div>
+          <div className="page-sub">
+            {REPS.filter(r => r.presence === "live").length} live · {REPS.filter(r => r.presence === "idle").length} idle ·
+            routing scored by tier + capacity + carrier appointment match
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Settings size={13}/> Routing rules</button>
-          <button className="btn btn-primary" onClick={onCall}><Icons.Phone size={13}/> Open in-call</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: autoRoute ? "color-mix(in oklch, var(--accent-money) 14%, var(--bg-raised))" : "var(--bg-raised)", border: `1px solid ${autoRoute ? "color-mix(in oklch, var(--accent-money) 40%, transparent)" : "var(--border-subtle)"}`, borderRadius: 999, fontSize: 12, cursor: "pointer" }}>
+            <input type="checkbox" checked={autoRoute} onChange={(e) => setAutoRoute(e.target.checked)} style={{ accentColor: "var(--accent-money)" }}/>
+            <span style={{ fontWeight: 500, color: autoRoute ? "var(--accent-money)" : "var(--text-secondary)" }}>Auto-route</span>
+            <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{autoRoute ? "ON · suggestions auto-filled" : "OFF"}</span>
+          </label>
+          <button className="btn" onClick={() => setShowRules(true)}><Icons.Settings size={13}/> Routing rules</button>
         </div>
       </div>
 
@@ -139,71 +280,176 @@ function DispatchView({ onCall }) {
         { l: "Breaches",         v: "4",    tone: "warn" },
       ]}/>
 
-      <div className="dispatch-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+      {/* LIVE FLOOR MAP — full-width producer grid */}
+      <LiveFloorMap reps={REPS} picks={picks}/>
+
+      {/* INBOUND QUEUE + RULES */}
+      <div className="dispatch-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginTop: 14 }}>
         <div className="panel">
           <div className="panel-h">
             <h3>Inbound · awaiting dispatch</h3>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <span className="meta">{filtered.length}</span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
               <Shared.Select value={filter.heat} onChange={(v) => setFilter({ ...filter, heat: v })} options={[{ v: "all", l: "All heat" }, { v: "hot", l: "Hot < 30s" }, { v: "cold", l: "≥ 30s" }]}/>
               <Shared.Select value={filter.product} onChange={(v) => setFilter({ ...filter, product: v })} options={[{ v: "all", l: "All products" }, ...Array.from(new Set(QUEUE.map(q => q.product))).map(p => ({ v: p, l: p }))]}/>
+              <button className="btn btn-primary" onClick={sendAllSuggested} style={{ fontSize: 11.5 }} disabled={filtered.length === 0}>
+                <Icons.Bolt size={11}/> Send all suggested
+              </button>
             </div>
           </div>
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "16px 1.6fr 60px 1fr 72px 1.4fr 70px" }}>
-              <div></div><div>Lead</div><div>Age/St</div><div>Product</div><div className="tabular" style={{ textAlign: "right" }}>SLA</div><div>Assign to</div><div></div>
+            <div className="list-h" style={{ gridTemplateColumns: "16px 1.4fr 60px 1fr 64px 1.6fr 70px" }}>
+              <div></div><div>Lead</div><div>Age/St</div><div>Product</div><div className="tabular" style={{ textAlign: "right" }}>SLA</div><div>Suggested rep · why</div><div></div>
             </div>
             {filtered.map(q => {
               const c = q.elapsed < 30 ? "var(--accent-money)" : q.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
-              const rid = picks[q.id] || REPS[0].id;
+              const suggestion = suggestionFor(q);
+              const rid = picks[q.id] || suggestion.rep.id;
+              const isManual = picks[q.id] && picks[q.id] !== suggestion.rep.id;
               return (
-                <div key={q.id} className="row" style={{ gridTemplateColumns: "16px 1.6fr 60px 1fr 72px 1.4fr 70px" }}>
+                <div key={q.id} className="row" style={{ gridTemplateColumns: "16px 1.4fr 60px 1fr 64px 1.6fr 70px" }}>
                   <span className="dot" style={{ background: c }}></span>
-                  <div style={{ fontWeight: 500 }}>{q.lead}</div>
+                  <div style={{ fontWeight: 500 }}>
+                    {q.lead}
+                    <span className="tabular" style={{ marginLeft: 6, fontSize: 10.5, color: q.score >= 90 ? "var(--accent-money)" : q.score >= 80 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{q.score}</span>
+                  </div>
                   <div className="tabular" style={{ color: "var(--text-tertiary)" }}>{q.age} · {q.state}</div>
                   <div className="cell-truncate"><span className="chip">{q.product}</span></div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{q.elapsed}s</div>
-                  <div><Shared.Select value={rid} onChange={(v) => setPick(q.id, v)} options={REPS.map(r => ({ v: r.id, l: `${r.name} · ${r.presence === "live" ? "live" : "idle"} · ${r.appts}` }))}/></div>
-                  <button className="btn btn-primary" style={{ padding: "3px 8px" }} onClick={() => setPick(q.id, rid)}><Icons.Phone size={11}/> Send</button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <Shared.Select value={rid} onChange={(v) => setPick(q.id, v)}
+                      options={REPS.map(r => {
+                        const s = scoreRepForLead(r, q, picks);
+                        return { v: r.id, l: `${r.name.split(" ")[0]} · ${r.presence} · score ${s.score}` };
+                      })}/>
+                    <span style={{ fontSize: 10.5, color: isManual ? "var(--text-tertiary)" : "var(--accent-money)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {isManual ? "manual override" : suggestion.reasons.join(" · ")}
+                    </span>
+                  </div>
+                  <button className="btn btn-primary" style={{ padding: "3px 8px" }} onClick={() => sendOne(q, rid)}><Icons.Phone size={11}/> Send</button>
                 </div>
               );
             })}
+            {filtered.length === 0 && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                Inbound queue is clear. Nice.
+              </div>
+            )}
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h"><Icons.Users size={13}/><h3>Producer capacity</h3></div>
-            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {REPS.slice(0, 6).map(r => {
-                const load = Math.min(100, (Object.values(picks).filter(rid => rid === r.id).length + r.appts) * 14);
-                return (
-                  <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px", gap: 8, fontSize: 12.5, alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Shared.Avatar rep={r} size={18}/>
-                      <span style={{ fontWeight: 500 }}>{r.name.split(" ")[0]}</span>
-                      <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
-                    </div>
-                    <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ width: `${load}%`, height: "100%", background: load > 80 ? "var(--state-warning)" : "var(--accent-money)" }}></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        <div className="panel">
+          <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Routing rules</h3>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => setShowRules(true)}><Icons.Edit size={11}/> Edit</button>
           </div>
-          <div className="panel">
-            <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Routing rules</h3></div>
-            <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 6 }}>
-              <div>• T65 list → Med Supp specialists</div>
-              <div>• FB FE creative → producer w/ &lt; 4 appts</div>
-              <div>• Inbound &lt; 30s → tier ≥ Gold</div>
-              <div>• Annuity → certified producer only</div>
-              <div>• Spanish — round-robin among bilingual</div>
+          <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 6, lineHeight: 1.55 }}>
+            <div><span style={{ color: "var(--text-tertiary)" }}>Score weights —</span></div>
+            <div>• Idle producer: <strong style={{ color: "var(--accent-money)" }}>+30</strong></div>
+            <div>• Already on call: <strong>+12</strong></div>
+            <div>• Tier ≥ Platinum on score ≥ 90: <strong>+18</strong></div>
+            <div>• Each in-flight assignment: <strong style={{ color: "var(--state-warning)" }}>−6</strong></div>
+            <div>• No carrier appointment for product: <strong style={{ color: "var(--state-danger)" }}>−25</strong></div>
+            <div>• Bronze + score ≥ 90: <strong style={{ color: "var(--state-danger)" }}>−20</strong></div>
+            <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", color: "var(--text-tertiary)", fontSize: 11.5 }}>
+              Toggle <strong>Auto-route ON</strong> to fill assignments with the highest-scoring producer per inbound. Manual picks always win.
             </div>
           </div>
         </div>
       </div>
+
+      {showRules && <RoutingRulesModal onClose={() => setShowRules(false)}/>}
     </div>
+  );
+}
+
+/* ─── Live floor map — visual 8-up grid of producers ──────────────────── */
+function LiveFloorMap({ reps, picks }) {
+  const live = reps.filter(r => r.presence === "live").length;
+  const idle = reps.filter(r => r.presence === "idle").length;
+  const off  = reps.filter(r => r.presence === "off").length;
+
+  return (
+    <div className="panel" style={{ marginBottom: 0 }}>
+      <div className="panel-h">
+        <Icons.Users size={13}/>
+        <h3>Live floor</h3>
+        <span className="meta">
+          <span style={{ color: "var(--accent-money)" }}>● {live} live</span>
+          <span style={{ marginLeft: 10, color: "var(--state-warning)" }}>● {idle} idle</span>
+          {off > 0 && <span style={{ marginLeft: 10, color: "var(--text-quaternary)" }}>● {off} off</span>}
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, padding: 12 }}>
+        {reps.map(r => {
+          const load = Object.values(picks).filter(rid => rid === r.id).length;
+          const totalLoad = load + (r.appts || 0);
+          const overCap = totalLoad >= 6;
+          const targetProgress = Math.min(100, Math.round(((r.today || 0) / 1800) * 100));  // $1,800 daily target
+          return (
+            <div key={r.id} style={{
+              padding: 10,
+              background: "var(--bg-raised)",
+              border: `1px solid ${
+                r.presence === "live" ? "color-mix(in oklch, var(--accent-money) 35%, var(--border-subtle))" :
+                r.presence === "off" ? "var(--border-subtle)" :
+                "color-mix(in oklch, var(--state-warning) 25%, var(--border-subtle))"
+              }`,
+              borderRadius: 8,
+              opacity: r.presence === "off" ? 0.55 : 1,
+              position: "relative",
+            }}>
+              {load > 0 && (
+                <span style={{
+                  position: "absolute", top: 8, right: 8,
+                  fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 999,
+                  background: overCap ? "var(--state-warning)" : "var(--accent-money)",
+                  color: overCap ? "#000" : "#022",
+                }}>+{load}</span>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <Shared.Avatar rep={r} size={28}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
+                    <Shared.TierChip tier={r.tier} compact/>
+                    <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}/>
+                    <span style={{ textTransform: "capitalize" }}>{r.presence}</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3 }}>
+                  <span>${(r.today || 0).toLocaleString()}</span>
+                  <span>{targetProgress}%</span>
+                </div>
+                <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${targetProgress}%`, height: "100%", background: targetProgress >= 80 ? "var(--accent-money)" : targetProgress >= 40 ? "var(--accent-status)" : "var(--state-warning)" }}/>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, fontSize: 10.5 }}>
+                <div title="Dials today"><span style={{ color: "var(--text-tertiary)" }}>D</span> <strong>{r.dials}</strong></div>
+                <div title="Active appointments"><span style={{ color: "var(--text-tertiary)" }}>A</span> <strong>{r.appts}</strong></div>
+                <div title="Streak (days)"><span style={{ color: "var(--text-tertiary)" }}>🔥</span> <strong>{r.streak}</strong></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Routing rules editor (stub — full editor lives in page-manager.jsx
+   as RoutingRulesModal and is reachable via window.RoutingRulesModal). */
+function RoutingRulesModal({ onClose }) {
+  const Inner = window.RoutingRulesModal;
+  if (Inner && Inner !== RoutingRulesModal) return <Inner onClose={onClose}/>;
+  return (
+    <Shared.Modal title="Routing rules" width={520} onClose={onClose}>
+      <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        The full routing-rules editor lives on the Team Board page. Open the Team Board → Routing rules to add product/tier/language rules that override the score-based suggestion.
+      </div>
+    </Shared.Modal>
   );
 }
 

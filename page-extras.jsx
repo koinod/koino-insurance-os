@@ -461,6 +461,18 @@ function CommissionsRep() {
             </table>`;
           window.exportPDF && window.exportPDF("Statement · April", html);
         }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
+        <button className="btn" style={{ marginLeft: 8 }} onClick={() => window.AppData.exportCsv(ROWS, "commissions-statement",
+          [
+            { k: "date",     l: "Date" },
+            { k: "lead",     l: "Lead" },
+            { k: "carrier",  l: "Carrier" },
+            { k: "product",  l: "Product" },
+            { k: "ap",       l: "AP",       fmt: (v) => v || 0 },
+            { k: "pct",      l: "Comp %" },
+            { k: "expected", l: "Expected", fmt: (v) => v || 0 },
+            { k: "paid",     l: "Paid",     fmt: (v) => v || 0 },
+            { k: "status",   l: "Status" },
+          ])}><Icons.ArrowDown size={13}/> Export CSV</button>
       </div>
 
       <div className="kpi-row">
@@ -2005,9 +2017,16 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
 function PageCalls({ role = "rep" }) {
   const { RECORDINGS, REPS } = AppData;
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
-  // Show all recordings; Rep view filters to their own (first rep is the user)
-  const meId = REPS[0].id;
-  const visible = role === "rep" ? RECORDINGS.filter(r => !r.repId || r.repId === meId) : RECORDINGS;
+  // GAP-D1 — resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const meId = meIdent?.rep_id || (REPS[0] && REPS[0].id);
+  // Manager view scopes to downline; rep to self; owner sees fleet.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const visible = role === "rep"
+    ? RECORDINGS.filter(r => !r.repId || r.repId === meId)
+    : role === "manager" && scopeIds
+      ? RECORDINGS.filter(r => !r.repId || scopeIds.includes(r.repId))
+      : RECORDINGS;
 
   const [selId, setSelId] = React.useState(visible[0]?.id);
   const sel = visible.find(r => r.id === selId) || visible[0];
@@ -2037,6 +2056,11 @@ function PageCalls({ role = "rep" }) {
                 </div>
               </button>
             ))}
+            {visible.length === 0 && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                {role === "rep" ? "No calls logged yet — make your first dial from the Floor." : "No recorded calls in scope."}
+              </div>
+            )}
           </div>
         </div>
 
@@ -2070,8 +2094,21 @@ function PageCalls({ role = "rep" }) {
               <span className={`chip ${sel?.flags?.soa === "captured" || sel?.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel?.flags?.soa}</span>
             </div>
             <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel?.ai}
+              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel?.ai || <span style={{ color: "var(--text-tertiary)" }}>processing…</span>}
             </div>
+
+            {/* Whisper transcript when available — falls back to a hint when the
+                transcribe pipeline hasn't run yet for this recording. */}
+            {sel && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icons.FileText size={11}/> Transcript
+                </div>
+                {window.PostCallTranscript
+                  ? (() => { const T = window.PostCallTranscript; return <T recordingId={sel.id}/>; })()
+                  : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcript module loading…</div>}
+              </div>
+            )}
           </div>
         </div>
       </div>

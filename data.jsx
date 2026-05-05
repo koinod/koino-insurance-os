@@ -91,6 +91,35 @@ const WORKFLOWS = [
 
 window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS, LIVE: false };
 
+// ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
+// Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
+//   window.AppData.exportCsv(rows, "filename", [{k:"name",l:"Name"}, ...])
+// Properly escapes embedded commas, quotes, newlines.
+window.AppData.exportCsv = function (rows, filename, columns) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    window.toast && window.toast("Nothing to export", "info");
+    return;
+  }
+  const cols = columns || Object.keys(rows[0]).map(k => ({ k, l: k }));
+  const esc = (v) => {
+    const s = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.map(c => esc(c.l)).join(",");
+  const body   = rows.map(r => cols.map(c => esc(typeof c.fmt === "function" ? c.fmt(r[c.k], r) : r[c.k])).join(",")).join("\n");
+  const csv    = header + "\n" + body;
+  const blob   = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url;
+  a.download = (filename || "export") + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.toast && window.toast(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"}`, "success");
+};
+
 /* ────────────────────────────────────────────────────────────────────────────
    Live Supabase hydration. The publishable key is intentionally public-tier
    (RLS-protected). When the Supabase JS SDK loads (via UMD <script> in
@@ -1347,4 +1376,64 @@ window.AppData.mutate = {
     );
   },
   quickLinkDelete: (id) => window.AppData.mutate._resourceDelete("agency_quick_links", "QUICK_LINKS", id),
+
+  /* ── Messaging (GAP-C2) — threads + messages ──────────────────────────── */
+  async threadEnsure({ memberHandles, kind = "dm", subject = "", relatedLeadId = null }) {
+    // Find an existing dm-kind thread whose membership matches exactly,
+    // otherwise create a new one. Idempotent — opening a DM twice between
+    // the same pair yields the same thread.
+    const list = (window.AppData.THREADS = window.AppData.THREADS || []);
+    const tmList = (window.AppData.THREAD_MEMBERS = window.AppData.THREAD_MEMBERS || []);
+    const sortedMembers = [...new Set(memberHandles)].sort();
+    if (kind === "dm") {
+      for (const t of list) {
+        if (t.kind !== "dm") continue;
+        const tm = tmList.filter(m => m.threadId === t.id).map(m => m.member).sort();
+        if (tm.length === sortedMembers.length && tm.every((h, i) => h === sortedMembers[i])) return t;
+      }
+    }
+    const tmpId = "thr-" + Date.now();
+    const row = { id: tmpId, kind, subject, relatedLeadId, lastMessageAt: new Date().toISOString() };
+    list.unshift(row);
+    sortedMembers.forEach(h => tmList.push({ id: "tm-" + Date.now() + "-" + h, threadId: tmpId, member: h, muted: false }));
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return row;
+      const { data, error } = await sb.from("threads").insert({ kind, subject, related_lead_id: relatedLeadId, last_message_at: row.lastMessageAt }).select().single();
+      if (error) { window.toast && window.toast(`Thread create failed: ${error.message}`, "error"); throw error; }
+      if (data?.id) {
+        // remap optimistic id
+        row.id = data.id;
+        tmList.forEach(m => { if (m.threadId === tmpId) m.threadId = data.id; });
+        // persist members
+        const memberRows = sortedMembers.map(h => ({ thread_id: data.id, member_handle: h, muted: false }));
+        await sb.from("thread_members").insert(memberRows);
+      }
+    }
+    _emitMutation("threads", "insert", row.id);
+    return row;
+  },
+
+  async messagePost({ threadId, body, metadata }) {
+    const list = (window.AppData.MESSAGES = window.AppData.MESSAGES || []);
+    const meIdent = window.me && window.me();
+    const sender = meIdent?.handle || "(self)";
+    const tmpId = "msg-" + Date.now();
+    const row = { id: tmpId, threadId, sender, body, createdAt: new Date().toISOString() };
+    list.push(row);
+    // Bump thread's lastMessageAt for sort order
+    const t = (window.AppData.THREADS || []).find(x => x.id === threadId);
+    if (t) t.lastMessageAt = row.createdAt;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return row;
+      const { data, error } = await sb.from("messages").insert({
+        thread_id: threadId, sender_handle: sender, body, metadata: metadata || null,
+      }).select().single();
+      if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
+      if (data?.id) row.id = data.id;
+      // Touch thread row
+      await sb.from("threads").update({ last_message_at: row.createdAt }).eq("id", threadId).then(() => {}).catch(() => {});
+    }
+    _emitMutation("messages", "insert", row.id);
+    return row;
+  },
 };
