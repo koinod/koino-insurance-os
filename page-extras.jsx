@@ -693,9 +693,9 @@ const ProductTraining = (() => {
   const K_ASSIGNMENTS = "repflow:product_training_assignments";
 
   function seedCourses() {
-    return (AppData.COURSES || []).map((c, i) => ({
+    return (AppData.COURSES || []).map((c) => ({
       ...c,
-      required: c.required ?? (i < 2),  // first two seed courses default to required onboarding
+      required: c.required ?? false,  // owners explicitly flag required after authoring lessons
       description: c.description || "",
       sections: c.sections || [],
     }));
@@ -726,6 +726,9 @@ const ProductTraining = (() => {
     return (progress[repId] && progress[repId][courseId]) || { completedLessons: [], completedAt: null };
   }
   function deriveStatus(course, prog, assignment) {
+    // Pure derivation from lessons + assignments. Ignore the legacy
+    // course.status field — seed data sets it but it conflicts with the
+    // progress-driven model (e.g. status:"complete" + zero lessons).
     const total = totalLessons(course);
     const done  = prog.completedLessons.length;
     if (total > 0 && done >= total) return "complete";
@@ -736,7 +739,7 @@ const ProductTraining = (() => {
     }
     if (assignment) return "assigned";
     if (course.required) return "due";  // required courses are implicitly assigned
-    return course.status || "assigned";
+    return "assigned";
   }
   function statusFor(repId, course, progress, assignments) {
     const prog = getProgress(progress, repId, course.id);
@@ -744,8 +747,11 @@ const ProductTraining = (() => {
     return deriveStatus(course, prog, a);
   }
   function percentFor(repId, course, progress) {
+    // Progress is derived from lessons completed, period. Seed courses with
+    // a legacy `status: "complete"` field but zero lessons must NOT report
+    // 100% — that creates a "fully filled bar but status: due" mismatch.
     const total = totalLessons(course);
-    if (total === 0) return course.status === "complete" ? 100 : 0;
+    if (total === 0) return 0;
     return Math.round((getProgress(progress, repId, course.id).completedLessons.length / total) * 100);
   }
   function isComplete(repId, course, progress) {
@@ -821,6 +827,7 @@ const ProductTraining = (() => {
   }
   function openRequiredCount(repId, courses, progress, assignments) {
     return requiredCoursesFor(repId, courses, progress, assignments)
+      .filter(c => totalLessons(c) > 0)  // ignore empty courses still being authored
       .filter(c => statusFor(repId, c, progress, assignments) !== "complete")
       .length;
   }
@@ -831,20 +838,39 @@ const ProductTraining = (() => {
   };
 })();
 
-/* ─── Embed helpers — accept Loom / YouTube / Vimeo / direct mp4 ─────── */
+/* ─── Embed helpers — accept Loom / YouTube / Vimeo / Wistia / direct mp4 ─ */
 function toEmbedSrc(url = "") {
   const u = String(url).trim();
   if (!u) return "";
   const loom = u.match(/loom\.com\/share\/([a-z0-9]+)/i);
   if (loom) return `https://www.loom.com/embed/${loom[1]}`;
-  const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+  const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]+)/);
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
   const vm = u.match(/vimeo\.com\/(\d+)/);
   if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  const wist = u.match(/(?:wistia\.com\/(?:medias|embed)|wi\.st\/)\/?([a-z0-9]+)/i);
+  if (wist) return `https://fast.wistia.net/embed/iframe/${wist[1]}`;
   return u;
 }
 function isDirectVideo(url = "") {
   return /\.(mp4|webm|ogg)(\?|$)/i.test(url) || url.startsWith("data:video/");
+}
+/* Pull a thumbnail from a YouTube URL when we can — Vimeo/Loom/Wistia thumbnails
+   require an API call so we let those fall through to a placeholder. */
+function thumbFromUrl(url = "") {
+  const u = String(url).trim();
+  const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]+)/);
+  if (yt) return `https://i.ytimg.com/vi/${yt[1]}/hqdefault.jpg`;
+  return "";
+}
+function detectVideoSourceLabel(url = "") {
+  const u = String(url).toLowerCase();
+  if (/youtube\.com|youtu\.be/.test(u)) return "YouTube";
+  if (/vimeo\.com/.test(u))             return "Vimeo";
+  if (/loom\.com/.test(u))              return "Loom";
+  if (/wistia\.com|wi\.st/.test(u))     return "Wistia";
+  if (isDirectVideo(u))                  return "Direct";
+  return "Embed";
 }
 
 const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity", "Compliance"];
@@ -878,7 +904,18 @@ function PageTraining({ role = "rep", defaultTab = "coaching" }) {
         </div>
       </div>
 
-      <Shared.SectionPill items={tabs} value={tab} onChange={setTab}/>
+      <div className="training-tabs section-pill">
+        {tabs.map(t => {
+          const Ic = Icons[t.icon];
+          return (
+            <button key={t.k} className={tab === t.k ? "active" : ""} onClick={() => setTab(t.k)}>
+              <Ic size={12} style={{ marginRight: 6, verticalAlign: "middle" }}/>
+              {t.l}
+              {t.badge != null && <span className="badge tabular" style={{ marginLeft: 6, fontSize: 10 }}>{t.badge}</span>}
+            </button>
+          );
+        })}
+      </div>
 
       {tab === "coaching" && <CoachingPane role={role}/>}
       {tab === "library"  && <CallLibraryPane role={role}/>}
@@ -890,11 +927,18 @@ function PageTraining({ role = "rep", defaultTab = "coaching" }) {
 /* Defer to the existing PageCoaching — it already handles all three roles.
    We strip its outer page-pad since we're already inside one. */
 function CoachingPane({ role }) {
-  const C = window.PageCoaching;
-  if (!C) return <div style={{ padding: 30, color: "var(--text-tertiary)" }}>Coaching module loading…</div>;
+  // Render the role-specific inner component (CoachingRep / CoachingManager /
+  // CoachingOwner) directly. The .training-embed class hides the duplicate
+  // page-h title AND the manager's inner dashboard SectionPill (which would
+  // otherwise surface unrelated nav links: Floor / NIGO / Dispatch).
+  const Inner = role === "manager" ? window.CoachingManager
+              : role === "owner"   ? window.CoachingOwner
+              : window.CoachingRep;
+  const Fallback = window.PageCoaching;
+  if (!Inner && !Fallback) return <div style={{ padding: 30, color: "var(--text-tertiary)" }}>Coaching module loading…</div>;
   return (
-    <div style={{ marginTop: -8, marginInline: -16, marginBottom: -16 }}>
-      <C role={role}/>
+    <div className="training-embed">
+      {Inner ? <Inner/> : <Fallback role={role}/>}
     </div>
   );
 }
@@ -1016,15 +1060,52 @@ function useLocalArray(key, seed) {
   return [items, setItems];
 }
 
-function VideoLibrary() {
-  const [videos]                 = useLocalArray("repflow:videos", DEFAULT_VIDEOS);
+function VideoLibrary({ canEdit = true }) {
+  const [videos, setVideos]       = useLocalArray("repflow:videos", DEFAULT_VIDEOS);
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [sel, setSel]             = React.useState(null);
+  const [editing, setEditing]     = React.useState(null);  // {id?, title, cat, durMin, url}
   const filtered = videos.filter(v =>
     (cat === "All" || v.cat === cat) &&
     (!q || v.title.toLowerCase().includes(q.toLowerCase()))
   );
+
+  const startNew  = () => setEditing({ id: null, title: "", cat: "Med Supp", durMin: "", url: "" });
+  const startEdit = (v) => {
+    // Convert embed src back to original-ish url for editing convenience
+    const guess = v.src && v.src.includes("/embed/")
+      ? v.src.replace("youtube.com/embed/", "youtube.com/watch?v=").replace("player.vimeo.com/video/", "vimeo.com/")
+      : v.src;
+    setEditing({ id: v.id, title: v.title, cat: v.cat, durMin: v.durMin || "", url: guess || "" });
+  };
+  const saveVideo = () => {
+    const url = (editing.url || "").trim();
+    if (!editing.title.trim() || !url) return;
+    const src = toEmbedSrc(url);
+    const thumb = thumbFromUrl(url) || editing.thumb || "";
+    const next = {
+      id: editing.id || ("v-" + Date.now()),
+      title: editing.title.trim(),
+      cat: editing.cat,
+      durMin: +editing.durMin || 0,
+      src,
+      thumb,
+      sourceLabel: detectVideoSourceLabel(url),
+    };
+    if (editing.id) {
+      setVideos(vs => vs.map(v => v.id === editing.id ? { ...v, ...next } : v));
+    } else {
+      setVideos(vs => [next, ...vs]);
+    }
+    window.toast && window.toast(editing.id ? "Video updated" : "Video added", "success");
+    setEditing(null);
+  };
+  const removeVideo = (id) => {
+    setVideos(vs => vs.filter(v => v.id !== id));
+    if (sel?.id === id) setSel(null);
+    window.toast && window.toast("Video removed", "info");
+  };
 
   return (
     <div className="panel">
@@ -1033,6 +1114,9 @@ function VideoLibrary() {
         <h3>Video library</h3>
         <span className="meta">{filtered.length} of {videos.length}</span>
         <input className="text-input" style={{ width: 220, marginLeft: "auto" }} placeholder="Search videos…" value={q} onChange={(e) => setQ(e.target.value)}/>
+        {canEdit && (
+          <button className="btn btn-primary" onClick={startNew}><Icons.Plus size={12}/> Add video</button>
+        )}
       </div>
       <div style={{ padding: "10px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
         {VIDEO_CATS.map(c => (
@@ -1044,37 +1128,86 @@ function VideoLibrary() {
       </div>
       <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
         {filtered.map(v => (
-          <div key={v.id} style={{ background: "var(--bg-raised)", borderRadius: 8, overflow: "hidden", cursor: "pointer", border: "1px solid var(--border-subtle)" }} onClick={() => setSel(v)}>
-            <div style={{ position: "relative", paddingTop: "56.25%", background: "var(--bg-overlay)" }}>
+          <div key={v.id} style={{ background: "var(--bg-raised)", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-subtle)", position: "relative" }}>
+            <div onClick={() => setSel(v)} style={{ position: "relative", paddingTop: "56.25%", background: "var(--bg-overlay)", cursor: "pointer" }}>
               {v.thumb && <img src={v.thumb} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}/>}
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.25)" }}>
                 <div style={{ width: 40, height: 40, borderRadius: 999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Icons.Play size={16} style={{ color: "white", marginLeft: 2 }}/>
                 </div>
               </div>
-              <div style={{ position: "absolute", bottom: 6, right: 6, padding: "2px 6px", background: "rgba(0,0,0,0.7)", borderRadius: 3, fontSize: 10.5, color: "white" }}>{v.durMin}m</div>
+              {v.durMin > 0 && <div style={{ position: "absolute", bottom: 6, right: 6, padding: "2px 6px", background: "rgba(0,0,0,0.7)", borderRadius: 3, fontSize: 10.5, color: "white" }}>{v.durMin}m</div>}
+              {v.sourceLabel && <div style={{ position: "absolute", top: 6, left: 6, padding: "2px 6px", background: "rgba(0,0,0,0.55)", borderRadius: 3, fontSize: 9.5, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>{v.sourceLabel}</div>}
             </div>
-            <div style={{ padding: 10 }}>
-              <div style={{ fontWeight: 500, fontSize: 12.5 }}>{v.title}</div>
-              <div style={{ marginTop: 4 }}><span className="chip">{v.cat}</span></div>
+            <div style={{ padding: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 500, fontSize: 12.5 }} className="cell-truncate">{v.title}</div>
+                <div style={{ marginTop: 4 }}><span className="chip">{v.cat}</span></div>
+              </div>
+              {canEdit && (
+                <>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(v); }} title="Edit"><Icons.Edit size={11}/></button>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); removeVideo(v.id); }} title="Remove" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                </>
+              )}
             </div>
           </div>
         ))}
         {filtered.length === 0 && (
           <div style={{ gridColumn: "1 / -1", padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-            No videos match your filter.
+            No videos match your filter. {canEdit && <span>Click <strong style={{ color: "var(--text-secondary)" }}>Add video</strong> to paste a YouTube / Vimeo / Loom / Wistia URL.</span>}
           </div>
         )}
       </div>
 
       {sel && (
         <Shared.Modal title={sel.title} width={800} onClose={() => setSel(null)}>
-          <div style={{ position: "relative", paddingTop: "56.25%", background: "black", borderRadius: 6, overflow: "hidden" }}>
-            <iframe src={sel.src} title={sel.title} allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}/>
-          </div>
+          {isDirectVideo(sel.src) ? (
+            <video src={sel.src} controls autoPlay style={{ width: "100%", borderRadius: 6, background: "black" }}/>
+          ) : (
+            <div style={{ position: "relative", paddingTop: "56.25%", background: "black", borderRadius: 6, overflow: "hidden" }}>
+              <iframe src={sel.src} title={sel.title} allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}/>
+            </div>
+          )}
           <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-            <Icons.Clock size={11}/> {sel.durMin} min · <span className="chip">{sel.cat}</span>
+            <Icons.Clock size={11}/> {sel.durMin || 0} min · <span className="chip">{sel.cat}</span>
+            {sel.sourceLabel && <span className="chip" style={{ fontSize: 9.5 }}>{sel.sourceLabel}</span>}
+          </div>
+        </Shared.Modal>
+      )}
+
+      {editing && (
+        <Shared.Modal title={editing.id ? "Edit video" : "Add video to library"} width={560} onClose={() => setEditing(null)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+            <Shared.Field label="Video URL (YouTube / Vimeo / Loom / Wistia / direct .mp4)">
+              <input className="text-input" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })}
+                placeholder="https://www.youtube.com/watch?v=… or https://vimeo.com/… etc."
+                autoFocus={!editing.id}/>
+            </Shared.Field>
+            <Shared.Field label="Title">
+              <input className="text-input" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="Plan G — opening line walkthrough"/>
+            </Shared.Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 10 }}>
+              <Shared.Field label="Category">
+                <Shared.Select value={editing.cat} onChange={(v) => setEditing({ ...editing, cat: v })}
+                  options={VIDEO_CATS.filter(c => c !== "All").map(c => ({ v: c, l: c }))}/>
+              </Shared.Field>
+              <Shared.Field label="Length (min)">
+                <input className="text-input" type="number" value={editing.durMin} onChange={(e) => setEditing({ ...editing, durMin: e.target.value })} placeholder="12"/>
+              </Shared.Field>
+            </div>
+            {editing.url && (
+              <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+                <strong style={{ color: "var(--text-secondary)" }}>{detectVideoSourceLabel(editing.url)}</strong> · embed src: <code style={{ wordBreak: "break-all" }}>{toEmbedSrc(editing.url)}</code>
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+            <button className="btn btn-primary" disabled={!editing.title.trim() || !editing.url.trim()} onClick={saveVideo}>
+              {editing.id ? "Save" : "Add to library"}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
           </div>
         </Shared.Modal>
       )}
@@ -1443,7 +1576,7 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
         </>
       )}
 
-      {tab === "videos"  && <VideoLibrary/>}
+      {tab === "videos"  && <VideoLibrary canEdit={role !== "rep"}/>}
       {tab === "scripts" && <ScriptsLibrary/>}
 
       {openCourse && <CourseViewerModal course={openCourse} repId={meId} store={store} onClose={() => setOpenCourse(null)}/>}
