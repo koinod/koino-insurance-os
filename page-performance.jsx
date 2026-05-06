@@ -32,11 +32,40 @@ function PagePerformance() {
     diamond:  { mtd: 50000, persistency: 90 },
   });
   const [overrides, setOverrides] = React.useState({});
-  const [history, setHistory] = React.useState([
-    { who: "Tony Park", from: "gold",   to: "platinum", reason: "Lost lead to no fault — protect tier", when: "Apr 28" },
-    { who: "Remy Chen", from: "silver", to: "bronze",   reason: "Persistency drift, 6-mo cohort",        when: "Apr 21" },
-  ]);
-  const persFor = (rep) => 88 + (rep.streak % 7);
+  const [history, setHistory] = React.useState(
+    ((window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency())
+      ? [
+          { who: "Tony Park", from: "gold",   to: "platinum", reason: "Lost lead to no fault — protect tier", when: "Apr 28" },
+          { who: "Remy Chen", from: "silver", to: "bronze",   reason: "Persistency drift, 6-mo cohort",        when: "Apr 21" },
+        ]
+      : [])
+  );
+  // Persistency = % of issued policies still in force, derived from
+  // AppData.POLICIES. When a rep has no policies on file we fall back to a
+  // streak-derived demo value (bounded 88–94) only on the demo agency, else
+  // null so tier calc treats them as below threshold (forces real data first).
+  const _isDemoPerf = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const _persByRep = React.useMemo(() => {
+    const policies = AppData.POLICIES || [];
+    const total = {}, active = {};
+    for (const p of policies) {
+      if (!p.owner) continue;
+      total[p.owner]  = (total[p.owner] || 0) + 1;
+      if (p.persistency === "active" || p.persistency === "in_force") {
+        active[p.owner] = (active[p.owner] || 0) + 1;
+      }
+    }
+    const out = {};
+    for (const id of Object.keys(total)) {
+      out[id] = Math.round((active[id] / total[id]) * 1000) / 10;
+    }
+    return out;
+  }, [AppData.POLICIES]);
+  const persFor = (rep) => {
+    const live = _persByRep[rep.id];
+    if (typeof live === "number") return live;
+    return _isDemoPerf ? 88 + (rep.streak % 7) : 0;
+  };
   const calcTier = (rep) => {
     const p = persFor(rep);
     let t = "bronze";
@@ -70,8 +99,8 @@ function PagePerformance() {
 
   // ─── Hero KPI helpers ───────────────────────────────────────────────────
   const top         = sorted[0];
-  const promoted    = history.filter(h => TIER_ORDER.indexOf(h.to) > TIER_ORDER.indexOf(h.from)).length;
-  const demoted     = history.filter(h => TIER_ORDER.indexOf(h.to) < TIER_ORDER.indexOf(h.from)).length;
+  const promoted    = history.filter(h => TIER_ORDER.indexOf(h.to) > TIER_ORDER.indexOf(h.from))?.length;
+  const demoted     = history.filter(h => TIER_ORDER.indexOf(h.to) < TIER_ORDER.indexOf(h.from))?.length;
 
   return (
     <div className="page-pad">

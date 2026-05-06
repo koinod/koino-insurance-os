@@ -1,8 +1,113 @@
-/* Page: Owner — P&L + Org Tree */
+/* Page: Owner — P&L + Org Tree
+
+   All numbers below are derived from AppData.POLICIES + AppData.COMMISSIONS +
+   AppData.CLAWBACKS + AppData.RECRUITING_APPLICANTS. When live data is empty
+   we fall back to demo numbers ONLY for the demo agency; real agencies see
+   "—" / null states until their ledger is populated. */
+function _pnlLiveMetrics(period) {
+  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const policies = AppData.POLICIES || [];
+  const commissions = AppData.COMMISSIONS || [];
+  const clawbacks = AppData.CLAWBACKS || [];
+  const policyById = Object.fromEntries(policies.map(p => [p.id, p]));
+
+  const now = new Date();
+  const startMtd = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startYtd = new Date(now.getFullYear(), 0, 1);
+  const startT12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const cutoff = period === "MTD" ? startMtd : period === "YTD" ? startYtd : startT12;
+  const tsIn = (s) => s && new Date(s) >= cutoff;
+
+  const overrideRev = commissions.filter(c => c.kind === "override" && tsIn(c.earnedAt))
+    .reduce((a, c) => a + (c.amount || 0), 0);
+  const apSubmitted = policies.filter(p => tsIn(p.submissionDate))
+    .reduce((a, p) => a + (p.ap || 0), 0);
+  const apsCount = policies.filter(p => tsIn(p.submissionDate)).length;
+  const nigoDrag = clawbacks.filter(c => tsIn(c.recordedAt))
+    .reduce((a, c) => a + (c.amount || 0), 0);
+
+  const producerComp = commissions.filter(c => c.kind !== "override" && tsIn(c.earnedAt));
+  const grossProducer = producerComp.reduce((a, c) => a + (c.amount || 0), 0);
+  const byProductRe = (re) => producerComp.filter(c => {
+    const p = policyById[c.policyId];
+    return p && re.test(String(p.product || ""));
+  }).reduce((a, c) => a + (c.amount || 0), 0);
+
+  const medSupp = byProductRe(/med\s*supp|plan\s*g|plan\s*n/i);
+  const fe      = byProductRe(/final\s*expense|^fe\b|fe\s/i);
+  const annuity = byProductRe(/annuity|spda|fia/i);
+  const leadSpend = (AppData.LEAD_SPEND_TOTALS && AppData.LEAD_SPEND_TOTALS[period.toLowerCase()]) || 0;
+
+  // 12-month spark for override revenue + AP submitted
+  const monthBucket = (rows, getDate, getVal) => {
+    const out = new Array(12).fill(0);
+    for (const r of rows) {
+      if (!getDate(r)) continue;
+      const d = new Date(getDate(r));
+      const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+      if (months < 0 || months > 11) continue;
+      out[11 - months] += getVal(r) || 0;
+    }
+    return out;
+  };
+  const sparkRevArr = monthBucket(commissions.filter(c => c.kind === "override"), c => c.earnedAt, c => c.amount / 100);
+  const sparkApArr  = monthBucket(policies, p => p.submissionDate, p => p.ap / 1000);
+
+  const hasLive = commissions.length > 0 || policies.length > 0;
+  const sparkRev = hasLive && sparkRevArr.some(v => v > 0) ? sparkRevArr.map(v => Math.round(v))
+    : (isDemo ? [120,134,128,148,162,158,180,195,210,228,242,258] : null);
+  const sparkOR  = hasLive && sparkApArr.some(v => v > 0) ? sparkApArr.map(v => Math.round(v))
+    : (isDemo ? [38,42,40,46,52,49,58,63,68,74,79,84] : null);
+
+  return {
+    isDemo, hasLive,
+    overrideRev, apSubmitted, apsCount, nigoDrag,
+    grossProducer, medSupp, fe, annuity, leadSpend,
+    sparkRev, sparkOR,
+  };
+}
+
+function _recruitingFunnel() {
+  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const apps = AppData.RECRUITING_APPLICANTS || [];
+  if (apps.length === 0 && isDemo) {
+    return [
+      { l: "FB / LinkedIn / YT applied", v: 412, w: 100 },
+      { l: "Contracted",                 v: 58,  w: 14 },
+      { l: "First app submitted",        v: 24,  w: 6 },
+      { l: "Producing 90+ days",         v: 14,  w: 3.4 },
+    ];
+  }
+  if (apps.length === 0) return [];
+  const total = apps.length;
+  const contracted = apps.filter(a => a.status === "contracted" || a.status === "first_app" || a.status === "producing").length;
+  const firstApp   = apps.filter(a => a.status === "first_app" || a.status === "producing").length;
+  const producing  = apps.filter(a => a.status === "producing").length;
+  const w = (n) => total > 0 ? Math.max(2, (n / total) * 100) : 0;
+  return [
+    { l: "Applied",           v: total,       w: 100 },
+    { l: "Contracted",        v: contracted,  w: w(contracted) },
+    { l: "First app",         v: firstApp,    w: w(firstApp) },
+    { l: "Producing 90+ days", v: producing,  w: w(producing) },
+  ];
+}
+
 function PagePnL() {
-  const sparkRev = [120,134,128,148,162,158,180,195,210,228,242,258];
-  const sparkOR = [38,42,40,46,52,49,58,63,68,74,79,84];
   const [period, setPeriod]      = React.useState("MTD");  // MTD | T12 | YTD
+  const m = _pnlLiveMetrics(period);
+  const dollarsLive = (cents) => `${Math.round(cents / 100).toLocaleString()}`;
+  const fmtKpiCents = (cents) => {
+    if (cents == null) return "—";
+    if (cents >= 100000000) return `${(cents / 100000000).toFixed(2)}M`;
+    if (cents >= 100000)    return `${Math.round(cents / 100).toLocaleString()}`;
+    return `${(cents / 100).toFixed(0)}`;
+  };
+  // Demo-only fallbacks for the KPI strip
+  const overrideKpi = m.overrideRev > 0 ? dollarsLive(m.overrideRev) : (m.isDemo ? "258,420" : "—");
+  const apKpi       = m.apSubmitted > 0 ? fmtKpiCents(m.apSubmitted) : (m.isDemo ? "1.84M" : "—");
+  const apSub       = m.apsCount > 0 ? `${m.apsCount} apps` : (m.isDemo ? "412 apps" : "needs data");
+  const nigoKpi     = m.nigoDrag > 0 ? dollarsLive(m.nigoDrag) : (m.isDemo ? "11,420" : "—");
+  const recFunnel = _recruitingFunnel();
   const [askValue, setAskValue]  = React.useState("");
   const [waterfallDrill, setDrill] = React.useState(null);
 
@@ -66,9 +171,9 @@ function PagePnL() {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Override revenue · MTD" value="258,420" prefix="$" sub="+18.2% vs last month" trend="up" spark={sparkRev}/>
-        <Shared.KpiCard label="AP submitted" value="1.84M" prefix="$" sub="412 apps" trend="up" spark={sparkOR}/>
-        <Shared.KpiCard label="NIGO drag" value="11,420" prefix="$" sub="-$2.1k WoW" trend="up" neg spark={[18,16,17,14,15,13,11.4]}/>
+        <Shared.KpiCard hero label={`Override revenue · ${period}`} value={overrideKpi} prefix={overrideKpi === "—" ? "" : "$"} sub={m.overrideRev > 0 ? "live · commissions ledger" : (m.isDemo ? "+18.2% vs last month" : "no commissions yet")} trend={m.overrideRev > 0 ? "up" : undefined} spark={m.sparkRev}/>
+        <Shared.KpiCard label="AP submitted" value={apKpi} prefix={apKpi === "—" ? "" : "$"} sub={apSub} trend={m.apSubmitted > 0 ? "up" : undefined} spark={m.sparkOR}/>
+        <Shared.KpiCard label="NIGO drag" value={nigoKpi} prefix={nigoKpi === "—" ? "" : "$"} sub={m.nigoDrag > 0 ? "live · clawbacks" : (m.isDemo ? "-$2.1k WoW" : "no clawbacks")} trend={m.nigoDrag > 0 ? "up" : undefined} neg={m.nigoDrag > 0 || m.isDemo}/>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -79,17 +184,37 @@ function PagePnL() {
             <span className="meta">drill any row</span>
           </div>
           <div className="list">
-            {[
-              { l: "Producer commissions (gross)", v: 412300, ind: 0, w: 100, c: "var(--accent-money)" },
-              { l: "  Med Supp", v: 198200, ind: 1, w: 48, c: "var(--accent-money)" },
-              { l: "  Final Expense", v: 134700, ind: 1, w: 33, c: "var(--accent-money-dim)" },
-              { l: "  Annuity", v: 79400, ind: 1, w: 19, c: "var(--state-info)" },
-              { l: "Override pool (your slice)", v: 258420, ind: 0, w: 63, c: "var(--accent-money)" },
-              { l: "− Lead spend", v: -78200, ind: 0, w: 19, c: "var(--state-danger)" },
-              { l: "− NIGO chargebacks", v: -11420, ind: 0, w: 3, c: "var(--state-danger)" },
-              { l: "− SaaS / payroll / other", v: -64100, ind: 0, w: 16, c: "var(--text-quaternary)" },
-              { l: "Net to owner", v: 104700, ind: 0, w: 25, c: "var(--accent-money)", bold: true },
-            ].map((r, i) => (
+            {(() => {
+              // Demo waterfall when nothing live; otherwise derive in dollars.
+              const demoWaterfall = [
+                { l: "Producer commissions (gross)", v: 412300, ind: 0, c: "var(--accent-money)" },
+                { l: "  Med Supp",                   v: 198200, ind: 1, c: "var(--accent-money)" },
+                { l: "  Final Expense",              v: 134700, ind: 1, c: "var(--accent-money-dim)" },
+                { l: "  Annuity",                    v: 79400,  ind: 1, c: "var(--state-info)" },
+                { l: "Override pool (your slice)",   v: 258420, ind: 0, c: "var(--accent-money)" },
+                { l: "− Lead spend",                 v: -78200, ind: 0, c: "var(--state-danger)" },
+                { l: "− NIGO chargebacks",           v: -11420, ind: 0, c: "var(--state-danger)" },
+                { l: "− SaaS / payroll / other",     v: -64100, ind: 0, c: "var(--text-quaternary)" },
+                { l: "Net to owner",                 v: 104700, ind: 0, c: "var(--accent-money)", bold: true },
+              ];
+              const live = [
+                { l: "Producer commissions (gross)", v: Math.round(m.grossProducer / 100), ind: 0, c: "var(--accent-money)" },
+                { l: "  Med Supp",                   v: Math.round(m.medSupp / 100),       ind: 1, c: "var(--accent-money)" },
+                { l: "  Final Expense",              v: Math.round(m.fe / 100),            ind: 1, c: "var(--accent-money-dim)" },
+                { l: "  Annuity",                    v: Math.round(m.annuity / 100),       ind: 1, c: "var(--state-info)" },
+                { l: "Override pool (your slice)",   v: Math.round(m.overrideRev / 100),   ind: 0, c: "var(--accent-money)" },
+                { l: "− Lead spend",                 v: -Math.round(m.leadSpend / 100),    ind: 0, c: "var(--state-danger)" },
+                { l: "− NIGO chargebacks",           v: -Math.round(m.nigoDrag / 100),     ind: 0, c: "var(--state-danger)" },
+                // SaaS/payroll: load from agency_fixed_costs if present, else "needs data"
+                { l: "− SaaS / payroll / other",     v: -Math.round((AppData.AGENCY_FIXED_COSTS_CENTS || 0) / 100), ind: 0, c: "var(--text-quaternary)" },
+              ];
+              const net = live.reduce((a, r) => a + r.v, 0);
+              live.push({ l: "Net to owner", v: net, ind: 0, c: "var(--accent-money)", bold: true });
+              const useLive = m.hasLive;
+              const rows = useLive ? live : (m.isDemo ? demoWaterfall : []);
+              const max = Math.max(...rows.map(r => Math.abs(r.v)), 1);
+              return rows.map((r, i) => ({ ...r, w: Math.max(2, Math.round(Math.abs(r.v) / max * 100)) }));
+            })().map((r, i) => (
               <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 110px", height: 36, paddingLeft: 14 + r.ind * 16, cursor: "pointer", background: waterfallDrill === r.l ? "var(--bg-raised)" : undefined }}
                 onClick={() => setDrill(waterfallDrill === r.l ? null : r.l)}>
                 <div style={{ color: r.bold ? "var(--text-primary)" : "var(--text-secondary)", fontWeight: r.bold ? 600 : 400, fontSize: 12.5 }}>{r.l}</div>
@@ -134,15 +259,18 @@ function PagePnL() {
           </div>
 
           <div className="panel">
-            <div className="panel-h"><h3>Recruiting funnel</h3></div>
+            <div className="panel-h">
+              <h3>Recruiting funnel</h3>
+              <span className="meta">{recFunnel.length === 0 ? "no applicants" : "live · recruiting_applicants"}</span>
+            </div>
             <div style={{ padding: 14 }}>
-              {[
-                { l: "FB / LinkedIn / YT applied", v: 412, w: 100 },
-                { l: "Contracted", v: 58, w: 14 },
-                { l: "First app submitted", v: 24, w: 6 },
-                { l: "Producing 90+ days", v: 14, w: 3.4 },
-              ].map((r, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "1.2fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12, borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
+              {recFunnel.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--text-tertiary)", padding: "16px 0", textAlign: "center" }}>
+                  No applicant data yet. Connect a recruiting source on the Recruiting page.
+                </div>
+              )}
+              {recFunnel.map((r, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1.2fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12, borderBottom: i < recFunnel.length - 1 ? "1px solid var(--border-subtle)" : 0 }}>
                   <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
                   <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
                   <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginLeft: 14, overflow: "hidden" }}>
@@ -161,14 +289,57 @@ function PagePnL() {
 function PageOrgTree() {
   const { REPS } = AppData;
   const [view, setView] = React.useState("tree");
+  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+
+  // ── Live rollups: book of business + persistency + NIGO rate per rep ──
+  // book = sum of AP cents on policies owned by rep. Falls back to rep.mtd (cents)
+  // for sizing only when the rep has no policies (empty BOB renders as "—").
+  const policies = AppData.POLICIES || [];
+  const nigos    = AppData.NIGOS    || [];
+  const commissions = AppData.COMMISSIONS || [];
+  const bookByRep = {}, polCountByRep = {}, activeByRep = {}, nigoByRep = {}, overrideByRep = {};
+  for (const p of policies) {
+    if (!p.owner) continue;
+    bookByRep[p.owner]      = (bookByRep[p.owner] || 0) + (p.ap || 0);
+    polCountByRep[p.owner]  = (polCountByRep[p.owner] || 0) + 1;
+    if (p.persistency === "active" || p.persistency === "in_force") {
+      activeByRep[p.owner]  = (activeByRep[p.owner] || 0) + 1;
+    }
+  }
+  const policyOwnerById = Object.fromEntries(policies.map(p => [p.id, p.owner]));
+  for (const n of nigos) {
+    const owner = n.assignedTo || (n.policyId && policyOwnerById[n.policyId]);
+    if (owner) nigoByRep[owner] = (nigoByRep[owner] || 0) + 1;
+  }
+  for (const c of commissions) {
+    if (c.kind === "override" && c.repId) {
+      overrideByRep[c.repId] = (overrideByRep[c.repId] || 0) + (c.amount || 0);
+    }
+  }
+  // Convert AP cents to dollars for display sizing
+  const bookFor = (r) => {
+    const cents = bookByRep[r.id] || 0;
+    return cents > 0 ? Math.round(cents / 100) : (isDemo ? r.mtd : 0);
+  };
+  const persistencyFor = (r) => {
+    const total = polCountByRep[r.id] || 0;
+    if (total === 0) return null;
+    return Math.round(((activeByRep[r.id] || 0) / total) * 1000) / 10;
+  };
+  const nigoRateFor = (r) => {
+    const total = polCountByRep[r.id] || 0;
+    if (total === 0) return null;
+    return Math.round(((nigoByRep[r.id] || 0) / total) * 1000) / 10;
+  };
 
   // Hierarchical layout (Tree)
+  const sizeFromBook = (book) => Math.max(8, Math.min(32, 12 + (book / 8000)));
   const tree = [
-    { id: "owner", x: 480, y: 40, name: "Atlas IMO", tier: "diamond", size: 22 },
+    { id: "owner", x: 480, y: 40,  name: "Atlas IMO",       tier: "diamond",  size: 22 },
     { id: "atl",   x: 240, y: 160, name: "Atlanta region", tier: "platinum", size: 18 },
     { id: "tpa",   x: 720, y: 160, name: "Tampa region",   tier: "platinum", size: 18 },
-    ...REPS.slice(0,5).map((r, i) => ({ id: r.id, x: 80  + i * 90, y: 290, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd })),
-    ...REPS.slice(5).map((r, i) => ({ id: r.id, x: 560 + i * 90, y: 290, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd })),
+    ...REPS.slice(0,5).map((r, i) => ({ id: r.id, x: 80  + i * 90, y: 290, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) })),
+    ...REPS.slice(5).map((r, i) => ({ id: r.id, x: 560 + i * 90, y: 290, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) })),
   ];
   const links = [
     ["owner","atl"],["owner","tpa"],
@@ -186,7 +357,7 @@ function PageOrgTree() {
     }),
     ...REPS.map((r, i) => {
       const a = (i / REPS.length) * Math.PI * 2 - Math.PI / 2;
-      return { id: r.id, x: cx + Math.cos(a) * 200, y: cy + Math.sin(a) * 200, name: r.name, tier: r.tier, size: 12 + (r.mtd / 8000), book: r.mtd };
+      return { id: r.id, x: cx + Math.cos(a) * 200, y: cy + Math.sin(a) * 200, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) };
     }),
   ];
   const radialLinks = [
@@ -265,17 +436,46 @@ function PageOrgTree() {
 
           <div className="panel">
             <div className="panel-h"><h3>{sel?.name}</h3><Shared.TierChip tier={sel?.tier || "platinum"}/></div>
+            {(() => {
+              // Resolve scope: rep node → that rep; region/owner → all reps in subtree.
+              const repObj = sel?.id ? REPS.find(r => r.id === sel.id) : null;
+              const scopeRepIds = repObj ? [repObj.id]
+                : sel?.id === "atl" ? REPS.slice(0, 5).map(r => r.id)
+                : sel?.id === "tpa" ? REPS.slice(5).map(r => r.id)
+                : REPS.map(r => r.id);
+              const totalBookCents = scopeRepIds.reduce((a, id) => a + (bookByRep[id] || 0), 0);
+              const totalBookDollars = totalBookCents > 0 ? Math.round(totalBookCents / 100) : (isDemo ? 1840000 : 0);
+              const totalPolicies = scopeRepIds.reduce((a, id) => a + (polCountByRep[id] || 0), 0);
+              const totalActive   = scopeRepIds.reduce((a, id) => a + (activeByRep[id] || 0), 0);
+              const totalNigos    = scopeRepIds.reduce((a, id) => a + (nigoByRep[id] || 0), 0);
+              const totalOverrideCents = scopeRepIds.reduce((a, id) => a + (overrideByRep[id] || 0), 0);
+              const persistencyPct = totalPolicies > 0 ? Math.round((totalActive / totalPolicies) * 1000) / 10
+                : (isDemo ? 91.4 : null);
+              const nigoRatePct = totalPolicies > 0 ? Math.round((totalNigos / totalPolicies) * 1000) / 10
+                : (isDemo ? 2.1 : null);
+              // Recruits L30: count of recruiting_applicants whose recruiterRepId is in scope and createdAt within 30d
+              const recApps = AppData.RECRUITING_APPLICANTS || [];
+              const cutoff = Date.now() - 30 * 86400000;
+              const recruitsL30 = recApps.filter(a => scopeRepIds.includes(a.recruiterRepId) && a.createdAt && new Date(a.createdAt).getTime() >= cutoff).length;
+              // Override % = override commissions / producer commissions in scope (live), else demo 22%
+              const producerCommScope = commissions.filter(c => c.kind !== "override" && scopeRepIds.includes(c.repId)).reduce((a, c) => a + (c.amount || 0), 0);
+              const overridePct = producerCommScope > 0 ? Math.round((totalOverrideCents / producerCommScope) * 1000) / 10
+                : (isDemo ? 22 : null);
+              const dash = (v, suffix = "") => v == null ? "—" : `${v}${suffix}`;
+              return (
             <div style={{ padding: 14 }}>
               <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Book of business</div>
-              <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", marginTop: 4 }}>${(sel?.book || 1840000).toLocaleString()}</div>
-              <div style={{ fontSize: 11.5, color: "var(--accent-money)", marginTop: 2 }}><Icons.TrendingUp size={11}/> +18% trailing 30</div>
+              <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", marginTop: 4 }}>{totalBookDollars > 0 ? `$${totalBookDollars.toLocaleString()}` : "—"}</div>
+              <div style={{ fontSize: 11.5, color: totalBookDollars > 0 ? "var(--accent-money)" : "var(--text-quaternary)", marginTop: 2 }}>
+                {totalBookDollars > 0 ? <><Icons.TrendingUp size={11}/> {totalPolicies} {totalPolicies === 1 ? "policy" : "policies"} · {totalActive} active</> : "no policies on file"}
+              </div>
 
               <div className="divider"></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Persistency</div><div className="tabular" style={{ fontWeight: 500 }}>91.4%</div></div>
-                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>NIGO rate</div><div className="tabular" style={{ fontWeight: 500 }}>2.1%</div></div>
-                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>3</div></div>
-                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Override</div><div className="tabular" style={{ fontWeight: 500 }}>22%</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Persistency</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(persistencyPct, "%")}</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>NIGO rate</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(nigoRatePct, "%")}</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>{recruitsL30 || (isDemo ? "3" : "—")}</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Override</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(overridePct, "%")}</div></div>
               </div>
 
               <div className="divider"></div>
@@ -297,6 +497,8 @@ function PageOrgTree() {
                 }
               }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
             </div>
+              );
+            })()}
           </div>
         </div>
       )}

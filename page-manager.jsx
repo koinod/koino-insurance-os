@@ -237,7 +237,7 @@ function PageTeam() {
 
                   <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Today</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                    {Object.entries(assigned).filter(([_, rep]) => rep === r.id).map(([qid]) => {
+                    {Object.entries(assigned).filter(([_, rep]) => rep === r.id)?.map(([qid]) => {
                       const q = QUEUE.find(x => x.id === qid);
                       if (!q) return null;
                       return (
@@ -576,13 +576,26 @@ function CoachingManager() {
           <div className="panel">
             <div className="panel-h"><h3>Scorecard rollup · this week</h3></div>
             <div style={{ padding: "10px 14px" }}>
-              {[
-                { l: "Avg talk ratio", v: `${avgTalk}%`, g: Math.min(100, (50 / Math.max(1, avgTalk)) * 70), c: avgTalk <= 50 ? "var(--accent-money)" : "var(--state-warning)" },
-                { l: "Avg open Qs / call", v: avgOpenQ.toString(), g: Math.min(100, avgOpenQ * 10), c: avgOpenQ >= 6 ? "var(--accent-money)" : "var(--state-warning)" },
-                { l: "TPMO compliance", v: "100%", g: 100, c: "var(--accent-money)" },
-                { l: "SOA capture", v: "94%", g: 94, c: "var(--accent-status)" },
-                { l: "Sessions completed", v: `${completedSessions}/${sessions.length || 0}`, g: sessions.length ? (completedSessions / sessions.length) * 100 : 0, c: "var(--accent-money)" },
-              ].map((r, i) => (
+              {(() => {
+                // TPMO + SOA: derive from recording compliance flags when present.
+                // recordings[].compliance = { tpmo: bool, soa: bool } if ingested.
+                const isDemoMgr = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+                const flagged = (recordings || []).filter(r => r.compliance);
+                const tpmoVal = flagged.length > 0
+                  ? Math.round((flagged.filter(r => r.compliance.tpmo).length / flagged.length) * 100)
+                  : (isDemoMgr ? 100 : null);
+                const soaVal = flagged.length > 0
+                  ? Math.round((flagged.filter(r => r.compliance.soa).length / flagged.length) * 100)
+                  : (isDemoMgr ? 94 : null);
+                const fmtPct = (v) => v == null ? "—" : `${v}%`;
+                return [
+                  { l: "Avg talk ratio",     v: `${avgTalk}%`,        g: Math.min(100, (50 / Math.max(1, avgTalk)) * 70), c: avgTalk <= 50 ? "var(--accent-money)" : "var(--state-warning)" },
+                  { l: "Avg open Qs / call", v: avgOpenQ.toString(),   g: Math.min(100, avgOpenQ * 10), c: avgOpenQ >= 6 ? "var(--accent-money)" : "var(--state-warning)" },
+                  { l: "TPMO compliance",    v: fmtPct(tpmoVal),       g: tpmoVal || 0, c: tpmoVal == null ? "var(--text-quaternary)" : tpmoVal === 100 ? "var(--accent-money)" : "var(--state-warning)" },
+                  { l: "SOA capture",        v: fmtPct(soaVal),        g: soaVal  || 0, c: soaVal  == null ? "var(--text-quaternary)" : soaVal  >= 90 ? "var(--accent-money)" : "var(--state-warning)" },
+                  { l: "Sessions completed", v: `${completedSessions}/${sessions.length || 0}`, g: sessions.length ? (completedSessions / sessions.length) * 100 : 0, c: "var(--accent-money)" },
+                ];
+              })().map((r, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px", alignItems: "center", padding: "6px 0", borderBottom: i < 4 ? "1px solid var(--border-subtle)" : 0, fontSize: 12 }}>
                   <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
                   <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>

@@ -61,7 +61,10 @@ function PageNIGO({ role = "manager" }) {
       };
     });
   })();
-  const baseNigos = liveNigos && liveNigos.length > 0 ? liveNigos : NIGOS;
+  // Demo seed only renders for the demo agency. Real agencies with no live
+  // NIGOs see the empty state, never fake names like "Linda Cho".
+  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const baseNigos = liveNigos && liveNigos.length > 0 ? liveNigos : (isDemo ? NIGOS : []);
   // GAP-MP2 — manager view scopes NIGOs to their downline. Owner sees the
   // fleet. The owner === rep_id check folds in unassigned items so a manager
   // can claim them.
@@ -83,8 +86,8 @@ function PageNIGO({ role = "manager" }) {
       window.toast && window.toast(`NIGO marked ${STATUS_LABEL[newStatus] || newStatus}${AppData.LIVE ? " · saved" : ""}`, "success");
     } catch (_e) {}
   };
-  const totalAtRisk = visible.reduce((a, n) => a + n.apAtRisk, 0);
-  const repById = Object.fromEntries(AppData.REPS.map(r => [r.id, r]));
+  const totalAtRisk = visible.reduce((a, n) => a + (n.apAtRisk || 0), 0);
+  const repById = Object.fromEntries((AppData.REPS || []).map(r => [r.id, r]));
 
   return (
     <div className="page-pad">
@@ -99,12 +102,30 @@ function PageNIGO({ role = "manager" }) {
         </div>
       </div>
 
-      <div className="kpi-row">
-        <Shared.KpiCard hero label="Open NIGOs" value={baseNigos.filter(n => n.status === "open").length} sub={`$${baseNigos.filter(n => n.status === "open").reduce((a, n) => a + n.apAtRisk, 0).toLocaleString()} AP at risk`}/>
-        <Shared.KpiCard      label="In review" value={baseNigos.filter(n => n.status === "in_review").length}/>
-        <Shared.KpiCard      label="Fixed today" value={baseNigos.filter(n => n.status === "fixed").length} trend="up"/>
-        <Shared.KpiCard      label="Avg time-to-fix" value="1.4d" sub="goal 2d" trend="up"/>
-      </div>
+      {(() => {
+        const open = baseNigos.filter(n => n.status === "open");
+        const inReview = baseNigos.filter(n => n.status === "in_review");
+        const fixed = baseNigos.filter(n => n.status === "fixed");
+        // Avg time-to-fix: use raw NIGOS rows from AppData (have createdAt + resolvedAt)
+        // to compute; else "—" rather than a fake value.
+        const rawN = (AppData.NIGOS || []).filter(n => n.resolvedAt && n.createdAt);
+        let avgFixLabel = "—";
+        if (rawN.length > 0) {
+          const ms = rawN.reduce((a, n) => a + (new Date(n.resolvedAt) - new Date(n.createdAt)), 0) / rawN.length;
+          const days = ms / 86400000;
+          avgFixLabel = days >= 1 ? `${days.toFixed(1)}d` : `${(days * 24).toFixed(1)}h`;
+        } else if (isDemo) {
+          avgFixLabel = "1.4d";
+        }
+        return (
+          <div className="kpi-row">
+            <Shared.KpiCard hero label="Open NIGOs" value={open.length} sub={`$${open.reduce((a, n) => a + (n.apAtRisk || 0), 0).toLocaleString()} AP at risk`}/>
+            <Shared.KpiCard      label="In review" value={inReview.length}/>
+            <Shared.KpiCard      label="Fixed today" value={fixed.length} trend={fixed.length > 0 ? "up" : undefined}/>
+            <Shared.KpiCard      label="Avg time-to-fix" value={avgFixLabel} sub={avgFixLabel === "—" ? "needs data" : "goal 2d"} trend={avgFixLabel !== "—" ? "up" : undefined}/>
+          </div>
+        );
+      })()}
 
       <div className="panel">
         <div className="panel-h"><h3>NIGO queue</h3><span className="meta">priority sorted</span></div>
@@ -114,7 +135,12 @@ function PageNIGO({ role = "manager" }) {
             <div className="tabular" style={{ textAlign: "right" }}>AP risk</div>
             <div>Owner</div><div>Deadline</div><div>Status</div>
           </div>
-          {visible.sort((a, b) => a.priority.localeCompare(b.priority)).map(n => {
+          {visible.length === 0 && (
+            <div style={{ padding: 28, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+              No NIGOs in this view. {filter.status !== "all" && <span>Try clearing the status filter.</span>}
+            </div>
+          )}
+          {visible.sort((a, b) => String(a.priority || "p2").localeCompare(String(b.priority || "p2"))).map(n => {
             const owner = repById[n.owner];
             return (
               <div key={n.id} className="row" style={{ gridTemplateColumns: "30px 1.4fr 1fr 1fr 1.6fr 80px 100px 100px 100px" }}>
@@ -196,7 +222,14 @@ function PageCarriers() {
           <div className="page-title">Carriers</div>
           <div className="page-sub">{CARRIERS.length} appointed · {CARRIERS.reduce((a, c) => a + c.appt, 0)} producer appointments · comp grids + cycles + NIGO rate</div>
         </div>
-        <button className="btn btn-primary" style={{ marginLeft: "auto" }}><Icons.Plus size={13}/> New carrier</button>
+        <button
+          className="btn btn-primary"
+          style={{ marginLeft: "auto" }}
+          onClick={() => {
+            try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}
+            if (window.gotoPage) window.gotoPage("settings");
+          }}
+        ><Icons.Plus size={13}/> New carrier</button>
       </div>
 
       <div className="rec-detail-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
@@ -222,7 +255,14 @@ function PageCarriers() {
           <div className="panel">
             <div className="panel-h"><h3>{c.name}</h3>
               <span className={`chip ${c.advances ? "chip-money" : ""}`}>{c.advances ? "advance" : "as-earned"} · {c.cycle}</span>
-              <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Configure</button>
+              <button
+                className="btn btn-ghost"
+                style={{ marginLeft: "auto" }}
+                onClick={() => {
+                  try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}
+                  if (window.gotoPage) window.gotoPage("settings");
+                }}
+              >Configure</button>
             </div>
             <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
               <Shared.Field label="Appointments"><div className="tabular" style={{ fontSize: 18, fontWeight: 500 }}>{c.appt}</div></Shared.Field>

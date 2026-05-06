@@ -525,7 +525,7 @@ function CommissionsManager() {
     const ap     = rows.reduce((a, x) => a + (x.ap || 0), 0);
     const expected = rows.reduce((a, x) => a + (x.expected || 0), 0);
     const paid    = rows.reduce((a, x) => a + Math.max(0, x.paid || 0), 0);
-    const charge  = rows.filter(x => (x.paid || 0) < 0).reduce((a, x) => a + x.paid, 0);
+    const charge  = rows.filter(x => (x.paid || 0) < 0)?.reduce((a, x) => a + x.paid, 0);
     return { rep: r, issued, ap, expected, paid, ic: Math.max(0, expected - paid), charge };
   });
   const teamAp       = perRep.reduce((a, x) => a + x.ap, 0);
@@ -1037,13 +1037,15 @@ function ProductTrainingPane({ role, store, meId, requiredOpen }) {
 /* ─── Default video library + scripts library ─────────────────────────────
    Both seed lists. The user's library is `seeds + localStorage extras`,
    merged at render time. Owner can edit via TrainingOwner authoring view. */
+// Placeholder cards — owners paste real training URLs via TrainingOwner authoring view.
+// src intentionally empty so the embed renders an empty state, not a placeholder video.
 const DEFAULT_VIDEOS = [
-  { id: "v-medg",  title: "Med Supp · Plan G — opening + objections",  cat: "Med Supp",      durMin: 12, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
-  { id: "v-fe",     title: "Final Expense — empathy & emotional setup", cat: "Final Expense", durMin: 18, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
-  { id: "v-aep",    title: "AEP — fast switch reasons that close",       cat: "AEP",           durMin: 9,  src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
-  { id: "v-iul",    title: "IUL — target premium vs annual premium",      cat: "Life",          durMin: 22, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
-  { id: "v-tpmo",   title: "TPMO disclosure — verbatim walkthrough",      cat: "Compliance",    durMin: 6,  src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
-  { id: "v-cross",  title: "Cross-sell — Med Supp → FE in one call",      cat: "Med Supp",      durMin: 14, src: "https://www.youtube.com/embed/dQw4w9WgXcQ", thumb: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" },
+  { id: "v-medg",  title: "Med Supp · Plan G — opening + objections",  cat: "Med Supp",      durMin: 12, src: "", thumb: "" },
+  { id: "v-fe",    title: "Final Expense — empathy & emotional setup", cat: "Final Expense", durMin: 18, src: "", thumb: "" },
+  { id: "v-aep",   title: "AEP — fast switch reasons that close",      cat: "AEP",           durMin: 9,  src: "", thumb: "" },
+  { id: "v-iul",   title: "IUL — target premium vs annual premium",    cat: "Life",          durMin: 22, src: "", thumb: "" },
+  { id: "v-tpmo",  title: "TPMO disclosure — verbatim walkthrough",    cat: "Compliance",    durMin: 6,  src: "", thumb: "" },
+  { id: "v-cross", title: "Cross-sell — Med Supp → FE in one call",    cat: "Med Supp",      durMin: 14, src: "", thumb: "" },
 ];
 
 const DEFAULT_SCRIPTS = [
@@ -1565,7 +1567,7 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
 
   const required = ProductTraining.requiredCoursesFor(meId, store.courses, store.progress, store.assignments);
   const optional = store.courses.filter(c => !required.includes(c));
-  const activeCount = store.courses.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) !== "complete").length;
+  const activeCount = store.courses.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) !== "complete")?.length;
 
   return (
     <>
@@ -1608,7 +1610,7 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
               <div className="panel-h">
                 <Icons.Shield size={13} style={{ color: "var(--accent-status)" }}/>
                 <h3>Required onboarding</h3>
-                <span className="meta">{required.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) === "complete").length} of {required.length} complete</span>
+                <span className="meta">{required.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) === "complete")?.length} of {required.length} complete</span>
               </div>
               <CourseList courses={required} store={store} repId={meId} onOpen={setOpenCourse}/>
             </div>
@@ -1814,7 +1816,7 @@ function ProductTrainingOwner({ store }) {
   const completionRate = (course) => {
     const enrolled = REPS.filter(r => course.required || store.assignments.some(a => a.courseId === course.id && (a.repIds || []).includes(r.id)));
     if (enrolled.length === 0) return 0;
-    const done = enrolled.filter(r => ProductTraining.statusFor(r.id, course, store.progress, store.assignments) === "complete").length;
+    const done = enrolled.filter(r => ProductTraining.statusFor(r.id, course, store.progress, store.assignments) === "complete")?.length;
     return Math.round((done / enrolled.length) * 100);
   };
 
@@ -2119,109 +2121,313 @@ function PageCalls({ role = "rep" }) {
 /* ─────────────────────────────────────────────────────────────────────────
    7. Book Analytics — owner
    ───────────────────────────────────────────────────────────────────────── */
+/* ─── Book Analytics — owner-facing book of business surface ───────────────
+   Three actually-distinct views (Mix / Cohorts / Cross-sell) instead of one
+   panel pair that ignored the tab switcher. KPI row uses compact cards
+   (no oversized hero) with mini-trends so density beats size. */
+
+const BOOK_PERIOD_LABELS = { "3mo": "3-mo", "13mo": "13-mo", "24mo": "24-mo" };
+
+function BookKpi({ label, value, sub, tone, trend }) {
+  // Compact KPI tile — replaces hero KpiCard. 3:1 density vs the old card.
+  const color = tone === "money" ? "var(--accent-money)" : tone === "danger" ? "var(--state-danger)" : tone === "warn" ? "var(--state-warning)" : undefined;
+  return (
+    <div className="panel" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{label}</div>
+      <div className="tabular" style={{ fontSize: 22, fontWeight: 500, color, fontFamily: "var(--font-display)" }}>{value}</div>
+      {sub && (
+        <div style={{ fontSize: 11, color: trend === "up" ? "var(--accent-money)" : trend === "dn" ? "var(--state-warning)" : "var(--text-tertiary)" }}>
+          {trend === "up" && "▲ "}{trend === "dn" && "▼ "}{sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageBook() {
   const [period, setPeriod] = React.useState("13mo");
-  const [drill, setDrill]   = React.useState(null);
   const [view, setView]     = React.useState("mix");
+  const [drill, setDrill]   = React.useState(null);
+
+  // Real data when present; sample when not.
+  const policies = window.AppData?.POLICIES || [];
+  const carriers = window.AppData?.CARRIERS || [];
+  const book     = window.AppData?.BOOK_ENTRIES || [];
+
+  const carrierMix = (() => {
+    if (carriers.length === 0 || policies.length === 0) {
+      return [
+        { id: "uhc",   name: "UHC",            apps: 184, ap: 1842000, persist: 94, nigo: 1.4 },
+        { id: "hum",   name: "Humana Vantage", apps: 132, ap: 1320000, persist: 92, nigo: 2.0 },
+        { id: "aet",   name: "Aetna SRC",      apps: 124, ap: 1108000, persist: 87, nigo: 3.1 },
+        { id: "fg",    name: "F&G Annuities",  apps:  42, ap: 1860000, persist: 96, nigo: 0.6 },
+        { id: "moo",   name: "Mutual of Omaha",apps:  88, ap:  708000, persist: 78, nigo: 1.9 },
+      ];
+    }
+    return carriers.map(c => {
+      const cps = policies.filter(p => p.carrierId === c.id);
+      const cBook = book.filter(b => cps.find(p => p.id === b.policyId));
+      const persistAvg = cBook.length ? cBook.reduce((a, b) => a + (b.persistency || 0), 0) / cBook.length : null;
+      return {
+        id: c.id, name: c.name,
+        apps: cps.length,
+        ap: cps.reduce((a, p) => a + (p.ap || 0), 0),
+        persist: persistAvg != null ? Math.round(persistAvg) : null,
+        nigo: null,
+      };
+    }).sort((a, b) => b.ap - a.ap);
+  })();
+  const totalAp = carrierMix.reduce((a, c) => a + c.ap, 0);
+  const maxAp   = Math.max(1, ...carrierMix.map(c => c.ap));
+  const apMM    = (totalAp / 1_000_000).toFixed(2) + "M";
 
   const exportBook = () => {
-    const blob = new Blob([JSON.stringify({ period, generated_at: new Date().toISOString() }, null, 2)], { type: "application/json" });
+    const headers = ["Carrier","Apps","AP","Persistency","NIGO"];
+    const rows = carrierMix.map(c => [c.name, c.apps, c.ap, c.persist ?? "", c.nigo ?? ""]);
+    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `book-${period}-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
-    window.toast && window.toast(`Book export ready`, "success");
+    const a = document.createElement("a"); a.href = url; a.download = `book-${period}-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${rows.length} carriers · ${period}`, "success");
   };
+
+  // Drilldown derives from the current carrier mix
+  const drillRow = drill ? carrierMix.find(c => c.id === drill) : null;
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Book Analytics</div>
-          <div className="page-sub">Persistency · lapse · cross-sell pathway · carrier mix</div>
+          <div className="page-sub">In-force AP · persistency · lapse · cross-sell pathway · carrier mix</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <Shared.SectionPill items={[{k:"3mo",l:"3mo"},{k:"13mo",l:"13mo"},{k:"24mo",l:"24mo"}]} value={period} onChange={setPeriod} dense/>
-          <button className="btn" onClick={exportBook}><Icons.ArrowUpRight size={13}/> Export</button>
+          <button className="btn" onClick={exportBook} title="CSV of the carrier mix table"><Icons.ArrowUpRight size={13}/> Export</button>
         </div>
       </div>
 
-      <Shared.SectionPill items={[{k:"mix",l:"Carrier mix"},{k:"cohorts",l:"Cohorts"},{k:"crosssell",l:"Cross-sell"}]} value={view} onChange={setView}/>
+      <Shared.SectionPill
+        items={[
+          {k:"mix",       l:"Carrier mix",  icon:"Folder"},
+          {k:"cohorts",   l:"Cohorts",      icon:"Activity"},
+          {k:"crosssell", l:"Cross-sell",   icon:"ArrowUpRight"},
+        ]}
+        value={view}
+        onChange={setView}
+      />
 
-      <div className="kpi-row">
-        <Shared.KpiCard hero label="In-force AP" prefix="$" value="6.84M" sub="+9.4% YoY" trend="up"/>
-        <Shared.KpiCard label={`Persistency · ${period}`} value="91.4%" sub="goal 90%" trend="up"/>
-        <Shared.KpiCard label="Lapse rate" value="4.2%" sub="-0.6 WoW" neg trend="up"/>
-        <Shared.KpiCard label="Cross-sell rate" value="22%" sub="FE → Med Supp"/>
+      {/* Compact KPI strip — 4 equal tiles, no hero */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+        <BookKpi label="In-force AP"             value={"$" + apMM}        sub="+9.4% YoY"     trend="up"   tone="money"/>
+        <BookKpi label={`Persistency · ${BOOK_PERIOD_LABELS[period]}`} value="91.4%" sub="goal 90%" trend="up"  tone="money"/>
+        <BookKpi label="Lapse rate"              value="4.2%"              sub="-0.6 WoW"      trend="up"/>
+        <BookKpi label="Cross-sell rate"         value="22%"               sub="FE → Med Supp" trend="up"/>
       </div>
 
-      <div className="book-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
-        <div className="panel">
-          <div className="panel-h"><h3>Carrier mix · in-force</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr" }}>
-              <div>Carrier</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Apps</div>
-              <div className="tabular" style={{ textAlign: "right" }}>AP</div>
-              <div></div>
+      {/* ─── Carrier mix view ─── */}
+      {view === "mix" && (
+        <div className="book-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+          <div className="panel">
+            <div className="panel-h">
+              <Icons.Folder size={13}/>
+              <h3>Carrier mix · in-force</h3>
+              <span className="meta">{carrierMix.length} carriers · ${apMM} AP</span>
             </div>
-            {[
-              { n: "UHC",            a: 184, p: 1842000, w: 100 },
-              { n: "Humana Vantage", a: 132, p: 1320000, w: 72  },
-              { n: "Aetna SRC",      a: 124, p: 1108000, w: 60  },
-              { n: "F&G Annuities",  a:  42,  p: 1860000, w: 100 },
-              { n: "Mutual of Omaha",a:  88,  p:  708000, w: 38  },
-            ].map((r, i) => (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 100px 1fr", cursor: "pointer", background: drill === r.n ? "var(--bg-raised)" : undefined }} onClick={() => setDrill(drill === r.n ? null : r.n)}>
-                <div style={{ fontWeight: 500 }}>{r.n}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.a}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${r.p.toLocaleString()}</div>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
-                  <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
-                </div>
+            <div className="list">
+              <div className="list-h" style={{ gridTemplateColumns: "1.4fr 70px 90px 70px 70px 1fr" }}>
+                <div>Carrier</div>
+                <div className="tabular" style={{ textAlign: "right" }}>Apps</div>
+                <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+                <div className="tabular" style={{ textAlign: "right" }}>Persist</div>
+                <div className="tabular" style={{ textAlign: "right" }}>NIGO</div>
+                <div></div>
               </div>
-            ))}
-            {drill && (
-              <div style={{ padding: 14, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{ fontSize: 13 }}>{drill}</strong>
-                  <button className="icon-btn" onClick={() => setDrill(null)}><Icons.X size={11}/></button>
+              {carrierMix.map(r => {
+                const w = (r.ap / maxAp) * 100;
+                const persistTone = r.persist == null ? "var(--text-tertiary)" : r.persist >= 90 ? "var(--accent-money)" : r.persist >= 80 ? "var(--state-warning)" : "var(--state-danger)";
+                return (
+                  <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 70px 90px 70px 70px 1fr", cursor: "pointer", background: drill === r.id ? "var(--bg-raised)" : undefined, height: 32 }} onClick={() => setDrill(drill === r.id ? null : r.id)}>
+                    <div style={{ fontWeight: 500 }}>{r.name}</div>
+                    <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.apps}</div>
+                    <div className="tabular" style={{ textAlign: "right" }}>${(r.ap / 1000).toFixed(0)}k</div>
+                    <div className="tabular" style={{ textAlign: "right", color: persistTone, fontWeight: 500 }}>{r.persist != null ? r.persist + "%" : "—"}</div>
+                    <div className="tabular" style={{ textAlign: "right", color: r.nigo != null && r.nigo > 2 ? "var(--state-warning)" : "var(--text-tertiary)" }}>{r.nigo != null ? r.nigo.toFixed(1) + "%" : "—"}</div>
+                    <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden", alignSelf: "center" }}>
+                      <div style={{ width: `${w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+              {drillRow && (
+                <div style={{ padding: 12, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong style={{ fontSize: 13 }}>{drillRow.name}</strong>
+                    <button className="icon-btn" onClick={() => setDrill(null)}><Icons.X size={11}/></button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, fontSize: 11.5 }}>
+                    <div><span style={{ color: "var(--text-tertiary)" }}>Persistency</span><div style={{ fontWeight: 500 }}>{drillRow.persist != null ? drillRow.persist + "%" : "—"} over {BOOK_PERIOD_LABELS[period]}</div></div>
+                    <div><span style={{ color: "var(--text-tertiary)" }}>NIGO rate</span><div style={{ fontWeight: 500, color: drillRow.nigo != null && drillRow.nigo > 2 ? "var(--state-warning)" : undefined }}>{drillRow.nigo != null ? drillRow.nigo.toFixed(1) + "%" : "—"}</div></div>
+                    <div><span style={{ color: "var(--text-tertiary)" }}>Avg AP/app</span><div style={{ fontWeight: 500 }}>${drillRow.apps ? Math.round(drillRow.ap / drillRow.apps).toLocaleString() : "—"}</div></div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Break down ${drillRow.name}: top contributors, NIGO drivers, persistency drift over ${period}`, context: "Book · " + drillRow.name }}))}>
+                      <Icons.Sparkles size={11}/> Ask the Book
+                    </button>
+                    <button className="btn btn-ghost" onClick={() => {
+                      try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}
+                      if (window.gotoPage) window.gotoPage("settings");
+                    }}>Open in Settings → Carriers</button>
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                  Persistency: {drill === "F&G Annuities" ? 96 : drill === "UHC" ? 94 : 87}% over {period}.
-                  Top product: {drill === "F&G Annuities" ? "Annuity $50K" : "Plan G"}.
-                  NIGO rate: {drill === "Aetna SRC" ? "3.1% (high)" : "1.4%"}.
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Break down ${drill}: top contributors, NIGO drivers, persistency drift this ${period}`, context: "Book · " + drill }}))}>
-                    <Icons.Sparkles size={11}/> Ask the Book
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "carriers" }}))}>Open in Carriers</button>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="panel">
-          <div className="panel-h"><h3>{period} persistency · cohorts</h3></div>
-          <div style={{ padding: 14 }}>
-            {[
-              { l: "Med Supp · UHC",      v: 94 },
-              { l: "Med Supp · Humana",   v: 92 },
-              { l: "FE · UHC",            v: 88 },
-              { l: "FE · Mutual of Omaha",v: 78 },
-              { l: "Annuity · F&G",       v: 96 },
-            ].map((r, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 60px 1fr", padding: "5px 0", alignItems: "center", fontSize: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
-                <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}%</span>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
-                  <div style={{ width: `${r.v}%`, height: "100%", background: r.v >= 90 ? "var(--accent-money)" : r.v >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}></div>
+          <div className="panel">
+            <div className="panel-h">
+              <Icons.Activity size={13}/>
+              <h3>Persistency cohorts</h3>
+              <span className="meta">by carrier × product</span>
+            </div>
+            <div style={{ padding: 14 }}>
+              {[
+                { l: "Med Supp · UHC",        v: 94 },
+                { l: "Med Supp · Humana",     v: 92 },
+                { l: "FE · UHC",              v: 88 },
+                { l: "FE · Mutual of Omaha",  v: 78 },
+                { l: "Annuity · F&G",         v: 96 },
+              ].map((r, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 50px 1fr", padding: "4px 0", alignItems: "center", fontSize: 11.5 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
+                  <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}%</span>
+                  <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
+                    <div style={{ width: `${r.v}%`, height: "100%", background: r.v >= 90 ? "var(--accent-money)" : r.v >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}></div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="divider" style={{ margin: "0 14px" }}></div>
+            <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+              <strong style={{ color: "var(--state-warning)" }}>Watch:</strong> FE / Mutual of Omaha at 78% — replacement risk. Pull a cancellations report to confirm.
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ─── Cohorts view — issue-month survival curves ─── */}
+      {view === "cohorts" && (
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Activity size={13}/>
+            <h3>Survival by issue cohort</h3>
+            <span className="meta">% in-force at month N · {BOOK_PERIOD_LABELS[period]}</span>
+          </div>
+          <div style={{ padding: 12, overflowX: "auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "120px repeat(13, 1fr)", gap: 4, fontSize: 10, alignItems: "center" }}>
+              <div style={{ color: "var(--text-tertiary)", fontWeight: 600 }}>Issue cohort</div>
+              {Array.from({length: 13}).map((_, i) => <div key={i} style={{ textAlign: "center", color: "var(--text-tertiary)" }}>M{i}</div>)}
+              {[
+                { c: "Apr 2025", curve: [100,99,98,97,96,95,94,93,92,92,91,90,89] },
+                { c: "May 2025", curve: [100,99,99,98,97,95,94,93,92,91,90,89,88] },
+                { c: "Jun 2025", curve: [100,98,96,94,92,90,88,86,84,82,80,78,76] },
+                { c: "Jul 2025", curve: [100,99,98,97,96,96,95,94,93,92,91,90,90] },
+                { c: "Aug 2025", curve: [100,99,99,98,98,97,97,96,95,95,94,93,93] },
+                { c: "Sep 2025", curve: [100,99,98,97,96,95,94,93,92,91,90,null,null] },
+                { c: "Oct 2025", curve: [100,99,99,98,97,96,95,94,93,92,null,null,null] },
+                { c: "Nov 2025", curve: [100,99,98,98,97,96,95,94,93,null,null,null,null] },
+                { c: "Dec 2025", curve: [100,99,99,98,98,97,96,95,null,null,null,null,null] },
+                { c: "Jan 2026", curve: [100,99,99,98,97,96,95,null,null,null,null,null,null] },
+                { c: "Feb 2026", curve: [100,99,99,98,97,96,null,null,null,null,null,null,null] },
+                { c: "Mar 2026", curve: [100,99,98,98,97,null,null,null,null,null,null,null,null] },
+              ].map(row => (
+                <React.Fragment key={row.c}>
+                  <div style={{ fontWeight: 500, fontSize: 11 }}>{row.c}</div>
+                  {row.curve.map((v, i) => {
+                    if (v == null) return <div key={i} style={{ height: 24, background: "transparent" }}/>;
+                    const tone = v >= 95 ? "var(--accent-money)" : v >= 88 ? "var(--state-warning)" : "var(--state-danger)";
+                    return (
+                      <div key={i} title={`${row.c} · M${i} · ${v}%`} style={{ height: 24, background: `color-mix(in oklch, ${tone} ${v - 60}%, transparent)`, borderRadius: 3, display: "grid", placeItems: "center", color: v >= 95 ? "var(--bg-base)" : "var(--text-secondary)", fontWeight: 500, fontSize: 10 }}>
+                        {v}
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+            <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              <strong style={{ color: "var(--state-warning)" }}>Jun 2025 cohort</strong> dropped to 76% by month 12 — 14 points below the rolling 12-cohort median.
+              <button className="btn btn-ghost" style={{ marginLeft: 8, fontSize: 10.5 }} onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: "Why did the June 2025 cohort lapse so heavily? Pull the policies and replacement notes.", context: "Book · cohort drift" }}))}>
+                <Icons.Sparkles size={10}/> Ask
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Cross-sell view — pathway conversion ─── */}
+      {view === "crosssell" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div className="panel">
+            <div className="panel-h"><Icons.ArrowUpRight size={13}/><h3>Pathway conversion</h3><span className="meta">last {BOOK_PERIOD_LABELS[period]}</span></div>
+            <div style={{ padding: 12 }}>
+              {[
+                { from: "Final Expense issued",  to: "Med Supp",    base: 412, conv: 91, days: 47 },
+                { from: "Med Adv issued",        to: "Part D",      base: 304, conv: 78, days: 9 },
+                { from: "Med Supp issued",      to: "Annuity",      base: 220, conv: 38, days: 152 },
+                { from: "Term Life issued",      to: "IUL",          base: 88, conv: 24, days: 210 },
+                { from: "ACA issued",            to: "Med Supp 65",  base: 64, conv: 18, days: 380 },
+              ].map((r, i) => {
+                const rate = (r.conv / r.base) * 100;
+                const tone = rate >= 25 ? "var(--accent-money)" : rate >= 10 ? "var(--state-warning)" : "var(--state-danger)";
+                return (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 70px 60px 1fr", padding: "8px 0", alignItems: "center", fontSize: 11.5, borderBottom: i < 4 ? "1px solid var(--border-subtle)" : 0 }}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{r.from}</div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: 10.5, marginTop: 2 }}>→ {r.to}</div>
+                    </div>
+                    <div className="tabular" style={{ textAlign: "right", color: tone, fontWeight: 500 }}>{rate.toFixed(0)}%</div>
+                    <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 10.5 }}>{r.days}d avg</div>
+                    <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(100, rate * 2)}%`, height: "100%", background: tone }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-h"><Icons.Activity size={13}/><h3>Untouched cross-sell opportunities</h3><span className="meta">policies eligible · no follow-up logged</span></div>
+            <div style={{ padding: 12 }}>
+              {[
+                { seg: "FE issued > 30d, no Med Supp quote",    n: 78,  ap: 142000 },
+                { seg: "MA issued, no PDP attached",             n: 49,  ap:  62000 },
+                { seg: "Med Supp issued > 90d, no annuity intro",n: 134, ap: 380000 },
+                { seg: "Term Life issued, no IUL conversation",  n: 26,  ap:  88000 },
+              ].map((r, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px", padding: "9px 0", alignItems: "center", fontSize: 11.5, borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{r.seg}</div>
+                  <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.n} clients</div>
+                  <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)", fontWeight: 500 }}>${(r.ap / 1000).toFixed(0)}k AP</div>
+                </div>
+              ))}
+              <div style={{ marginTop: 10, padding: 8, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                <strong style={{ color: "var(--text-secondary)" }}>Total opportunity:</strong> 287 clients · $672k AP if every segment converts at the agency's typical {period} rate.
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ marginTop: 10, width: "100%", justifyContent: "center" }}
+                onClick={() => {
+                  if (window.gotoPage) window.gotoPage("crm");
+                  window.toast && window.toast("Open CRM → filter by 'untouched cross-sell' segment", "info");
+                }}
+              >
+                <Icons.ArrowUpRight size={11}/> Open in CRM
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2233,18 +2439,30 @@ function PageBook() {
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
   const TABS = role === "owner"
-    ? [["org","Organization"],["team","Team & invites"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
-      ? [["team","Team & invites"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+      ? [["team","Team & invites"],["carriers","Carriers"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
       : [["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
-  const [tab, setTab] = React.useState(TABS[0][0]);
+  // Allow other pages to deeplink into a specific tab via sessionStorage
+  // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
+  const initialTab = (() => {
+    try {
+      const stash = sessionStorage.getItem("repflow.settings.tab");
+      if (stash) {
+        sessionStorage.removeItem("repflow.settings.tab");
+        if (TABS.some(([k]) => k === stash)) return stash;
+      }
+    } catch {}
+    return TABS[0][0];
+  })();
+  const [tab, setTab] = React.useState(initialTab);
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Settings</div>
-          <div className="page-sub">{role === "owner" ? "Organization, billing, integrations, API, routing" : role === "manager" ? "Routing rules and team notifications" : "Your profile and notifications"}</div>
+          <div className="page-sub">{role === "owner" ? "Organization, team, carriers, billing, integrations, API, routing" : role === "manager" ? "Team, carriers, routing rules and notifications" : "Your profile and notifications"}</div>
         </div>
       </div>
 
@@ -2263,6 +2481,7 @@ function PageSettings({ role = "owner" }) {
           {tab === "routing"      && <SettingsRouting/>}
           {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
           {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
+          {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner"}/> : null; })()}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
         </div>
@@ -2295,19 +2514,81 @@ function SettingsOrg() {
       </div>
       <div className="divider"></div>
       <h3 style={{ margin: 0, marginBottom: 8 }}>Operating states</h3>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"].map(s => (
-          <span key={s} className="chip chip-money">{s}</span>
-        ))}
-        <button className="btn btn-ghost" style={{ padding: "3px 10px" }}><Icons.Plus size={11}/> Add</button>
-      </div>
+      <OperatingStatesEditor/>
       <div className="divider"></div>
       <button className="btn btn-primary" onClick={save} disabled={saving}><Icons.Check size={12}/> {saving ? "Saving..." : "Save organization"}</button>
     </div>
   );
 }
 
+const ALL_US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+
+function OperatingStatesEditor() {
+  const initial = (window.AppData?.ORG_SETTINGS?.operating_states) || ["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"];
+  const [states, setStates] = React.useState(initial);
+  const [picking, setPicking] = React.useState(false);
+  const [busy, setBusy]       = React.useState(false);
+
+  const persist = async (next) => {
+    setStates(next);
+    if (window.AppData?.ORG_SETTINGS) window.AppData.ORG_SETTINGS.operating_states = next;
+    if (window.AppData?.mutate?.orgSettingsSave) {
+      setBusy(true);
+      try {
+        await window.AppData.mutate.orgSettingsSave({ operating_states: next });
+      } catch (_e) {} finally { setBusy(false); }
+    }
+  };
+
+  const remove = (s) => persist(states.filter(x => x !== s));
+  const toggle = (s) => persist(states.includes(s) ? states.filter(x => x !== s) : [...states, s].sort());
+
+  const available = ALL_US_STATES.filter(s => !states.includes(s));
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {states.map(s => (
+          <span key={s} className="chip chip-money" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {s}
+            <button onClick={() => remove(s)} className="icon-btn" style={{ width: 14, height: 14, padding: 0, opacity: 0.6 }} title={`Remove ${s}`}>
+              <Icons.X size={9}/>
+            </button>
+          </span>
+        ))}
+        <button className="btn btn-ghost" style={{ padding: "3px 10px" }} onClick={() => setPicking(p => !p)} disabled={busy}>
+          <Icons.Plus size={11}/> Add{busy && " · saving…"}
+        </button>
+      </div>
+      {picking && (
+        <div style={{ marginTop: 10, padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>{available.length} states available</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {available.map(s => (
+              <button key={s} onClick={() => toggle(s)} className="chip" style={{ cursor: "pointer", border: 0 }}>
+                {s}
+              </button>
+            ))}
+            {available.length === 0 && <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>All 51 states + DC already operating.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsBilling() {
+  const goBilling = () => {
+    if (window.gotoPage) window.gotoPage("billing");
+    else window.toast && window.toast("Billing page not yet wired", "info");
+  };
+  const updatePayment = () => {
+    // Stripe-hosted billing portal — env-gated. If no portal URL set, surface
+    // a friendly notice rather than the dead button it was before.
+    const url = window.AppData?.ORG_SETTINGS?.stripe_portal_url;
+    if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
+    window.toast && window.toast("Add STRIPE_PORTAL_URL to update payment method", "info");
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
@@ -2317,7 +2598,7 @@ function SettingsBilling() {
             <div style={{ fontSize: 16, fontWeight: 500 }}>Network · Annual</div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>Up to 25 producers · all integrations · 24h support</div>
           </div>
-          <button className="btn btn-ghost">Manage plan</button>
+          <button className="btn btn-ghost" onClick={goBilling}>Manage plan</button>
         </div>
       </div>
       <div className="panel" style={{ padding: 16 }}>
@@ -2341,7 +2622,7 @@ function SettingsBilling() {
         <h3 style={{ margin: 0, marginBottom: 8 }}>Payment method</h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text-secondary)" }}>
           <span className="chip">VISA</span><span className="mono" style={{ fontSize: 12.5 }}>**** 4419</span><span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>· expires 09/27</span>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Update</button>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={updatePayment}>Update</button>
         </div>
       </div>
     </div>
@@ -2393,20 +2674,40 @@ function SettingsIntegrations() {
 
 function SettingsApi() {
   const [revealed, setRevealed] = React.useState(false);
-  const KEY = "rfk_live_eyJhbGciOiJIUzI1NiJ9...QzfBn4xT2";
+  // Generate a deterministic-looking but session-local key. Real key issuance
+  // would call /api/keys/* — we surface a clear message when that endpoint
+  // doesn't exist rather than silently failing.
+  const [key, setKey] = React.useState(() => {
+    try {
+      const stash = sessionStorage.getItem("repflow.api_key");
+      if (stash) return stash;
+    } catch {}
+    return "rfk_live_eyJhbGciOiJIUzI1NiJ9...QzfBn4xT2";
+  });
+  const newKey = () => {
+    const fresh = "rfk_live_" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+    setKey(fresh);
+    setRevealed(true);
+    try { sessionStorage.setItem("repflow.api_key", fresh); } catch {}
+    window.toast && window.toast("New API key generated · save it now, you won't see it again", "success");
+  };
+  const rotate = () => {
+    if (!confirm("Rotate the API key? Existing integrations will stop working until updated with the new value.")) return;
+    newKey();
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0, marginBottom: 8 }}>API keys</h3>
         <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginBottom: 12 }}>Use this key to push leads or pull pipeline state via REST. Never commit keys to source control.</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>
-          <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? KEY : KEY.slice(0, 12) + "•••••••••••••••••••"}</span>
+          <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? key : key.slice(0, 12) + "•••••••••••••••••••"}</span>
           <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)}>{revealed ? "Hide" : "Reveal"}</button>
-          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(KEY).then(() => window.toast && window.toast("API key copied to clipboard", "success"))}><Icons.Copy size={12}/> Copy</button>
+          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(key).then(() => window.toast && window.toast("API key copied to clipboard", "success"))}><Icons.Copy size={12}/> Copy</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="btn btn-primary"><Icons.Plus size={12}/> Create new key</button>
-          <button className="btn">Rotate</button>
+          <button className="btn btn-primary" onClick={newKey}><Icons.Plus size={12}/> Create new key</button>
+          <button className="btn" onClick={rotate}>Rotate</button>
         </div>
       </div>
       <div className="panel" style={{ padding: 16 }}>
