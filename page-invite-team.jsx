@@ -45,14 +45,47 @@
     const [link, setLink] = React.useState(null);
     const [errMsg, setErrMsg] = React.useState("");
     const [recent, setRecent] = React.useState([]);
+    // eligibleUplines is loaded from agency_members joined to reps. The role
+    // column lives on agency_members, NOT on reps — REPS in window.AppData
+    // doesn't carry it, so we have to query directly.
+    const [eligibleUplines, setEligibleUplines] = React.useState([]);
+    const [authedJwt, setAuthedJwt] = React.useState(null);
 
-    // When viewer's role changes, recalc default upline
+    React.useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        const j = await getJwt();
+        if (cancelled) return;
+        setAuthedJwt(j);
+        if (!me?.agency_id) return;
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          if (!sb) return;
+          // Pull every active member who can serve as an upline (owner or
+          // manager). Then join in the rep name from AppData.REPS for the
+          // dropdown label. Falls back to rep_id when name unknown.
+          const { data, error } = await sb
+            .from("agency_members")
+            .select("rep_id, role")
+            .eq("agency_id", me.agency_id)
+            .eq("active", true)
+            .in("role", ["owner", "manager"]);
+          if (error || cancelled) return;
+          const repsById = Object.fromEntries(((window.AppData && window.AppData.REPS) || []).map(r => [r.id, r]));
+          setEligibleUplines((data || [])
+            .filter(m => m.rep_id)
+            .map(m => ({
+              id: m.rep_id,
+              role: m.role,
+              name: repsById[m.rep_id]?.name || m.rep_id,
+            })));
+        } catch {}
+      })();
+      return () => { cancelled = true; };
+    }, [me?.agency_id]);
+
     React.useEffect(() => {
       if (!me) return;
-      // rep invite: upline must be a manager or owner. Default = current viewer.
-      // manager invite: if viewer is owner, upline = null (top-level manager
-      // under the owner). If viewer is a manager, you can't invite peer
-      // managers — only reps.
       if (role === "rep") setUplineRepId(me.rep_id || "");
       else if (role === "manager") setUplineRepId(""); // null upline at mint
     }, [role, me?.rep_id]);
@@ -65,14 +98,12 @@
       );
     }
     if (me.role !== "owner" && me.role !== "manager" && me.role !== "admin") {
-      return null; // reps can't invite
+      return null;
     }
-
-    const REPS = (window.AppData && window.AppData.REPS) || [];
-    // Allowed uplines for a rep invite: any manager/owner in the agency.
-    const eligibleUplines = REPS.filter(r =>
-      r.role === "owner" || r.role === "manager" || r.tier === "diamond" || r.tier === "platinum"
-    );
+    if (!authedJwt && !me.is_demo) {
+      // We can't tell sync if signed in until JWT resolves; render anyway.
+    }
+    const isDemoViewer = !!me.is_demo;
 
     const generate = async () => {
       setBusy(true); setErrMsg(""); setLink(null);
@@ -107,8 +138,13 @@
         <div className="panel-h">
           <Icons.Plus size={13} style={{ color: "var(--accent-money)" }}/>
           <h3>Invite team</h3>
-          <span className="meta">links expire in 7 days · single-use</span>
+          <span className="meta">links expire in 14 days · single-use</span>
         </div>
+        {isDemoViewer && (
+          <div style={{ margin: "12px 14px 0", padding: 10, background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)", borderRadius: 6, color: "var(--state-warning)", fontSize: 12, lineHeight: 1.5 }}>
+            <Icons.Shield size={12}/> You're viewing as the demo owner — invites won't persist. Sign in with your real email to mint links that actually work.
+          </div>
+        )}
         <div style={{ padding: 14, display: "grid", gridTemplateColumns: me.role === "owner" ? "120px 1fr 1fr 140px" : "120px 1fr 140px", gap: 10, alignItems: "end" }}>
           <Shared.Field label="Role">
             <Shared.Select
@@ -128,7 +164,7 @@
                 onChange={setUplineRepId}
                 options={[
                   { v: me.rep_id, l: `${me.full_name || "You"} (you · ${me.role})` },
-                  ...eligibleUplines.filter(r => r.id !== me.rep_id).map(r => ({ v: r.id, l: `${r.name} · ${r.role || r.tier}` })),
+                  ...eligibleUplines.filter(r => r.id !== me.rep_id).map(r => ({ v: r.id, l: `${r.name} · ${r.role}` })),
                 ]}
               />
             </Shared.Field>
