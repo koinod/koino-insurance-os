@@ -9,9 +9,15 @@ const TierChip = ({ tier, compact }) => (
 );
 
 const Avatar = ({ rep, size = 22 }) => {
-  const initials = rep.name.split(" ").map(s => s[0]).slice(0, 2).join("");
+  // Guard against missing rep entirely (e.g. lookups against an empty REPS
+  // table) — render a neutral placeholder instead of crashing the panel.
+  if (!rep) {
+    return <span className="avatar-xs" style={{ width: size, height: size, fontSize: size * 0.42, background: "var(--bg-raised)", color: "var(--text-tertiary)" }}>—</span>;
+  }
+  const name = rep.name || rep.handle || rep.id || "";
+  const initials = name.split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("") || "?";
   return (
-    <span className="avatar-xs" style={{ width: size, height: size, fontSize: size * 0.42, background: rep.color }}>
+    <span className="avatar-xs" style={{ width: size, height: size, fontSize: size * 0.42, background: rep.color || "var(--bg-raised)" }}>
       {initials}
     </span>
   );
@@ -77,12 +83,14 @@ const NAV = {
     { id: "team",        label: "Team",         icon: "Users" },
     { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
     { id: "pay",         label: "Pay",          icon: "Wallet" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
   owner: [
     { id: "admin",       label: "Admin",        icon: "Shield" },
     { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
+    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
     { id: "org",         label: "Org",          icon: "Users" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
@@ -91,7 +99,27 @@ const NAV = {
     { id: "auto-quoter", label: "Auto Quoter",  icon: "Bolt" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
     { id: "compliance",  label: "Compliance",   icon: "Shield" },
-    { id: "library",     label: "Library",      icon: "Book" },
+    { id: "resources",   label: "Resources",    icon: "Folder" },
+    { id: "library",     label: "Training",     icon: "Book" },
+  ],
+  // Platform admin — IMO operator. Sees their own IMO + all child agencies.
+  admin: [
+    { id: "platform",    label: "Platform",     icon: "Shield" },
+    { id: "agencies",    label: "Agencies",     icon: "Building" },
+    { id: "users",       label: "Users",        icon: "Users" },
+    { id: "billing",     label: "Billing",      icon: "Wallet" },
+    { id: "audit",       label: "Audit log",    icon: "Activity" },
+    { id: "system",      label: "System",       icon: "Bolt" },
+  ],
+  // Internal team / super-admin — Ian, Repflow developers. Sees every IMO,
+  // every agency (real + demo), every user, and platform-level system.
+  super_admin: [
+    { id: "platform",    label: "Internal",     icon: "Shield" },
+    { id: "agencies",    label: "All agencies", icon: "Building" },
+    { id: "users",       label: "All users",    icon: "Users" },
+    { id: "billing",     label: "Billing",      icon: "Wallet" },
+    { id: "audit",       label: "Audit log",    icon: "Activity" },
+    { id: "system",      label: "System",       icon: "Bolt" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
@@ -111,9 +139,9 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
       </div>
 
       <div className="role-switch">
-        {["rep","manager","owner"].map(r => (
-          <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)}>
-            {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Owner"}
+        {["rep","manager","owner","admin","super_admin"].map(r => (
+          <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
+            {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
           </button>
         ))}
       </div>
@@ -420,7 +448,7 @@ const CmdK = ({ open, onClose, goto }) => {
   const flat = useMemo(() => {
     if (!q) return dataset.filter(i => i._kind === "page");
     const ql = q.toLowerCase();
-    return dataset.filter(i => i.label.toLowerCase().includes(ql) || (i.sub || "").toLowerCase().includes(ql)).slice(0, 50);
+    return dataset.filter(i => i.label.toLowerCase().includes(ql) || (i.sub || "").toLowerCase().includes(ql))?.slice(0, 50);
   }, [dataset, q]);
 
   const run = (it) => {
@@ -743,19 +771,32 @@ const ValidatedInput = ({ kind, value, onChange, className = "text-input", ...re
 /* React class error boundary — wraps page content so a single throwing
    component doesn't blank the whole app. Logs to console + offers a reset. */
 class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { err: null }; }
+  constructor(props) { super(props); this.state = { err: null, info: null }; }
   static getDerivedStateFromError(err) { return { err }; }
   componentDidCatch(err, info) {
     console.error("[ErrorBoundary]", err, info?.componentStack);
+    this.setState({ info });
     if (window.toast) window.toast(`UI error: ${err?.message || err}`, "error");
   }
   render() {
     if (!this.state.err) return this.props.children;
+    const stack = this.state.err?.stack || "";
+    const compStack = this.state.info?.componentStack || "";
+    const compFrames = compStack.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 5);
     return (
-      <div style={{ padding: 24, margin: 14, background: "var(--bg-raised)", border: "1px solid color-mix(in oklch, var(--state-danger) 35%, transparent)", borderRadius: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)", marginBottom: 8 }}>This panel hit an error.</div>
-        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", marginBottom: 12, whiteSpace: "pre-wrap" }}>{String(this.state.err?.message || this.state.err)}</div>
-        <button className="btn" onClick={() => this.setState({ err: null })}>Try again</button>
+      <div style={{ padding: 18, margin: 14, background: "var(--bg-raised)", border: "1px solid color-mix(in oklch, var(--state-danger) 35%, transparent)", borderRadius: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)", marginBottom: 6 }}>This panel hit an error.</div>
+        <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontFamily: "var(--font-mono, monospace)", marginBottom: 8, whiteSpace: "pre-wrap" }}>{String(this.state.err?.message || this.state.err)}</div>
+        {(compFrames.length > 0 || stack) && (
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ fontSize: 11, color: "var(--text-tertiary)", cursor: "pointer" }}>Where (click to expand)</summary>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", whiteSpace: "pre-wrap", marginTop: 6, maxHeight: 220, overflow: "auto" }}>
+              {compFrames.join("\n")}
+              {stack ? "\n— js stack —\n" + stack.split("\n").slice(0, 8).join("\n") : ""}
+            </div>
+          </details>
+        )}
+        <button className="btn" onClick={() => this.setState({ err: null, info: null })}>Try again</button>
       </div>
     );
   }
