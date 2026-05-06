@@ -115,6 +115,7 @@
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid var(--border-subtle)" }}>
           {[
+            { id: "invite",        label: "Invite team",   icon: "Plus" },
             { id: "funnel",        label: "Funnel",        icon: "Pipeline" },
             { id: "conversations", label: "Conversations", icon: "MessageSquare" },
             { id: "programs",      label: "Programs",      icon: "Sparkles" },
@@ -137,6 +138,11 @@
           })}
         </div>
 
+        {tab === "invite" && (
+          window.InviteTeamPanel
+            ? <window.InviteTeamPanel/>
+            : <div className="panel" style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 12.5 }}>Invite UI not loaded — refresh the page.</div>
+        )}
         {tab === "funnel" && (
           <FunnelTab
             campaigns={campaigns}
@@ -170,7 +176,7 @@
   // ─── Funnel — kanban by status ─────────────────────────────────────────
   function FunnelTab({ campaigns, applicants, messages, onOpen, isManager }) {
     const total = applicants.length;
-    const advancing = applicants.filter(a => ["contracted","first_app","producing"].includes(a.status)).length;
+    const advancing = applicants.filter(a => ["contracted","first_app","producing"].includes(a.status))?.length;
     const dropped = applicants.filter(a => a.status === "dropped").length;
     const conversionPct = total ? Math.round((advancing / total) * 100) : 0;
     const liveCampaigns = campaigns.filter(c => c.status === "live").length;
@@ -445,7 +451,7 @@
     const visibleToMe = !isManager || !myRepIds || myRepIds.includes(c.ownerRepId);
     const ownApplicants = applicants.filter(a => a.campaignId === c.id);
     const inFunnel = ownApplicants.length;
-    const contracted = ownApplicants.filter(a => ["contracted","first_app","producing"].includes(a.status)).length;
+    const contracted = ownApplicants.filter(a => ["contracted","first_app","producing"].includes(a.status))?.length;
     const conv = inFunnel ? Math.round((contracted / inFunnel) * 100) : 0;
 
     const toggle = () => {

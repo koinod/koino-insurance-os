@@ -18,13 +18,18 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400 }); }
-  const { agency_id, role = "rep", email_hint = null } = body || {};
+  const { agency_id, role = "rep", email_hint = null, upline_rep_id = null } = body || {};
   if (!agency_id) return new Response(JSON.stringify({ error: "agency_id required" }), { status: 400 });
 
   const r = await fetch(`${SUPA_URL}/rest/v1/rpc/mint_invite`, {
     method: "POST",
     headers: { "apikey": anonKey, "authorization": `Bearer ${jwt}`, "content-type": "application/json" },
-    body: JSON.stringify({ p_agency_id: agency_id, p_role: role, p_email_hint: email_hint })
+    body: JSON.stringify({
+      p_agency_id: agency_id,
+      p_role: role,
+      p_email_hint: email_hint,
+      p_upline_rep_id: upline_rep_id,
+    })
   });
   if (!r.ok) {
     const detail = await r.text();

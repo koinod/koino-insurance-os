@@ -118,10 +118,16 @@ function OnboardingWizard({ onComplete }) {
     try {
       const sb = window.getSupabase();
       const { data: session } = await sb.auth.getSession();
+      const me = (window.me && window.me()) || null;
+      // First invite from the owner: rep invites get upline=owner so the new
+      // hire is correctly slotted under them. Manager invites stay top-level
+      // (upline=null) — they'll then mint their own rep invites under
+      // themselves from the Recruiting page.
+      const upline_rep_id = inviteRole === "rep" && me?.rep_id ? me.rep_id : null;
       const r = await fetch("/api/invites/create", {
         method: "POST",
         headers: { "content-type": "application/json", "authorization": `Bearer ${session.session.access_token}` },
-        body: JSON.stringify({ agency_id: agencyId, role: inviteRole })
+        body: JSON.stringify({ agency_id: agencyId, role: inviteRole, upline_rep_id })
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "mint failed");
