@@ -8,7 +8,7 @@ function PagePipeline({ role = "owner" }) {
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [newOpen, setNewOpen] = React.useState(false);
   const [filters, setFilters] = React.useState({ stage: "all", heat: "all", owner: "all", state: "all", source: "all", maxDays: 30 });
-  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0].id });
+  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0].id, phone: "", email: "" });
   const [extra, setExtra] = React.useState([]);
   const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
   // When live data hydrates (initial load OR realtime tick), drop the local
@@ -51,7 +51,14 @@ function PagePipeline({ role = "owner" }) {
   const submit = async () => {
     if (!newRow.lead.trim()) return;
     const localId = "tmp-" + Date.now();
-    const row = { id: localId, lead: newRow.lead, age: +newRow.age, state: newRow.state, stage: "New", product: newRow.product, ap: 0, days: 0, last: "Just added", next: "First dial", source: newRow.source, owner: newRow.owner, consent: "verified", heat: "fresh" };
+    const row = {
+      id: localId, lead: newRow.lead, age: +newRow.age, state: newRow.state,
+      stage: "New", product: newRow.product, ap: 0, days: 0, last: "Just added",
+      next: "First dial", source: newRow.source, owner: newRow.owner,
+      consent: "verified", heat: "fresh",
+      phone: (newRow.phone || "").trim() || null,
+      email: (newRow.email || "").trim() || null,
+    };
     try {
       await AppData.mutate.pipelineInsert(row);
       setExtra(e => [row, ...e]);
@@ -203,8 +210,12 @@ function PagePipeline({ role = "owner" }) {
                 <div className="cell-truncate" style={{ color: "var(--text-tertiary)" }}>{p.last}</div>
                 <div className="cell-truncate" style={{ color: "var(--text-secondary)" }}>{p.next}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Shared.Avatar rep={repById[p.owner]} size={18}/>
-                  <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[p.owner].name.split(" ")[0]}</span>
+                  {repById[p.owner]
+                    ? <>
+                        <Shared.Avatar rep={repById[p.owner]} size={18}/>
+                        <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[p.owner].name.split(" ")[0]}</span>
+                      </>
+                    : <span style={{ fontSize: 11.5, color: "var(--text-quaternary)" }}>unassigned</span>}
                 </div>
                 <button className="icon-btn" onClick={(e) => { e.stopPropagation(); const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n); }}><Icons.Dots size={13}/></button>
               </div>
@@ -285,12 +296,19 @@ function PagePipeline({ role = "owner" }) {
         }>
           <Shared.Field label="Name"><input className="text-input" value={newRow.lead} onChange={(e) => setNewRow({ ...newRow, lead: e.target.value })} placeholder="Cheryl Hampton" autoFocus/></Shared.Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Phone"><input className="text-input" type="tel" value={newRow.phone} onChange={(e) => setNewRow({ ...newRow, phone: e.target.value })} placeholder="+1 512 555 1234" inputMode="tel"/></Shared.Field>
+            <Shared.Field label="Email (optional)"><input className="text-input" type="email" value={newRow.email} onChange={(e) => setNewRow({ ...newRow, email: e.target.value })} placeholder="lead@example.com"/></Shared.Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Shared.Field label="Age"><input className="text-input" type="number" min={18} max={110} value={newRow.age} onChange={(e) => setNewRow({ ...newRow, age: e.target.value })}/></Shared.Field>
             <Shared.Field label="State"><Shared.Select value={newRow.state} onChange={(v) => setNewRow({ ...newRow, state: v })} options={["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"].map(s => ({ v: s, l: s }))}/></Shared.Field>
           </div>
           <Shared.Field label="Product"><Shared.Select value={newRow.product} onChange={(v) => setNewRow({ ...newRow, product: v })} options={["Med Supp Plan G","Med Supp Plan N","Final Expense $10K","Final Expense $15K","Final Expense $20K","Final Expense $25K","Annuity $50K"].map(s => ({ v: s, l: s }))}/></Shared.Field>
           <Shared.Field label="Source"><Shared.Select value={newRow.source} onChange={(v) => setNewRow({ ...newRow, source: v })} options={["FB Lead Form","Inbound call","T65 list","Referral","Cross-sell"].map(s => ({ v: s, l: s }))}/></Shared.Field>
           {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={newRow.owner} onChange={(v) => setNewRow({ ...newRow, owner: v })} options={REPS.map(r => ({ v: r.id, l: r.name }))}/></Shared.Field>}
+          <div style={{ marginTop: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+            Phone is optional but required to dial / SMS this lead. You can add it later from the lead detail drawer.
+          </div>
         </Shared.Modal>
       )}
 
@@ -325,6 +343,23 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
   const heatColor = lead.heat === "hot" ? "var(--accent-heat)" : lead.heat === "warm" ? "var(--state-warning)" : lead.heat === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
   const initials = lead.lead.split(" ").map(s => s[0]).join("");
 
+  // Inline-editable phone + email — debounce-saves to pipelineContact mutator
+  const [phone, setPhone] = React.useState(lead.phone || "");
+  const [email, setEmail] = React.useState(lead.email || "");
+  React.useEffect(() => { setPhone(lead.phone || ""); setEmail(lead.email || ""); }, [lead.id]);
+  const savePhone = async () => {
+    const next = phone.trim() || null;
+    if (next === (lead.phone || null)) return;
+    try { await AppData.mutate.pipelineContact(lead.id, { phone: next }); window.toast && window.toast(next ? "Phone saved" : "Phone cleared", "success"); }
+    catch (_e) {}
+  };
+  const saveEmail = async () => {
+    const next = email.trim() || null;
+    if (next === (lead.email || null)) return;
+    try { await AppData.mutate.pipelineContact(lead.id, { email: next }); window.toast && window.toast(next ? "Email saved" : "Email cleared", "success"); }
+    catch (_e) {}
+  };
+
   return (
     <div className="slideout-overlay" onClick={onClose}>
       <aside className="slideout" onClick={(e) => e.stopPropagation()}>
@@ -350,6 +385,31 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
 
           <div className="divider"></div>
 
+          <div className="field-l">Contact</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
+            <Shared.Field label="Phone">
+              <input className="text-input" type="tel" value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                onBlur={savePhone}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.target.blur(); } }}
+                placeholder="+1 512 555 1234" inputMode="tel"/>
+            </Shared.Field>
+            <Shared.Field label="Email">
+              <input className="text-input" type="email" value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={saveEmail}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.target.blur(); } }}
+                placeholder="lead@example.com"/>
+            </Shared.Field>
+          </div>
+          {!phone.trim() && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--state-warning)" }}>
+              No phone on file — dial / SMS / autodial will skip this lead until you add one.
+            </div>
+          )}
+
+          <div className="divider"></div>
+
           <div className="field-l">Stage</div>
           <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
             {stages.map(s => (
@@ -368,7 +428,7 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
 
           <div className="field-l">Sequences</div>
           <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-            {(window.PIPELINE_SEQUENCES || []).slice(0, 3).map(s => (
+            {((window.PIPELINE_SEQUENCES || []).slice(0, 3)).map(s => (
               <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
                 <Icons.Workflow size={12} style={{ color: "var(--text-tertiary)" }}/>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -383,6 +443,11 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
                 }}>Enroll</button>
               </div>
             ))}
+            {(window.PIPELINE_SEQUENCES || []).length === 0 && (
+              <div style={{ padding: 10, fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "center", border: "1px dashed var(--border-subtle)", borderRadius: 6 }}>
+                No sequences yet. <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "pipeline" }})); }} style={{ color: "var(--accent-money)" }}>Build one</a> in Pipeline → Sequences.
+              </div>
+            )}
           </div>
 
           <div className="divider"></div>
@@ -398,13 +463,22 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
           <div className="field-l">Compliance</div>
           <div className="panel" style={{ padding: 12, marginTop: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
-              <span style={{ color: "var(--text-secondary)" }}>LeadiD</span><span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>9f8c-2a11…</span>
+              <span style={{ color: "var(--text-secondary)" }}>Consent</span>
+              <span className={`chip ${lead.consent === "verified" ? "chip-money" : "chip-status"}`}>{lead.consent || "—"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
-              <span style={{ color: "var(--text-secondary)" }}>TrustedForm</span><span className="chip chip-money">Captured</span>
+              <span style={{ color: "var(--text-secondary)" }}>LeadiD / TrustedForm</span>
+              <span className="meta" style={{ fontSize: 11 }}>{
+                lead.consent === "verified"
+                  ? "captured at form fill"
+                  : "not captured — wire Jornaya/TrustedForm in Connections"
+              }</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5 }}>
-              <span style={{ color: "var(--text-secondary)" }}>SOA</span><span className={`chip ${lead.stage === "App In" || lead.stage === "Issued" ? "chip-money" : "chip-status"}`}>{lead.stage === "Issued" ? "Captured" : "Before quote"}</span>
+              <span style={{ color: "var(--text-secondary)" }}>SOA</span>
+              <span className={`chip ${lead.stage === "App In" || lead.stage === "Issued" ? "chip-money" : "chip-status"}`}>{
+                lead.stage === "Issued" ? "captured" : lead.stage === "App In" ? "in app" : "before quote"
+              }</span>
             </div>
           </div>
 
@@ -413,23 +487,41 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
           <div className="field-l">Activity</div>
           <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
             {[
-              { d: lead.last,    t: "Last touch",  s: lead.next },
-              { d: "Earlier",    t: "Quote sent",  s: lead.product },
-              { d: lead.days + "d ago", t: "Form filled",  s: lead.source + " · " + lead.state },
-            ].map((a, i) => (
+              lead.last && lead.next        ? { d: lead.last, t: "Last touch", s: lead.next } : null,
+              lead.days != null && lead.source ? { d: (lead.days || 0) + "d ago", t: "Form filled", s: [lead.source, lead.state].filter(Boolean).join(" · ") } : null,
+            ].filter(Boolean).map((a, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 8, fontSize: 12.5 }}>
                 <span style={{ color: "var(--text-tertiary)" }}>{a.d}</span>
                 <div><strong>{a.t}</strong><div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.s}</div></div>
               </div>
             ))}
+            {!lead.last && !lead.source && (
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>No activity logged yet.</div>
+            )}
           </div>
         </div>
 
         <div className="slideout-foot">
-          <button className="btn"><Icons.Mail size={12}/> Email</button>
-          <button className="btn"><Icons.MessageSquare size={12}/> SMS</button>
-          <button className="btn" onClick={() => window.generateSOAPdf && window.generateSOAPdf(lead, "Atlas Insurance Group")}><Icons.Shield size={12}/> SOA</button>
-          <button className="btn btn-primary" onClick={() => window.repflowCall && window.repflowCall("+15125550" + (lead.id || "100"), lead.lead)}><Icons.Phone size={12}/> Call now</button>
+          <button className="btn" disabled={!email.trim()}
+            title={email.trim() ? `Email ${email}` : "Add email first"}
+            onClick={() => email.trim() && (window.location.href = `mailto:${email.trim()}?subject=Following up on your ${lead.product || "policy"} quote`)}>
+            <Icons.Mail size={12}/> Email
+          </button>
+          <button className="btn" disabled={!phone.trim()}
+            title={phone.trim() ? `SMS ${phone}` : "Add phone first"}
+            onClick={() => phone.trim() && window.smsCompose && window.smsCompose(lead, phone.trim())}>
+            <Icons.MessageSquare size={12}/> SMS
+          </button>
+          <button className="btn" onClick={() => {
+            const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+            const agencyName = meIdent?.agency_name || "your agency";
+            window.generateSOAPdf && window.generateSOAPdf(lead, agencyName);
+          }}><Icons.Shield size={12}/> SOA</button>
+          <button className="btn btn-primary" disabled={!phone.trim()}
+            title={phone.trim() ? `Call ${phone}` : "Add phone first"}
+            onClick={() => phone.trim() && window.repflowCall && window.repflowCall(phone.trim(), lead.lead)}>
+            <Icons.Phone size={12}/> Call now
+          </button>
         </div>
       </aside>
     </div>

@@ -10,10 +10,45 @@
 (function () {
 
 const TIER_ORDER = ["bronze","silver","gold","platinum","diamond"];
-const STAGE_PROB = { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
-const FALLBACK_AP = (p) => p.product?.includes("Plan G") ? 1800
-                          : p.product?.includes("Plan N") ? 1500
-                          : p.product?.includes("Annuity") ? 4000 : 1300;
+// Live: average AP per product from issued policies, falling back to agency
+// config defaults, then to industry baselines. Recomputes only when POLICIES
+// reference changes.
+function _avgApByKeyword(policies, keyword) {
+  const matched = policies.filter(p => p.product && p.product.toLowerCase().includes(keyword.toLowerCase()) && p.ap > 0);
+  if (matched.length === 0) return null;
+  return Math.round(matched.reduce((a, p) => a + p.ap, 0) / matched.length);
+}
+function _stageProbLive() {
+  return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().stage_close_probabilities)
+    || { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
+}
+function _fallbackApDefaults() {
+  return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().fallback_ap_by_product)
+    || { "Plan G": 1800, "Plan N": 1500, "Final Expense": 1300, "Annuity": 4000 };
+}
+function _fallbackApFor(product, policies) {
+  const fb = _fallbackApDefaults();
+  const learned =
+    product?.includes("Plan G")        ? _avgApByKeyword(policies, "Plan G")        :
+    product?.includes("Plan N")        ? _avgApByKeyword(policies, "Plan N")        :
+    product?.includes("Annuity")       ? _avgApByKeyword(policies, "Annuity")       :
+    product?.includes("Final Expense") ? _avgApByKeyword(policies, "Final Expense") :
+    null;
+  if (learned) return learned;
+  if (product?.includes("Plan G"))        return fb["Plan G"];
+  if (product?.includes("Plan N"))        return fb["Plan N"];
+  if (product?.includes("Annuity"))       return fb["Annuity"];
+  if (product?.includes("Final Expense")) return fb["Final Expense"];
+  return fb["Final Expense"] || 1300;
+}
+const STAGE_PROB = new Proxy({}, {
+  get(_t, key) { return _stageProbLive()[key]; },
+  ownKeys()    { return Object.keys(_stageProbLive()); },
+  getOwnPropertyDescriptor(_t, key) {
+    return { configurable: true, enumerable: true, value: _stageProbLive()[key] };
+  },
+});
+const FALLBACK_AP = (p) => _fallbackApFor(p.product, AppData.POLICIES || []);
 
 function PagePerformance() {
   const { REPS } = AppData;
@@ -24,19 +59,61 @@ function PagePerformance() {
   const [forecastGoal, setForecastGoal] = React.useState(50000);
 
   // ─── Tier rules (editable) + per-rep override state ─────────────────────
-  const [rules, setRules] = React.useState({
-    bronze:   { mtd: 0,     persistency: 0  },
-    silver:   { mtd: 15000, persistency: 70 },
-    gold:     { mtd: 25000, persistency: 80 },
-    platinum: { mtd: 35000, persistency: 85 },
-    diamond:  { mtd: 50000, persistency: 90 },
-  });
+  // Initial values come from lib/agency-config.js so a single edit in agency
+  // settings flows through. Fallback retained when the helper isn't loaded.
+  const [rules, setRules] = React.useState(
+    (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().tier_thresholds) || {
+      bronze:   { mtd: 0,     persistency: 0  },
+      silver:   { mtd: 15000, persistency: 70 },
+      gold:     { mtd: 25000, persistency: 80 },
+      platinum: { mtd: 35000, persistency: 85 },
+      diamond:  { mtd: 50000, persistency: 90 },
+    }
+  );
+  // Owners editing thresholds in this UI persist back to agency config.
+  React.useEffect(() => {
+    if (!window.AgencyConfig || !window.AgencyConfig.update) return;
+    const me = window.me && window.me();
+    if (!me || me.role !== "owner") return;
+    const cfg = window.AgencyConfig.get();
+    if (JSON.stringify(cfg.tier_thresholds) === JSON.stringify(rules)) return;
+    window.AgencyConfig.update({ tier_thresholds: rules });
+  }, [rules]);
   const [overrides, setOverrides] = React.useState({});
-  const [history, setHistory] = React.useState([
-    { who: "Tony Park", from: "gold",   to: "platinum", reason: "Lost lead to no fault — protect tier", when: "Apr 28" },
-    { who: "Remy Chen", from: "silver", to: "bronze",   reason: "Persistency drift, 6-mo cohort",        when: "Apr 21" },
-  ]);
-  const persFor = (rep) => 88 + (rep.streak % 7);
+  const [history, setHistory] = React.useState(
+    ((window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency())
+      ? [
+          { who: "Tony Park", from: "gold",   to: "platinum", reason: "Lost lead to no fault — protect tier", when: "Apr 28" },
+          { who: "Remy Chen", from: "silver", to: "bronze",   reason: "Persistency drift, 6-mo cohort",        when: "Apr 21" },
+        ]
+      : [])
+  );
+  // Persistency = % of issued policies still in force, derived from
+  // AppData.POLICIES. When a rep has no policies on file we fall back to a
+  // streak-derived demo value (bounded 88–94) only on the demo agency, else
+  // null so tier calc treats them as below threshold (forces real data first).
+  const _isDemoPerf = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const _persByRep = React.useMemo(() => {
+    const policies = AppData.POLICIES || [];
+    const total = {}, active = {};
+    for (const p of policies) {
+      if (!p.owner) continue;
+      total[p.owner]  = (total[p.owner] || 0) + 1;
+      if (p.persistency === "active" || p.persistency === "in_force") {
+        active[p.owner] = (active[p.owner] || 0) + 1;
+      }
+    }
+    const out = {};
+    for (const id of Object.keys(total)) {
+      out[id] = Math.round((active[id] / total[id]) * 1000) / 10;
+    }
+    return out;
+  }, [AppData.POLICIES]);
+  const persFor = (rep) => {
+    const live = _persByRep[rep.id];
+    if (typeof live === "number") return live;
+    return _isDemoPerf ? 88 + (rep.streak % 7) : 0;
+  };
   const calcTier = (rep) => {
     const p = persFor(rep);
     let t = "bronze";
@@ -70,8 +147,8 @@ function PagePerformance() {
 
   // ─── Hero KPI helpers ───────────────────────────────────────────────────
   const top         = sorted[0];
-  const promoted    = history.filter(h => TIER_ORDER.indexOf(h.to) > TIER_ORDER.indexOf(h.from)).length;
-  const demoted     = history.filter(h => TIER_ORDER.indexOf(h.to) < TIER_ORDER.indexOf(h.from)).length;
+  const promoted    = history.filter(h => TIER_ORDER.indexOf(h.to) > TIER_ORDER.indexOf(h.from))?.length;
+  const demoted     = history.filter(h => TIER_ORDER.indexOf(h.to) < TIER_ORDER.indexOf(h.from))?.length;
 
   return (
     <div className="page-pad">

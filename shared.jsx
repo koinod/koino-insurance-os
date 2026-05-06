@@ -87,6 +87,8 @@ const NAV = {
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "crm",         label: "CRM",          icon: "Users" },
+    { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
+    { id: "auto-quoter", label: "Auto Quoter",  icon: "Bolt" },
     { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
     { id: "compliance",  label: "Compliance",   icon: "Shield" },
     { id: "library",     label: "Library",      icon: "Book" },
@@ -153,18 +155,44 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         </button>
       </div>
 
-      <div className="sb-user">
-        <Avatar rep={AppData.REPS[0]} size={26}/>
-        <div className="sb-user-info">
-          <div className="sb-user-name">Marcus Avila</div>
-          <div className="sb-user-role">
-            <TierChip tier="platinum" compact/>
-            <span>· Atlanta</span>
-          </div>
-        </div>
-        <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
-      </div>
+      <SidebarUser setPage={setPage}/>
     </nav>
+  );
+};
+
+/* Resolve the actual signed-in viewer instead of hardcoding Marcus Avila /
+   Atlanta / platinum. Falls through to REPS[0] only when me() hasn't loaded
+   yet (first paint), then re-renders on the me:loaded event. */
+const SidebarUser = ({ setPage }) => {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("me:loaded", fn);
+    window.addEventListener("data:hydrated", fn);
+    return () => {
+      window.removeEventListener("me:loaded", fn);
+      window.removeEventListener("data:hydrated", fn);
+    };
+  }, []);
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const repRow = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+              || AppData.REPS?.[0]
+              || { name: "—", color: "var(--text-tertiary)" };
+  const name = meIdent?.full_name || repRow.name || "—";
+  const tier = meIdent?.tier || repRow.tier || "bronze";
+  const cityChip = meIdent?.agency_name ? `· ${meIdent.agency_name}` : (repRow.city ? `· ${repRow.city}` : "");
+  return (
+    <div className="sb-user">
+      <Avatar rep={repRow} size={26}/>
+      <div className="sb-user-info">
+        <div className="sb-user-name">{name}</div>
+        <div className="sb-user-role">
+          <TierChip tier={tier} compact/>
+          {cityChip && <span>{cityChip}</span>}
+        </div>
+      </div>
+      <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
+    </div>
   );
 };
 
@@ -179,6 +207,71 @@ const LiveBadge = () => {
   );
 };
 
+const AccountChip = () => {
+  const [open, setOpen] = React.useState(false);
+  const [me, setMe]     = React.useState(typeof window !== "undefined" && window.me ? window.me() : null);
+  React.useEffect(() => {
+    const onLoad = (e) => setMe(e.detail || (window.me && window.me()));
+    window.addEventListener("me:loaded", onLoad);
+    return () => window.removeEventListener("me:loaded", onLoad);
+  }, []);
+  const inDemo = (() => { try { return sessionStorage.getItem("repflow.demo") === "1"; } catch { return false; } })();
+  const isAuthed = !!(me && me.authenticated && !me.is_demo);
+  const label = isAuthed
+    ? (me.full_name || me.handle || me.agency_name || "Account")
+    : (inDemo ? "Demo" : "Guest");
+  const sub = isAuthed ? me.agency_name : (inDemo ? "Read-only · Atlas seed" : "Not signed in");
+
+  const tone = isAuthed ? "var(--accent-money)" : (inDemo ? "var(--accent-status)" : "var(--text-tertiary)");
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        className="lb-pill"
+        title={`${label} · ${sub}`}
+        onClick={() => setOpen(o => !o)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, color: tone, borderColor: `color-mix(in oklch, ${tone} 35%, transparent)` }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: tone, display: "inline-block" }}></span>
+        <span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        <Icons.ChevronRight size={11} style={{ transform: open ? "rotate(90deg)" : "rotate(0)", transition: "transform 120ms" }}/>
+      </button>
+      {open && (
+        <div
+          onMouseLeave={() => setOpen(false)}
+          style={{
+            position: "absolute", top: "calc(100% + 6px)", right: 0, minWidth: 240,
+            background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+            borderRadius: 8, padding: 10, zIndex: 50,
+            boxShadow: "0 12px 32px color-mix(in oklch, black 35%, transparent)"
+          }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>{label}</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{sub}</div>
+          {isAuthed && me.role && (
+            <div style={{ marginTop: 6, fontSize: 10.5 }}>
+              <span className="chip">{me.role}</span>
+              {me.tier && <span className="chip" style={{ marginLeft: 4 }}>{me.tier}</span>}
+            </div>
+          )}
+          <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "10px -10px 0", padding: "8px 10px 0" }}>
+            {isAuthed ? (
+              <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", fontSize: 12 }} onClick={() => window.signOut && window.signOut()}>
+                <Icons.X size={11}/> Sign out
+              </button>
+            ) : (
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }} onClick={() => {
+                try { sessionStorage.removeItem("repflow.demo"); } catch {}
+                window.location.reload();
+              }}>
+                <Icons.Send size={11}/> Sign in
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNotifications, openSettings, notifCount }) => (
   <div className="topbar">
     <div className="crumbs">
@@ -190,6 +283,7 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
       ))}
     </div>
     <LiveBadge/>
+    <AccountChip/>
     {window.AgencySwitcher && (() => { const A = window.AgencySwitcher; return <A/>; })()}
     <div className="topbar-spacer"/>
     {aep && (
@@ -266,12 +360,79 @@ const CmdK = ({ open, onClose, goto }) => {
   const inputRef = useRef();
   useEffect(() => { if (open) { setQ(""); setSel(0); setTimeout(() => inputRef.current?.focus(), 60); } }, [open]);
 
-  const flat = useMemo(() => Object.entries(CMD_ITEMS).flatMap(([sec, items]) =>
-    items.filter(i => !q || i.label.toLowerCase().includes(q.toLowerCase())).map(i => ({ ...i, sec }))
-  ), [q]);
+  // Unified search: builds a virtual dataset from leads + scripts + docs +
+  // quick links + reps + carriers — a query "Cheryl" returns Cheryl Hampton's
+  // pipeline row + every doc/script that mentions her. Pages stay top of list.
+  const dataset = useMemo(() => {
+    const items = [];
+    Object.entries(CMD_ITEMS).forEach(([sec, list]) => {
+      list.forEach(i => items.push({ ...i, sec, _kind: "page" }));
+    });
+    if (q && q.length >= 2) {
+      const ql = q.toLowerCase();
+      const safeStartsWith = (s) => (s || "").toLowerCase().includes(ql);
+      // Leads
+      (window.AppData?.PIPELINE || []).slice(0, 200).forEach(p => {
+        if (safeStartsWith(p.lead) || safeStartsWith(p.product) || safeStartsWith(p.source) || safeStartsWith(p.state)) {
+          items.push({ label: `${p.lead} · ${p.product || "—"}`, sec: "Leads", icon: "Phone", _kind: "lead", _payload: p,
+            sub: `${p.stage} · ${p.state || "—"} · owner ${p.owner || "—"}` });
+        }
+      });
+      // Reps
+      (window.AppData?.REPS || []).forEach(r => {
+        if (safeStartsWith(r.name) || safeStartsWith(r.handle) || safeStartsWith(r.tier)) {
+          items.push({ label: r.name, sec: "Reps", icon: "Users", _kind: "rep", _payload: r,
+            sub: `${r.handle} · ${r.tier?.toUpperCase()}` });
+        }
+      });
+      // Scripts
+      (window.AppData?.SCRIPTS_LIB || []).forEach(s => {
+        if (safeStartsWith(s.title) || safeStartsWith(s.body) || safeStartsWith(s.cat)) {
+          items.push({ label: s.title, sec: "Scripts", icon: "FileText", _kind: "script", _payload: s,
+            sub: `${s.cat} · ${s.version || ""}` });
+        }
+      });
+      // Docs
+      (window.AppData?.DOCS || []).forEach(d => {
+        if (safeStartsWith(d.title) || safeStartsWith(d.cat) || safeStartsWith(d.text)) {
+          items.push({ label: d.title, sec: "Docs", icon: "Folder", _kind: "doc", _payload: d,
+            sub: `${d.cat} · ${d.kind || "link"}` });
+        }
+      });
+      // Quick links
+      (window.AppData?.QUICK_LINKS || []).forEach(l => {
+        if (safeStartsWith(l.label) || safeStartsWith(l.cat) || safeStartsWith(l.url)) {
+          items.push({ label: l.label, sec: "Links", icon: "Bookmark", _kind: "link", _payload: l,
+            sub: l.cat });
+        }
+      });
+      // Carriers
+      (window.AppData?.CARRIERS || []).forEach(c => {
+        if (safeStartsWith(c.name) || safeStartsWith(c.category)) {
+          items.push({ label: c.name, sec: "Carriers", icon: "Shield", _kind: "carrier", _payload: c,
+            sub: c.category });
+        }
+      });
+    }
+    return items;
+  }, [q]);
+
+  const flat = useMemo(() => {
+    if (!q) return dataset.filter(i => i._kind === "page");
+    const ql = q.toLowerCase();
+    return dataset.filter(i => i.label.toLowerCase().includes(ql) || (i.sub || "").toLowerCase().includes(ql)).slice(0, 50);
+  }, [dataset, q]);
 
   const run = (it) => {
-    if (it?.nav && goto) goto(it.nav);
+    if (!it) return onClose();
+    if (it._kind === "page" && it.nav && goto) { goto(it.nav); onClose(); return; }
+    if (it._kind === "lead")    { goto && goto("crm");     window.dispatchEvent(new CustomEvent("crm:focusLead", { detail: it._payload })); onClose(); return; }
+    if (it._kind === "rep")     { goto && goto("team");                                                                                    onClose(); return; }
+    if (it._kind === "script")  { goto && goto("library"); window.dispatchEvent(new CustomEvent("library:openScript", { detail: it._payload })); onClose(); return; }
+    if (it._kind === "doc")     { if (it._payload?.url) window.open(it._payload.url, "_blank"); else { goto && goto("library"); } onClose(); return; }
+    if (it._kind === "link")    { if (it._payload?.url) window.open(it._payload.url, "_blank"); onClose(); return; }
+    if (it._kind === "carrier") { goto && goto("library"); onClose(); return; }
+    if (it.nav && goto)         { goto(it.nav); }
     onClose();
   };
 
@@ -303,7 +464,10 @@ const CmdK = ({ open, onClose, goto }) => {
                 return (
                   <div key={i} className={`cmdk-item ${idx === sel ? "sel" : ""}`} onMouseEnter={() => setSel(idx)} onClick={() => run(it)}>
                     <Ico size={14} style={{ color: "var(--text-tertiary)" }}/>
-                    <span>{it.label}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500 }}>{it.label}</div>
+                      {it.sub && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{it.sub}</div>}
+                    </div>
                     {it.kbd && <span className="kbd">{it.kbd}</span>}
                   </div>
                 );
@@ -521,4 +685,157 @@ const SectionPill = ({ items, value, onChange, dense }) => (
   </div>
 );
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill };
+/* Validation helpers — every form should reach for these instead of trusting
+   the input element. Phone uses a permissive E.164 (10-15 digits, optional +).
+   Age clamps to 0-120 to catch typos like 999. ZIP is 5 or 5+4. */
+const Validate = {
+  phone(v) {
+    if (!v) return { ok: true,  msg: "" };
+    const cleaned = String(v).replace(/[\s\-().]/g, "");
+    return /^\+?[1-9]\d{9,14}$/.test(cleaned)
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "Phone must be E.164 (10-15 digits, optional +)" };
+  },
+  age(v) {
+    if (v === "" || v == null) return { ok: true, msg: "" };
+    const n = Number(v);
+    if (!Number.isFinite(n))   return { ok: false, msg: "Age must be a number" };
+    if (n < 0 || n > 120)      return { ok: false, msg: "Age must be 0-120" };
+    return { ok: true, msg: "" };
+  },
+  zip(v) {
+    if (!v) return { ok: true, msg: "" };
+    return /^\d{5}(-\d{4})?$/.test(String(v).trim())
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "ZIP must be 5 digits (or 5+4)" };
+  },
+  state(v) {
+    if (!v) return { ok: true, msg: "" };
+    return /^[A-Z]{2}$/.test(String(v).trim().toUpperCase())
+      ? { ok: true, msg: "" }
+      : { ok: false, msg: "State must be 2-letter code" };
+  },
+  money(v) {
+    if (v === "" || v == null) return { ok: true, msg: "" };
+    const n = Number(String(v).replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(n)) return { ok: false, msg: "Must be a number" };
+    if (n < 0)               return { ok: false, msg: "Cannot be negative" };
+    return { ok: true, msg: "" };
+  },
+};
+
+/* ValidatedInput — text-input that shows inline error tone + message when the
+   value fails its kind's check. Use as drop-in: <ValidatedInput kind="phone"
+   value={...} onChange={...}/>. */
+const ValidatedInput = ({ kind, value, onChange, className = "text-input", ...rest }) => {
+  const v = Validate[kind] ? Validate[kind](value) : { ok: true, msg: "" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <input className={className} value={value || ""} onChange={onChange} {...rest}
+        style={{ ...(rest.style || {}), borderColor: !v.ok && value ? "var(--state-danger)" : undefined }}/>
+      {!v.ok && value && (
+        <span style={{ fontSize: 10.5, color: "var(--state-danger)" }}>{v.msg}</span>
+      )}
+    </div>
+  );
+};
+
+/* React class error boundary — wraps page content so a single throwing
+   component doesn't blank the whole app. Logs to console + offers a reset. */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) {
+    console.error("[ErrorBoundary]", err, info?.componentStack);
+    if (window.toast) window.toast(`UI error: ${err?.message || err}`, "error");
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div style={{ padding: 24, margin: 14, background: "var(--bg-raised)", border: "1px solid color-mix(in oklch, var(--state-danger) 35%, transparent)", borderRadius: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)", marginBottom: 8 }}>This panel hit an error.</div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", marginBottom: 12, whiteSpace: "pre-wrap" }}>{String(this.state.err?.message || this.state.err)}</div>
+        <button className="btn" onClick={() => this.setState({ err: null })}>Try again</button>
+      </div>
+    );
+  }
+}
+
+/* Skeleton row — drop-in for any list/table during initial Supabase hydrate.
+   Animates a shimmer; honors prefers-reduced-motion. */
+const Skeleton = ({ height = 14, width = "100%", radius = 4, count = 1, gap = 8 }) => {
+  const item = (
+    <div style={{
+      height, width, borderRadius: radius,
+      background: "linear-gradient(90deg, var(--bg-raised) 0%, var(--bg-overlay) 50%, var(--bg-raised) 100%)",
+      backgroundSize: "200% 100%",
+      animation: "shimmer 1.4s ease-in-out infinite",
+    }}/>
+  );
+  if (count === 1) return item;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap }}>
+      {Array.from({ length: count }).map((_, i) => <div key={i}>{item}</div>)}
+    </div>
+  );
+};
+
+/* Agency timezone resolver — every page that displays "Today" should use this
+   instead of `new Date()` so distributed teams don't see different totals.
+   Reads me().agency_timezone (column added by future migration when needed),
+   falls back to the agency's first-rep state mapping, finally browser local.
+   Also exposes formatInTz(date) for formatting rolled-up calendar dates. */
+const AgencyTime = (() => {
+  const STATE_TO_TZ = {
+    AL: "America/Chicago",     AK: "America/Anchorage",  AZ: "America/Phoenix",
+    AR: "America/Chicago",     CA: "America/Los_Angeles",CO: "America/Denver",
+    CT: "America/New_York",    DE: "America/New_York",   FL: "America/New_York",
+    GA: "America/New_York",    HI: "Pacific/Honolulu",   ID: "America/Boise",
+    IL: "America/Chicago",     IN: "America/Indianapolis",IA: "America/Chicago",
+    KS: "America/Chicago",     KY: "America/New_York",   LA: "America/Chicago",
+    ME: "America/New_York",    MD: "America/New_York",   MA: "America/New_York",
+    MI: "America/Detroit",     MN: "America/Chicago",    MS: "America/Chicago",
+    MO: "America/Chicago",     MT: "America/Denver",     NE: "America/Chicago",
+    NV: "America/Los_Angeles", NH: "America/New_York",   NJ: "America/New_York",
+    NM: "America/Denver",      NY: "America/New_York",   NC: "America/New_York",
+    ND: "America/Chicago",     OH: "America/New_York",   OK: "America/Chicago",
+    OR: "America/Los_Angeles", PA: "America/New_York",   RI: "America/New_York",
+    SC: "America/New_York",    SD: "America/Chicago",    TN: "America/Chicago",
+    TX: "America/Chicago",     UT: "America/Denver",     VT: "America/New_York",
+    VA: "America/New_York",    WA: "America/Los_Angeles",WV: "America/New_York",
+    WI: "America/Chicago",     WY: "America/Denver",
+  };
+  function resolve() {
+    const m = window.me && window.me();
+    if (m?.agency_timezone)   return m.agency_timezone;
+    if (m?.agency_state && STATE_TO_TZ[m.agency_state]) return STATE_TO_TZ[m.agency_state];
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+  }
+  return {
+    resolve,
+    todayStr() {
+      try { return new Date().toLocaleDateString("en-CA", { timeZone: resolve() }); }
+      catch { return new Date().toISOString().slice(0, 10); }
+    },
+    format(d, opts) {
+      try { return new Date(d).toLocaleString("en-US", { timeZone: resolve(), ...(opts || {}) }); }
+      catch { return new Date(d).toLocaleString(); }
+    },
+  };
+})();
+
+/* Demo agency guard — every fallback to seed/sample data must check this so
+   a real signed-in agency never sees Atlas / Cheryl / Marcus content.
+   Real agencies hit empty states with import/add CTAs instead. */
+const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
+const isDemoAgency = () => {
+  const m = window.me && window.me();
+  if (!m) return true;                                  // pre-auth = treat as demo
+  if (m.is_demo === true) return true;
+  if (m.agency_id && String(m.agency_id) === DEMO_AGENCY_ID) return true;
+  return false;
+};
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID };
+window.isDemoAgency = isDemoAgency;
+window.AgencyTime = AgencyTime;

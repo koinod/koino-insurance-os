@@ -43,13 +43,14 @@ const CONNECTOR_CATALOG = [
   { id: "webhook",     name: "Generic webhook",     kind: "webhook",    setup: "POST your leads to /api/leads/inbound with HMAC-signed body. JSON or form-encoded." },
 ];
 
-const STAGES = ["New", "Contacted", "Quoted", "App In", "Issued", "Lost"];
+const STAGES = ["New", "Contacted", "Quoted", "App In", "Issued", "Cancelled", "Lost"];
 const STAGE_TONE = {
   New:       "var(--accent-status)",
   Contacted: "var(--accent-info)",
   Quoted:    "var(--accent-money)",
   "App In":  "color-mix(in oklch, var(--accent-money) 70%, var(--accent-status))",
   Issued:    "var(--accent-money)",
+  Cancelled: "var(--state-warning)",
   Lost:      "var(--state-danger)",
 };
 const HEAT_TONE = { fresh: "var(--accent-money)", hot: "var(--state-warning)", warm: "var(--accent-info)", cold: "var(--text-tertiary)" };
@@ -72,7 +73,9 @@ function deriveSources(useSample) {
   const touch    = (window.AppData && window.AppData.TOUCHPOINTS)  || [];
   const attr     = (window.AppData && window.AppData.ATTRIBUTIONS) || [];
   const policies = (window.AppData && window.AppData.POLICIES)     || [];
-  if (useSample || sources.length === 0) return SAMPLE_SOURCES;
+  const isDemo = window.isDemoAgency && window.isDemoAgency();
+  if ((useSample || sources.length === 0) && isDemo) return SAMPLE_SOURCES;
+  if (sources.length === 0) return [];
   return sources.map(s => {
     const sourceTouches = touch.filter(t => t.sourceId === s.id);
     const leadIds = new Set(sourceTouches.map(t => t.leadId));

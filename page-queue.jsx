@@ -454,41 +454,214 @@ function RoutingRulesModal({ onClose }) {
 }
 
 // ─── Carrier underwriting niches (used by the in-call Quote tool) ────────
-// Score 0-100 = "fit for THIS product + THIS health profile". Tunable as
-// the agency learns. Lives here so reps see ranked carriers mid-call.
+// Score 0-100 = "fit for THIS product + THIS health profile". Encodes real
+// underwriting guidelines extracted from carrier producer portals + FMO
+// comparison sites; full source citations in /tmp/carrier-underwriting.json.
+//
+// Lives here so reps see ranked carriers mid-call AND so the owner Quote
+// Tool (page-quote.jsx) can score saved quotes against the same engine.
+//
+// Each carrier exposes:
+//   • underwriting — structured guideline metadata (visible in tooltips)
+//   • fit(input) → { score, reason } — runtime ranking against a health profile
+//
+// Inputs: { product, age, tobacco, diabetes, bpHigh, bmi, state? }
 const CARRIER_NICHES = [
-  { id: "uhc",     name: "UnitedHealthcare", products: ["medsupp"],          fit: (i) => ({
-      score: 90 - (i.tobacco ? 25 : 0) - (i.diabetes ? 10 : 0) - (i.bpHigh ? 5 : 0) + (i.age >= 65 && i.age <= 70 ? 5 : 0),
-      reason: i.tobacco ? "rated up for tobacco" : "T65 sweet-spot · clean health"
-  }) },
-  { id: "humana",  name: "Humana",            products: ["medsupp", "mapd"],   fit: (i) => ({
-      score: 85 - (i.bpHigh ? 5 : 0) + (i.tobacco ? 5 : 0) + (i.diabetes ? 8 : 0),
-      reason: i.diabetes ? "tolerates type-2 diabetes well" : i.tobacco ? "tobacco-friendly underwriting" : "broad product line"
-  }) },
-  { id: "aetna",   name: "Aetna SRC",         products: ["medsupp"],          fit: (i) => ({
-      score: (i.age <= 75 ? 85 : 50) - (i.tobacco ? 30 : 0) - (i.bpHigh ? 10 : 0) - (i.diabetes ? 8 : 0),
-      reason: i.age > 75 ? "rate spike after 75" : i.tobacco ? "strict tobacco rate-up" : "competitive Plan G under 75"
-  }) },
-  { id: "moo",     name: "Mutual of Omaha",   products: ["medsupp", "fe"],     fit: (i) => ({
-      score: 75 + (i.product === "fe" ? 10 : 0) + (i.age >= 70 ? 5 : 0) - (i.bmi > 35 ? 10 : 0),
-      reason: i.product === "fe" ? "FE up to age 80, simplified issue" : "household discount available"
-  }) },
-  { id: "cigna",   name: "Cigna",             products: ["medsupp"],          fit: (i) => ({
-      score: 80 - (i.tobacco ? 15 : 0) - (i.bmi > 35 ? 8 : 0),
-      reason: "Plan N standout — lower premium, copay structure"
-  }) },
-  { id: "fg",      name: "F&G",                products: ["annuity", "iul"],    fit: (i) => ({
-      score: i.product === "annuity" || i.product === "iul" ? 90 : 0,
-      reason: "MYGA + IUL with strong cap rates"
-  }) },
-  { id: "lumico",  name: "Lumico",             products: ["fe"],                fit: (i) => ({
-      score: i.product === "fe" ? (75 - (i.bmi > 40 ? 15 : 0) - (i.diabetes && i.bpHigh ? 10 : 0)) : 0,
-      reason: "FE with mid-tier health acceptance"
-  }) },
-  { id: "aig",     name: "AIG",                products: ["fe", "term"],         fit: (i) => ({
-      score: i.product === "fe" ? 70 : i.product === "term" ? 80 : 0,
-      reason: i.product === "fe" ? "GIWL no exam · graded benefit" : "competitive term to age 75"
-  }) },
+  /* ─── Med Supp ───────────────────────────────────────────────────── */
+  {
+    id: "uhc", name: "UnitedHealthcare AARP", products: ["medsupp"],
+    underwriting: {
+      issueAges: [50, 99],
+      tobaccoRateUpPct: 0,        // KILLER differentiator — UHC AARP famously doesn't surcharge tobacco
+      cardiacLookbackMonths: 24,
+      uwClasses: ["Preferred", "Standard"],
+      sweetSpot: "T65 enrollees (especially smokers) and lower-cost states; AARP brand pull + steep new-enrollee discount",
+      sources: ["UHC AARP Producer Guide GNHHNV6EN", "boomerbenefits.com 2026 review"],
+    },
+    fit: (i) => {
+      if (i.age < 50) return { score: 0, reason: "under issue-age 50" };
+      let score = 78;
+      const reasons = [];
+      if (i.tobacco) { score += 18; reasons.push("0% tobacco rate-up"); }
+      else                              reasons.push("AARP brand · steep T65 discount");
+      if (i.age >= 65 && i.age <= 70) { score += 8; reasons.push("T65 sweet spot"); }
+      if (i.bmi >= 40)                { score -= 8; reasons.push("build review"); }
+      if (i.diabetes && i.bpHigh)     { score -= 6; reasons.push("diabetes + HTN combo"); }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "humana", name: "Humana", products: ["medsupp", "mapd"],
+    underwriting: {
+      issueAges: [65, 99],
+      tobaccoRateUpPct: 15,
+      bmiDeclineMin: 14, bmiDeclineMax: 40.5,   // hard decline outside this band
+      cancerLookbackYears: 2,
+      cardiacLookbackMonths: 24,
+      sweetSpot: "Standard-build T65 in suburban/rural states with heavy MAPD overlap",
+      sources: ["Humana Producer Underwriting Guide CGFLP04359"],
+    },
+    fit: (i) => {
+      if (i.age < 65 && i.product === "medsupp") return { score: 0, reason: "Med Supp issue-age 65+" };
+      if (i.product === "mapd") return { score: 70, reason: "guaranteed-issue during AEP/IEP — no health UW" };
+      let score = 76;
+      const reasons = [];
+      if (i.bmi >= 40.5 || i.bmi <= 14) return { score: 0, reason: "outside Humana build chart 14–40.5" };
+      if (i.tobacco)        { score -= 8;  reasons.push("15% tobacco rate-up"); }
+      if (i.bmi >= 35)      { score -= 6;  reasons.push("upper-build band"); }
+      if (i.diabetes)       { score -= 5;  reasons.push("controlled diabetes OK"); }
+      else                                 reasons.push("standard-build sweet spot");
+      if (i.age >= 65 && i.age <= 72) score += 6;
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "aetna", name: "Aetna SRC", products: ["medsupp"],
+    underwriting: {
+      issueAges: [65, 99],
+      tobaccoRateUpPct: 12,
+      uwClasses: ["Standard"],
+      sweetSpot: "Mid-range health T65 buyers; wins on price after first re-rate cycle in attained-age states",
+      sources: ["Aetna Senior Supplemental UW Guide ARLIC-1-0008"],
+    },
+    fit: (i) => {
+      if (i.age < 65) return { score: 0, reason: "issue-age 65+" };
+      let score = 74;
+      const reasons = [];
+      if (i.age <= 75)        { score += 6; reasons.push("strong under 75"); }
+      else                    { score -= 14; reasons.push("rate spike after 75"); }
+      if (i.tobacco)          { score -= 7;  reasons.push("12% tobacco rate-up"); }
+      if (i.bpHigh)           { score -= 4; }
+      if (i.diabetes)         { score -= 6; }
+      if (i.bmi >= 38)        { score -= 8; reasons.push("build review"); }
+      return { score, reason: reasons.slice(0, 2).join(" · ") || "single-class · post-rerate winner" };
+    },
+  },
+  {
+    id: "cigna", name: "Cigna (ARLIC)", products: ["medsupp"],
+    underwriting: {
+      issueAges: [65, 99],
+      tobaccoRateUpPct: 18,
+      uwClasses: ["Preferred", "Standard", "Standard II", "Standard III"],   // 4 classes catches cases others decline
+      sweetSpot: "Plan N applicants with mild substandard health — the Std II/III tiers keep cases competitors decline",
+      sources: ["Cigna ARLIC Producer Guide", "Loyal American Plan N rate sheets"],
+    },
+    fit: (i) => {
+      if (i.age < 65) return { score: 0, reason: "issue-age 65+" };
+      let score = 72;
+      const reasons = [];
+      // 4-tier UW means Cigna keeps cases that other carriers decline.
+      const subStandardCount = (i.diabetes ? 1 : 0) + (i.bpHigh ? 1 : 0) + (i.bmi >= 35 ? 1 : 0) + (i.tobacco ? 1 : 0);
+      if (subStandardCount >= 2) { score += 12; reasons.push("Std II/III catches your case"); }
+      else                                       reasons.push("Plan N price standout");
+      if (i.tobacco)        score -= 6;
+      if (i.bmi >= 40)      score -= 6;
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "moo", name: "Mutual of Omaha", products: ["medsupp", "fe"],
+    underwriting: {
+      issueAges: [45, 85],
+      tobaccoRateUpPct: 30,
+      uwClasses: ["Level", "Graded (2yr waiting)"],
+      stateExclusions: { fe_level: ["NY"], fe_graded: ["MT","NC","NY"] },
+      diabetesDeclineRule: "diabetes WITH complications → decline; clean controlled diabetes accepted",
+      sweetSpot: "FE 50-75 with manageable conditions; benchmark FE rates on standard cases",
+      sources: ["Mutual of Omaha Living Promise FE Producer Guide", "Living Promise rate sheets 2026"],
+    },
+    fit: (i) => {
+      let score = 0;
+      const reasons = [];
+      if (i.product === "fe") {
+        if (i.age < 45 || i.age > 85) return { score: 0, reason: "FE issue 45-85" };
+        score = 80;
+        if (i.diabetes && i.bpHigh)  { score -= 18; reasons.push("Graded tier · diab+HTN"); }
+        else if (i.diabetes || i.bpHigh) { score -= 6; reasons.push("Level tier · controlled"); }
+        else                                            reasons.push("benchmark FE rates");
+        if (i.tobacco)               { score -= 9;  reasons.push("30% tobacco rate-up"); }
+        if (i.bmi >= 38)             { score -= 6; }
+      } else if (i.product === "medsupp") {
+        if (i.age < 65) return { score: 0, reason: "Med Supp issue 65+" };
+        score = 70;
+        if (i.tobacco)               { score -= 8;  reasons.push("30% tobacco rate-up"); }
+        else                                         reasons.push("household discount available");
+      }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  /* ─── Final Expense (life) ───────────────────────────────────────── */
+  {
+    id: "lumico", name: "Lumico (Swiss Re)", products: ["fe"],
+    underwriting: {
+      issueAges: [50, 85],
+      tobaccoRateUpPct: 25,
+      uwClasses: ["Preferred Non-Tobacco", "Preferred Tobacco", "Standard Non-Tobacco", "Standard Tobacco", "Modified (Unismoker)"],
+      buildChart: "unisex — wins for healthy female smokers + average-build males",
+      sweetSpot: "55-75 good-fair health $10K-$30K face",
+      sources: ["Lumico Simplified Issue FE UW Guide LUM-SIFE-UWGuide-2021-006"],
+    },
+    fit: (i) => {
+      if (i.product !== "fe") return { score: 0, reason: "FE only" };
+      if (i.age < 50 || i.age > 85) return { score: 0, reason: "FE issue 50-85" };
+      let score = 76;
+      const reasons = [];
+      if (i.tobacco && i.age >= 55 && i.age <= 75) { score += 8; reasons.push("unisex chart helps tobacco"); }
+      else if (i.tobacco)                                             score -= 4;
+      if (i.diabetes && i.bpHigh)  { score -= 10; reasons.push("Modified class · 2-condition"); }
+      if (i.bmi >= 38)             { score -= 6;  reasons.push("upper build band"); }
+      if (!i.diabetes && !i.bpHigh && !i.tobacco) reasons.push("Preferred class likely");
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "aig", name: "AIG (Corebridge)", products: ["fe", "term"],
+    underwriting: {
+      term: { tobaccoRateUpPct: 100, bmiRange: [18.5, 33], autoDecline: ["HIV+", "Type-1 Diabetes", "Organ Transplant"] },
+      giwl: { faceMin: 5000, faceMax: 25000, gradedMonths: 24, healthQs: false },
+      sweetSpot_term: "30-55yo non-standard term lengths (Flex Term has 18 durations); convertible to permanent without evidence to 70",
+      sweetSpot_fe: "GIWL for health-impaired declines elsewhere; $5K–$25K with 2yr graded benefit",
+      sources: ["AIG Corebridge UW Guide AGLC101638", "Flex Term product brochure"],
+    },
+    fit: (i) => {
+      let score = 0;
+      const reasons = [];
+      if (i.product === "term") {
+        if (i.bmi < 18.5 || i.bmi > 33) return { score: 0, reason: "outside term BMI 18.5–33" };
+        score = 78;
+        if (i.age >= 30 && i.age <= 55) { score += 6; reasons.push("Flex Term sweet spot"); }
+        if (i.tobacco)        { score -= 14; reasons.push("100% tobacco rate-up"); }
+        if (i.diabetes)       { score = 0; return { score, reason: "Type-1 diabetes auto-decline; Type-2 case-by-case" }; }
+        if (i.bpHigh)         { score -= 5; }
+      } else if (i.product === "fe") {
+        score = 64;
+        if (i.diabetes && i.bpHigh) { score += 14; reasons.push("GIWL no health Qs"); }
+        else if (i.diabetes || i.bpHigh) { score += 6; reasons.push("GIWL fallback option"); }
+        else                              reasons.push("$5K–$25K graded · 2yr");
+        if (i.tobacco)        { score -= 4; }
+      }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  /* ─── Annuity / IUL ──────────────────────────────────────────────── */
+  {
+    id: "fg", name: "F&G", products: ["annuity", "iul"],
+    underwriting: {
+      myga: { minPremium: 10000, mvaExcludedStates: ["MN","MO","NJ","OR","PA","UT","WA"] },
+      iul: { floor: 0.0025, product: "Pathsetter" },
+      sweetSpot: "Pre-retirees 55-75 with $10K-$500K rollover; consistently top-3 on MYGA rate sheets",
+      sources: ["F&G Power Accumulator MYGA brochure", "Pathsetter IUL ADV2261"],
+    },
+    fit: (i) => {
+      if (i.product !== "annuity" && i.product !== "iul") return { score: 0, reason: "annuity/IUL only" };
+      let score = 86;
+      const reasons = [];
+      if (i.age >= 55 && i.age <= 75) { score += 6; reasons.push("pre-retiree sweet spot"); }
+      if (i.product === "annuity") reasons.push("top-3 MYGA rates");
+      else                          reasons.push("Pathsetter IUL · 0.25% floor");
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
 ];
 
 const PRODUCT_OPTIONS = [
@@ -510,9 +683,35 @@ const FALLBACK_SCRIPTS = [
   { id: "f-aep",    title: "AEP — switch reasons",          cat: "Open",       version: "v4.2", body: "Three reasons people switch during AEP: (1) the drug list changed, (2) their doctor dropped, (3) the premium jumped. Which of those is hitting you hardest this year?" },
 ];
 
-function InCallScripts() {
+// Substitute the {{lead_*}} / {{rep_*}} / {{product}} / {{state}} tokens with
+// the actual values from the live call. Falls back to a humanized form of
+// the token name if no value is bound, so a rep never reads "{{lead_name}}"
+// out loud on a call.
+function substituteTokens(body, ctx) {
+  if (!body) return "";
+  const lead = ctx?.lead || {};
+  const me   = ctx?.me   || {};
+  const map = {
+    lead_name:   lead.lead || lead.name || "your lead",
+    lead_first:  ((lead.lead || lead.name || "").split(" ")[0]) || "your lead",
+    lead_state:  lead.state || "your state",
+    product:     lead.product || "your coverage",
+    rep_first:   (me.full_name || me.name || "").split(" ")[0] || "your producer",
+    rep_full:    me.full_name || me.name || "your producer",
+    agency:      me.agency_name || "the agency",
+    n_orgs:      "8",       // CMS template count — replace with real number when carriers are wired
+    n_plans:     "32",
+  };
+  return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (full, k) => {
+    const v = map[k.toLowerCase()];
+    return v != null ? v : full;
+  });
+}
+
+function InCallScripts({ lead }) {
   // Reads agency-shared scripts from AppData.SCRIPTS_LIB (migration 0010);
   // falls back to FALLBACK_SCRIPTS for empty agencies / offline use.
+  // Live token substitution: {{lead_name}} → "Cheryl" using the active call lead.
   const [, force] = React.useState(0);
   React.useEffect(() => {
     const fn = () => force(n => n + 1);
@@ -525,12 +724,17 @@ function InCallScripts() {
       window.removeEventListener("data:realtime", fn);
     };
   }, []);
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const ctx = { lead, me: meIdent };
   const liveScripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
-  const scripts = liveScripts.length > 0 ? liveScripts : FALLBACK_SCRIPTS;
+  const scripts = liveScripts.length > 0 ? liveScripts : (window.isDemoAgency && window.isDemoAgency() ? FALLBACK_SCRIPTS : []);
   const [openId, setOpenId] = React.useState(null);
   const [q, setQ]           = React.useState("");
   const filtered = scripts.filter(s => !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()));
-  const copy = (s) => { try { navigator.clipboard.writeText(s.body); window.toast && window.toast("Script copied", "success"); } catch (_e) {} };
+  const copy = (s) => {
+    try { navigator.clipboard.writeText(substituteTokens(s.body, ctx)); window.toast && window.toast("Script copied (with lead name swapped in)", "success"); }
+    catch (_e) {}
+  };
   return (
     <div>
       <input className="text-input" style={{ width: "100%", marginBottom: 8 }} placeholder="Search scripts…" value={q} onChange={(e) => setQ(e.target.value)}/>
@@ -548,7 +752,7 @@ function InCallScripts() {
               </div>
               {open && (
                 <div style={{ padding: "8px 10px 10px 24px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                  {s.body}
+                  {substituteTokens(s.body, ctx)}
                 </div>
               )}
             </div>
@@ -782,6 +986,381 @@ function CallCopilot({ lead, sec, tpmoFired, setTpmoFired }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   InCallQuoteAssist — auto-populating quote panel for live calls.
+
+   Subscribes to `transcript:segment` events (from LiveTranscriber) and
+   regex-extracts health/demographic attributes from caller utterances,
+   maintaining a running quote profile. Each new segment triggers a
+   RateEngine.calculatePremium pass across appointed carriers, ranked by
+   monthly premium ascending.
+
+   The "missing info" panel surfaces what's still unknown — drives the rep to
+   ask the next high-leverage question to refine the quote ("ask if she's on
+   any heart meds — would unlock 2 more carriers").
+
+   Falls back to manual mode if no transcript flowing (no OPENAI_API_KEY etc.)
+   ───────────────────────────────────────────────────────────────────────── */
+function InCallQuoteAssist({ lead }) {
+  const [profile, setProfile] = React.useState({
+    age: null, state: lead?.state || null, gender: null, tobacco: null,
+    heightInches: null, weightLbs: null,
+    healthDetail: {
+      diabetesType: null, bpHigh: null, cholesterolHigh: null,
+      sleepApnea: null, copd: null, cancerWindow: null, cardiacWindow: null,
+    },
+    product: lead?.product?.toLowerCase().includes("med") ? "medsupp"
+           : lead?.product?.toLowerCase().includes("expense") ? "fe"
+           : lead?.product?.toLowerCase().includes("annuity") ? "annuity"
+           : "medsupp",
+    planVariant: "G",
+  });
+  const [extractLog, setExtractLog] = React.useState([]);
+  const [manualOpen, setManualOpen] = React.useState(false);
+
+  const niches = window.CARRIER_NICHES || [];
+
+  // Reset profile when lead changes (next call in autodial)
+  React.useEffect(() => {
+    setProfile(p => ({ ...p, age: null, tobacco: null,
+      healthDetail: { diabetesType: null, bpHigh: null, cholesterolHigh: null,
+        sleepApnea: null, copd: null, cancerWindow: null, cardiacWindow: null }}));
+    setExtractLog([]);
+  }, [lead && lead.id]);
+
+  // ── Extraction patterns ─────────────────────────────────────────────────
+  const STATE_NAME_TO_CODE = {
+    alabama:"AL", alaska:"AK", arizona:"AZ", arkansas:"AR", california:"CA",
+    colorado:"CO", connecticut:"CT", delaware:"DE", florida:"FL", georgia:"GA",
+    hawaii:"HI", idaho:"ID", illinois:"IL", indiana:"IN", iowa:"IA", kansas:"KS",
+    kentucky:"KY", louisiana:"LA", maine:"ME", maryland:"MD", massachusetts:"MA",
+    michigan:"MI", minnesota:"MN", mississippi:"MS", missouri:"MO", montana:"MT",
+    nebraska:"NE", nevada:"NV", "new hampshire":"NH", "new jersey":"NJ",
+    "new mexico":"NM", "new york":"NY", "north carolina":"NC", "north dakota":"ND",
+    ohio:"OH", oklahoma:"OK", oregon:"OR", pennsylvania:"PA", "rhode island":"RI",
+    "south carolina":"SC", "south dakota":"SD", tennessee:"TN", texas:"TX",
+    utah:"UT", vermont:"VT", virginia:"VA", washington:"WA", "west virginia":"WV",
+    wisconsin:"WI", wyoming:"WY",
+  };
+
+  const extractFromText = (text) => {
+    const t = text.toLowerCase();
+    const updates = {};
+    const log = [];
+
+    // Age — "I'm 67" / "67 years old" / "I'll be 65"
+    const ageMatch = t.match(/\b(?:i'?m|i am|i'll be|she'?s|he'?s|she is|he is|turning)\s+(\d{2})\b/) || t.match(/\b(\d{2})\s+years?\s+old\b/);
+    if (ageMatch) {
+      const age = +ageMatch[1];
+      if (age >= 40 && age <= 99) { updates.age = age; log.push(`age=${age}`); }
+    }
+
+    // State — full names
+    for (const [name, code] of Object.entries(STATE_NAME_TO_CODE)) {
+      const re = new RegExp(`\\b${name}\\b`, "i");
+      if (re.test(t)) { updates.state = code; log.push(`state=${code}`); break; }
+    }
+
+    // Tobacco
+    if (/\b(smok|cigarett|cigar|vap|tobacco|chew|nicotine)/.test(t)) {
+      const negated = /\b(don'?t|never|no|not|quit|stopped)\s+(\w+\s+){0,3}(smok|cigarett|tobacco|vap)/.test(t);
+      updates.tobacco = !negated;
+      log.push(`tobacco=${!negated}`);
+    }
+
+    // Diabetes — type + meds
+    if (/\b(diabet|a1c|sugar)/.test(t)) {
+      const detail = {};
+      if (/\btype\s*1\b|insulin[- ]dependent/.test(t)) detail.diabetesType = "type1";
+      else if (/\binsulin\b/.test(t)) detail.diabetesType = "type2_insulin";
+      else if (/\bmetformin|jardiance|ozempic|trulicity|januvia\b/.test(t)) detail.diabetesType = "type2_oral";
+      else if (/\btype\s*2\b/.test(t)) detail.diabetesType = "type2_oral";
+      else if (/\bdiabet/.test(t)) detail.diabetesType = "type2_oral";
+      if (detail.diabetesType) { updates.healthDetail = detail; log.push(`diabetes=${detail.diabetesType}`); }
+    }
+
+    // BP / hypertension
+    if (/\b(blood pressure|hypertens|lisinopril|amlodipine|losartan|hctz|metoprolol)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      hd.bpHigh = /\buncontrolled|high\b/.test(t) ? "uncontrolled" : "controlled";
+      updates.healthDetail = hd;
+      log.push(`bp=${hd.bpHigh}`);
+    }
+
+    // Cholesterol
+    if (/\b(cholester|statin|lipitor|crestor|atorvastatin|rosuvastatin)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      hd.cholesterolHigh = true;
+      updates.healthDetail = hd;
+      log.push(`cholesterol=high`);
+    }
+
+    // Cardiac
+    if (/\b(heart attack|stent|bypass|cabg|cardiac|stroke|af[ib]?b?|atrial fib)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      // Look for time markers
+      if (/\b(last (week|month)|recent|just had|few months ago|6 months)/.test(t)) hd.cardiacWindow = "<12mo";
+      else if (/\b(last year|year ago|18 months|two years|2 years)/.test(t))        hd.cardiacWindow = "12-24mo";
+      else                                                                            hd.cardiacWindow = ">24mo";
+      updates.healthDetail = hd;
+      log.push(`cardiac=${hd.cardiacWindow}`);
+    }
+
+    // Cancer
+    if (/\b(cancer|chemo|radiation|tumor|lymphoma|leukemia|carcinoma)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      if (/\bcurrent|active|just diagnosed|chemo|radiation\b/.test(t))   hd.cancerWindow = "active";
+      else if (/\b(last year|year ago|18 months)/.test(t))                hd.cancerWindow = "<2y";
+      else if (/\b(2 years|3 years|4 years|5 years)/.test(t))             hd.cancerWindow = "2-5y";
+      else                                                                 hd.cancerWindow = "5y+";
+      updates.healthDetail = hd;
+      log.push(`cancer=${hd.cancerWindow}`);
+    }
+
+    // COPD
+    if (/\b(copd|emphysema|chronic bronchit)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      hd.copd = true;
+      updates.healthDetail = hd;
+      log.push(`copd=true`);
+    }
+
+    // Sleep apnea
+    if (/\b(sleep apnea|cpap)/.test(t)) {
+      const hd = updates.healthDetail || {};
+      hd.sleepApnea = /cpap/.test(t) ? "cpap" : "untreated";
+      updates.healthDetail = hd;
+      log.push(`sleepApnea=${hd.sleepApnea}`);
+    }
+
+    // Height — "five foot five" / "5'5\"" / "5 foot 7"
+    const htMatch = t.match(/\b(\d)\s*['']\s*(\d{1,2})\b/) || t.match(/\b(\d)\s*foot\s*(\d{1,2})\b/) || t.match(/\b(five|six)\s+(foot|feet)\s+(\w+)\b/);
+    if (htMatch) {
+      const ft = htMatch[1] === "five" ? 5 : htMatch[1] === "six" ? 6 : +htMatch[1];
+      const inches = (typeof htMatch[2] === "string" && isNaN(+htMatch[2])) ? null : +(htMatch[2] || htMatch[3]);
+      if (ft && inches != null && !isNaN(inches)) {
+        updates.heightInches = ft * 12 + inches;
+        log.push(`height=${ft}'${inches}"`);
+      }
+    }
+
+    // Weight
+    const wtMatch = t.match(/\b(\d{2,3})\s*(?:lbs|pounds|lb\.)/);
+    if (wtMatch) { updates.weightLbs = +wtMatch[1]; log.push(`weight=${wtMatch[1]}lbs`); }
+
+    return { updates, log };
+  };
+
+  // Subscribe to transcript stream
+  React.useEffect(() => {
+    const onSeg = (e) => {
+      const seg = e.detail;
+      if (!seg || !seg.text) return;
+      const { updates, log } = extractFromText(seg.text);
+      if (Object.keys(updates).length === 0) return;
+      setProfile(p => {
+        const next = { ...p };
+        if (updates.age != null && p.age == null)         next.age = updates.age;
+        if (updates.state)                                 next.state = updates.state;
+        if (updates.tobacco != null && p.tobacco == null)  next.tobacco = updates.tobacco;
+        if (updates.heightInches)                          next.heightInches = updates.heightInches;
+        if (updates.weightLbs)                             next.weightLbs = updates.weightLbs;
+        if (updates.healthDetail) {
+          next.healthDetail = { ...p.healthDetail };
+          for (const k of Object.keys(updates.healthDetail)) {
+            if (next.healthDetail[k] == null || updates.healthDetail[k] != null) {
+              next.healthDetail[k] = updates.healthDetail[k];
+            }
+          }
+        }
+        return next;
+      });
+      if (log.length > 0) setExtractLog(prev => [...prev.slice(-9), { t: seg.t || 0, log: log.join(" · ") }]);
+    };
+    window.addEventListener("transcript:segment", onSeg);
+    return () => window.removeEventListener("transcript:segment", onSeg);
+  }, []);
+
+  // Compute live BMI + ranked quotes
+  const bmi = window.RateEngine?.bmiFrom?.(profile.heightInches, profile.weightLbs);
+  const profileForEngine = {
+    ...profile,
+    bmi,
+    // Default unknown booleans to false-ish for engine compatibility
+    tobacco: profile.tobacco === true,
+    healthDetail: {
+      diabetesType:    profile.healthDetail.diabetesType    || "none",
+      bpHigh:          profile.healthDetail.bpHigh          || "none",
+      cholesterolHigh: !!profile.healthDetail.cholesterolHigh,
+      sleepApnea:      profile.healthDetail.sleepApnea      || "none",
+      copd:            !!profile.healthDetail.copd,
+      cancerWindow:    profile.healthDetail.cancerWindow    || "none",
+      cardiacWindow:   profile.healthDetail.cardiacWindow   || "none",
+    },
+  };
+
+  const ready = profile.age != null;
+  const ranked = React.useMemo(() => {
+    if (!ready || !window.RateEngine) return [];
+    const eligible = niches.filter(c => c.products.includes(profile.product));
+    const results = eligible.map(carrier => {
+      if (profile.product === "annuity") {
+        const a = window.RateEngine.calculateAnnuityYield(carrier, profileForEngine);
+        return a ? { carrier, ...a, displayValue: `${a.apy}% APY`, decline: false } : { carrier, decline: true, reason: "no annuity" };
+      }
+      const r = window.RateEngine.calculatePremium(carrier, profile.product, profileForEngine);
+      if (r.decline) return { carrier, decline: true, reason: r.reason };
+      return { carrier, premium: r.premium, uwClass: r.uwClass, displayValue: `$${r.premium}/mo`, decline: false };
+    });
+    return results.sort((a, b) => {
+      if (a.decline !== b.decline) return a.decline ? 1 : -1;
+      return (a.premium || 0) - (b.premium || 0);
+    });
+  }, [JSON.stringify(profileForEngine), niches.length, ready]);
+
+  // Missing info nudges — what should the rep ask next?
+  const nudges = [];
+  if (profile.age == null)                           nudges.push("Confirm age — base rate band depends on it");
+  if (profile.tobacco == null)                       nudges.push("Ask: any tobacco use? UHC AARP has 0% rate-up — huge if yes");
+  if (profile.heightInches == null || profile.weightLbs == null) nudges.push("Ask height + weight — Humana hard-declines outside BMI 14–40.5");
+  if (profile.healthDetail.diabetesType == null)     nudges.push("Ask: any diabetes? Type-1 is auto-decline, insulin moves to Std II/Modified");
+  if (profile.healthDetail.cardiacWindow == null && profile.age >= 60) nudges.push("Ask about heart history — recent MI/stent declines on most med supp");
+
+  const quoted = ranked.filter(r => !r.decline);
+  const declined = ranked.filter(r => r.decline);
+
+  // GAP — save the current quote snapshot to the lead via lead_quotes (migration 0013)
+  const saveQuote = async () => {
+    const me = window.me && window.me();
+    try {
+      await window.AppData.mutate.leadQuoteSave({
+        leadId: lead?.id || null,
+        repId: me?.rep_id,
+        product: profile.product,
+        inputs: { age: profile.age, state: profile.state, tobacco: profile.tobacco, bmi, healthDetail: profile.healthDetail, planVariant: profile.planVariant },
+        ranked: quoted.map(r => ({ carrierId: r.carrierId, name: r.name, score: r.score, reason: r.reason, premium: r.premium || null })),
+        recommendedCarrierId: quoted[0]?.carrierId || null,
+      });
+      window.toast && window.toast("Quote saved to lead", "success");
+    } catch (_e) {}
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Auto-extracted profile preview */}
+      <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/>
+          <strong style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Auto-extracted</strong>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "2px 6px" }} onClick={saveQuote} disabled={!quoted.length} title={quoted.length ? "Save this quote to the lead's record" : "No quote yet"}>
+            <Icons.Check size={10}/> Save to lead
+          </button>
+          <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => setManualOpen(o => !o)}>
+            {manualOpen ? "Hide" : "Edit"}
+          </button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, fontSize: 10.5 }}>
+          <span className={`chip ${profile.age != null ? "chip-money" : ""}`}>age {profile.age || "?"}</span>
+          <span className={`chip ${profile.state ? "chip-money" : ""}`}>{profile.state || "state ?"}</span>
+          <span className={`chip ${profile.tobacco != null ? "chip-money" : ""}`}>{profile.tobacco === true ? "tobacco" : profile.tobacco === false ? "non-tobacco" : "tobacco?"}</span>
+          {bmi && <span className={`chip ${bmi >= 14 && bmi <= 40 ? "chip-money" : "chip-status"}`}>BMI {bmi.toFixed(1)}</span>}
+          {profile.healthDetail.diabetesType && <span className="chip">{profile.healthDetail.diabetesType.replace("_", " ")}</span>}
+          {profile.healthDetail.bpHigh && <span className="chip">BP {profile.healthDetail.bpHigh}</span>}
+          {profile.healthDetail.cholesterolHigh && <span className="chip">↑chol</span>}
+          {profile.healthDetail.cardiacWindow && profile.healthDetail.cardiacWindow !== "none" && <span className="chip chip-status">cardiac {profile.healthDetail.cardiacWindow}</span>}
+          {profile.healthDetail.cancerWindow && profile.healthDetail.cancerWindow !== "none" && <span className="chip chip-status">cancer {profile.healthDetail.cancerWindow}</span>}
+          {profile.healthDetail.copd && <span className="chip chip-status">COPD</span>}
+        </div>
+        {manualOpen && (
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <Shared.Field label="Age">
+              <input className="text-input" type="number" value={profile.age || ""} onChange={(e) => setProfile(p => ({ ...p, age: +e.target.value || null }))}/>
+            </Shared.Field>
+            <Shared.Field label="State">
+              <input className="text-input" value={profile.state || ""} onChange={(e) => setProfile(p => ({ ...p, state: e.target.value.toUpperCase() }))} placeholder="TX"/>
+            </Shared.Field>
+            <Shared.Field label="Tobacco">
+              <Shared.Select value={profile.tobacco === true ? "yes" : profile.tobacco === false ? "no" : "?"}
+                onChange={(v) => setProfile(p => ({ ...p, tobacco: v === "yes" ? true : v === "no" ? false : null }))}
+                options={[{v:"?",l:"unknown"},{v:"no",l:"non-tobacco"},{v:"yes",l:"tobacco"}]}/>
+            </Shared.Field>
+            <Shared.Field label="Plan (medsupp)">
+              <Shared.Select value={profile.planVariant} onChange={(v) => setProfile(p => ({ ...p, planVariant: v }))}
+                options={[{v:"G",l:"Plan G"},{v:"N",l:"Plan N"}]}/>
+            </Shared.Field>
+          </div>
+        )}
+      </div>
+
+      {/* Ranked quotes */}
+      {!ready ? (
+        <div style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-tertiary)", textAlign: "center", lineHeight: 1.5 }}>
+          Listening for age + state to start quoting…<br/>
+          Mention a number near "old" or "I'm" and I'll start ranking carriers.
+        </div>
+      ) : quoted.length === 0 ? (
+        <div style={{ padding: 14, background: "color-mix(in oklch, var(--state-danger) 10%, var(--bg-raised))", borderRadius: 6, fontSize: 12, color: "var(--state-danger)", lineHeight: 1.5 }}>
+          All appointed carriers declined this profile. Check declines below for the reason — may need GIWL fallback (AIG).
+        </div>
+      ) : (
+        <div style={{ background: "var(--bg-raised)", borderRadius: 6, padding: 6 }}>
+          {quoted.slice(0, 5).map((r, i) => (
+            <div key={r.carrier.id} style={{
+              display: "grid", gridTemplateColumns: "1fr 70px 80px",
+              padding: "8px 10px", marginBottom: 3,
+              background: i === 0 ? "color-mix(in oklch, var(--accent-money) 12%, transparent)" : "transparent",
+              borderRadius: 4, alignItems: "center",
+            }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 12 }}>{r.carrier.name}
+                  {i === 0 && <span className="chip chip-money" style={{ marginLeft: 6, fontSize: 9.5 }}>cheapest</span>}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 1 }}>{r.uwClass || "—"}</div>
+              </div>
+              <div className="tabular" style={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "var(--accent-money)" : "var(--text-primary)", textAlign: "right" }}>
+                {r.displayValue}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <button className="btn btn-ghost" style={{ fontSize: 10, padding: "3px 6px" }}
+                  onClick={() => window.toast && window.toast(`Lock-in ${r.carrier.name} ${r.displayValue} — start app`, "success")}>
+                  Lock in
+                </button>
+              </div>
+            </div>
+          ))}
+          {declined.length > 0 && (
+            <div style={{ marginTop: 6, padding: "6px 10px", fontSize: 10.5, color: "var(--text-tertiary)", borderTop: "1px solid var(--border-subtle)" }}>
+              {declined.length} declined: {declined.map(r => r.carrier.name.split(" ")[0]).join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Missing info nudges */}
+      {nudges.length > 0 && (
+        <div style={{ padding: 10, background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 30%, transparent)", borderRadius: 6, fontSize: 11.5, color: "var(--text-primary)", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10.5, color: "var(--accent-status)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+            Ask next
+          </div>
+          {nudges.slice(0, 2).map((n, i) => <div key={i}>• {n}</div>)}
+        </div>
+      )}
+
+      {/* Extraction log — debug visibility */}
+      {extractLog.length > 0 && (
+        <details style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+          <summary style={{ cursor: "pointer" }}>extraction log ({extractLog.length})</summary>
+          <div style={{ marginTop: 4, paddingLeft: 8 }}>
+            {extractLog.map((e, i) => (
+              <div key={i} className="mono" style={{ fontSize: 10 }}>{e.t}: {e.log}</div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function InCall({ onClose, lead, autodial }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
@@ -923,8 +1502,8 @@ function InCall({ onClose, lead, autodial }) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", fontSize: 12.5, lineHeight: 1.55, color: "var(--text-secondary)", paddingRight: 4 }}>
-            {tab === "script"    && <InCallScripts/>}
-            {tab === "quote"     && <CarrierQuoteTool/>}
+            {tab === "script"    && <InCallScripts lead={activeLead}/>}
+            {tab === "quote"     && <InCallQuoteAssist lead={activeLead}/>}
             {tab === "rebuttals" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {["I already have coverage", "It's too expensive", "Let me think about it", "Send me something in the mail"].map(r => (
@@ -1001,3 +1580,5 @@ window.PageQueue = PageQueue;
 window.InCall = InCall;
 window.CarrierQuoteTool = CarrierQuoteTool;  // standalone use via FloorActionsHost
 window.InCallScripts    = InCallScripts;
+window.CARRIER_NICHES   = CARRIER_NICHES;    // consumed by PageQuote (page-quote.jsx)
+window.PRODUCT_OPTIONS  = PRODUCT_OPTIONS;

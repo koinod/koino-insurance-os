@@ -181,9 +181,19 @@
     );
     const inp = { width: "100%", padding: "8px 10px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 13, color: "var(--text-primary)" };
 
+    const noCarriers = (carriers || []).length === 0;
+    const noProducts = (products || []).length === 0;
+
     return (
       <div className="panel" style={{ padding: 18, maxWidth: 720 }}>
         <h3 style={{ marginTop: 0, marginBottom: 14, fontSize: 16 }}>Write deal</h3>
+
+        {(noCarriers || noProducts) && (
+          <div style={{ padding: 12, marginBottom: 14, background: "color-mix(in oklch, var(--state-warning) 12%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 35%, transparent)", borderRadius: 6, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+            <strong style={{ color: "var(--state-warning)" }}>{noCarriers ? "No carriers" : "No products"} on file.</strong>{" "}
+            Add them in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" }})); }} style={{ color: "var(--accent-money)" }}>Resources → Carriers</a> before writing a deal.
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           {/* Linked Lead — full width */}

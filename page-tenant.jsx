@@ -118,10 +118,16 @@ function OnboardingWizard({ onComplete }) {
     try {
       const sb = window.getSupabase();
       const { data: session } = await sb.auth.getSession();
+      const me = (window.me && window.me()) || null;
+      // First invite from the owner: rep invites get upline=owner so the new
+      // hire is correctly slotted under them. Manager invites stay top-level
+      // (upline=null) — they'll then mint their own rep invites under
+      // themselves from the Recruiting page.
+      const upline_rep_id = inviteRole === "rep" && me?.rep_id ? me.rep_id : null;
       const r = await fetch("/api/invites/create", {
         method: "POST",
         headers: { "content-type": "application/json", "authorization": `Bearer ${session.session.access_token}` },
-        body: JSON.stringify({ agency_id: agencyId, role: inviteRole })
+        body: JSON.stringify({ agency_id: agencyId, role: inviteRole, upline_rep_id })
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "mint failed");
@@ -175,9 +181,21 @@ function OnboardingWizard({ onComplete }) {
               You can run on demo data and seed leads from a CSV in the meantime.
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-              {["UHC", "Humana Vantage", "Aetna SRC", "Mutual of Omaha", "F&G Annuities"].map(c => (
-                <span key={c} className="chip">{c} · skip for now</span>
-              ))}
+              {(() => {
+                // Live: pull this agency's appointed carriers, else show a
+                // generic prompt rather than fake names like "UHC", "Aetna SRC".
+                const liveCarriers = (AppData.CARRIERS || []).map(c => c.name).filter(Boolean);
+                const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+                const list = liveCarriers.length > 0
+                  ? liveCarriers
+                  : (isDemo ? ["UHC", "Humana Vantage", "Aetna SRC", "Mutual of Omaha", "F&G Annuities"] : []);
+                if (list.length === 0) {
+                  return <span style={{ fontSize: 12, color: "var(--text-tertiary)", fontStyle: "italic" }}>No carriers added yet · add them later from Settings → Carriers</span>;
+                }
+                return list.map(c => (
+                  <span key={c} className="chip">{c} · skip for now</span>
+                ));
+              })()}
             </div>
             <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => setStep(2)}>
               Continue
@@ -220,13 +238,13 @@ function OnboardingWizard({ onComplete }) {
             <div style={{ display: "inline-flex", padding: 14, background: "color-mix(in oklch, var(--accent-money) 14%, transparent)", borderRadius: 999 }}>
               <Icons.Check size={22} style={{ color: "var(--accent-money)" }}/>
             </div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginTop: 12 }}>You're set up.</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginTop: 12 }}>Agency created · {form.name}</div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 6, lineHeight: 1.55 }}>
-              Atlas dashboard with seed data is loaded so you can explore.
-              Wire your real carriers + Twilio later in Settings.
+              One last step — set up your producer profile so commissions, license states,
+              and caller ID route to the right person.
             </div>
             <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 16 }} onClick={finish}>
-              Open Repflow →
+              Set up your profile →
             </button>
           </div>
         )}
@@ -240,7 +258,8 @@ window.OnboardingWizard = OnboardingWizard;
 function SettingsTeam() {
   const [members, setMembers] = React.useState([]);
   const [invites, setInvites] = React.useState([]);
-  const [agency, setAgency]   = React.useState(null);
+  const [agency, setAgency]   = React.useState(undefined); // undefined=loading, null=none
+  const [loadErr, setLoadErr] = React.useState(null);
   const [creating, setCreating] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [role, setRole]         = React.useState("rep");
@@ -249,14 +268,41 @@ function SettingsTeam() {
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    const { data: ag } = await sb.from("agencies").select("*").limit(1).single();
-    setAgency(ag);
+    if (!sb) { setAgency(null); return; }
+
+    // Resolve the active agency by:
+    //   (1) explicit agency switcher in localStorage,
+    //   (2) me().agency_id (the current viewer's tenant),
+    //   (3) first row anon RLS lets us read (Atlas in demo mode).
+    let agencyId = null;
+    try { agencyId = localStorage.getItem("repflow.active_agency"); } catch {}
+    if (!agencyId && window.me) {
+      const m = window.me();
+      if (m && m.agency_id) agencyId = m.agency_id;
+    }
+
+    let ag = null;
+    let err = null;
+    if (agencyId) {
+      const r = await sb.from("agencies").select("*").eq("id", agencyId).maybeSingle();
+      ag = r.data; err = r.error;
+    }
+    if (!ag) {
+      // Fallback — first agency RLS lets us see (Atlas under anon, the owner's
+      // agency under authed). maybeSingle avoids the silent 0-row error that
+      // .single() throws when the policy filters everything out.
+      const r = await sb.from("agencies").select("*").limit(1).maybeSingle();
+      ag = r.data; err = err || r.error;
+    }
+    if (err && !ag) setLoadErr(err.message || String(err));
+    setAgency(ag || null);
     if (!ag) return;
-    const { data: m } = await sb.from("agency_members").select("agency_id, user_id, role, joined_at, active").eq("agency_id", ag.id);
-    setMembers(m || []);
-    const { data: i } = await sb.from("agency_invites").select("token, role, email_hint, expires_at, used_at").eq("agency_id", ag.id).order("expires_at", { ascending: false });
-    setInvites(i || []);
+    const [m, i] = await Promise.all([
+      sb.from("agency_members").select("agency_id, user_id, role, rep_id, joined_at, active").eq("agency_id", ag.id),
+      sb.from("agency_invites").select("token, role, email_hint, expires_at, used_at").eq("agency_id", ag.id).order("expires_at", { ascending: false }),
+    ]);
+    setMembers(m.data || []);
+    setInvites(i.data || []);
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
@@ -284,8 +330,19 @@ function SettingsTeam() {
     }
   };
 
+  if (agency === undefined) {
+    return <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Loading team…</div>;
+  }
   if (!agency) {
-    return <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Sign in to manage your team. Demo mode shows mock-only.</div>;
+    return (
+      <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Users size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No agency to manage</div>
+        <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5, maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>
+          {loadErr ? <>Could not load: <span className="mono">{loadErr}</span></> : <>Sign in to a real agency to manage your team and invites. Demo mode is read-only.</>}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -299,13 +356,22 @@ function SettingsTeam() {
           <div className="list-h" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
             <div>User</div><div>Role</div><div>Joined</div>
           </div>
-          {members.map(m => (
-            <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
-              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{m.user_id.slice(0, 8)}…</div>
-              <div><span className="chip">{m.role}</span></div>
-              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{new Date(m.joined_at).toLocaleDateString()}</div>
-            </div>
-          ))}
+          {members.map(m => {
+            // Resolve a friendly name from the linked reps row when available;
+            // fall back to a short user_id when the row hasn't been provisioned yet.
+            const repRow = m.rep_id && (window.AppData?.REPS || []).find(r => r.id === m.rep_id);
+            const label = repRow?.name || (m.user_id ? `user-${String(m.user_id).slice(0, 8)}` : "—");
+            return (
+              <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ fontWeight: 500 }}>{label}</span>
+                  {!m.rep_id && <span className="chip" style={{ fontSize: 9.5, color: "var(--state-warning)" }}>profile pending</span>}
+                </div>
+                <div><span className="chip">{m.role}</span></div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</div>
+              </div>
+            );
+          })}
           {members.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No team members yet — invite your first producer.</div>}
         </div>
       </div>
@@ -358,6 +424,222 @@ function SettingsTeam() {
   );
 }
 window.SettingsTeam = SettingsTeam;
+
+/* ─── Settings → Carriers tab — manage appointed carriers + product lines ──
+   Owner-only (RLS gates the writes server-side via "owner write agency"-style
+   policies). Manager + rep see read-only. Hits the public.carriers table that
+   the resources page already reads via AppData.CARRIERS. */
+const CARRIER_CATEGORIES = ["Med Supp", "Med Adv", "Final Expense", "Annuity", "Term Life", "IUL", "ACA", "DVH"];
+const CARRIER_PRODUCT_LINES = ["Medicare Supplement", "Medicare Advantage", "Part D", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital Indemnity"];
+
+function SettingsCarriers({ canEdit = true }) {
+  const [carriers, setCarriers] = React.useState(undefined); // undefined = loading
+  const [agencyId, setAgencyId] = React.useState(null);
+  const [editing, setEditing]   = React.useState(null); // null = closed, {} = new, {id...} = edit
+  const [busy, setBusy]         = React.useState(false);
+  const [err, setErr]           = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setCarriers([]); return; }
+
+    let aid = null;
+    try { aid = localStorage.getItem("repflow.active_agency"); } catch {}
+    if (!aid && window.me) { const m = window.me(); if (m?.agency_id) aid = m.agency_id; }
+    setAgencyId(aid);
+
+    const q = sb.from("carriers").select("*").order("name");
+    const { data, error } = aid ? await q.eq("agency_id", aid) : await q;
+    if (error) { setErr(error.message); setCarriers([]); return; }
+    setCarriers(data || []);
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!editing?.name?.trim()) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setBusy(true);
+    try {
+      const row = {
+        id: editing.id || (editing.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32) + "-" + Math.random().toString(36).slice(2, 6)),
+        name: editing.name.trim(),
+        category: editing.category || "Med Supp",
+        status: editing.status || "active",
+        contact_name:  editing.contact_name  || null,
+        contact_phone: editing.contact_phone || null,
+        contact_email: editing.contact_email || null,
+        product_lines: editing.product_lines || [],
+        notes: editing.notes || null,
+        agency_id: agencyId || null,
+      };
+      const { error } = editing.id
+        ? await sb.from("carriers").update(row).eq("id", editing.id)
+        : await sb.from("carriers").insert(row);
+      if (error) throw error;
+      window.toast && window.toast(`${editing.id ? "Updated" : "Added"} ${row.name}`, "success");
+      setEditing(null);
+      await load();
+      // refresh AppData.CARRIERS so Resources page picks up the change
+      if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (c) => {
+    if (!confirm(`Remove ${c.name}? Existing policies stay; the carrier just stops appearing in pickers.`)) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("carriers").delete().eq("id", c.id);
+    if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast(`Removed ${c.name}`, "success");
+    await load();
+    if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+  };
+
+  const toggleProductLine = (pl) => {
+    setEditing(e => {
+      const lines = e.product_lines || [];
+      return { ...e, product_lines: lines.includes(pl) ? lines.filter(x => x !== pl) : [...lines, pl] };
+    });
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Appointed carriers</h3>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+              Carriers your agency holds appointments with. Drives quote tools, deal-write product lists, and Resources directory.
+            </div>
+          </div>
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => setEditing({ status: "active", product_lines: [] })}>
+              <Icons.Plus size={11}/> Add carrier
+            </button>
+          )}
+        </div>
+
+        {carriers === undefined && (
+          <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading carriers…</div>
+        )}
+        {err && (
+          <div style={{ padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>
+            {err}
+          </div>
+        )}
+
+        {carriers && carriers.length === 0 && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)" }}>
+            <Icons.Folder size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No carriers yet</div>
+            <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
+              Add the carriers you're appointed with so reps can quote, write deals, and pre-call scrub against them.
+            </div>
+            {canEdit && (
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setEditing({ status: "active", product_lines: [] })}>
+                <Icons.Plus size={11}/> Add your first carrier
+              </button>
+            )}
+          </div>
+        )}
+
+        {carriers && carriers.length > 0 && (
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 70px" }}>
+              <div>Carrier</div><div>Category</div><div>Status</div><div>Product lines</div><div>Contact</div><div></div>
+            </div>
+            {carriers.map(c => (
+              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 70px", height: 42 }}>
+                <div style={{ fontWeight: 500 }}>{c.name}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.category || "—"}</div>
+                <div>
+                  <span className={`chip ${c.status === "active" ? "chip-money" : c.status === "paused" ? "chip-status" : "chip-danger"}`}>{c.status || "active"}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(c.product_lines && c.product_lines.length) ? c.product_lines.join(", ") : "—"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                  {c.contact_email ? <a href={`mailto:${c.contact_email}`} style={{ color: "var(--accent-money)" }}>email</a> : c.contact_phone || "—"}
+                </div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  {canEdit && (
+                    <>
+                      <button className="icon-btn" title="Edit" onClick={() => setEditing({ ...c })}><Icons.Edit size={11}/></button>
+                      <button className="icon-btn" title="Remove" onClick={() => remove(c)}><Icons.X size={11}/></button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <Shared.Modal title={editing.id ? `Edit · ${editing.name || "Carrier"}` : "Add carrier"} width={560} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy || !editing.name?.trim()}>
+              <Icons.Check size={11}/> {busy ? "Saving…" : "Save carrier"}
+            </button>
+          </>
+        }>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Carrier name">
+              <input className="text-input" value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="UnitedHealthcare" autoFocus/>
+            </Shared.Field>
+            <Shared.Field label="Category">
+              <Shared.Select value={editing.category || "Med Supp"} onChange={(v) => setEditing({ ...editing, category: v })} options={CARRIER_CATEGORIES.map(c => ({ v: c, l: c }))}/>
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select value={editing.status || "active"} onChange={(v) => setEditing({ ...editing, status: v })} options={[{ v: "active", l: "Active" }, { v: "paused", l: "Paused" }, { v: "terminated", l: "Terminated" }]}/>
+            </Shared.Field>
+            <Shared.Field label="Contact name">
+              <input className="text-input" value={editing.contact_name || ""} onChange={(e) => setEditing({ ...editing, contact_name: e.target.value })} placeholder="Producer rep"/>
+            </Shared.Field>
+            <Shared.Field label="Contact email">
+              <input className="text-input" type="email" value={editing.contact_email || ""} onChange={(e) => setEditing({ ...editing, contact_email: e.target.value })} placeholder="contracting@carrier.com"/>
+            </Shared.Field>
+            <Shared.Field label="Contact phone">
+              <input className="text-input" value={editing.contact_phone || ""} onChange={(e) => setEditing({ ...editing, contact_phone: e.target.value })} placeholder="+1 (555) 555-5555"/>
+            </Shared.Field>
+          </div>
+
+          <Shared.Field label="Product lines" hint={`${(editing.product_lines || []).length} selected`}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
+              {CARRIER_PRODUCT_LINES.map(pl => (
+                <button
+                  key={pl}
+                  type="button"
+                  onClick={() => toggleProductLine(pl)}
+                  className={`chip ${(editing.product_lines || []).includes(pl) ? "chip-money" : ""}`}
+                  style={{ cursor: "pointer", border: 0, fontWeight: 500 }}
+                >
+                  {pl}
+                </button>
+              ))}
+            </div>
+          </Shared.Field>
+
+          <Shared.Field label="Notes (optional)">
+            <textarea
+              className="text-input"
+              value={editing.notes || ""}
+              onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
+              placeholder="Commission grid notes, contracting URL, contact context…"
+              rows={3}
+              style={{ resize: "vertical", fontFamily: "inherit" }}
+            />
+          </Shared.Field>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+window.SettingsCarriers = SettingsCarriers;
 
 /* ─── Twilio config dialog ─────────────────────────────────────────────── */
 function TwilioConfigModal({ onClose }) {

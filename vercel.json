@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/manager-inactivity",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/cross-sell-sweep",
+      "schedule": "0 13 * * *"
     }
   ]
 }

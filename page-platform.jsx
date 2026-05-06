@@ -215,7 +215,143 @@ window.repflowCall = async function (phone, leadName) {
 window.repflowDial = function (phone, leadName) { return window.repflowCall(phone, leadName); };
 
 /* ─── Settings: Calling tab — Repflow Desktop helper install ─────────── */
+/* ─── Capability probes — each hits its API endpoint; 503 means env vars
+       are missing, 200 means configured, anything else surfaces as error. */
+function useCapabilityStatus() {
+  const [status, setStatus] = React.useState({
+    voice:        { state: "checking", missing: [] },
+    sms:          { state: "checking", missing: [] },
+    transcription:{ state: "checking", missing: [] },
+  });
+  const probe = React.useCallback(async () => {
+    const out = { ...status };
+    // Voice: /api/twilio-token mints a JWT — 503 if Twilio creds missing.
+    try {
+      const r = await fetch("/api/twilio-token", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      if (r.status === 503) {
+        const j = await r.json().catch(() => ({}));
+        out.voice = { state: "unconfigured", missing: j.missing || ["TWILIO_ACCOUNT_SID","TWILIO_API_KEY_SID","TWILIO_API_KEY_SECRET","TWILIO_TWIML_APP_SID","TWILIO_CALLER_ID"] };
+      } else if (r.ok) out.voice = { state: "ready", missing: [] };
+      else out.voice = { state: "error", missing: [], code: r.status };
+    } catch (e) { out.voice = { state: "error", missing: [], code: String(e) }; }
+
+    // SMS: /api/twilio-sms with empty payload — 503 if missing creds, 400 if creds OK but body invalid.
+    try {
+      const r = await fetch("/api/twilio-sms", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 503) out.sms = { state: "unconfigured", missing: j.missing || ["TWILIO_ACCOUNT_SID","TWILIO_AUTH_TOKEN","TWILIO_CALLER_ID"] };
+      else if (j.error === "missing_to_or_body") out.sms = { state: "ready", missing: [] };
+      else if (r.ok) out.sms = { state: "ready", missing: [] };
+      else out.sms = { state: "error", missing: [], code: r.status };
+    } catch (e) { out.sms = { state: "error", missing: [], code: String(e) }; }
+
+    // Transcription: /api/transcribe with empty payload.
+    try {
+      const r = await fetch("/api/transcribe", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 503) out.transcription = { state: "unconfigured", missing: j.missing || ["OPENAI_API_KEY"] };
+      else if (j.error === "missing_audio_url") out.transcription = { state: "ready", missing: [] };
+      else if (r.ok) out.transcription = { state: "ready", missing: [] };
+      else out.transcription = { state: "error", missing: [], code: r.status };
+    } catch (e) { out.transcription = { state: "error", missing: [], code: String(e) }; }
+
+    setStatus(out);
+    window.__twilioStatus = out.voice.state === "ready" ? "ready" : out.voice.state === "unconfigured" ? "unconfigured" : "error";
+  }, []);
+  React.useEffect(() => { probe(); }, [probe]);
+  return [status, probe];
+}
+
+function CapabilityRow({ icon, label, sub, status, onTest, testLabel = "Test" }) {
+  const Ic = icon;
+  const tone = status.state === "ready" ? "var(--accent-money)" : status.state === "unconfigured" ? "var(--state-warning)" : status.state === "checking" ? "var(--text-tertiary)" : "var(--state-danger)";
+  const stateLabel = status.state === "ready" ? "Configured" : status.state === "unconfigured" ? "Not configured" : status.state === "checking" ? "Checking…" : "Error";
+  return (
+    <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "flex-start", gap: 12 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: tone, marginTop: 6 }}/>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
+          {Ic && <Ic size={13} style={{ color: "var(--text-tertiary)" }}/>}
+          {label}
+          <span className="chip" style={{ marginLeft: 6, fontSize: 10, color: tone, borderColor: `color-mix(in oklch, ${tone} 35%, transparent)`, background: `color-mix(in oklch, ${tone} 10%, transparent)` }}>{stateLabel}</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
+        {status.state === "unconfigured" && status.missing && status.missing.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+            Missing env: {status.missing.map(m => <span key={m} className="mono" style={{ background: "var(--bg-raised)", padding: "1px 5px", borderRadius: 3, marginRight: 4 }}>{m}</span>)}
+          </div>
+        )}
+      </div>
+      {onTest && status.state === "ready" && (
+        <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={onTest}>{testLabel}</button>
+      )}
+    </div>
+  );
+}
+
+function TwilioStatusPanel({ onConfigure }) {
+  const [status, reprobe] = useCapabilityStatus();
+  const allReady = status.voice.state === "ready" && status.sms.state === "ready";
+  const allMissing = status.voice.state === "unconfigured" && status.sms.state === "unconfigured" && status.transcription.state === "unconfigured";
+
+  const testCall = async () => {
+    if (!window.repflowDialTwilio) { window.toast && window.toast("Twilio SDK not loaded yet — refresh the page", "warn"); return; }
+    const took = await window.repflowDialTwilio("+15125550100", "Test call");
+    window.toast && window.toast(took ? "Test dial fired via Twilio" : "Test failed — check creds", took ? "success" : "error");
+  };
+  const testSms = async () => {
+    const to = prompt("Test SMS — your phone number (E.164 format, e.g. +15125551234):");
+    if (!to) return;
+    const r = await fetch("/api/twilio-sms", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to, body: "Repflow test SMS · ignore" }) });
+    const j = await r.json();
+    window.toast && window.toast(r.ok ? `Sent · ${j.status}` : `Failed · ${j.twilio_message || j.error}`, r.ok ? "success" : "error");
+  };
+
+  return (
+    <div className="panel" style={{ marginBottom: 14 }}>
+      <div className="panel-h">
+        <Icons.Phone size={13} style={{ color: allReady ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
+        <h3>Twilio · in-browser softphone</h3>
+        <span className="meta">{allReady ? "all systems go" : allMissing ? "needs setup" : "partial"}</span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={reprobe} title="Re-check capability status"><Icons.Sparkles size={11}/> Re-probe</button>
+      </div>
+
+      {allMissing && (
+        <div style={{ padding: "12px 14px", background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+          <strong style={{ color: "var(--state-warning)" }}>Twilio isn't configured.</strong> Reps' dial buttons fall through to the system phone app, and live call transcription only captures the rep's mic (not the lead). Click <strong>Configure Twilio</strong> below to add creds.
+        </div>
+      )}
+
+      <CapabilityRow
+        icon={Icons.Phone} label="Voice (outbound dial + softphone)"
+        sub="Lets reps dial inside the browser tab via WebRTC. Required for live transcription to capture the lead's audio."
+        status={status.voice} onTest={testCall} testLabel="Test dial"
+      />
+      <CapabilityRow
+        icon={Icons.MessageSquare} label="SMS (outbound text)"
+        sub="Programmable Messaging. Required for follow-up nudges, SOA reminders, and missed-you texts from the floor."
+        status={status.sms} onTest={testSms} testLabel="Send test"
+      />
+      <CapabilityRow
+        icon={Icons.FileText} label="Transcription (Whisper)"
+        sub="Whisper transcribes recordings + live mic chunks. Independent of Twilio — uses OpenAI directly."
+        status={status.transcription}
+      />
+
+      <div style={{ padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <button className="btn" onClick={() => window.open("https://vercel.com/dashboard", "_blank")}>
+          <Icons.ArrowUpRight size={11}/> Vercel env vars
+        </button>
+        <button className="btn btn-primary" onClick={onConfigure}>
+          <Icons.Settings size={11}/> Configure Twilio
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CallingSetup() {
+  const [twilioOpen, setTwilioOpen] = React.useState(false);
   const [os, setOs] = React.useState(() => {
     const ua = navigator.userAgent.toLowerCase();
     if (ua.includes("mac"))      return "mac";
@@ -224,8 +360,9 @@ function CallingSetup() {
   });
 
   const macScript = `# Repflow Desktop click-to-call helper · macOS
-# Saves a tiny .app that registers the repflow:// URL scheme and dials via
-# the system default phone app (FaceTime / Twilio CLI / Convoso CLI).
+# Registers the repflow:// URL scheme and AUTO-DIALS via FaceTime over Continuity.
+# Requires: FaceTime app open + iPhone signed into the same Apple ID + "Calls
+# from iPhone" enabled in iPhone Settings → Phone → Calls on Other Devices.
 mkdir -p ~/Applications/Repflow.app/Contents/{MacOS,Resources}
 cat > ~/Applications/Repflow.app/Contents/Info.plist <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -245,30 +382,63 @@ cat > ~/Applications/Repflow.app/Contents/MacOS/repflow <<'EOF'
 PHONE=$(echo "$1" | sed -n 's/.*to=\\([^&]*\\).*/\\1/p' | sed 's/%2B/+/g')
 LEAD=$(echo "$1" | sed -n 's/.*lead=\\([^&]*\\).*/\\1/p' | sed 's/%20/ /g')
 osascript -e "display notification \\"Calling $LEAD ($PHONE)\\" with title \\"Repflow\\""
-open "tel://$PHONE"  # fallback to system dialer; replace with twilio CLI or your softphone
+# AUTO-DIAL via FaceTime — Continuity hands the call to your paired iPhone.
+# tel: URL alone DOES auto-dial here (FaceTime intercepts), no Press-Call required.
+open -a FaceTime "tel://$PHONE"
 EOF
 chmod +x ~/Applications/Repflow.app/Contents/MacOS/repflow
 # Register with Launch Services
 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f ~/Applications/Repflow.app
-echo "Repflow helper installed. Click-to-call buttons now route here."`;
+echo "Repflow helper installed. Click-to-call buttons auto-dial via FaceTime + Continuity."`;
 
   const winScript = `# Repflow Desktop click-to-call helper · Windows (PowerShell, run as admin)
+# Registers repflow:// URL scheme + auto-clicks the Call button in Phone Link.
+# Phone Link doesn't expose an API — this uses Windows UI Automation to find
+# and click the call button after the number is entered. Requires:
+#   1. Phone Link installed + paired with your Android/iPhone
+#   2. PowerShell ExecutionPolicy: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 $dir = "$env:LOCALAPPDATA\\Repflow"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+# Helper: dial.ps1 — opens tel: then drives Phone Link's Call button via UI Automation
+@'
+param([string]\$Phone)
+Start-Process "tel:\$Phone"
+Start-Sleep -Milliseconds 1500   # give Phone Link a moment to focus the dialer
+Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+\$root = [System.Windows.Automation.AutomationElement]::RootElement
+\$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Phone Link")
+\$pl = \$root.FindFirst([System.Windows.Automation.TreeScope]::Children, \$cond)
+if (\$pl) {
+  \$btnCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Call")
+  \$btn = \$pl.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$btnCond)
+  if (\$btn) {
+    \$inv = \$btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    \$inv.Invoke()
+  } else {
+    Write-Host "Call button not found in Phone Link — dial number then press Call manually."
+  }
+} else {
+  Write-Host "Phone Link window not found — open Phone Link first."
+}
+'@ | Out-File -Encoding UTF8 "$dir\\dial.ps1"
+
+# Wrapper: repflow.cmd — extracts the phone from the URL and invokes dial.ps1
 @'
 @echo off
 rem Receives repflow://call?to=...&lead=...
 set ARG=%~1
 for /f "tokens=2 delims==&" %%a in ("%ARG%") do set PHONE=%%a
-start tel:%PHONE%
+powershell -ExecutionPolicy Bypass -File "%~dp0dial.ps1" -Phone "%PHONE%"
 '@ | Out-File -Encoding ASCII "$dir\\repflow.cmd"
+
 # Register URL scheme
 New-Item -Path "HKCU:\\Software\\Classes\\repflow" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "(Default)" -Value "URL:Repflow Protocol"
 Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "URL Protocol" -Value ""
 New-Item -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Name "(Default)" -Value "$dir\\repflow.cmd \`"%1\`""
-Write-Host "Repflow helper installed."`;
+Write-Host "Repflow helper installed. Auto-clicks Phone Link's Call button after dial."`;
 
   const linuxScript = `# Repflow Desktop click-to-call helper · Linux
 mkdir -p ~/.local/bin ~/.local/share/applications
@@ -295,13 +465,21 @@ echo "Repflow helper installed."`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Twilio first — this is the recommended path. Live transcription
+          captures both sides only when calls are routed via WebRTC. */}
+      <TwilioStatusPanel onConfigure={() => setTwilioOpen(true)}/>
+      {twilioOpen && window.TwilioConfigModal && (() => {
+        const M = window.TwilioConfigModal;
+        return <M onClose={() => setTwilioOpen(false)}/>;
+      })()}
+
       <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0 }}>How click-to-call works</h3>
+        <h3 style={{ margin: 0 }}>Fallback · click-to-call via desktop helper</h3>
         <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          Every <Icons.Phone size={11} style={{ display: "inline-block", verticalAlign: "middle" }}/> button in Repflow fires a
+          When Twilio isn't configured, Repflow's <Icons.Phone size={11} style={{ display: "inline-block", verticalAlign: "middle" }}/> buttons fall through to a
           <span className="mono" style={{ background: "var(--bg-raised)", padding: "1px 5px", borderRadius: 3 }}>repflow://call?to=...</span> URL.
-          Install the helper below and that URL launches your softphone instantly — like a Teams click-to-dial, but yours.
-          If the helper isn't installed, Repflow falls back to <span className="mono">tel:</span> (your OS default dialer).
+          Installing the helper below makes that URL launch your existing softphone (Teams, Convoso, FaceTime). Without the helper,
+          dials open the OS default dialer via <span className="mono">tel:</span>. <strong>Live transcription only captures the rep's mic in this mode</strong>{" "}— the lead's audio stays on the phone hardware.
         </div>
       </div>
 

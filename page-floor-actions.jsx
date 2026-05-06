@@ -318,26 +318,50 @@
     } catch (_e) {}
   };
 
+  // ── Quote Tool modal — wraps the carrier-fit calculator that used to be
+  //    locked inside the InCall panel only. Now reachable from the Floor
+  //    header, the AI rail, or any future surface via window.openQuoteTool().
+  function QuoteToolModal({ onClose }) {
+    const Quote = window.CarrierQuoteTool;
+    return (
+      <Shared.Modal title="Carrier quote tool" width={640} onClose={onClose}>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10 }}>
+          Rank your appointed carriers for a given product / age / health profile.
+          Same tool that runs in the in-call panel — open it from the floor whenever a prospect asks "what's my best fit?".
+        </div>
+        {Quote ? <Quote/> : <div style={{ padding: 14, color: "var(--text-tertiary)" }}>Quote tool loading…</div>}
+      </Shared.Modal>
+    );
+  }
+  window.openQuoteTool = function () {
+    window.dispatchEvent(new CustomEvent("quotetool:open"));
+  };
+
   // ── Global host: mounts modals + listens for events ─────────────────────
   function FloorActionsHost() {
     const [sms, setSms]       = useState(null);  // { lead, phone }
     const [appt, setAppt]     = useState(null);  // { lead, kind }
+    const [quote, setQuote]   = useState(false);
 
     React.useEffect(() => {
-      const onSms  = (e) => setSms(e.detail || null);
-      const onAppt = (e) => setAppt(e.detail || null);
+      const onSms   = (e) => setSms(e.detail || null);
+      const onAppt  = (e) => setAppt(e.detail || null);
+      const onQuote = ()   => setQuote(true);
       window.addEventListener("sms:compose",     onSms);
       window.addEventListener("appointment:open", onAppt);
+      window.addEventListener("quotetool:open",  onQuote);
       return () => {
         window.removeEventListener("sms:compose",     onSms);
         window.removeEventListener("appointment:open", onAppt);
+        window.removeEventListener("quotetool:open",  onQuote);
       };
     }, []);
 
     return (
       <>
-        {sms  && <SmsComposeModal      lead={sms.lead}   phone={sms.phone} onClose={() => setSms(null)}/>}
-        {appt && <BookAppointmentModal lead={appt.lead}  kind={appt.kind}  onClose={() => setAppt(null)}/>}
+        {sms   && <SmsComposeModal      lead={sms.lead}   phone={sms.phone} onClose={() => setSms(null)}/>}
+        {appt  && <BookAppointmentModal lead={appt.lead}  kind={appt.kind}  onClose={() => setAppt(null)}/>}
+        {quote && <QuoteToolModal       onClose={() => setQuote(false)}/>}
       </>
     );
   }
