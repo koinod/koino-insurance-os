@@ -153,6 +153,68 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const agencyId = body.agency_id || url.searchParams.get("agency") || DEFAULT_AGENCY || null;
 
+  // Branch: insurance lead vs recruit. Recruits land in recruiting_applicants
+  // (Recruiting page). Insurance leads land in pipeline (Pipeline/CRM).
+  const isRecruit =
+    body.kind === "recruit" ||
+    body.kind === "applicant" ||
+    /careers|recruit|apply|applicant/i.test(String(lead.source || ""));
+
+  if (isRecruit) {
+    const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
+    const handle = lead.email
+      ? "@" + lead.email.split("@")[0].toLowerCase().replace(/[^a-z0-9]+/g, "")
+      : "@" + (lead.name || "applicant").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 16);
+    const applicantRow = {
+      name: lead.name || "Pending applicant",
+      handle,
+      state: lead.state,
+      status: "applied",
+      enrolled_at: new Date().toISOString(),
+      ...(agencyId ? { agency_id: agencyId } : {}),
+    };
+    let appInserted = null, appErr = null;
+    try {
+      appInserted = await pgInsert("recruiting_applicants", applicantRow, agencyId);
+      // Best-effort: log a recruiting_messages row capturing email/phone/notes/track
+      // so the recruiter can see the original application in context. Never block
+      // the response on this — it's a journal, not the source of truth.
+      if (appInserted?.id) {
+        const journal = [
+          lead.email   ? `email: ${lead.email}` : null,
+          lead.phone   ? `phone: ${lead.phone}` : null,
+          meta.license_status ? `license: ${meta.license_status}` : null,
+          meta.track   ? `track: ${meta.track}` : null,
+          meta.experience ? `experience: ${meta.experience}` : null,
+          body.notes   ? `notes: ${body.notes}` : null,
+          `source: ${lead.source}`,
+        ].filter(Boolean).join("\n");
+        try {
+          await pgInsert("recruiting_messages", {
+            applicant_id: appInserted.id,
+            channel: "form",
+            direction: "inbound",
+            body: journal,
+            sent_at: new Date().toISOString(),
+            ...(agencyId ? { agency_id: agencyId } : {}),
+          }, agencyId);
+        } catch { /* journal best-effort */ }
+      }
+    } catch (e) {
+      appErr = e?.message || String(e);
+    }
+    if (!appInserted) {
+      console.warn("[/api/leads/inbound::recruit] insert failed", { appErr, lead, agencyId });
+      return err(500, "applicant accepted but persistence failed: " + (appErr || "unknown"));
+    }
+    return ok({
+      ok: true,
+      kind: "recruit",
+      applicant_id: appInserted.id,
+      received: { name: lead.name, source: lead.source, agency_id: agencyId },
+    });
+  }
+
   const pipelineRow = {
     lead_name: lead.name || `Pending ${lead.source}`,
     age: lead.age,

@@ -75,9 +75,13 @@
     useMutationListener();
     const [tab, setTab] = useState("funnel");
     const [activeApplicant, setActiveApplicant] = useState(null);
+    const [showAddApplicant, setShowAddApplicant] = useState(false);
+    const [showAddCampaign, setShowAddCampaign] = useState(false);
 
     const scope = useScope();
     const isManager = role === "manager";
+    const me = scope.me;
+    const agencyName = me?.agency_name || "Recruiting";
 
     // GAP-MR1: manager scopes to downline; owner sees fleet.
     const filterByScope = (rows, key = "recruiterId") => {
@@ -99,19 +103,37 @@
           <div>
             <div className="page-title">Recruiting</div>
             <div className="page-sub">
-              {isManager ? "My downline" : "Atlas IMO"}
+              {isManager ? "My downline" : agencyName}
               {" · "}
               {applicants.length} applicants
               {" · "}
               {campaigns.filter(c => c.status === "live").length} live campaigns
             </div>
           </div>
-          <div style={{ marginLeft: "auto" }}>
-            <button className="btn btn-primary" onClick={() => setTab("programs")}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button className="btn btn-ghost" onClick={() => setShowAddApplicant(true)}>
+              <Icons.Plus size={13}/> Add applicant
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowAddCampaign(true)}>
               <Icons.Plus size={13}/> New campaign
             </button>
           </div>
         </div>
+
+        {showAddApplicant && (
+          <AddApplicantModal
+            campaigns={campaigns}
+            myRepId={me?.rep_id}
+            onClose={() => setShowAddApplicant(false)}
+          />
+        )}
+        {showAddCampaign && (
+          <AddCampaignModal
+            myRepId={me?.rep_id}
+            isManager={isManager}
+            onClose={() => setShowAddCampaign(false)}
+          />
+        )}
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid var(--border-subtle)" }}>
           {[
@@ -239,14 +261,20 @@
     const sendInvite = async (e) => {
       e.stopPropagation();
       const sb = window.getSupabase && window.getSupabase();
+      const me = window.me && window.me();
       if (!sb) { window.toast && window.toast("Supabase not connected", "warn"); return; }
+      if (!me?.agency_id) { window.toast && window.toast("Sign in first to mint invites", "warn"); return; }
       try {
+        // mint_invite signature: (p_agency_id, p_role, p_email_hint, p_upline_rep_id default null)
+        // Default upline = current viewer so the new rep slots in under them.
         const { data, error } = await sb.rpc("mint_invite", {
-          p_role: "rep",
-          p_email_hint: a.email || a.handle || null,
+          p_agency_id:    me.agency_id,
+          p_role:         "rep",
+          p_email_hint:   a.email || a.handle || null,
+          p_upline_rep_id: me.rep_id || null,
         });
         if (error) throw error;
-        const token = data?.token || data;
+        const token = typeof data === "string" ? data : (data?.token || null);
         if (token) {
           const link = `${window.location.origin}/?invite=${token}`;
           try { await navigator.clipboard.writeText(link); } catch (_e) {}
@@ -515,6 +543,189 @@
         <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "var(--font-tabular)" }}>{value}</div>
         <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{label}</div>
       </div>
+    );
+  }
+
+  // ─── Add applicant modal ───────────────────────────────────────────────
+  // Owner + manager can both add applicants. recruiterId defaults to viewer
+  // so the applicant lands in the correct downline scope.
+  function AddApplicantModal({ campaigns, myRepId, onClose }) {
+    const [form, setForm] = useState({
+      name: "", handle: "", state: "", campaignId: "", phone: "", email: "", notes: "",
+    });
+    const [busy, setBusy] = useState(false);
+    const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+    const submit = async (e) => {
+      e.preventDefault();
+      if (!form.name.trim()) return;
+      setBusy(true);
+      try {
+        await window.AppData.mutate.recruitingApplicantAdd({
+          name: form.name.trim(),
+          handle: form.handle.trim() || ("@" + form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "")),
+          state: (form.state || "").toUpperCase().slice(0, 2) || null,
+          campaignId: form.campaignId || null,
+          recruiterId: myRepId || null,
+          status: "applied",
+          phone: form.phone || null,
+          email: form.email || null,
+          notes: form.notes || null,
+        });
+        window.toast && window.toast("Applicant added", "success");
+        onClose();
+      } catch (e) {
+        window.toast && window.toast(`Add failed: ${e.message || e}`, "error");
+      } finally { setBusy(false); }
+    };
+
+    return (
+      <Shared.Modal title="Add applicant" width={520} onClose={onClose} actions={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={busy || !form.name.trim()} onClick={submit}>
+            {busy ? "Adding…" : "Add applicant"}
+          </button>
+        </>
+      }>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Shared.Field label="Full name *">
+            <input className="text-input" value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus required/>
+          </Shared.Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Handle">
+              <input className="text-input" value={form.handle} onChange={(e) => set("handle", e.target.value)} placeholder="@name"/>
+            </Shared.Field>
+            <Shared.Field label="State">
+              <input className="text-input" value={form.state} onChange={(e) => set("state", e.target.value)} maxLength={2} style={{ textTransform: "uppercase" }}/>
+            </Shared.Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Phone">
+              <input className="text-input" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)}/>
+            </Shared.Field>
+            <Shared.Field label="Email">
+              <input className="text-input" type="email" value={form.email} onChange={(e) => set("email", e.target.value)}/>
+            </Shared.Field>
+          </div>
+          {campaigns.length > 0 && (
+            <Shared.Field label="Campaign (optional)">
+              <Shared.Select
+                value={form.campaignId}
+                onChange={(v) => set("campaignId", v)}
+                options={[{ v: "", l: "— None —" }, ...campaigns.map(c => ({ v: c.id, l: c.name }))]}
+              />
+            </Shared.Field>
+          )}
+          <Shared.Field label="Notes">
+            <textarea className="text-input" rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Source, context, what they're looking for…"/>
+          </Shared.Field>
+        </form>
+      </Shared.Modal>
+    );
+  }
+
+  // ─── Add campaign modal ────────────────────────────────────────────────
+  // Optimistically prepends to AppData.RECRUITING_CAMPAIGNS + persists via
+  // direct supabase insert. Manager-scoped: ownerRepId defaults to viewer.
+  function AddCampaignModal({ myRepId, isManager, onClose }) {
+    const [form, setForm] = useState({
+      name: "", source: "instagram", budget: "", status: "live",
+    });
+    const [busy, setBusy] = useState(false);
+    const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+    const submit = async (e) => {
+      e.preventDefault();
+      if (!form.name.trim()) return;
+      setBusy(true);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const me = window.me && window.me();
+        if (!sb || !me?.agency_id) throw new Error("Sign in first");
+        const row = {
+          name: form.name.trim(),
+          source: form.source,
+          status: form.status,
+          budget_cents: form.budget ? Math.round(parseFloat(form.budget) * 100) : 0,
+          owner_rep_id: myRepId || null,
+          agency_id: me.agency_id,
+        };
+        const { data, error } = await sb.from("recruiting_campaigns").insert(row).select().single();
+        if (error) throw error;
+        // Optimistic local update so the new campaign appears in the Programs
+        // tab immediately without waiting for a re-hydrate cycle.
+        const local = {
+          id: data.id,
+          name: data.name,
+          source: data.source,
+          status: data.status,
+          budget: data.budget_cents ? Math.round(data.budget_cents / 100) : 0,
+          ownerRepId: data.owner_rep_id,
+          producing: 0,
+          cpa: 0,
+        };
+        (window.AppData.RECRUITING_CAMPAIGNS = window.AppData.RECRUITING_CAMPAIGNS || []).unshift(local);
+        window.dispatchEvent(new CustomEvent("data:mutated"));
+        window.toast && window.toast("Campaign created", "success");
+        onClose();
+      } catch (e) {
+        window.toast && window.toast(`Create failed: ${e.message || e}`, "error");
+      } finally { setBusy(false); }
+    };
+
+    return (
+      <Shared.Modal title="New campaign" width={520} onClose={onClose} actions={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={busy || !form.name.trim()} onClick={submit}>
+            {busy ? "Creating…" : "Create campaign"}
+          </button>
+        </>
+      }>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Shared.Field label="Campaign name *">
+            <input className="text-input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. IG growth · Q2" autoFocus required/>
+          </Shared.Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Source">
+              <Shared.Select
+                value={form.source}
+                onChange={(v) => set("source", v)}
+                options={[
+                  { v: "instagram", l: "Instagram" },
+                  { v: "linkedin", l: "LinkedIn" },
+                  { v: "facebook", l: "Facebook" },
+                  { v: "sms", l: "SMS" },
+                  { v: "email", l: "Email" },
+                  { v: "event", l: "Event" },
+                  { v: "referral", l: "Referral" },
+                  { v: "other", l: "Other" },
+                ]}
+              />
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select
+                value={form.status}
+                onChange={(v) => set("status", v)}
+                options={[
+                  { v: "live", l: "Live" },
+                  { v: "paused", l: "Paused" },
+                  { v: "draft", l: "Draft" },
+                ]}
+              />
+            </Shared.Field>
+          </div>
+          <Shared.Field label="Budget ($)">
+            <input className="text-input" type="number" min="0" step="50" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="500"/>
+          </Shared.Field>
+          {isManager && (
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+              <Icons.Shield size={11}/> This campaign will be scoped to your downline. Owner/admin can reassign later.
+            </div>
+          )}
+        </form>
+      </Shared.Modal>
     );
   }
 
