@@ -9,10 +9,25 @@
  */
 
 /* ── Heuristics: same shape as PredictiveCards in page-today.jsx, scoped local
-   so this file is self-contained. Range 0–100. */
-const MGR_TIER_TARGETS = {
+   so this file is self-contained. Range 0–100.
+   Tier targets read from lib/agency-config.js so a single edit in agency
+   settings updates every consumer. Hardcoded fallback only when the helper
+   isn't loaded (e.g., page rendered before lib/agency-config.js). */
+const _MGR_TIER_TARGETS_FALLBACK = {
   bronze: 12000, silver: 20000, gold: 35000, platinum: 50000, diamond: 80000,
 };
+function MGR_TIER_TARGETS_LIVE() {
+  return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().tier_targets) || _MGR_TIER_TARGETS_FALLBACK;
+}
+// Read-anywhere proxy that always returns current values (so live updates
+// from "agency-config:changed" don't require a render to re-read constants).
+const MGR_TIER_TARGETS = new Proxy({}, {
+  get(_t, key) { return MGR_TIER_TARGETS_LIVE()[key]; },
+  ownKeys()   { return Object.keys(MGR_TIER_TARGETS_LIVE()); },
+  getOwnPropertyDescriptor(_t, key) {
+    return { configurable: true, enumerable: true, value: MGR_TIER_TARGETS_LIVE()[key] };
+  },
+});
 function mgrRiskScore(rep) {
   let s = 0;
   if (rep.streak === 0)              s += 30;

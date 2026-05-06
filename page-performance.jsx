@@ -10,10 +10,45 @@
 (function () {
 
 const TIER_ORDER = ["bronze","silver","gold","platinum","diamond"];
-const STAGE_PROB = { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
-const FALLBACK_AP = (p) => p.product?.includes("Plan G") ? 1800
-                          : p.product?.includes("Plan N") ? 1500
-                          : p.product?.includes("Annuity") ? 4000 : 1300;
+// Live: average AP per product from issued policies, falling back to agency
+// config defaults, then to industry baselines. Recomputes only when POLICIES
+// reference changes.
+function _avgApByKeyword(policies, keyword) {
+  const matched = policies.filter(p => p.product && p.product.toLowerCase().includes(keyword.toLowerCase()) && p.ap > 0);
+  if (matched.length === 0) return null;
+  return Math.round(matched.reduce((a, p) => a + p.ap, 0) / matched.length);
+}
+function _stageProbLive() {
+  return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().stage_close_probabilities)
+    || { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
+}
+function _fallbackApDefaults() {
+  return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().fallback_ap_by_product)
+    || { "Plan G": 1800, "Plan N": 1500, "Final Expense": 1300, "Annuity": 4000 };
+}
+function _fallbackApFor(product, policies) {
+  const fb = _fallbackApDefaults();
+  const learned =
+    product?.includes("Plan G")        ? _avgApByKeyword(policies, "Plan G")        :
+    product?.includes("Plan N")        ? _avgApByKeyword(policies, "Plan N")        :
+    product?.includes("Annuity")       ? _avgApByKeyword(policies, "Annuity")       :
+    product?.includes("Final Expense") ? _avgApByKeyword(policies, "Final Expense") :
+    null;
+  if (learned) return learned;
+  if (product?.includes("Plan G"))        return fb["Plan G"];
+  if (product?.includes("Plan N"))        return fb["Plan N"];
+  if (product?.includes("Annuity"))       return fb["Annuity"];
+  if (product?.includes("Final Expense")) return fb["Final Expense"];
+  return fb["Final Expense"] || 1300;
+}
+const STAGE_PROB = new Proxy({}, {
+  get(_t, key) { return _stageProbLive()[key]; },
+  ownKeys()    { return Object.keys(_stageProbLive()); },
+  getOwnPropertyDescriptor(_t, key) {
+    return { configurable: true, enumerable: true, value: _stageProbLive()[key] };
+  },
+});
+const FALLBACK_AP = (p) => _fallbackApFor(p.product, AppData.POLICIES || []);
 
 function PagePerformance() {
   const { REPS } = AppData;
@@ -24,13 +59,26 @@ function PagePerformance() {
   const [forecastGoal, setForecastGoal] = React.useState(50000);
 
   // ─── Tier rules (editable) + per-rep override state ─────────────────────
-  const [rules, setRules] = React.useState({
-    bronze:   { mtd: 0,     persistency: 0  },
-    silver:   { mtd: 15000, persistency: 70 },
-    gold:     { mtd: 25000, persistency: 80 },
-    platinum: { mtd: 35000, persistency: 85 },
-    diamond:  { mtd: 50000, persistency: 90 },
-  });
+  // Initial values come from lib/agency-config.js so a single edit in agency
+  // settings flows through. Fallback retained when the helper isn't loaded.
+  const [rules, setRules] = React.useState(
+    (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().tier_thresholds) || {
+      bronze:   { mtd: 0,     persistency: 0  },
+      silver:   { mtd: 15000, persistency: 70 },
+      gold:     { mtd: 25000, persistency: 80 },
+      platinum: { mtd: 35000, persistency: 85 },
+      diamond:  { mtd: 50000, persistency: 90 },
+    }
+  );
+  // Owners editing thresholds in this UI persist back to agency config.
+  React.useEffect(() => {
+    if (!window.AgencyConfig || !window.AgencyConfig.update) return;
+    const me = window.me && window.me();
+    if (!me || me.role !== "owner") return;
+    const cfg = window.AgencyConfig.get();
+    if (JSON.stringify(cfg.tier_thresholds) === JSON.stringify(rules)) return;
+    window.AgencyConfig.update({ tier_thresholds: rules });
+  }, [rules]);
   const [overrides, setOverrides] = React.useState({});
   const [history, setHistory] = React.useState(
     ((window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency())

@@ -29,11 +29,15 @@
   // and the Vapi/Convoso connector when ON.
   // ────────────────────────────────────────────────────────────────────────
   function useAutodialer() {
+    // Default rate-per-hour comes from agency config so a single owner-side
+    // edit propagates to every rep's dialer. Falls back to 87 only when the
+    // helper isn't loaded yet.
+    const _defaultRate = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().autodial_rate_per_hr) || 87;
     const [state, setState] = useState(() => {
       try {
         const raw = localStorage.getItem("repflow.autodialer");
-        return raw ? JSON.parse(raw) : { on: false, paused: false, ratePerHr: 87 };
-      } catch { return { on: false, paused: false, ratePerHr: 87 }; }
+        return raw ? JSON.parse(raw) : { on: false, paused: false, ratePerHr: _defaultRate };
+      } catch { return { on: false, paused: false, ratePerHr: _defaultRate }; }
     });
     useEffect(() => {
       try { localStorage.setItem("repflow.autodialer", JSON.stringify(state)); } catch {}
@@ -137,6 +141,205 @@
   // ────────────────────────────────────────────────────────────────────────
   // Quick-stats strip — always visible at top of Live mode
   // ────────────────────────────────────────────────────────────────────────
+  /* ─── CallRecorderPanel ────────────────────────────────────────────────
+   * Always-on call recorder for any role on the Floor.
+   *  • Rec/Pause/Stop with live timer + mic level meter
+   *  • Toggle: mic-only vs mic+system audio (system grabs the lead's voice
+   *    via tab-share — Chrome/Edge only)
+   *  • Recent recordings list scoped by RLS:
+   *      rep    → own only
+   *      manager→ own + downline
+   *      owner  → whole agency
+   *  • Click a row → playback in-place via signed URL (live) or
+   *    objectURL (demo/local)
+   *  • Set outcome dropdown (sale / callback / voicemail / no-answer / DNC)
+   */
+  function CallRecorderPanel({ role }) {
+    const [state, setState] = useState("idle");
+    const [elapsed, setElapsed] = useState(0);
+    const [level, setLevel]     = useState(0);
+    const [mode, setMode]       = useState(() => {
+      try { return localStorage.getItem("repflow.recorder.mode") || "mic"; } catch { return "mic"; }
+    });
+    const [recordings, setRecordings] = useState([]);
+    const [selectedId, setSelectedId] = useState(null);
+    const [playUrl, setPlayUrl]       = useState(null);
+    const [scope, setScope]           = useState(role === "rep" ? "self" : "team");
+
+    const recorderRef = React.useRef(null);
+    const me = window.me && window.me();
+    const repId = me?.rep_id || "demo-rep";
+
+    useEffect(() => { try { localStorage.setItem("repflow.recorder.mode", mode); } catch {} }, [mode]);
+
+    // Load recent recordings + refresh on mutation
+    const refresh = React.useCallback(async () => {
+      const list = await (window.CallRecorderUtils?.listRecentCalls?.({ scope, limit: 25 }) || Promise.resolve([]));
+      setRecordings(list);
+    }, [scope]);
+    useEffect(() => {
+      refresh();
+      const h = (e) => { if (e.detail?.table === "call_recordings") refresh(); };
+      window.addEventListener("data:mutated", h);
+      return () => window.removeEventListener("data:mutated", h);
+    }, [refresh]);
+
+    const start = async () => {
+      if (!window.CallRecorder) return window.toast?.("Recorder not loaded — refresh the page", "warn");
+      const rec = new window.CallRecorder({
+        mode, repId,
+        onTick: (s) => setElapsed(s),
+        onState: (s) => setState(s),
+        onLevel: (l) => setLevel(l),
+      });
+      recorderRef.current = rec;
+      await rec.start();
+    };
+    const pause   = () => recorderRef.current?.pause();
+    const resume  = () => recorderRef.current?.resume();
+    const stop    = () => recorderRef.current?.stop();
+    const cancel  = () => { recorderRef.current?.cancel(); setElapsed(0); setLevel(0); };
+
+    const play = async (call) => {
+      if (selectedId === call.id) { setSelectedId(null); setPlayUrl(null); return; }
+      setSelectedId(call.id);
+      setPlayUrl(null);
+      const url = await (window.CallRecorderUtils?.getPlaybackUrl?.(call) || Promise.resolve(null));
+      setPlayUrl(url);
+    };
+
+    const setOutcome = async (callId, outcome) => {
+      await window.CallRecorderUtils?.setOutcome?.(callId, outcome, null);
+      refresh();
+    };
+
+    const fmtTime = window.CallRecorderUtils?.fmtTime || ((s) => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, "0")}`);
+
+    const recording = state === "recording";
+    const paused    = state === "paused";
+    const uploading = state === "uploading";
+
+    return (
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h">
+          <Icons.Phone size={13} style={{ color: recording ? "var(--state-danger)" : (paused ? "var(--state-warning)" : "var(--text-secondary)") }}/>
+          <h3>Call recorder</h3>
+          <span className="meta" style={{ marginLeft: 6 }}>
+            {recording ? <><span className="dot" style={{ background: "var(--state-danger)", animation: "pulse 1.4s infinite", marginRight: 6 }}/>recording · {fmtTime(elapsed)}</>
+              : paused ? `paused · ${fmtTime(elapsed)}`
+              : uploading ? "uploading…"
+              : "idle"}
+          </span>
+          {/* Mic level meter */}
+          {recording && (
+            <div style={{ width: 90, height: 6, background: "var(--bg-raised)", borderRadius: 3, marginLeft: 10, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, level * 200)}%`, height: "100%", background: "var(--accent-money)", transition: "width 80ms linear" }}/>
+            </div>
+          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+            <Shared.Select value={mode} onChange={setMode}
+              options={[{ v: "mic", l: "Mic only" }, { v: "mic+system", l: "Mic + system audio (tab share)" }]}/>
+            {role !== "rep" && (
+              <Shared.Select value={scope} onChange={setScope}
+                options={role === "owner"
+                  ? [{ v: "self", l: "My calls" }, { v: "team", l: "Whole agency" }]
+                  : [{ v: "self", l: "My calls" }, { v: "team", l: "Downline" }]}/>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {!recording && !paused && !uploading && (
+            <button className="btn btn-primary" onClick={start} style={{ background: "var(--state-danger)", color: "white" }}>
+              <span className="dot" style={{ background: "white", marginRight: 6 }}/>Start recording
+            </button>
+          )}
+          {recording && (<>
+            <button className="btn" onClick={pause}><Icons.Pause size={12}/> Pause</button>
+            <button className="btn btn-primary" onClick={stop} style={{ background: "var(--accent-money)", color: "white" }}>
+              <Icons.Check size={12}/> Stop &amp; save
+            </button>
+            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)" }}>
+              <Icons.X size={12}/> Discard
+            </button>
+          </>)}
+          {paused && (<>
+            <button className="btn btn-primary" onClick={resume}><Icons.Play size={12}/> Resume</button>
+            <button className="btn" onClick={stop}><Icons.Check size={12}/> Stop &amp; save</button>
+            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)" }}>
+              <Icons.X size={12}/> Discard
+            </button>
+          </>)}
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>
+            {mode === "mic+system"
+              ? "Tip: when prompted, share the call's tab (Zoom/Teams/Meet) and check ‘Share tab audio’"
+              : "Mic only — captures your voice"}
+          </span>
+        </div>
+
+        {/* Recent recordings list */}
+        <div className="list" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 90px 130px 120px 110px" }}>
+            <div>When · who</div>
+            <div>Length</div>
+            <div>Outcome</div>
+            <div>Channels</div>
+            <div></div>
+          </div>
+          {recordings.length === 0 ? (
+            <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+              No recordings yet. Click <strong>Start recording</strong> to capture your next call.
+            </div>
+          ) : recordings.map(r => {
+            const isOpen = selectedId === r.id;
+            const fromOther = r.rep_id !== repId;
+            return (
+              <React.Fragment key={r.id}>
+                <div className="row" style={{ gridTemplateColumns: "1fr 90px 130px 120px 110px", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 12.5 }}>
+                      {new Date(r.started_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                      {fromOther && <span className="chip" style={{ marginLeft: 6, fontSize: 9.5 }}>{r.rep_id}</span>}
+                    </div>
+                    {r.notes && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.notes}</div>}
+                  </div>
+                  <div className="tabular" style={{ fontSize: 12 }}>{fmtTime(r.duration_sec || 0)}</div>
+                  <div>
+                    <Shared.Select value={r.outcome || ""} onChange={(v) => setOutcome(r.id, v)}
+                      options={[
+                        { v: "",         l: "—" },
+                        { v: "answered", l: "Answered" },
+                        { v: "voicemail",l: "Voicemail" },
+                        { v: "no-answer",l: "No answer" },
+                        { v: "callback", l: "Callback" },
+                        { v: "sale",     l: "Sale" },
+                        { v: "dnc",      l: "DNC" },
+                      ]}/>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                    {r.channels === "mic+system" ? "mic + tab" : "mic"}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                    <button className="btn btn-ghost" onClick={() => play(r)} style={{ padding: "4px 10px", fontSize: 11 }}>
+                      <Icons.Play size={11}/> {isOpen ? "Close" : "Play"}
+                    </button>
+                  </div>
+                </div>
+                {isOpen && (
+                  <div className="row" style={{ gridColumn: "1 / -1", padding: 8, background: "var(--bg-raised)" }}>
+                    {playUrl
+                      ? <audio controls autoPlay src={playUrl} style={{ width: "100%" }}/>
+                      : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Loading playback…</div>}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   function FloorTopStrip({ role }) {
     // Re-render on data:mutated so kanban stage moves + deal writes flip
     // Today's number live without a refresh.
@@ -155,7 +358,7 @@
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
             || (AppData.REPS && AppData.REPS[0]);
-    const tasksOpen = (AppData.TASKS || []).filter(t => t.status === "open" && (!me || !t.repId || t.repId === me.id)).length;
+    const tasksOpen = (AppData.TASKS || []).filter(t => t.status === "open" && (!me || !t.repId || t.repId === me.id))?.length;
     const queueLen  = (AppData.QUEUE || []).length;
     const myPipeline = (AppData.PIPELINE || []).filter(p =>
       !me || p.owner === me.id
@@ -165,7 +368,14 @@
     // issued today owned by this rep. _syncPolicyFromPipeline (data.jsx) appends
     // POLICIES rows when a kanban deal flips to App In / Issued, so this
     // recomputes the moment the rep clicks the chip.
-    const TARGET = 1800;
+    // TARGET: prefer rep-tier-specific monthly target / 22 working days, falling
+    // back to agency-wide daily_target_default (1800), then 1800.
+    const _cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
+    const _tierTargets = _cfg?.tier_targets || {};
+    const _monthlyTarget = (me?.tier && _tierTargets[me.tier]) || 0;
+    const TARGET = _monthlyTarget > 0
+      ? Math.round(_monthlyTarget / 22)
+      : (_cfg?.daily_target_default || 1800);
     const todayISO = new Date().toISOString().slice(0, 10);
     const myPolicies = (AppData.POLICIES || []).filter(p => !me || p.owner === me.id);
     const todayBumped = myPolicies
@@ -436,7 +646,7 @@
 
     // Active workflow assignments for me — read-only count, no toggle.
     const myAssigns = (assignments || []).filter(a => a.repId === repId && a.enabled);
-    const myWorkflowCount = workflows.filter(w => myAssigns.some(a => a.workflowId === w.id)).length;
+    const myWorkflowCount = workflows.filter(w => myAssigns.some(a => a.workflowId === w.id))?.length;
 
     // Match templates to a triggering event, plus any "manual" templates as universal options.
     const active = templates.filter(t => t.active !== false);
@@ -991,6 +1201,9 @@
             </button>
           </div>
         </div>
+
+        {/* Always-visible call recorder + recent-calls list (role-aware via RLS) */}
+        <CallRecorderPanel role={role}/>
 
         {mode === "live" && <FloorTopStrip role={role}/>}
 

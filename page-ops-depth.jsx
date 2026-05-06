@@ -190,8 +190,17 @@ function PageNIGO({ role = "manager" }) {
 
 /* ──────────────────────────────────────────────────────────────────────────
    2. Carriers — central taxonomy: appointed carriers, products, comp grids
+
+   Live data flow:
+     AppData.CARRIERS       → list of carriers (id, name, status, productLines)
+     AppData.APPOINTMENTS   → rep × carrier × state appointments
+     AppData.PRODUCTS       → products (carrierId, name, comp_pct)
+     AppData.POLICIES       → derives 13-mo persistency per carrier
+     AppData.NIGOS+POLICIES → derives NIGO rate per carrier
+
+   Demo fallback only renders for the demo agency.
    ────────────────────────────────────────────────────────────────────────── */
-const CARRIERS = [
+const CARRIERS_DEMO = [
   { id: "uhc",   name: "UHC Producer",          status: "active", appt: 47, advances: true,  cycle: "daily",   nigo: 2.1, persistency: 94, products: [
     { p: "Med Supp Plan G", comp: 50, advance: 75, chargeback: 12 },
     { p: "Med Supp Plan N", comp: 50, advance: 75, chargeback: 12 },
@@ -212,15 +221,108 @@ const CARRIERS = [
   ]},
 ];
 
+function _liveCarrierList() {
+  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const carriers = AppData.CARRIERS || [];
+  if (carriers.length === 0) return isDemo ? CARRIERS_DEMO : [];
+
+  const appointments = AppData.APPOINTMENTS || [];
+  const policies     = AppData.POLICIES     || [];
+  const nigos        = AppData.NIGOS        || [];
+  const products     = AppData.PRODUCTS     || [];
+
+  // appointments → distinct rep count per carrier
+  const apptByCarrier = {};
+  for (const a of appointments) {
+    if (!a.carrierId || !a.repId) continue;
+    if (!apptByCarrier[a.carrierId]) apptByCarrier[a.carrierId] = new Set();
+    apptByCarrier[a.carrierId].add(a.repId);
+  }
+
+  // persistency + total policies per carrier
+  const polByCarrier = {}, activeByCarrier = {};
+  for (const p of policies) {
+    if (!p.carrierId) continue;
+    polByCarrier[p.carrierId] = (polByCarrier[p.carrierId] || 0) + 1;
+    if (p.persistency === "active" || p.persistency === "in_force") {
+      activeByCarrier[p.carrierId] = (activeByCarrier[p.carrierId] || 0) + 1;
+    }
+  }
+  const policyCarrierById = Object.fromEntries(policies.map(p => [p.id, p.carrierId]));
+  const nigoByCarrier = {};
+  for (const n of nigos) {
+    const cid = n.policyId && policyCarrierById[n.policyId];
+    if (!cid) continue;
+    nigoByCarrier[cid] = (nigoByCarrier[cid] || 0) + 1;
+  }
+
+  // products grouped per carrier
+  const productsByCarrier = {};
+  for (const p of products) {
+    if (!p.carrierId || p.active === false) continue;
+    if (!productsByCarrier[p.carrierId]) productsByCarrier[p.carrierId] = [];
+    productsByCarrier[p.carrierId].push({
+      p: p.name,
+      comp: p.compPct != null ? Math.round(p.compPct) : (p.compPerApp ? Math.round(p.compPerApp) : null),
+      advance: null, chargeback: null,  // commission_grid jsonb usually empty; left null → "—"
+    });
+  }
+
+  return carriers.map(c => {
+    const totalPol = polByCarrier[c.id] || 0;
+    const activePol = activeByCarrier[c.id] || 0;
+    const totalNigo = nigoByCarrier[c.id] || 0;
+    return {
+      id: c.id,
+      name: c.name,
+      status: c.status || "active",
+      appt: apptByCarrier[c.id] ? apptByCarrier[c.id].size : 0,
+      // commission_grid jsonb: advances + cycle hooks. data.jsx currently
+      // doesn't propagate this column; once it does, these become real.
+      advances: null,
+      cycle: "—",
+      nigo: totalPol > 0 ? Math.round((totalNigo / totalPol) * 1000) / 10 : null,
+      persistency: totalPol > 0 ? Math.round((activePol / totalPol) * 1000) / 10 : null,
+      products: productsByCarrier[c.id] || [],
+    };
+  });
+}
+
 function PageCarriers() {
-  const [openId, setOpenId] = React.useState(CARRIERS[0].id);
-  const c = CARRIERS.find(x => x.id === openId);
+  const carrierList = _liveCarrierList();
+  const [openId, setOpenId] = React.useState(carrierList[0]?.id || null);
+  // Re-pin when the list shape changes (live data hydrates after first render)
+  React.useEffect(() => {
+    if (!openId && carrierList.length > 0) setOpenId(carrierList[0].id);
+  }, [carrierList.length]);
+  const c = carrierList.find(x => x.id === openId) || carrierList[0];
+
+  if (!c) {
+    return (
+      <div className="page-pad">
+        <div className="page-h">
+          <div>
+            <div className="page-title">Carriers</div>
+            <div className="page-sub">No carriers appointed yet.</div>
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ marginLeft: "auto" }}
+            onClick={() => { try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}; if (window.gotoPage) window.gotoPage("settings"); }}
+          ><Icons.Plus size={13}/> Add carrier</button>
+        </div>
+        <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+          Add your first carrier in Settings → Carriers. Comp grids, persistency, and NIGO rate populate automatically as policies issue.
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Carriers</div>
-          <div className="page-sub">{CARRIERS.length} appointed · {CARRIERS.reduce((a, c) => a + c.appt, 0)} producer appointments · comp grids + cycles + NIGO rate</div>
+          <div className="page-sub">{carrierList.length} appointed · {carrierList.reduce((a, c) => a + (c.appt || 0), 0)} producer appointments · live comp + persistency + NIGO</div>
         </div>
         <button
           className="btn btn-primary"
@@ -236,25 +338,30 @@ function PageCarriers() {
         <div className="panel">
           <div className="panel-h"><h3>Appointed carriers</h3></div>
           <div style={{ padding: 6 }}>
-            {CARRIERS.map(cc => (
-              <button key={cc.id} onClick={() => setOpenId(cc.id)} className="btn btn-ghost" style={{ width: "100%", padding: 10, marginBottom: 4, justifyContent: "stretch", flexDirection: "column", alignItems: "stretch", gap: 4, background: openId === cc.id ? "var(--bg-overlay)" : "transparent" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <strong style={{ fontSize: 13 }}>{cc.name}</strong>
-                  <span className="tabular" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{cc.appt} appts</span>
-                </div>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <span className={`chip ${cc.advances ? "chip-money" : ""}`} style={{ fontSize: 10 }}>{cc.advances ? "advance · " + cc.cycle : "as-earned · " + cc.cycle}</span>
-                  <span style={{ fontSize: 10.5, color: cc.persistency >= 90 ? "var(--accent-money)" : cc.persistency >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}>● {cc.persistency}%</span>
-                </div>
-              </button>
-            ))}
+            {carrierList.map(cc => {
+              const cycleLabel = cc.advances == null ? cc.cycle : (cc.advances ? `advance · ${cc.cycle}` : `as-earned · ${cc.cycle}`);
+              return (
+                <button key={cc.id} onClick={() => setOpenId(cc.id)} className="btn btn-ghost" style={{ width: "100%", padding: 10, marginBottom: 4, justifyContent: "stretch", flexDirection: "column", alignItems: "stretch", gap: 4, background: openId === cc.id ? "var(--bg-overlay)" : "transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <strong style={{ fontSize: 13 }}>{cc.name}</strong>
+                    <span className="tabular" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{cc.appt} appts</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <span className={`chip ${cc.advances ? "chip-money" : ""}`} style={{ fontSize: 10 }}>{cycleLabel}</span>
+                    {cc.persistency != null && (
+                      <span style={{ fontSize: 10.5, color: cc.persistency >= 90 ? "var(--accent-money)" : cc.persistency >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}>● {cc.persistency}%</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="panel">
             <div className="panel-h"><h3>{c.name}</h3>
-              <span className={`chip ${c.advances ? "chip-money" : ""}`}>{c.advances ? "advance" : "as-earned"} · {c.cycle}</span>
+              <span className={`chip ${c.advances ? "chip-money" : ""}`}>{c.advances == null ? c.cycle : `${c.advances ? "advance" : "as-earned"} · ${c.cycle}`}</span>
               <button
                 className="btn btn-ghost"
                 style={{ marginLeft: "auto" }}
@@ -266,27 +373,42 @@ function PageCarriers() {
             </div>
             <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
               <Shared.Field label="Appointments"><div className="tabular" style={{ fontSize: 18, fontWeight: 500 }}>{c.appt}</div></Shared.Field>
-              <Shared.Field label="13-mo persistency"><div className="tabular" style={{ fontSize: 18, fontWeight: 500, color: c.persistency >= 90 ? "var(--accent-money)" : c.persistency >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}>{c.persistency}%</div></Shared.Field>
-              <Shared.Field label="NIGO rate"><div className="tabular" style={{ fontSize: 18, fontWeight: 500 }}>{c.nigo}%</div></Shared.Field>
-              <Shared.Field label="Pay cycle"><div style={{ fontSize: 14, fontWeight: 500 }}>{c.cycle}</div></Shared.Field>
+              <Shared.Field label="13-mo persistency">
+                <div className="tabular" style={{ fontSize: 18, fontWeight: 500, color: c.persistency == null ? "var(--text-quaternary)" : c.persistency >= 90 ? "var(--accent-money)" : c.persistency >= 80 ? "var(--state-warning)" : "var(--state-danger)" }}>
+                  {c.persistency == null ? "—" : `${c.persistency}%`}
+                </div>
+              </Shared.Field>
+              <Shared.Field label="NIGO rate">
+                <div className="tabular" style={{ fontSize: 18, fontWeight: 500, color: c.nigo == null ? "var(--text-quaternary)" : "var(--text-primary)" }}>
+                  {c.nigo == null ? "—" : `${c.nigo}%`}
+                </div>
+              </Shared.Field>
+              <Shared.Field label="Pay cycle"><div style={{ fontSize: 14, fontWeight: 500 }}>{c.cycle || "—"}</div></Shared.Field>
             </div>
           </div>
 
           <div className="panel">
-            <div className="panel-h"><h3>Comp grid</h3></div>
+            <div className="panel-h"><h3>Comp grid</h3>{c.products.length === 0 && <span className="meta">no products</span>}</div>
             <div className="list">
-              <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 100px 100px" }}>
-                <div>Product</div>
-                <div className="tabular" style={{ textAlign: "right" }}>Comp %</div>
-                <div className="tabular" style={{ textAlign: "right" }}>Advance %</div>
-                <div className="tabular" style={{ textAlign: "right" }}>Chargeback period</div>
-              </div>
+              {c.products.length > 0 && (
+                <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 100px 100px" }}>
+                  <div>Product</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>Comp %</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>Advance %</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>Chargeback period</div>
+                </div>
+              )}
+              {c.products.length === 0 && (
+                <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                  Add products in Settings → Carriers · Comp grid populates here.
+                </div>
+              )}
               {c.products.map((p, i) => (
                 <div key={i} className="row" style={{ gridTemplateColumns: "1.6fr 100px 100px 100px" }}>
                   <div style={{ fontWeight: 500 }}>{p.p}</div>
-                  <div className="tabular" style={{ textAlign: "right" }}>{p.comp}%</div>
-                  <div className="tabular" style={{ textAlign: "right" }}>{p.advance}%</div>
-                  <div className="tabular" style={{ textAlign: "right" }}>{p.chargeback}mo</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>{p.comp == null ? "—" : `${p.comp}%`}</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>{p.advance == null ? "—" : `${p.advance}%`}</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>{p.chargeback == null ? "—" : `${p.chargeback}mo`}</div>
                 </div>
               ))}
             </div>
@@ -377,23 +499,39 @@ function PageScrubbers() {
    4. Revenue forecast — pipeline value × close-prob → forecast curve
    ────────────────────────────────────────────────────────────────────────── */
 function PageForecast() {
-  // Close probability by stage
-  const STAGE_PROB = { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
+  // Close probabilities + AP fallbacks come from agency config (lib/agency-config.js).
+  // Fallback AP also gets a learned-cohort boost: when policies exist, the
+  // average AP for matching products is preferred over the default constant.
+  const STAGE_PROB = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().stage_close_probabilities)
+    || { "New": 0.04, "Contacted": 0.12, "Quoted": 0.32, "App In": 0.78, "Issued": 1.0 };
+  const _apDefaults = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().fallback_ap_by_product)
+    || { "Plan G": 1800, "Plan N": 1500, "Final Expense": 1300, "Annuity": 4000 };
   const pipeline = AppData.PIPELINE || [];
   const reps = AppData.REPS || [];
+  const policies = AppData.POLICIES || [];
+
+  const _avgApFor = (keyword) => {
+    const matched = policies.filter(p => p.product && p.product.toLowerCase().includes(keyword.toLowerCase()) && p.ap > 0);
+    if (matched.length === 0) return null;
+    return Math.round(matched.reduce((a, p) => a + p.ap, 0) / matched.length);
+  };
+  const fallbackApFor = (prod) => {
+    if (!prod) return _apDefaults["Final Expense"] || 1300;
+    if (prod.includes("Plan G"))        return _avgApFor("Plan G")        || _apDefaults["Plan G"];
+    if (prod.includes("Plan N"))        return _avgApFor("Plan N")        || _apDefaults["Plan N"];
+    if (prod.includes("Annuity"))       return _avgApFor("Annuity")       || _apDefaults["Annuity"];
+    if (prod.includes("Final Expense")) return _avgApFor("Final Expense") || _apDefaults["Final Expense"];
+    return _apDefaults["Final Expense"] || 1300;
+  };
 
   const weightedAP = pipeline.reduce((a, p) => {
-    const fallbackAP = p.product?.includes("Plan G") ? 1800 : p.product?.includes("Plan N") ? 1500 : p.product?.includes("Annuity") ? 4000 : 1300;
-    const ap = p.ap || fallbackAP;
+    const ap = p.ap || fallbackApFor(p.product);
     return a + ap * (STAGE_PROB[p.stage] || 0);
   }, 0);
 
   const repForecast = reps.slice(0, 6).map(r => {
     const myDeals = pipeline.filter(p => p.owner === r.id);
-    const w = myDeals.reduce((a, p) => {
-      const fallbackAP = p.product?.includes("Plan G") ? 1800 : p.product?.includes("Plan N") ? 1500 : p.product?.includes("Annuity") ? 4000 : 1300;
-      return a + (p.ap || fallbackAP) * (STAGE_PROB[p.stage] || 0);
-    }, 0);
+    const w = myDeals.reduce((a, p) => a + (p.ap || fallbackApFor(p.product)) * (STAGE_PROB[p.stage] || 0), 0);
     return { ...r, deals: myDeals.length, weighted: w };
   });
 
