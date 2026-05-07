@@ -841,10 +841,10 @@ function TodayManager({ aep }) {
                     </div>
                   </div>
                 </div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>{r.appts}</div>
-                <div className="tabular" style={{ textAlign: "right", color: r.today > 1000 ? "var(--accent-money)" : "var(--text-secondary)" }}>${r.today.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${(r.mtd / 1000).toFixed(1)}k</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials || 0}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{r.appts || 0}</div>
+                <div className="tabular" style={{ textAlign: "right", color: (r.today || 0) > 1000 ? "var(--accent-money)" : "var(--text-secondary)" }}>${(r.today || 0).toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${((r.mtd || 0) / 1000).toFixed(1)}k</div>
                 <button className="btn btn-ghost" title={`DM ${r.name}`} onClick={() => { if (window.gotoPage) window.gotoPage("messages"); window.toast && window.toast(`Open thread with ${r.name}`, "info"); }}><Icons.MessageSquare size={11}/></button>
               </div>
             ))}
