@@ -739,7 +739,7 @@ function CoachingRep() {
               <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
               <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }}))}><Icons.Play size={11}/> Replay moment</button>
-                <button className="btn"><Icons.Sparkles size={11}/> {c.drill}</button>
+                <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Run me through the ${c.drill} drill — give me 3 prompts I can practice on my next call`, context: "Coaching · " + c.drill }}))}><Icons.Sparkles size={11}/> {c.drill}</button>
                 <span className="chip chip-money" style={{ alignSelf: "center" }}>Impact: {c.impact}</span>
               </div>
             </div>
@@ -836,83 +836,130 @@ function CoachingOwner() {
   );
 }
 
-/* ─── Routing rules modal — full editor backed by Supabase ─────────── */
+/* ─── Routing rules modal — natural-language rule entry, no sliders.
+
+   The manager describes how routing should work in plain English ("send
+   Spanish-speaking leads to Maria", "FE leads in Tampa go to gold+ only"),
+   and the agent parses it into a source/route_to pair. Existing rules are
+   shown as plain-English summaries with toggle/delete; ordering is by
+   creation order (latest = lowest priority — first match wins). */
+function _parseRoutingPrompt(text) {
+  const t = text.trim();
+  if (!t) return null;
+  // "send X to Y", "route X to Y", "X goes to Y", "X → Y"
+  const arrowMatch = t.match(/^(.+?)\s*(?:→|->)\s*(.+)$/);
+  if (arrowMatch) return { source: arrowMatch[1].trim(), route_to: arrowMatch[2].trim() };
+  const sendMatch = t.match(/^(?:send|route|push|assign)\s+(.+?)\s+(?:to|→)\s+(.+)$/i);
+  if (sendMatch) return { source: sendMatch[1].trim(), route_to: sendMatch[2].trim() };
+  const goesMatch = t.match(/^(.+?)\s+(?:goes? to|gets? sent to|→)\s+(.+)$/i);
+  if (goesMatch) return { source: goesMatch[1].trim(), route_to: goesMatch[2].trim() };
+  return null;
+}
+
 function RoutingRulesModal({ onClose }) {
-  const [rules, setRules] = React.useState([
-    { id: "stub-1", source: "FB Lead Form · T65",         route_to: "Med Supp specialists", weight: 60,  active: true },
-    { id: "stub-2", source: "Inbound < 30s",               route_to: "Tier ≥ Gold",          weight: 90,  active: true },
-    { id: "stub-3", source: "Annuity",                      route_to: "Certified producer",   weight: 100, active: true },
-    { id: "stub-4", source: "Spanish",                      route_to: "Bilingual round-robin", weight: 50, active: true },
-  ]);
-  const [editing, setEditing] = React.useState(null);
+  const [rules, setRules] = React.useState([]);
+  const [prompt, setPrompt] = React.useState("");
+  const [parseErr, setParseErr] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    if (!AppData.LIVE) return;
     const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    sb.from("routing_rules").select("*").order("weight", { ascending: false }).then(({ data }) => {
-      if (data && data.length) setRules(data);
+    if (!sb || !AppData.LIVE) return;
+    sb.from("routing_rules").select("*").order("created_at", { ascending: false }).then(({ data }) => {
+      if (Array.isArray(data)) setRules(data);
     });
   }, []);
 
-  const upsert = async (rule) => {
-    await AppData.mutate.routingRuleSave(rule);
-    if (rule.id?.startsWith("stub-")) {
-      setRules(rs => rs.map(r => r.id === rule.id ? rule : r));
-    } else if (rule.id) {
-      setRules(rs => rs.map(r => r.id === rule.id ? rule : r));
-    } else {
-      setRules(rs => [...rs, { ...rule, id: "tmp-" + Date.now() }]);
+  const addRule = async () => {
+    setParseErr("");
+    const parsed = _parseRoutingPrompt(prompt);
+    if (!parsed) {
+      setParseErr('Try "Send <kind of lead> to <producer or group>" — e.g. "Send Spanish leads to Maria" or "FE leads → gold tier".');
+      return;
     }
-    setEditing(null);
-    window.toast && window.toast("Routing rule saved", "success");
+    setBusy(true);
+    try {
+      const rule = { ...parsed, weight: 50, active: true };
+      await AppData.mutate.routingRuleSave(rule);
+      setRules(rs => [{ ...rule, id: "tmp-" + Date.now(), created_at: new Date().toISOString() }, ...rs]);
+      setPrompt("");
+      window.toast && window.toast("Routing rule added", "success");
+    } catch (e) {
+      window.toast && window.toast(`Could not save: ${e.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  const toggle = async (rule) => {
+    const next = { ...rule, active: !rule.active };
+    await AppData.mutate.routingRuleSave(next);
+    setRules(rs => rs.map(r => r.id === rule.id ? next : r));
   };
   const remove = async (id) => {
-    if (!String(id).startsWith("stub-")) await AppData.mutate.routingRuleDelete(id);
+    if (!String(id).startsWith("tmp-") && !String(id).startsWith("stub-")) {
+      await AppData.mutate.routingRuleDelete(id);
+    }
     setRules(rs => rs.filter(r => r.id !== id));
   };
 
+  const examples = [
+    "Send Spanish leads to Maria",
+    "Annuity inquiries → certified producers only",
+    "FE leads in Tampa go to gold tier+",
+    "T65 inbounds within 60s → Med Supp team",
+  ];
+
   return (
-    <Shared.Modal title="Routing rules" width={680} onClose={onClose} actions={
-      <>
-        <button className="btn btn-ghost" onClick={onClose}>Close</button>
-        <button className="btn btn-primary" onClick={() => setEditing({ source: "", route_to: "", weight: 50, active: true })}><Icons.Plus size={11}/> New rule</button>
-      </>
+    <Shared.Modal title="Routing rules" width={620} onClose={onClose} actions={
+      <button className="btn btn-ghost" onClick={onClose}>Close</button>
     }>
-      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 8 }}>Higher weight wins ties. Inactive rules don't fire. Persisted to Supabase when signed in.</div>
-      <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 1.6fr 80px 80px 80px" }}>
-          <div>Source / trigger</div><div>Route to</div><div className="tabular" style={{ textAlign: "right" }}>Weight</div><div>State</div><div></div>
-        </div>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10, lineHeight: 1.55 }}>
+        Tell the routing agent how leads should flow. First matching rule wins; the score-based suggestion fills in everything else.
+      </div>
+
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+        <textarea
+          className="text-input"
+          rows={2}
+          value={prompt}
+          onChange={(e) => { setPrompt(e.target.value); setParseErr(""); }}
+          placeholder='Send Spanish leads to Maria'
+          style={{ flex: 1, fontSize: 13, resize: "vertical" }}
+          onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") addRule(); }}
+        />
+        <button className="btn btn-primary" onClick={addRule} disabled={busy || !prompt.trim()} style={{ padding: "8px 12px" }}>
+          <Icons.Sparkles size={12}/> Add rule
+        </button>
+      </div>
+      {parseErr && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--state-warning)" }}>{parseErr}</div>
+      )}
+      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {examples.map((ex, i) => (
+          <button key={i} className="btn btn-ghost" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setPrompt(ex)}>{ex}</button>
+        ))}
+      </div>
+
+      <div className="divider" style={{ margin: "14px 0 8px" }}></div>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>{rules.length} rule{rules.length === 1 ? "" : "s"} · first match wins</div>
+      <div className="list" style={{ maxHeight: 320, overflowY: "auto" }}>
+        {rules.length === 0 && <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No custom rules yet — auto-routing handles everything.</div>}
         {rules.map(r => (
-          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 1.6fr 80px 80px 80px" }}>
-            <div style={{ fontWeight: 500 }}>{r.source}</div>
-            <div style={{ color: "var(--text-secondary)" }}>{r.route_to}</div>
-            <div className="tabular" style={{ textAlign: "right" }}>{r.weight}</div>
-            <div>
-              <span className={`chip ${r.active ? "chip-money" : ""}`}>{r.active ? "active" : "off"}</span>
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1fr 28px 28px", padding: "10px 12px", alignItems: "center" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, opacity: r.active ? 1 : 0.5 }}>
+                <span style={{ color: "var(--text-primary)" }}>{r.source}</span>
+                <span style={{ color: "var(--text-tertiary)", margin: "0 6px" }}>→</span>
+                <span style={{ color: "var(--accent-money)" }}>{r.route_to}</span>
+              </div>
+              {!r.active && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>paused</div>}
             </div>
-            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-              <button className="icon-btn" onClick={() => setEditing(r)}><Icons.Settings size={11}/></button>
-              <button className="icon-btn" onClick={() => remove(r.id)}><Icons.X size={11}/></button>
-            </div>
+            <button className="icon-btn" title={r.active ? "Pause" : "Activate"} onClick={() => toggle(r)}>
+              {r.active ? <Icons.Check size={12}/> : <Icons.X size={12}/>}
+            </button>
+            <button className="icon-btn" title="Delete" onClick={() => remove(r.id)}><Icons.X size={12}/></button>
           </div>
         ))}
       </div>
-      {editing && (
-        <div style={{ marginTop: 12, padding: 12, background: "var(--bg-raised)", borderRadius: 6, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Shared.Field label="Source / trigger"><input className="text-input" value={editing.source} onChange={(e) => setEditing({ ...editing, source: e.target.value })} placeholder="FB Lead Form · T65"/></Shared.Field>
-          <Shared.Field label="Route to"><input className="text-input" value={editing.route_to} onChange={(e) => setEditing({ ...editing, route_to: e.target.value })} placeholder="Med Supp specialists"/></Shared.Field>
-          <Shared.Field label={`Weight · ${editing.weight}`}><input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })}/></Shared.Field>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-            <input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })}/> Active
-          </label>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={() => upsert(editing)} disabled={!editing.source.trim() || !editing.route_to.trim()}><Icons.Check size={11}/> Save</button>
-          </div>
-        </div>
-      )}
     </Shared.Modal>
   );
 }

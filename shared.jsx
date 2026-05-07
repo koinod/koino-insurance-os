@@ -351,10 +351,8 @@ const AccountChip = () => {
                 </button>
               </>
             ) : (
-              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }} onClick={() => {
-                try { sessionStorage.removeItem("repflow.demo"); } catch {}
-                window.location.reload();
-              }}>
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}
+                onClick={() => window.signOut && window.signOut()}>
                 <Icons.Send size={11}/> Sign in to a real account
               </button>
             )}
@@ -840,9 +838,12 @@ const ValidatedInput = ({ kind, value, onChange, className = "text-input", ...re
 };
 
 /* React class error boundary — wraps page content so a single throwing
-   component doesn't blank the whole app. Logs to console + offers a reset. */
+   component doesn't blank the whole app. Logs to console + offers a reset.
+   resetKey is bumped on Try-again so children get a fresh mount (the previous
+   implementation just cleared err state; if the throw was deterministic on
+   the same children, the user clicked Try-again and got the same crash). */
 class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { err: null, info: null }; }
+  constructor(props) { super(props); this.state = { err: null, info: null, resetKey: 0 }; }
   static getDerivedStateFromError(err) { return { err }; }
   componentDidCatch(err, info) {
     console.error("[ErrorBoundary]", err, info?.componentStack);
@@ -850,7 +851,7 @@ class ErrorBoundary extends React.Component {
     if (window.toast) window.toast(`UI error: ${err?.message || err}`, "error");
   }
   render() {
-    if (!this.state.err) return this.props.children;
+    if (!this.state.err) return <React.Fragment key={this.state.resetKey}>{this.props.children}</React.Fragment>;
     const stack = this.state.err?.stack || "";
     const compStack = this.state.info?.componentStack || "";
     const compFrames = compStack.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 5);
@@ -867,7 +868,11 @@ class ErrorBoundary extends React.Component {
             </div>
           </details>
         )}
-        <button className="btn" onClick={() => this.setState({ err: null, info: null })}>Try again</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn btn-primary" onClick={() => this.setState(s => ({ err: null, info: null, resetKey: s.resetKey + 1 }))}>Try again</button>
+          <button className="btn" onClick={() => window.location.reload()}>Reload page</button>
+          <button className="btn btn-ghost" onClick={() => window.signOut && window.signOut()}>Sign out</button>
+        </div>
       </div>
     );
   }

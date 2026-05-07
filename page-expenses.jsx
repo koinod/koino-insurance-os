@@ -219,10 +219,16 @@
         </div>
 
         {err && (
-          <div className="panel" style={{ padding: 14, marginBottom: 14, background: "color-mix(in oklch, var(--state-danger) 8%, transparent)", border: "1px solid color-mix(in oklch, var(--state-danger) 30%, transparent)", color: "var(--state-danger)" }}>
-            Could not load expenses: {err}
+          <div className="panel" style={{ padding: 14, marginBottom: 14, background: "color-mix(in oklch, var(--state-danger) 8%, transparent)", border: "1px solid color-mix(in oklch, var(--state-danger) 30%, transparent)", color: "var(--state-danger)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span>Could not load expenses: {err}</span>
+            <button className="btn btn-ghost" onClick={reload}>Retry</button>
           </div>
         )}
+
+        <div className="panel" style={{ padding: 10, marginBottom: 14, background: "color-mix(in oklch, var(--accent-status) 6%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 25%, transparent)", fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+          <Icons.Shield size={11} style={{ color: "var(--accent-status)" }}/>{" "}
+          <strong>Payroll &amp; producer comp tracked in your existing payroll system</strong> — Expenses captures the rest: lead spend, ads, tools, rent, reimbursements. Comp data lives in P&amp;L → Comp tab (read-only rollup from your payroll provider).
+        </div>
 
         {/* KPI row */}
         {totals && (

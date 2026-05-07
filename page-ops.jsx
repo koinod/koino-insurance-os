@@ -159,7 +159,7 @@ function PageHardware() {
       <div className="page-h">
         <div><div className="page-title">Hardware</div><div className="page-sub">Customer-owned nodes running Repflow agents · enroll a fresh VPS or Mac mini in 60 seconds</div></div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> Schedule call with ops</button>
+          <button className="btn" onClick={() => window.toast && window.toast("Email ops@koino.capital to schedule a hardware-onboarding call", "info")}><Icons.Calendar size={13}/> Schedule call with ops</button>
           <button className="btn btn-primary" onClick={() => setEnrollOpen(true)}><Icons.Plus size={13}/> Enroll new host</button>
         </div>
       </div>
@@ -345,12 +345,27 @@ function PageWorkflows() {
               <path d="M180 146 L240 200" stroke="var(--text-tertiary)" fill="none"/>
             </svg>
           </div>
-          <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-subtle)", display: "flex", gap: 8 }}>
-            <input className="airail-input" placeholder="Request a change: 'add an SMS step after Vapi voicemail drop'"/>
-            <button className="btn btn-primary"><Icons.Send size={11}/></button>
-          </div>
+          <WorkflowRequestBar/>
         </div>
       </div>
+    </div>
+  );
+}
+
+function WorkflowRequestBar() {
+  const [req, setReq] = React.useState("");
+  const submit = () => {
+    if (!req.trim()) return;
+    window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Workflow change request: ${req}`, context: "Ops · workflow request" }}));
+    setReq("");
+    window.toast && window.toast("Sent to AI co-pilot for review", "success");
+  };
+  return (
+    <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-subtle)", display: "flex", gap: 8 }}>
+      <input className="airail-input" placeholder="Request a change: 'add an SMS step after Vapi voicemail drop'"
+        value={req} onChange={(e) => setReq(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}/>
+      <button className="btn btn-primary" onClick={submit} disabled={!req.trim()}><Icons.Send size={11}/></button>
     </div>
   );
 }

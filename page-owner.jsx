@@ -651,7 +651,7 @@ function PageOrgTree() {
             </div>
             {REPS.length === 0 && (
               <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-                No producers yet. Invite your first producer from the <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "invites" }}));}} style={{ color: "var(--accent-money)" }}>Invites</a> page.
+                No producers yet. Invite your first producer from <a href="#" onClick={(e) => { e.preventDefault(); try { sessionStorage.setItem("repflow.settings.tab", "team"); } catch {}; if (window.gotoPage) window.gotoPage("settings"); }} style={{ color: "var(--accent-money)" }}>Settings → Team</a>.
               </div>
             )}
             {REPS.length > 0 && <svg viewBox="0 0 960 440" style={{ width: "100%", height: "calc(100% - 44px)" }}>

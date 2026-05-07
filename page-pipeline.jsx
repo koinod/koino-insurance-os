@@ -8,7 +8,7 @@ function PagePipeline({ role = "owner" }) {
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [newOpen, setNewOpen] = React.useState(false);
   const [filters, setFilters] = React.useState({ stage: "all", heat: "all", owner: "all", state: "all", source: "all", maxDays: 30 });
-  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0].id, phone: "", email: "" });
+  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0]?.id || "", phone: "", email: "" });
   const [extra, setExtra] = React.useState([]);
   const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
   // When live data hydrates (initial load OR realtime tick), drop the local
@@ -35,7 +35,8 @@ function PagePipeline({ role = "owner" }) {
   const states = Array.from(new Set(PIPELINE.map(p => p.state)));
   const heatColor = (h) => h === "hot" ? "var(--accent-heat)" : h === "warm" ? "var(--state-warning)" : h === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
 
-  const meId = REPS[0].id;
+  const meIdent = window.me && window.me();
+  const meId = meIdent?.rep_id || (REPS && REPS[0]?.id) || "viewer";
   const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
   const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
   const filtered = scoped.filter(p =>
@@ -121,7 +122,7 @@ function PagePipeline({ role = "owner" }) {
     localStorage.setItem("repflow.pipeline.views", JSON.stringify(next));
     if (activeViewIdx === idx) setActiveViewIdx(-1);
   };
-  const activeFilters = Object.entries(filters).filter(([k, v]) => v !== "all" && k !== "maxDays").length + (filters.maxDays < 30 ? 1 : 0);
+  const activeFilters = Object.entries(filters).filter(([k, v]) => v !== "all" && k !== "maxDays")?.length + (filters.maxDays < 30 ? 1 : 0);
 
   const subtitle = role === "rep"
     ? `My pipeline · ${filtered.length} active · ${filtered.filter(p => p.stage === "App In").length} in app stage`
@@ -324,7 +325,7 @@ function PagePipeline({ role = "owner" }) {
           </>
         }>
           <Shared.Field label="Action">
-            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : REPS[0].id); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
+            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : (REPS[0]?.id || "")); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
           </Shared.Field>
           <Shared.Field label="Value">
             <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : REPS.map(r => ({ v: r.id, l: r.name }))}/>
@@ -445,7 +446,7 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
             ))}
             {(window.PIPELINE_SEQUENCES || []).length === 0 && (
               <div style={{ padding: 10, fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "center", border: "1px dashed var(--border-subtle)", borderRadius: 6 }}>
-                No sequences yet. <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "pipeline" }})); }} style={{ color: "var(--accent-money)" }}>Build one</a> in Pipeline → Sequences.
+                No sequences yet — owners can build follow-up sequences in Settings → Routing rules. Until one exists, leads sit in their current stage with no automated nudge.
               </div>
             )}
           </div>
