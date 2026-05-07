@@ -221,14 +221,25 @@ function AuthGate({ children }) {
   const [redeeming, setRedeeming] = React.useState(false);
   const sb = window.getSupabase();
 
+  // Track tenant errors so we can render a recovery screen instead of a
+  // permanent "Loading your agency..." spinner when loadTenant fails.
+  const [tenantError, setTenantError] = React.useState(null);
+
   const refreshTenant = React.useCallback(async () => {
-    if (window.loadTenant) {
+    if (!window.loadTenant) { setTenant(null); return; }
+    try {
+      setTenantError(null);
       const t = await window.loadTenant();
       setTenant(t);
       // Once tenant is loaded, refresh the global window.me() cache so
       // header chips, scopeRepIds, etc. immediately use the right identity.
       if (window.refreshMe) window.refreshMe();
-    } else { setTenant(null); }
+    } catch (e) {
+      // Surface the failure instead of leaving the spinner forever.
+      console.error("loadTenant failed:", e);
+      setTenantError(e?.message || String(e));
+      setTenant(null);
+    }
   }, []);
 
   const redeemAndRefresh = React.useCallback(async () => {
@@ -236,13 +247,18 @@ function AuthGate({ children }) {
     if (!token) { return refreshTenant(); }
     setRedeeming(true);
     try {
-      const { error } = await sb.rpc("redeem_invite", { p_token: token });
-      if (error) {
-        window.toast && window.toast(`Invite: ${error.message}`, "error");
-      } else {
-        window.toast && window.toast("Joined the agency · welcome", "success");
+      try {
+        const { error } = await sb.rpc("redeem_invite", { p_token: token });
+        if (error) {
+          window.toast && window.toast(`Invite: ${error.message}`, "error");
+        } else {
+          window.toast && window.toast("Joined the agency · welcome", "success");
+        }
+      } catch (e) {
+        // Network or unexpected throw — don't block the user, just toast and move on.
+        window.toast && window.toast(`Invite redeem failed: ${e?.message || e}`, "error");
       }
-      sessionStorage.removeItem("repflow.pending_invite");
+      try { sessionStorage.removeItem("repflow.pending_invite"); } catch {}
       // Strip the param from the URL so refreshes don't re-redeem
       try {
         const url = new URL(window.location.href);
@@ -252,32 +268,46 @@ function AuthGate({ children }) {
         }
       } catch {}
     } finally {
+      // ALWAYS clear the redeeming flag, even if refreshTenant throws below —
+      // otherwise the user gets stuck on "Joining your agency..." forever.
       setRedeeming(false);
-      await refreshTenant();
+      try { await refreshTenant(); } catch (e) { console.error("refreshTenant after redeem:", e); }
     }
   }, [refreshTenant, sb]);
 
   React.useEffect(() => {
     if (!sb) { setSession(null); return; }
-    sb.auth.getSession().then(({ data }) => {
-      const s = data.session || null;
-      // A real session always wins over the demo skip flag — clear it so
-      // header/sidebar stop calling the user "Guest" or "Demo" after login.
+    // .catch is critical — a rejected getSession (network failure, malformed
+    // stored token) used to leave session=undefined forever, freezing the app
+    // on the "Checking session..." screen.
+    sb.auth.getSession()
+      .then(({ data }) => {
+        const s = data.session || null;
+        // A real session always wins over the demo skip flag — clear it so
+        // header/sidebar stop calling the user "Guest" or "Demo" after login.
+        if (s) {
+          try { sessionStorage.removeItem("repflow.demo"); } catch {}
+          window.__demoSkip = false;
+          setDemo(false);
+        }
+        setSession(s);
+      })
+      .catch((e) => {
+        console.error("getSession failed:", e);
+        setSession(null);
+      });
+    const { data: sub } = sb.auth.onAuthStateChange((event, s) => {
       if (s) {
         try { sessionStorage.removeItem("repflow.demo"); } catch {}
         window.__demoSkip = false;
         setDemo(false);
       }
       setSession(s);
-    });
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
-      if (s) {
-        try { sessionStorage.removeItem("repflow.demo"); } catch {}
-        window.__demoSkip = false;
-        setDemo(false);
+      // Only trigger tenant refresh on real auth transitions, not silent token
+      // refreshes (which fire ~hourly and would re-hit the agency lookup).
+      if (s && (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED")) {
+        redeemAndRefresh();
       }
-      setSession(s);
-      if (s) redeemAndRefresh();
     });
     const onSkip = () => setDemo(true);
     window.addEventListener("auth:skip", onSkip);
@@ -298,6 +328,24 @@ function AuthGate({ children }) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Joining your agency...</div></div>;
   }
   if (!session && !demo) return <LoginScreen/>;
+  // Tenant lookup failed — give the user a real path forward instead of an
+  // infinite spinner. Reload re-runs the whole AuthGate, Sign out wipes state.
+  if (session && tenantError) {
+    return (
+      <div className="login-shell">
+        <div className="login-card" style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--state-danger)", marginBottom: 6 }}>Couldn't load your agency</div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14, lineHeight: 1.5 }}>{tenantError}</div>
+          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginBottom: 8 }} onClick={() => { setTenantError(null); setTenant(undefined); refreshTenant(); }}>
+            Try again
+          </button>
+          <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center" }} onClick={() => window.signOut && window.signOut()}>
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
   // Signed in but tenant lookup hasn't returned yet — avoid flashing the main
   // app (which would render with the demo/Marcus identity for a beat).
   if (session && tenant === undefined) {
@@ -333,11 +381,40 @@ window.AuthGate = AuthGate;
 window.LoginScreen = LoginScreen;
 window.signOut = async function () {
   const sb = window.getSupabase();
-  if (sb) await sb.auth.signOut();
-  sessionStorage.removeItem("repflow.demo");
-  sessionStorage.removeItem("repflow.pending_invite");
-  // Drop the cached me() identity too so a fresh sign-in re-resolves it
-  try { sessionStorage.removeItem("__repflow_me_v1"); } catch {}
+  // Sign out of Supabase first so the SDK clears its own storage. Wrapped in
+  // try/catch because a network error here must NEVER prevent the local
+  // wipe + reload from happening — that's how users got stuck "signed in"
+  // looking at stale data.
+  try { if (sb) await sb.auth.signOut(); } catch (e) { console.error("supabase signOut:", e); }
+
+  // Sweep every Repflow-owned key from session + local storage so the next
+  // sign-in starts from a true clean slate (no agency pin, no impersonation
+  // residue, no cached me(), no per-user UI state leaking across users).
+  const sweep = (storage) => {
+    try {
+      const keys = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && (k.startsWith("repflow.") || k.startsWith("repflow:") || k === "__repflow_me_v1")) {
+          keys.push(k);
+        }
+      }
+      for (const k of keys) { try { storage.removeItem(k); } catch {} }
+    } catch {}
+  };
+  sweep(sessionStorage);
+  sweep(localStorage);
+
+  // Wipe in-memory globals — belt-and-suspenders since reload clears them too,
+  // but explicit so any future SPA-style sign-out doesn't leak.
+  window.__me = null;
+  window.__activeAgency = null;
+  window.__demoSkip = false;
+  window.__demoAgencyIds = [];
+  window.__authRole = null;
+  window.adminImpersonate = null;
+
+  // Reload bootstraps the supabase client + AppData hydrate from scratch.
   window.location.reload();
 };
 

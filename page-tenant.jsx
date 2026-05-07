@@ -15,15 +15,38 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteerma
 
 /* ─── Tenant context ───────────────────────────────────────────────────── */
 async function loadTenant() {
+  // EVERY exit path returns a defined object — never throws to the caller.
+  // AuthGate's refreshTenant catches any throw, but we make the contract
+  // explicit here so the spinner never gets stuck on a silent rejection.
   const sb = window.getSupabase && window.getSupabase();
   if (!sb) return null;
-  const { data: session } = await sb.auth.getSession();
-  if (!session?.session) return { authed: false };
-  const userId = session.session.user.id;
-  const email  = session.session.user.email;
-  const { data: members } = await sb.from("agency_members")
-    .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
-    .eq("user_id", userId).eq("active", true);
+  let session = null;
+  try {
+    const r = await sb.auth.getSession();
+    session = r?.data?.session || null;
+  } catch (e) {
+    console.error("loadTenant getSession failed:", e);
+    throw new Error(`Session check failed: ${e?.message || e}`);
+  }
+  if (!session) return { authed: false };
+  const userId = session.user.id;
+  const email  = session.user.email;
+  let members = null;
+  let memberError = null;
+  try {
+    const r = await sb.from("agency_members")
+      .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
+      .eq("user_id", userId).eq("active", true);
+    members = r.data;
+    memberError = r.error;
+  } catch (e) {
+    memberError = e;
+  }
+  if (memberError) {
+    // RLS denies, network error, etc. Surface so AuthGate can render a
+    // recovery screen instead of routing the user to FirstRun.
+    throw new Error(`Agency membership lookup failed: ${memberError.message || memberError}`);
+  }
   if (!members || members.length === 0) {
     return { authed: true, userId, email, member: null, agency: null };
   }
@@ -65,25 +88,9 @@ async function maybeRedeemInvite() {
 }
 window.maybeRedeemInvite = maybeRedeemInvite;
 
-/* Listen for sign-in completion to redeem stashed invite */
-(function setupInviteListener() {
-  const tryRedeem = async () => {
-    const stash = sessionStorage.getItem("repflow.pending_invite");
-    if (!stash) return;
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    const { data: session } = await sb.auth.getSession();
-    if (!session?.session) return;
-    const { error } = await sb.rpc("redeem_invite", { p_token: stash });
-    sessionStorage.removeItem("repflow.pending_invite");
-    if (!error) window.toast && window.toast("Joined the agency · welcome", "success");
-  };
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", tryRedeem);
-  } else {
-    setTimeout(tryRedeem, 1500);
-  }
-})();
+/* Invite redemption is owned by AuthGate.redeemAndRefresh in page-auth.jsx —
+ * the previous setTimeout-based listener used to race AuthGate and toast a
+ * spurious "already used" error after the real redemption succeeded. */
 
 /* ─── Onboarding wizard — first-time agency owner setup ────────────────── */
 function OnboardingWizard({ onComplete }) {
@@ -341,6 +348,11 @@ function SettingsTeam() {
         <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5, maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>
           {loadErr ? <>Could not load: <span className="mono">{loadErr}</span></> : <>Sign in to a real agency to manage your team and invites. Demo mode is read-only.</>}
         </div>
+        {loadErr && (
+          <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => { setLoadErr(null); load(); }}>
+            <Icons.RefreshCw size={11}/> Retry
+          </button>
+        )}
       </div>
     );
   }
@@ -451,7 +463,27 @@ function SettingsCarriers({ canEdit = true }) {
     const q = sb.from("carriers").select("*").order("name");
     const { data, error } = aid ? await q.eq("agency_id", aid) : await q;
     if (error) { setErr(error.message); setCarriers([]); return; }
-    setCarriers(data || []);
+    let rows = data || [];
+    // Fallback: if the legacy `carriers` table is empty for this agency,
+    // pull from the new agency_carrier_appointments table (the schema the
+    // Auto Quoter + agency drill-in editor write to). Project to the same
+    // shape so the rest of this component renders without changes.
+    if (rows.length === 0 && aid) {
+      try {
+        const { data: appts } = await sb.from("agency_carrier_appointments").select("*").eq("agency_id", aid);
+        rows = (appts || []).map(a => ({
+          id: a.id, agency_id: a.agency_id,
+          name: a.carrier_name || a.carrier_id,
+          carrier_id: a.carrier_id,
+          npn: a.npn,
+          appointed_states: a.appointed_states || [],
+          comp_rate_pct: a.comp_rate_pct,
+          notes: a.notes,
+          active: a.active,
+        }));
+      } catch (_e) { /* keep empty */ }
+    }
+    setCarriers(rows);
   }, []);
   React.useEffect(() => { load(); }, [load]);
 

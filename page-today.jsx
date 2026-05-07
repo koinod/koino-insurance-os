@@ -845,7 +845,7 @@ function TodayManager({ aep }) {
                 <div className="tabular" style={{ textAlign: "right" }}>{r.appts}</div>
                 <div className="tabular" style={{ textAlign: "right", color: r.today > 1000 ? "var(--accent-money)" : "var(--text-secondary)" }}>${r.today.toLocaleString()}</div>
                 <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${(r.mtd / 1000).toFixed(1)}k</div>
-                <button className="btn btn-ghost"><Icons.MessageSquare size={11}/></button>
+                <button className="btn btn-ghost" title={`DM ${r.name}`} onClick={() => { if (window.gotoPage) window.gotoPage("messages"); window.toast && window.toast(`Open thread with ${r.name}`, "info"); }}><Icons.MessageSquare size={11}/></button>
               </div>
             ))}
           </div>
@@ -877,7 +877,7 @@ function TodayManager({ aep }) {
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{c.rep?.name || "—"}</div>
                     <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.note}</div>
                   </div>
-                  <button className="btn btn-ghost"><Icons.Play size={10}/></button>
+                  <button className="btn btn-ghost" title={`Coach ${c.rep?.name || ""}`} onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${c.rep?.name || "this rep"} on: ${c.note}`, context: "Coaching · " + (c.rep?.name || "") } }))}><Icons.Play size={10}/></button>
                 </div>
               ))}
               {(REPS || []).length === 0 && (
@@ -957,7 +957,7 @@ function TodayOwner({ aep }) {
           ><Icons.Calendar size={13}/> Audit week</button>
           <button
             className="btn btn-primary"
-            onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { question: "What is the most important thing for the team to focus on this week?" } }))}
+            onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: "What is the most important thing for the team to focus on this week?", context: "Owner · weekly focus" } }))}
           ><Icons.Sparkles size={13}/> Ask the Book</button>
         </div>
       </div>

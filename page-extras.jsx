@@ -1830,7 +1830,7 @@ function ProductTrainingOwner({ store }) {
   return (
     <>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 8 }}>
-        <button className="btn"><Icons.ArrowUpRight size={13}/> Audit trail</button>
+        <button className="btn" onClick={() => window.toast && window.toast("Course audit trail opens once you've published a course", "info")}><Icons.ArrowUpRight size={13}/> Audit trail</button>
         <button className="btn btn-primary" onClick={newCourse}><Icons.Plus size={13}/> New course</button>
       </div>
 
@@ -2781,34 +2781,83 @@ function SettingsApi() {
 }
 
 function SettingsRouting() {
-  const [rules, setRules] = React.useState([
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const [rules, setRules] = React.useState(isDemo ? [
     { id: 1, src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60 },
     { id: 2, src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90 },
     { id: 3, src: "Annuity",             route: "Certified producer",    weight: 100 },
     { id: 4, src: "Spanish",             route: "Bilingual round-robin", weight: 50 },
-  ]);
+  ] : []);
+  const [editing, setEditing] = React.useState(null); // null = closed, {} = new, {id...} = edit existing
+  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50 });
+  const editRule = (r) => setEditing({ ...r });
+  const deleteRule = (id) => {
+    setRules(rs => rs.filter(x => x.id !== id));
+    window.toast && window.toast("Rule removed", "success");
+  };
+  const saveRule = () => {
+    if (!editing.src.trim() || !editing.route.trim()) {
+      window.toast && window.toast("Source and route are required", "error");
+      return;
+    }
+    if (editing.id == null) {
+      const nextId = rules.length === 0 ? 1 : Math.max(...rules.map(r => r.id || 0)) + 1;
+      setRules(rs => [...rs, { ...editing, id: nextId }]);
+      window.toast && window.toast("Rule added", "success");
+    } else {
+      setRules(rs => rs.map(x => x.id === editing.id ? editing : x));
+      window.toast && window.toast("Rule updated", "success");
+    }
+    setEditing(null);
+  };
   return (
     <div className="panel" style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>Routing rules</h3>
-        <button className="btn btn-primary"><Icons.Plus size={12}/> New rule</button>
+        <button className="btn btn-primary" onClick={addRule}><Icons.Plus size={12}/> New rule</button>
       </div>
       <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 60px" }}>
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
           <div>Source / trigger</div><div>Route to</div><div>Priority</div><div></div>
         </div>
         {rules.map(r => (
-          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 60px" }}>
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
             <div style={{ fontWeight: 500 }}>{r.src}</div>
             <div style={{ color: "var(--text-secondary)" }}>{r.route}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input type="range" min={0} max={100} value={r.weight} onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))} style={{ flex: 1 }}/>
               <span className="tabular" style={{ width: 30, fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.weight}</span>
             </div>
-            <button className="btn btn-ghost"><Icons.X size={11}/></button>
+            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 8px" }} onClick={() => editRule(r)}>Edit</button>
+              <button className="btn btn-ghost" onClick={() => deleteRule(r.id)} title="Delete rule"><Icons.X size={11}/></button>
+            </div>
           </div>
         ))}
+        {rules.length === 0 && (
+          <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+            No routing rules yet. Add one to control which producer gets which lead source.
+          </div>
+        )}
       </div>
+      {editing && (
+        <Shared.Modal title={editing.id == null ? "New routing rule" : "Edit routing rule"} width={460} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveRule}><Icons.Check size={11}/> Save</button>
+          </>
+        }>
+          <Shared.Field label="Source / trigger">
+            <input className="text-input" value={editing.src} onChange={(e) => setEditing({ ...editing, src: e.target.value })} placeholder="e.g. FB Lead Form · T65" autoFocus/>
+          </Shared.Field>
+          <Shared.Field label="Route to">
+            <input className="text-input" value={editing.route} onChange={(e) => setEditing({ ...editing, route: e.target.value })} placeholder="e.g. Med Supp specialists"/>
+          </Shared.Field>
+          <Shared.Field label={`Priority weight · ${editing.weight}`}>
+            <input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%" }}/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
