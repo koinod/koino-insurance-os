@@ -661,6 +661,9 @@ window.subscribeRealtime = function () {
     agency_videos:      "VIDEOS",
     agency_docs:        "DOCS",
     agency_quick_links: "QUICK_LINKS",
+    // GAP-X5 — notifications + commissions stream so badges and PnL update without refresh
+    notifications:      "NOTIFICATIONS",
+    commissions:        "COMMISSIONS",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -678,6 +681,8 @@ window.subscribeRealtime = function () {
     if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, createdBy: r.created_by, createdAt: r.created_at };
     if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, createdBy: r.created_by, createdAt: r.created_at };
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
+    if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
+    if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
     return r;
   };
 
