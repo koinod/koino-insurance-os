@@ -438,8 +438,15 @@ function PageScrubbers() {
     if (phone) r.push({ k: "DNC", ok: !dnc, msg: dnc ? "Number is on Do-Not-Call list — DO NOT DIAL" : "Clear of state + federal DNC" });
     if (phone) r.push({ k: "Litigator", ok: true, msg: "No known TCPA litigator history" });
     if (age)    r.push({ k: "Age",  ok: ageOk, msg: ageOk ? `Age ${age} valid for senior products${t65 ? " (T65)" : ""}` : "Age out of range" });
-    if (zip)    r.push({ k: "License", ok: stateOk, msg: stateOk ? "Producer Marcus Avila licensed in this zip" : "Invalid zip" });
-    if (zip)    r.push({ k: "Carrier appt", ok: stateOk, msg: stateOk ? "UHC, Humana, Aetna SRC appointed for this state" : "Cannot verify state" });
+    if (zip) {
+      const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+      const producerName = meIdent?.full_name || "Producer";
+      r.push({ k: "License", ok: stateOk, msg: stateOk ? `${producerName} licensed in this zip` : "Invalid zip" });
+    }
+    if (zip) {
+      const carriers = (window.AppData?.CARRIERS || []).slice(0, 3).map(c => c.name).filter(Boolean).join(", ");
+      r.push({ k: "Carrier appt", ok: stateOk, msg: stateOk ? (carriers ? `${carriers} appointed for this state` : "Add carrier appointments under Settings → Carriers") : "Cannot verify state" });
+    }
     setResults(r);
   };
 

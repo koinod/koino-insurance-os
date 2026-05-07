@@ -75,10 +75,13 @@ function PageVault({ role = "owner" }) {
           <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
           <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>
           <button className="btn" onClick={() => {
+            const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+            const orgName = meIdent?.agency_name || "Your agency";
+            const artifactCount = ARTIFACTS.length;
             const html = `
               <h1>Compliance Audit Pack</h1>
-              <div class="meta">Atlas Insurance Group · Generated ${new Date().toLocaleDateString()}</div>
-              <p><strong>14,820 artifacts retained</strong> across the trailing 13 months. SOA capture rate 98.2%, TPMO compliance 100%, zero violations.</p>
+              <div class="meta">${orgName} · Generated ${new Date().toLocaleDateString()}</div>
+              <p><strong>${artifactCount.toLocaleString()} artifact${artifactCount === 1 ? "" : "s"} retained</strong> in the vault.</p>
               <table>
                 <thead><tr><th>Kind</th><th>Lead</th><th>Producer</th><th>Captured</th><th>Status</th><th>Retention</th></tr></thead>
                 <tbody>
@@ -450,16 +453,20 @@ function CommissionsRep() {
           <div className="page-sub">Statement · advances vs as-earned · NIGO and chargeback alerts</div>
         </div>
         <button className="btn" style={{ marginLeft: "auto" }} onClick={() => {
+          const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+          const producerName = meIdent?.full_name || "Producer";
+          const orgName = meIdent?.agency_name || "Your agency";
+          const periodLabel = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
           const html = `
-            <h1>Statement · April</h1>
-            <div class="meta">Marcus Avila · Atlas Insurance Group · ${new Date().toLocaleDateString()}</div>
+            <h1>Statement · ${periodLabel}</h1>
+            <div class="meta">${producerName} · ${orgName} · ${new Date().toLocaleDateString()}</div>
             <table>
               <thead><tr><th>Date</th><th>Lead</th><th>Carrier</th><th>Product</th><th style="text-align:right">AP</th><th style="text-align:right">Comp %</th><th style="text-align:right">Expected</th><th style="text-align:right">Paid</th><th>Status</th></tr></thead>
               <tbody>
               ${ROWS.map(r => `<tr><td>${r.date}</td><td>${r.lead}</td><td>${r.carrier}</td><td>${r.product}</td><td style="text-align:right">$${(r.ap || 0).toLocaleString()}</td><td style="text-align:right">${r.pct}%</td><td style="text-align:right">$${r.expected.toLocaleString()}</td><td style="text-align:right">$${r.paid.toLocaleString()}</td><td>${r.status}</td></tr>`).join("")}
               </tbody>
             </table>`;
-          window.exportPDF && window.exportPDF("Statement · April", html);
+          window.exportPDF && window.exportPDF(`Statement · ${periodLabel}`, html);
         }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
         <button className="btn" style={{ marginLeft: 8 }} onClick={() => window.AppData.exportCsv(ROWS, "commissions-statement",
           [
@@ -2491,10 +2498,15 @@ function PageSettings({ role = "owner" }) {
 }
 
 function SettingsOrg() {
-  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || "Atlas Insurance Group");
-  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || "Atlas IMO LLC");
-  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || "atlasimo.com");
-  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || "19384726");
+  // Don't seed real org fields with Atlas demo strings — empty inputs render
+  // the placeholder cleanly and signal "fill me in" instead of "this is the
+  // seed I should overwrite". Demo agency keeps the seed for the sandbox.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || (isDemo ? "Atlas Insurance Group" : (meIdent?.agency_name || "")));
+  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || (isDemo ? "Atlas IMO LLC" : ""));
+  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || (isDemo ? "atlasimo.com" : ""));
+  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || (isDemo ? "19384726" : ""));
   const [saving, setSaving] = React.useState(false);
   const save = async () => {
     setSaving(true);
@@ -2885,14 +2897,17 @@ function SettingsProfile({ role }) {
    ───────────────────────────────────────────────────────────────────────── */
 function NotificationsPanel({ open, onClose, goto }) {
   if (!open) return null;
-  const FALLBACK = [
+  // Demo-only illustrative notifications. Real tenants get an empty state
+  // ("no notifications yet") instead of seeing Cheryl Hampton / Robert Mendez.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const FALLBACK = isDemo ? [
     { kind: "lead",     t: "Hot inbound · Cheryl Hampton",    d: "14s",       sub: "FB T65 · score 92 · TX",                page: "queue" },
     { kind: "issued",   t: "Deal issued · Naomi Reese",        d: "8m",        sub: "Aetna SRC Plan G · $1,780 AP",          page: "commissions" },
     { kind: "nigo",     t: "NIGO returned · Linda Cho",         d: "1h",        sub: "Sigs missing · Plan N",                  page: "calls" },
     { kind: "coaching", t: "New coaching card",                  d: "2h",        sub: "Open-ended Q drill assigned",            page: "coaching" },
     { kind: "anomaly",  t: "Persistency drift · Tampa",          d: "3h",        sub: "FE 13-mo cohort -3.2pts WoW",           page: "book" },
     { kind: "recruit",  t: "New applicant · Stacy V",            d: "yesterday", sub: "Already licensed in TX",                  page: "recruiting" },
-  ];
+  ] : [];
   // Live notifications: AppData.NOTIFICATIONS, mapped onto the panel shape.
   // Sort unread first, then most recent. Fallback to FALLBACK if empty.
   const fmtDelta = (iso) => {
@@ -2954,7 +2969,13 @@ function NotificationsPanel({ open, onClose, goto }) {
           </div>
         </div>
         <div className="slideout-body" style={{ padding: 0 }}>
-          {items.map((n, i) => (
+          {items.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+              <Icons.Bell size={20} style={{ color: "var(--text-quaternary)" }}/>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No notifications yet</div>
+              <div style={{ fontSize: 11.5, marginTop: 4 }}>Lead assignments, NIGO returns, and team activity will land here.</div>
+            </div>
+          ) : items.map((n, i) => (
             <div key={i} onClick={() => { goto && goto(n.page); onClose(); }} style={{ display: "flex", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}>
               <span className="dot" style={{ background: colorOf(n.kind), marginTop: 6 }}></span>
               <div style={{ flex: 1, minWidth: 0 }}>
