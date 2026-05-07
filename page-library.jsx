@@ -102,6 +102,20 @@ function PageLibrary({ role = "rep" }) {
               No matches for <strong style={{ color: "var(--text-secondary)" }}>"{q}"</strong> across scripts, videos, docs, carriers, or links.
             </div>
           )}
+          {!q && totalAcrossSearch === 0 && (
+            <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+              <Icons.Book size={20} style={{ color: "var(--text-quaternary)" }}/>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No resources yet</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+                Owners can add scripts, training videos, carrier sheets, and quick links from Settings → Library. Whatever lands here is searchable + reachable from ⌘K on every call.
+              </div>
+              {role === "owner" && (
+                <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => { try { sessionStorage.setItem("repflow.settings.tab", "library"); } catch {}; if (window.gotoPage) window.gotoPage("settings"); }}>
+                  <Icons.Plus size={11}/> Add resources
+                </button>
+              )}
+            </div>
+          )}
           {fScripts.length  > 0 && <ScriptsBlock  scripts={fScripts}  openId={openScript} setOpenId={setOpenScript} subCtx={subCtx}/>}
           {fVideos.length   > 0 && <VideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
           {fDocs.length     > 0 && <DocsBlock     docs={fDocs}/>}

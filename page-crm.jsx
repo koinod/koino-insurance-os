@@ -518,12 +518,18 @@ function AddLeadModal({ reps, sourceNames, onClose, onSave }) {
             options={[{ v: "Manual entry", l: "Manual entry" }, ...sourceNames.map(n => ({ v: n, l: n }))]}/>
         </Shared.Field>
         <Shared.Field label="Assign to">
-          <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+          {reps.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", padding: "8px 0", lineHeight: 1.5 }}>
+              No teammates yet — invite a producer first under Settings → Team. The lead will be assigned to you when you add the first one.
+            </div>
+          ) : (
+            <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+          )}
         </Shared.Field>
         <div/>
       </div>
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-        <button className="btn btn-primary" disabled={!valid} onClick={() => onSave(form)}>
+        <button className="btn btn-primary" disabled={!valid || (reps.length > 0 && !form.owner)} onClick={() => onSave(form)}>
           <Icons.Plus size={11}/> Add lead
         </button>
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>

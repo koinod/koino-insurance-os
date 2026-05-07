@@ -170,19 +170,19 @@ function PagePerformance() {
         <Shared.KpiCard hero
           label="Top performer"
           value={top?.name?.split(" ")[0] || "—"}
-          sub={top ? `$${top.mtd.toLocaleString()} · ${top.streak}d streak` : ""}
-          trend="up"/>
+          sub={top ? `$${(top.mtd || 0).toLocaleString()} · ${top.streak || 0}d streak` : "no producers yet"}
+          trend={top ? "up" : undefined}/>
         <Shared.KpiCard
           label="Weighted pipeline"
-          prefix="$"
-          value={Math.round(weightedAP).toLocaleString()}
-          sub={`${pipeline.length} deals · all stages × prob`}/>
+          prefix={pipeline.length > 0 ? "$" : ""}
+          value={pipeline.length > 0 ? Math.round(weightedAP).toLocaleString() : "—"}
+          sub={pipeline.length > 0 ? `${pipeline.length} deals · all stages × prob` : "no pipeline yet"}/>
         <Shared.KpiCard
           label="Coverage"
-          value={coverage.toFixed(2) + "x"}
-          sub={`vs $${forecastGoal.toLocaleString()} goal`}
-          trend={coverage >= 1 ? "up" : "down"}
-          neg={coverage < 1}/>
+          value={pipeline.length > 0 && weightedAP > 0 ? coverage.toFixed(2) + "x" : "—"}
+          sub={pipeline.length > 0 ? `vs $${forecastGoal.toLocaleString()} goal` : "set a goal in the panel below"}
+          trend={pipeline.length > 0 ? (coverage >= 1 ? "up" : "down") : undefined}
+          neg={pipeline.length > 0 && coverage < 1}/>
         <Shared.KpiCard
           label="Tier movement"
           value={`+${promoted} / -${demoted}`}
