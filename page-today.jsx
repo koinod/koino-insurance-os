@@ -338,9 +338,18 @@ function TodayRep({ aep }) {
 
   // Resolve current viewer. window.me() may be null on first paint; we still
   // render with REPS[0] to avoid a flash, then re-render on the me:loaded event.
+  // Synthesize a stub from me() identity when REPS is empty (brand-new agency)
+  // so we never crash on `myRow.id` lookups below.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRow   = REPS.find(r => meIdent && (r.id === meIdent.rep_id || r.handle === meIdent.handle))
-                || REPS[0];
+  const myRow   = (REPS || []).find(r => meIdent && (r.id === meIdent.rep_id || r.handle === meIdent.handle))
+                || (REPS || [])[0]
+                || (meIdent ? {
+                      id: meIdent.rep_id || "viewer",
+                      name: meIdent.full_name || "Viewer",
+                      handle: meIdent.handle || "@viewer",
+                      tier: meIdent.tier || "bronze",
+                      mtd: 0, today: 0, dials: 0, appts: 0, presence: "off",
+                    } : { id: "viewer", name: "Viewer", tier: "bronze", mtd: 0, today: 0, dials: 0, appts: 0, presence: "off" });
 
   // Force re-render when me() resolves
   const [, force] = React.useState(0);
@@ -458,7 +467,11 @@ function TodayRep({ aep }) {
           <div className="page-sub">{subline}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> Schedule</button>
+          <button
+            className="btn"
+            onClick={() => window.dispatchEvent(new CustomEvent("appointment:open", { detail: { lead: null } }))}
+            title="Schedule a callback or appointment"
+          ><Icons.Calendar size={13}/> Schedule</button>
           <button className="btn btn-primary" onClick={goFloor}><Icons.Phone size={13}/> Power Hour</button>
         </div>
       </div>
@@ -548,12 +561,28 @@ function TodayRep({ aep }) {
         </div>
       </div>
 
-      <SpendStrip items={[
-        { l: "Cost / issued (you)",  v: "$112",  tone: "money" },
-        { l: "Lead spend MTD",        v: "$680" },
-        { l: "Comp / dial",            v: "$32.6", tone: "money" },
-        { l: "NIGO drag",              v: "$0",    tone: "money" },
-      ]}/>
+      {(() => {
+        // Live ROAS — pull MTD lead spend from AppData (hydrated from agency_expenses).
+        // Issued count comes from POLICIES; falls back to demo numbers when empty.
+        const leadSpendCents = (AppData.LEAD_SPEND_TOTALS && AppData.LEAD_SPEND_TOTALS.mtd) || 0;
+        const leadSpendMtd = Math.round(leadSpendCents / 100);
+        const issuedMtd = (AppData.POLICIES || []).filter(p => {
+          if (!p.issuedAt && !p.issued_at) return false;
+          const d = new Date(p.issuedAt || p.issued_at);
+          const now = new Date();
+          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        }).length;
+        const cpa = issuedMtd > 0 ? Math.round(leadSpendMtd / issuedMtd) : null;
+        const isDemo = window.isDemoAgency && window.isDemoAgency();
+        return (
+          <SpendStrip items={[
+            { l: "Cost / issued",  v: cpa != null ? `$${cpa}` : (isDemo ? "$112" : "—"), tone: "money" },
+            { l: "Lead spend MTD", v: leadSpendMtd > 0 ? `$${leadSpendMtd.toLocaleString()}` : (isDemo ? "$680" : "$0") },
+            { l: "Issued MTD",     v: issuedMtd > 0 ? String(issuedMtd) : (isDemo ? "—" : "0"), tone: "money" },
+            { l: "NIGO drag",      v: "$0", tone: "money" },
+          ]}/>
+        );
+      })()}
 
       <div className="kpi-row">
         <Shared.KpiCard hero label="Today's Commission" value={todayCommission.toLocaleString()} prefix="$" sub={`MTD: $${mtdNum.toLocaleString()}`} trend={todayCommission > 0 ? "up" : undefined} spark={spark1}/>
@@ -607,8 +636,26 @@ function TodayRep({ aep }) {
                 On Cheryl Hampton's call, you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-                <button className="btn btn-primary"><Icons.Play size={11}/> Replay moment</button>
-                <button className="btn">Mark practiced</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    if (window.gotoPage) window.gotoPage("calls");
+                    window.toast && window.toast("Coaching surface opened — find the moment in your call history", "info");
+                  }}
+                ><Icons.Play size={11}/> Replay moment</button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    try {
+                      const k = "repflow.coaching_practiced";
+                      const today = new Date().toISOString().slice(0, 10);
+                      const log = JSON.parse(localStorage.getItem(k) || "[]");
+                      log.unshift({ topic: "open-ended-questions", at: today });
+                      localStorage.setItem(k, JSON.stringify(log.slice(0, 90)));
+                    } catch {}
+                    window.toast && window.toast("Marked practiced · streak +1", "success");
+                  }}
+                >Mark practiced</button>
               </div>
             </div>
           </div>
@@ -723,11 +770,11 @@ function TodayRep({ aep }) {
 /* ───── Manager view ─────────────────────────────────────────────────────── */
 function TodayManager({ aep }) {
   const { REPS } = AppData;
-  const live  = REPS.filter(r => r.presence === "live");
-  const idle  = REPS.filter(r => r.presence !== "live");
-  const teamMTD = REPS.reduce((a, r) => a + r.mtd, 0);
-  const teamToday = REPS.reduce((a, r) => a + r.today, 0);
-  const totalDials = REPS.reduce((a, r) => a + r.dials, 0);
+  const live  = (REPS || []).filter(r => r.presence === "live");
+  const idle  = (REPS || []).filter(r => r.presence !== "live");
+  const teamMTD = (REPS || []).reduce((a, r) => a + (r.mtd || 0), 0);
+  const teamToday = (REPS || []).reduce((a, r) => a + (r.today || 0), 0);
+  const totalDials = (REPS || []).reduce((a, r) => a + (r.dials || 0), 0);
 
   return (
     <div className="page-pad">
@@ -737,8 +784,20 @@ function TodayManager({ aep }) {
           <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.MessageSquare size={13}/> Standup notes</button>
-          <button className="btn btn-primary"><Icons.Phone size={13}/> Power Hour · all hands</button>
+          <button
+            className="btn"
+            onClick={() => {
+              if (window.gotoPage) window.gotoPage("messages");
+              window.toast && window.toast("Open your team channel to post standup notes", "info");
+            }}
+          ><Icons.MessageSquare size={13}/> Standup notes</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              if (window.gotoPage) window.gotoPage("floor");
+              window.toast && window.toast("Power Hour started · all hands on Floor", "success");
+            }}
+          ><Icons.Phone size={13}/> Power Hour · all hands</button>
         </div>
       </div>
 
@@ -796,20 +855,36 @@ function TodayManager({ aep }) {
           <div className="panel">
             <div className="panel-h"><Icons.Activity size={13} style={{ color: "var(--accent-status)" }}/><h3>Today's coaching cards</h3></div>
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
-                { rep: REPS[0], note: "4 closed-ended Q on first call. Replay ready." },
-                { rep: REPS[2], note: "Talk ratio 58% on Robert Mendez. Pull moment." },
-                { rep: REPS[5], note: "Skipped Plan G anchor on 14 quotes." },
-              ].map((c, i) => (
+              {(() => {
+                // Coaching cards: real entries from AppData.COACHING_SESSIONS when present,
+                // else illustrative cards bound to whatever reps actually exist in the agency.
+                // Was hardcoded to REPS[0]/REPS[2]/REPS[5] which crashed any agency with <6 reps.
+                const real = (AppData.COACHING_SESSIONS || [])
+                  .slice(0, 3)
+                  .map(s => ({ rep: (REPS || []).find(r => r.id === s.repId), note: s.note || s.summary || "Coaching note" }))
+                  .filter(c => c.rep);
+                if (real.length > 0) return real;
+                const illustrative = [
+                  "4 closed-ended Q on first call. Replay ready.",
+                  "Talk ratio 58% on a recent call. Pull moment.",
+                  "Skipped Plan G anchor on 14 quotes.",
+                ];
+                return (REPS || []).slice(0, 3).map((rep, i) => ({ rep, note: illustrative[i] || "Coaching note" }));
+              })().map((c, i) => (
                 <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, display: "flex", gap: 10, alignItems: "center" }}>
                   <Shared.Avatar rep={c.rep} size={20}/>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{c.rep.name}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{c.rep?.name || "—"}</div>
                     <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.note}</div>
                   </div>
                   <button className="btn btn-ghost"><Icons.Play size={10}/></button>
                 </div>
               ))}
+              {(REPS || []).length === 0 && (
+                <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                  No producers yet — invite your first rep from Settings → Team to start coaching.
+                </div>
+              )}
             </div>
           </div>
 
@@ -873,8 +948,17 @@ function TodayOwner({ aep }) {
           <div className="page-sub">{REPS.length} producers · ${teamToday.toLocaleString()} AP closed today · ${teamMTD.toLocaleString()} MTD</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> Audit week</button>
-          <button className="btn btn-primary"><Icons.Sparkles size={13}/> Ask the Book</button>
+          <button
+            className="btn"
+            onClick={() => {
+              if (window.gotoPage) window.gotoPage("performance");
+              window.toast && window.toast("Weekly audit · standings + tiering + forecast", "info");
+            }}
+          ><Icons.Calendar size={13}/> Audit week</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { question: "What is the most important thing for the team to focus on this week?" } }))}
+          ><Icons.Sparkles size={13}/> Ask the Book</button>
         </div>
       </div>
 
