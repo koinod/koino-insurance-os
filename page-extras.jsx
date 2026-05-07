@@ -2161,15 +2161,18 @@ function PageBook() {
   const carriers = window.AppData?.CARRIERS || [];
   const book     = window.AppData?.BOOK_ENTRIES || [];
 
+  // Demo seed only renders for the demo agency. Real tenants with no policies
+  // see an empty-state CTA instead of fabricated UHC/Humana/Aetna AP numbers.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
   const carrierMix = (() => {
     if (carriers.length === 0 || policies.length === 0) {
-      return [
+      return isDemo ? [
         { id: "uhc",   name: "UHC",            apps: 184, ap: 1842000, persist: 94, nigo: 1.4 },
         { id: "hum",   name: "Humana Vantage", apps: 132, ap: 1320000, persist: 92, nigo: 2.0 },
         { id: "aet",   name: "Aetna SRC",      apps: 124, ap: 1108000, persist: 87, nigo: 3.1 },
         { id: "fg",    name: "F&G Annuities",  apps:  42, ap: 1860000, persist: 96, nigo: 0.6 },
         { id: "moo",   name: "Mutual of Omaha",apps:  88, ap:  708000, persist: 78, nigo: 1.9 },
-      ];
+      ] : [];
     }
     return carriers.map(c => {
       const cps = policies.filter(p => p.carrierId === c.id);
@@ -2184,9 +2187,9 @@ function PageBook() {
       };
     }).sort((a, b) => b.ap - a.ap);
   })();
-  const totalAp = carrierMix.reduce((a, c) => a + c.ap, 0);
-  const maxAp   = Math.max(1, ...carrierMix.map(c => c.ap));
-  const apMM    = (totalAp / 1_000_000).toFixed(2) + "M";
+  const totalAp = carrierMix.reduce((a, c) => a + (c.ap || 0), 0);
+  const maxAp   = Math.max(1, ...carrierMix.map(c => c.ap || 0));
+  const apMM    = totalAp > 0 ? (totalAp / 1_000_000).toFixed(2) + "M" : "—";
 
   const exportBook = () => {
     const headers = ["Carrier","Apps","AP","Persistency","NIGO"];
@@ -2224,12 +2227,14 @@ function PageBook() {
         onChange={setView}
       />
 
-      {/* Compact KPI strip — 4 equal tiles, no hero */}
+      {/* Compact KPI strip — 4 equal tiles, no hero. KPIs display "—" for
+          real tenants until persistency / lapse / cross-sell rollups are
+          computed from policies + book entries. Demo keeps the seed values. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-        <BookKpi label="In-force AP"             value={"$" + apMM}        sub="+9.4% YoY"     trend="up"   tone="money"/>
-        <BookKpi label={`Persistency · ${BOOK_PERIOD_LABELS[period]}`} value="91.4%" sub="goal 90%" trend="up"  tone="money"/>
-        <BookKpi label="Lapse rate"              value="4.2%"              sub="-0.6 WoW"      trend="up"/>
-        <BookKpi label="Cross-sell rate"         value="22%"               sub="FE → Med Supp" trend="up"/>
+        <BookKpi label="In-force AP"             value={apMM === "—" ? "—" : "$" + apMM}        sub={isDemo ? "+9.4% YoY" : ""}     trend={isDemo ? "up" : undefined}   tone="money"/>
+        <BookKpi label={`Persistency · ${BOOK_PERIOD_LABELS[period]}`} value={isDemo ? "91.4%" : "—"} sub={isDemo ? "goal 90%" : "no data"} trend={isDemo ? "up" : undefined}  tone={isDemo ? "money" : undefined}/>
+        <BookKpi label="Lapse rate"              value={isDemo ? "4.2%" : "—"}              sub={isDemo ? "-0.6 WoW" : "no data"}      trend={isDemo ? "up" : undefined}/>
+        <BookKpi label="Cross-sell rate"         value={isDemo ? "22%" : "—"}               sub={isDemo ? "FE → Med Supp" : "no data"} trend={isDemo ? "up" : undefined}/>
       </div>
 
       {/* ─── Carrier mix view ─── */}
@@ -2250,8 +2255,13 @@ function PageBook() {
                 <div className="tabular" style={{ textAlign: "right" }}>NIGO</div>
                 <div></div>
               </div>
+              {carrierMix.length === 0 && (
+                <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                  No carrier data yet — add appointments under Settings → Carriers, then write your first deal on the Floor.
+                </div>
+              )}
               {carrierMix.map(r => {
-                const w = (r.ap / maxAp) * 100;
+                const w = ((r.ap || 0) / maxAp) * 100;
                 const persistTone = r.persist == null ? "var(--text-tertiary)" : r.persist >= 90 ? "var(--accent-money)" : r.persist >= 80 ? "var(--state-warning)" : "var(--state-danger)";
                 return (
                   <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 70px 90px 70px 70px 1fr", cursor: "pointer", background: drill === r.id ? "var(--bg-raised)" : undefined, height: 32 }} onClick={() => setDrill(drill === r.id ? null : r.id)}>
@@ -2298,13 +2308,13 @@ function PageBook() {
               <span className="meta">by carrier × product</span>
             </div>
             <div style={{ padding: 14 }}>
-              {[
+              {(isDemo ? [
                 { l: "Med Supp · UHC",        v: 94 },
                 { l: "Med Supp · Humana",     v: 92 },
                 { l: "FE · UHC",              v: 88 },
                 { l: "FE · Mutual of Omaha",  v: 78 },
                 { l: "Annuity · F&G",         v: 96 },
-              ].map((r, i) => (
+              ] : []).map((r, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 50px 1fr", padding: "4px 0", alignItems: "center", fontSize: 11.5 }}>
                   <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
                   <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}%</span>
@@ -2313,17 +2323,35 @@ function PageBook() {
                   </div>
                 </div>
               ))}
+              {!isDemo && (
+                <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                  No persistency data yet. Cohorts populate as policies hit month 3.
+                </div>
+              )}
             </div>
-            <div className="divider" style={{ margin: "0 14px" }}></div>
-            <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-              <strong style={{ color: "var(--state-warning)" }}>Watch:</strong> FE / Mutual of Omaha at 78% — replacement risk. Pull a cancellations report to confirm.
-            </div>
+            {isDemo && (
+              <>
+                <div className="divider" style={{ margin: "0 14px" }}></div>
+                <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+                  <strong style={{ color: "var(--state-warning)" }}>Watch:</strong> FE / Mutual of Omaha at 78% — replacement risk. Pull a cancellations report to confirm.
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* ─── Cohorts view — issue-month survival curves ─── */}
-      {view === "cohorts" && (
+      {view === "cohorts" && !isDemo && (
+        <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+          <Icons.Activity size={20} style={{ color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No cohort data yet</div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            Survival curves render once policies have aged at least one month. Each issue-month gets its own row; we track in-force % at every month forward.
+          </div>
+        </div>
+      )}
+      {view === "cohorts" && isDemo && (
         <div className="panel">
           <div className="panel-h">
             <Icons.Activity size={13}/>
@@ -2373,7 +2401,16 @@ function PageBook() {
       )}
 
       {/* ─── Cross-sell view — pathway conversion ─── */}
-      {view === "crosssell" && (
+      {view === "crosssell" && !isDemo && (
+        <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+          <Icons.ArrowUpRight size={20} style={{ color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No cross-sell data yet</div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            Pathways populate once you have multi-policy clients. Each "X issued → Y attached" arc tracks conversion rate and avg time-to-attach.
+          </div>
+        </div>
+      )}
+      {view === "crosssell" && isDemo && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div className="panel">
             <div className="panel-h"><Icons.ArrowUpRight size={13}/><h3>Pathway conversion</h3><span className="meta">last {BOOK_PERIOD_LABELS[period]}</span></div>

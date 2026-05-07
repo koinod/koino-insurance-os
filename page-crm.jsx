@@ -98,7 +98,9 @@ function deriveSources(useSample) {
 function PageCrm({ role = "owner" }) {
   useAppDataTick();
   const [tab, setTab]             = React.useState("inbox");
-  const [useSample, setUseSample] = React.useState(true);
+  // Default sample mode ON only for the demo agency. Real tenants start
+  // empty so they're not confronted with Atlas IMO / Lead Heroes seed rows.
+  const [useSample, setUseSample] = React.useState(() => !!(window.isDemoAgency && window.isDemoAgency()));
   const [stageFilter, setStage]   = React.useState("all");
   const [sourceFilter, setSF]     = React.useState("all");
   const [ownerFilter, setOF]      = React.useState("all");
@@ -621,7 +623,14 @@ function SourcesSection({ sources, setConnectOpen }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "var(--text-tertiary)" }}>
                   <Icons.Clock size={10}/> {s.lastSync} · {s.accountId}
                   <div style={{ flex: 1 }}/>
-                  <button className="btn btn-ghost" style={{ height: 22, padding: "0 6px", fontSize: 10.5 }}>Configure</button>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ height: 22, padding: "0 6px", fontSize: 10.5 }}
+                    onClick={() => {
+                      try { sessionStorage.setItem("repflow.settings.tab", "integrations"); } catch {}
+                      if (window.gotoPage) window.gotoPage("settings");
+                    }}
+                  >Configure</button>
                 </div>
               </div>
             );
