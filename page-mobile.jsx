@@ -219,21 +219,34 @@ function MobileRep() {
 
           {tab === "vault" && window.MScreenVault && (() => { const C = window.MScreenVault; return <C onNav={setTab}/>; })()}
 
-          {tab === "me" && (
+          {tab === "me" && (() => {
+            // Real signed-in identity only. We don't borrow REPS[0] anymore —
+            // that's how new accounts ended up showing Marcus's name.
+            const matchedRep = myRepId ? (AppData.REPS || []).find(r => r.id === myRepId) : null;
+            const meRep = matchedRep || (meIdent
+              ? { id: meIdent.rep_id || "viewer", name: meIdent.full_name || myFirst, tier: meIdent.tier || "bronze" }
+              : { id: "viewer", name: myFirst, tier: "bronze" });
+            const mtd = matchedRep?.mtd || 0;
+            const displayName = meIdent?.full_name || matchedRep?.name || myFirst;
+            const displayTier = meIdent?.tier || matchedRep?.tier || "bronze";
+            const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo · Atlas seed" : null);
+            return (
             <>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0" }}>
-                <Shared.Avatar rep={AppData.REPS[0]} size={64}/>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginTop: 10 }}>{AppData.REPS[0]?.name}</div>
-                <Shared.TierChip tier={AppData.REPS[0]?.tier || "bronze"}/>
-                <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", marginTop: 16 }}>${(AppData.REPS[0]?.mtd || 0).toLocaleString()}</div>
+                <Shared.Avatar rep={meRep} size={64}/>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600, marginTop: 10 }}>{displayName}</div>
+                {agencyLine && <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>{agencyLine}</div>}
+                <Shared.TierChip tier={displayTier}/>
+                <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", marginTop: 16 }}>${mtd.toLocaleString()}</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>MTD · keep going</div>
                 <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, (AppData.REPS[0]?.mtd || 0) / 600)}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
+                  <div style={{ width: `${Math.min(100, mtd / 600)}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
                 </div>
               </div>
               <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 16, color: "var(--state-danger)" }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
             </>
-          )}
+            );
+          })()}
         </div>
 
         <div className="m-tabbar">

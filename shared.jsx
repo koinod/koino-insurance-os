@@ -112,31 +112,56 @@ const NAV = {
     { id: "system",      label: "System",       icon: "Bolt" },
   ],
   // Internal team / super-admin — Ian, Repflow developers. Sees every IMO,
-  // every agency (real + demo), every user, and platform-level system.
+  // every agency (real + demo), every user, plus internal-only views.
   super_admin: [
-    { id: "platform",    label: "Internal",     icon: "Shield" },
-    { id: "agencies",    label: "All agencies", icon: "Building" },
-    { id: "users",       label: "All users",    icon: "Users" },
-    { id: "billing",     label: "Billing",      icon: "Wallet" },
-    { id: "audit",       label: "Audit log",    icon: "Activity" },
-    { id: "system",      label: "System",       icon: "Bolt" },
+    { id: "platform",    label: "Internal HQ",     icon: "Shield" },
+    { id: "agencies",    label: "All agencies",    icon: "Building" },
+    { id: "users",       label: "All users",       icon: "Users" },
+    { id: "billing",     label: "Repflow MRR",     icon: "Wallet" },
+    { id: "audit",       label: "Global audit",    icon: "Activity" },
+    { id: "system",      label: "Env + health",    icon: "Bolt" },
+    { id: "platform-imo",label: "All IMOs",        icon: "Building" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
   ],
 };
 
+const SidebarBrand = () => {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("me:loaded", fn);
+    window.addEventListener("data:hydrated", fn);
+    return () => {
+      window.removeEventListener("me:loaded", fn);
+      window.removeEventListener("data:hydrated", fn);
+    };
+  }, []);
+  const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+  // Agency name shown under "Repflow" brand — real agency for authed users,
+  // "Demo · Atlas seed" for ?demo=1 sandbox, "—" while resolving.
+  const agencyLabel = me?.agency_name
+    || (me?.is_demo ? "Demo · Atlas seed" : (me ? "—" : "Loading…"));
+  return (
+    <div className="sb-brand">
+      <div className="sb-brand-mark">R</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="sb-brand-name">Repflow</div>
+        <div className="sb-brand-meta" title={agencyLabel}
+          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {agencyLabel}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const items = NAV[role];
   return (
     <nav className="sidebar">
-      <div className="sb-brand">
-        <div className="sb-brand-mark">R</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="sb-brand-name">Repflow</div>
-          <div className="sb-brand-meta">Atlas Insurance Group</div>
-        </div>
-      </div>
+      <SidebarBrand/>
 
       <div className="role-switch">
         {["rep","manager","owner","admin","super_admin"].map(r => (
@@ -188,9 +213,11 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   );
 };
 
-/* Resolve the actual signed-in viewer instead of hardcoding Marcus Avila /
-   Atlanta / platinum. Falls through to REPS[0] only when me() hasn't loaded
-   yet (first paint), then re-renders on the me:loaded event. */
+/* Resolve the actual signed-in viewer. NEVER falls back to AppData.REPS[0] —
+   that was the "static bottom-left" bug where every account looked like
+   Marcus Avila / Atlas. We render the real me() identity, only matching
+   AppData.REPS for the avatar color/initials when the rep_id genuinely
+   exists in the agency. */
 const SidebarUser = ({ setPage }) => {
   const [, force] = useState(0);
   useEffect(() => {
@@ -203,20 +230,34 @@ const SidebarUser = ({ setPage }) => {
     };
   }, []);
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const repRow = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
-              || AppData.REPS?.[0]
-              || { name: "—", color: "var(--text-tertiary)" };
-  const name = meIdent?.full_name || repRow.name || "—";
-  const tier = meIdent?.tier || repRow.tier || "bronze";
-  const cityChip = meIdent?.agency_name ? `· ${meIdent.agency_name}` : (repRow.city ? `· ${repRow.city}` : "");
+  // Match the rep row in this agency only — purely for avatar colors. We do
+  // NOT borrow another rep's name/tier as a fallback.
+  const matchedRep = meIdent?.rep_id
+    ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id)
+    : null;
+  // Build a stub rep for Avatar from real identity so the initials match.
+  const avatarRep = matchedRep || (meIdent
+    ? { id: meIdent.rep_id || "viewer", name: meIdent.full_name || meIdent.handle || "Viewer", color: matchedRep?.color }
+    : { id: "loading", name: "—", color: "var(--text-tertiary)" });
+  const name = meIdent?.full_name
+    || (meIdent?.handle ? meIdent.handle.replace(/^@/, "") : null)
+    || (meIdent ? "Viewer" : "Loading…");
+  const tier = meIdent?.tier || matchedRep?.tier || "bronze";
+  const role = meIdent?.role ? meIdent.role.replace("_", " ") : null;
+  const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo · Atlas seed" : null);
   return (
-    <div className="sb-user">
-      <Avatar rep={repRow} size={26}/>
+    <div className="sb-user" title={agencyLine ? `${name} · ${agencyLine}` : name}>
+      <Avatar rep={avatarRep} size={26}/>
       <div className="sb-user-info">
-        <div className="sb-user-name">{name}</div>
-        <div className="sb-user-role">
+        <div className="sb-user-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+        <div className="sb-user-role" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <TierChip tier={tier} compact/>
-          {cityChip && <span>{cityChip}</span>}
+          {role && <span style={{ textTransform: "capitalize" }}>{role}</span>}
+          {agencyLine && (
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-tertiary)" }}>
+              · {agencyLine}
+            </span>
+          )}
         </div>
       </div>
       <button className="icon-btn" onClick={() => setPage("settings")} title="Settings"><Icons.Settings size={14}/></button>
@@ -245,12 +286,24 @@ const AccountChip = () => {
   }, []);
   const inDemo = (() => { try { return sessionStorage.getItem("repflow.demo") === "1"; } catch { return false; } })();
   const isAuthed = !!(me && me.authenticated && !me.is_demo);
+  // Loading = me() not yet returned. Avoid flashing "Guest" while we're still
+  // resolving the real identity right after sign-in.
+  const isLoading = !me;
   const label = isAuthed
     ? (me.full_name || me.handle || me.agency_name || "Account")
-    : (inDemo ? "Demo" : "Guest");
-  const sub = isAuthed ? me.agency_name : (inDemo ? "Read-only · Atlas seed" : "Not signed in");
+    : isLoading
+      ? "…"
+      : (inDemo || me?.is_demo ? "Demo" : "Guest");
+  const sub = isAuthed
+    ? (me.agency_name || (me.role ? me.role.replace("_", " ") : ""))
+    : isLoading
+      ? "Loading…"
+      : (inDemo || me?.is_demo ? "Read-only · Atlas seed" : "Not signed in");
 
-  const tone = isAuthed ? "var(--accent-money)" : (inDemo ? "var(--accent-status)" : "var(--text-tertiary)");
+  const tone = isAuthed ? "var(--accent-money)"
+    : isLoading ? "var(--text-tertiary)"
+    : (inDemo || me?.is_demo) ? "var(--accent-status)"
+    : "var(--text-tertiary)";
   return (
     <div style={{ position: "relative" }}>
       <button
@@ -272,25 +325,37 @@ const AccountChip = () => {
             borderRadius: 8, padding: 10, zIndex: 50,
             boxShadow: "0 12px 32px color-mix(in oklch, black 35%, transparent)"
           }}>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>{label}</div>
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{sub}</div>
-          {isAuthed && me.role && (
-            <div style={{ marginTop: 6, fontSize: 10.5 }}>
-              <span className="chip">{me.role}</span>
-              {me.tier && <span className="chip" style={{ marginLeft: 4 }}>{me.tier}</span>}
+          <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600 }}>{label}</div>
+          {isAuthed && me.handle && me.handle !== label && (
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 1 }}>{me.handle}</div>
+          )}
+          {sub && sub !== label && (
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{sub}</div>
+          )}
+          {isAuthed && (me.role || me.tier) && (
+            <div style={{ marginTop: 8, fontSize: 10.5, display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {me.role && <span className="chip" style={{ textTransform: "capitalize" }}>{me.role.replace("_", " ")}</span>}
+              {me.tier && <span className="chip" style={{ textTransform: "capitalize" }}>{me.tier}</span>}
             </div>
           )}
           <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "10px -10px 0", padding: "8px 10px 0" }}>
             {isAuthed ? (
-              <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", fontSize: 12 }} onClick={() => window.signOut && window.signOut()}>
-                <Icons.X size={11}/> Sign out
-              </button>
+              <>
+                <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", fontSize: 12, marginBottom: 4 }}
+                  onClick={() => { setOpen(false); if (window.gotoPage) window.gotoPage("settings"); }}>
+                  <Icons.Settings size={11}/> Account settings
+                </button>
+                <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", fontSize: 12 }}
+                  onClick={() => window.signOut && window.signOut()}>
+                  <Icons.X size={11}/> Sign out
+                </button>
+              </>
             ) : (
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }} onClick={() => {
                 try { sessionStorage.removeItem("repflow.demo"); } catch {}
                 window.location.reload();
               }}>
-                <Icons.Send size={11}/> Sign in
+                <Icons.Send size={11}/> Sign in to a real account
               </button>
             )}
           </div>
@@ -631,7 +696,13 @@ const AIRail = ({ context }) => {
         {history.map((m, i) => (
           <div key={i} className={`ai-msg ${m.role === "assistant" ? "assistant" : ""}`}>
             <div className="who">
-              {m.role === "user" ? <><Avatar rep={AppData.REPS[0]} size={16}/> You</> : <><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow{m.ms ? ` · ${(m.ms/1000).toFixed(1)}s` : ""}{m.tools?.length ? ` · queried ${m.tools.join(", ")}` : ""}</>}
+              {m.role === "user" ? (() => {
+                // Use real signed-in viewer for the "You" avatar instead of REPS[0].
+                const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+                const matched = meIdent?.rep_id ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id) : null;
+                const stub = matched || (meIdent ? { id: meIdent.rep_id || "you", name: meIdent.full_name || "You" } : { id: "you", name: "You" });
+                return <><Avatar rep={stub} size={16}/> You</>;
+              })() : <><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/> Repflow{m.ms ? ` · ${(m.ms/1000).toFixed(1)}s` : ""}{m.tools?.length ? ` · queried ${m.tools.join(", ")}` : ""}</>}
             </div>
             <div className="body" style={{ whiteSpace: "pre-wrap", color: m.err ? "var(--state-danger)" : undefined }}>{m.text}</div>
           </div>
@@ -870,8 +941,12 @@ const AgencyTime = (() => {
    Real agencies hit empty states with import/add CTAs instead. */
 const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
 const isDemoAgency = () => {
+  // Multi-source check — pre-auth, demo skip, the legacy hardcoded ID,
+  // or the live is_demo flag on the active agency (new IMO/agency model).
+  if (window.__demoSkip) return true;
+  if (window.__activeAgency && window.__activeAgency.is_demo) return true;
   const m = window.me && window.me();
-  if (!m) return true;                                  // pre-auth = treat as demo
+  if (!m) return true;
   if (m.is_demo === true) return true;
   if (m.agency_id && String(m.agency_id) === DEMO_AGENCY_ID) return true;
   return false;
