@@ -5,6 +5,18 @@ Format: `[YYYY-MM-DD HH:MM] GAP-XX — what changed — files`
 
 ---
 
+## 2026-05-07 (sovereign loop pass 1 — fix/sovereign-loop-2026-05-07)
+
+- **GAP-X5** — Realtime fan-out extended to `notifications` and `commissions`. `data.jsx` `subscribeRealtime()` `TABLE_TO_KEY` map adds those two tables; `toJs()` adds matching mappers (cents → dollars on commissions). Added migration `0018_realtime_publication.sql` (idempotent `ALTER PUBLICATION supabase_realtime ADD TABLE …`) so the events actually flow. Effect: notification badges and PnL re-render across tabs without refresh. Files: `data.jsx`, `supabase/migrations/0018_realtime_publication.sql`.
+- **GAP-RP1** — CSV export buttons on the three pages that previously had none:
+  - **Commissions · Override pool** (`page-extras.jsx` `CommissionsOwner`) — exports per-rep statement: Period, Rep, Carrier, Lead, AP, Expected, Paid, Status. Disabled when statement is empty.
+  - **Agency P&L** (`page-owner.jsx` `PagePnL`) — exports the live waterfall (line label + dollars) as CSV alongside the existing JSON audit pack.
+  - **Performance · standings** (`page-performance.jsx`) — exports rank, rep, tier, MTD, today, streak, dials, appts. Disabled when REPS is empty.
+- **GAP-MP2 follow-on** — NIGO KPI cards (Open / In review / Fixed today / Avg TTF) now reduce over the same `scopeIds`-filtered list that drives the queue, not over `baseNigos`. A manager no longer sees fleet-level open counts when their downline is empty. File: `page-ops-depth.jsx`.
+- Cache-bust: `index.html` bumps `data.jsx`, `page-extras.jsx`, `page-owner.jsx`, `page-performance.jsx`, `page-ops-depth.jsx` to `?v=75`.
+
+---
+
 ## 2026-05-07
 
 - **ACCOUNT-IDENTITY** — Stop showing every signed-in user as "Marcus Atlas / Atlas Insurance Group" and stop flashing "Guest" after login. Five fixes:
