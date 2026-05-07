@@ -215,27 +215,37 @@
           <Shared.KpiCard label="Avg CPA" value={fmt$(avgCpa)} sub="cost per acquisition" />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(200px, 1fr))`, gap: 10, overflowX: "auto" }}>
-          {STAGES.map(stage => {
-            const cards = applicants.filter(a => a.status === stage.id);
-            return (
-              <div key={stage.id} className="panel" style={{ minHeight: 280, padding: 0 }}>
-                <div className="panel-h" style={{ padding: "10px 12px" }}>
-                  <h3 style={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</h3>
-                  <span className="meta">{cards.length}</span>
+        {applicants.length === 0 && campaigns.length === 0 ? (
+          <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+            <Icons.Users size={20} style={{ color: "var(--text-quaternary)" }}/>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No applicants yet</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+              Add applicants directly or stand up a recruiting campaign — they'll flow through the funnel from Applied → Contracted as you advance them.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(200px, 1fr))`, gap: 10, overflowX: "auto" }}>
+            {STAGES.map(stage => {
+              const cards = applicants.filter(a => a.status === stage.id);
+              return (
+                <div key={stage.id} className="panel" style={{ minHeight: 280, padding: 0 }}>
+                  <div className="panel-h" style={{ padding: "10px 12px" }}>
+                    <h3 style={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</h3>
+                    <span className="meta">{cards.length}</span>
+                  </div>
+                  <div style={{ padding: "4px 8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {cards.length === 0
+                      ? <div style={{ fontSize: 11, color: "var(--text-quaternary)", padding: 8 }}>{stage.hint}</div>
+                      : cards.map(a => (
+                          <ApplicantCard key={a.id} a={a} campaigns={campaigns} messages={messages} onOpen={() => onOpen(a)} />
+                        ))
+                    }
+                  </div>
                 </div>
-                <div style={{ padding: "4px 8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {cards.length === 0
-                    ? <div style={{ fontSize: 11, color: "var(--text-quaternary)", padding: 8 }}>{stage.hint}</div>
-                    : cards.map(a => (
-                        <ApplicantCard key={a.id} a={a} campaigns={campaigns} messages={messages} onOpen={() => onOpen(a)} />
-                      ))
-                  }
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
