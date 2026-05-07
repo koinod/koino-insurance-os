@@ -1,11 +1,10 @@
 /* Page: Owner — P&L + Org Tree
 
-   All numbers below are derived from AppData.POLICIES + AppData.COMMISSIONS +
-   AppData.CLAWBACKS + AppData.RECRUITING_APPLICANTS. When live data is empty
-   we fall back to demo numbers ONLY for the demo agency; real agencies see
-   "—" / null states until their ledger is populated. */
+   Every number on this page is computed from the agency's actual records:
+   POLICIES + COMMISSIONS + CLAWBACKS + EXPENSES + NIGOS + RECRUITING_APPLICANTS.
+   Demo agencies get the same math — they just have seeded records to chew on.
+   Empty data → "—". No hardcoded fallback numbers. */
 function _pnlLiveMetrics(period) {
-  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
   const policies = AppData.POLICIES || [];
   const commissions = AppData.COMMISSIONS || [];
   const clawbacks = AppData.CLAWBACKS || [];
@@ -15,15 +14,24 @@ function _pnlLiveMetrics(period) {
   const startMtd = new Date(now.getFullYear(), now.getMonth(), 1);
   const startYtd = new Date(now.getFullYear(), 0, 1);
   const startT12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const startPriorMtd = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endPriorMtd   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
   const cutoff = period === "MTD" ? startMtd : period === "YTD" ? startYtd : startT12;
   const tsIn = (s) => s && new Date(s) >= cutoff;
+  const tsBetween = (s, a, b) => s && new Date(s) >= a && new Date(s) <= b;
 
   const overrideRev = commissions.filter(c => c.kind === "override" && tsIn(c.earnedAt))
     .reduce((a, c) => a + (c.amount || 0), 0);
+  const overrideRevPrior = commissions.filter(c => c.kind === "override" && tsBetween(c.earnedAt, startPriorMtd, endPriorMtd))
+    .reduce((a, c) => a + (c.amount || 0), 0);
   const apSubmitted = policies.filter(p => tsIn(p.submissionDate))
+    .reduce((a, p) => a + (p.ap || 0), 0);
+  const apSubmittedPrior = policies.filter(p => tsBetween(p.submissionDate, startPriorMtd, endPriorMtd))
     .reduce((a, p) => a + (p.ap || 0), 0);
   const apsCount = policies.filter(p => tsIn(p.submissionDate)).length;
   const nigoDrag = clawbacks.filter(c => tsIn(c.recordedAt))
+    .reduce((a, c) => a + (c.amount || 0), 0);
+  const nigoDragPrior = clawbacks.filter(c => tsBetween(c.recordedAt, startPriorMtd, endPriorMtd))
     .reduce((a, c) => a + (c.amount || 0), 0);
 
   const producerComp = commissions.filter(c => c.kind !== "override" && tsIn(c.earnedAt));
@@ -37,6 +45,7 @@ function _pnlLiveMetrics(period) {
   const fe      = byProductRe(/final\s*expense|^fe\b|fe\s/i);
   const annuity = byProductRe(/annuity|spda|fia/i);
   const leadSpend = (AppData.LEAD_SPEND_TOTALS && AppData.LEAD_SPEND_TOTALS[period.toLowerCase()]) || 0;
+  const fixedCosts = AppData.AGENCY_FIXED_COSTS_CENTS || 0;
 
   // 12-month spark for override revenue + AP submitted
   const monthBucket = (rows, getDate, getVal) => {
@@ -54,30 +63,126 @@ function _pnlLiveMetrics(period) {
   const sparkApArr  = monthBucket(policies, p => p.submissionDate, p => p.ap / 1000);
 
   const hasLive = commissions.length > 0 || policies.length > 0;
-  const sparkRev = hasLive && sparkRevArr.some(v => v > 0) ? sparkRevArr.map(v => Math.round(v))
-    : (isDemo ? [120,134,128,148,162,158,180,195,210,228,242,258] : null);
-  const sparkOR  = hasLive && sparkApArr.some(v => v > 0) ? sparkApArr.map(v => Math.round(v))
-    : (isDemo ? [38,42,40,46,52,49,58,63,68,74,79,84] : null);
+  const sparkRev = hasLive && sparkRevArr.some(v => v > 0) ? sparkRevArr.map(v => Math.round(v)) : null;
+  const sparkOR  = hasLive && sparkApArr.some(v => v > 0)  ? sparkApArr.map(v => Math.round(v))  : null;
+
+  const pctDelta = (cur, prior) => prior > 0 ? Math.round(((cur - prior) / prior) * 1000) / 10 : null;
 
   return {
-    isDemo, hasLive,
-    overrideRev, apSubmitted, apsCount, nigoDrag,
-    grossProducer, medSupp, fe, annuity, leadSpend,
+    hasLive,
+    overrideRev, overrideRevDelta: pctDelta(overrideRev, overrideRevPrior),
+    apSubmitted, apSubmittedDelta: pctDelta(apSubmitted, apSubmittedPrior),
+    apsCount, nigoDrag, nigoDragDelta: pctDelta(nigoDrag, nigoDragPrior),
+    grossProducer, medSupp, fe, annuity, leadSpend, fixedCosts,
     sparkRev, sparkOR,
   };
 }
 
-function _recruitingFunnel() {
-  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
-  const apps = AppData.RECRUITING_APPLICANTS || [];
-  if (apps.length === 0 && isDemo) {
-    return [
-      { l: "FB / LinkedIn / YT applied", v: 412, w: 100 },
-      { l: "Contracted",                 v: 58,  w: 14 },
-      { l: "First app submitted",        v: 24,  w: 6 },
-      { l: "Producing 90+ days",         v: 14,  w: 3.4 },
-    ];
+// ── Live anomaly engine ───────────────────────────────────────────────────
+// Computes warning signals from real data instead of hardcoded list.
+function _computeAnomalies() {
+  const anomalies = [];
+  const policies = AppData.POLICIES || [];
+  const nigos = AppData.NIGOS || [];
+  const courses = AppData.COURSES || [];
+  const expenses = AppData.EXPENSES || [];
+  const carriers = AppData.CARRIERS || [];
+  const carrierById = Object.fromEntries(carriers.map(c => [c.id, c]));
+  const now = Date.now();
+  const d7 = 7 * 86400000, d30 = 30 * 86400000;
+
+  // 1) Persistency drift — % of cohort policies issued 60-180d ago that are now lapsed/cancelled
+  const cohort = policies.filter(p => {
+    if (!p.issuedAt) return false;
+    const age = now - new Date(p.issuedAt).getTime();
+    return age >= 60 * 86400000 && age <= 180 * 86400000;
+  });
+  if (cohort.length >= 5) {
+    const lapsed = cohort.filter(p => p.persistency === "lapsed" || p.status === "cancelled").length;
+    const lapseRate = (lapsed / cohort.length) * 100;
+    if (lapseRate > 15) {
+      anomalies.push({
+        sev: lapseRate > 25 ? "danger" : "warn",
+        t: "Persistency drift",
+        b: `${lapseRate.toFixed(1)}% lapse rate · ${cohort.length}-policy cohort 60–180d`,
+        a: "Drill", target: "performance"
+      });
+    }
   }
+
+  // 2) NIGO spike — carriers with > 3 NIGOs in last 7d
+  const nigoByCarrier = {};
+  for (const n of nigos) {
+    if (!n.createdAt || (now - new Date(n.createdAt).getTime()) > d7) continue;
+    const pol = policies.find(p => p.id === n.policyId);
+    const carrierId = pol?.carrierId;
+    if (!carrierId) continue;
+    nigoByCarrier[carrierId] = (nigoByCarrier[carrierId] || 0) + 1;
+  }
+  for (const [cid, count] of Object.entries(nigoByCarrier)) {
+    if (count >= 3) {
+      const cName = carrierById[cid]?.name || "carrier";
+      anomalies.push({
+        sev: count >= 5 ? "danger" : "warn",
+        t: "NIGO spike",
+        b: `${cName} · ${count} returned in 7d`,
+        a: "Open queue", target: "nigo"
+      });
+    }
+  }
+
+  // 3) AEP / compliance cert gaps — courses on AEP/Compliance not complete by AEP cutoff
+  const aepCourses = courses.filter(c => /AEP|Compliance|TPMO/i.test(c.track) && c.status !== "complete");
+  if (aepCourses.length > 0) {
+    anomalies.push({
+      sev: "warn",
+      t: "Cert gap",
+      b: `${aepCourses.length} cert${aepCourses.length === 1 ? "" : "s"} not complete (TPMO/AEP)`,
+      a: "Notify", target: "training"
+    });
+  }
+
+  // 4) Lead source ROI — sources with > 30% CPL change last 30d vs prior 30d
+  const startNow30 = now - d30, startPrior30 = now - 2 * d30;
+  const spendBy = (since, until) => {
+    const out = {};
+    for (const e of expenses) {
+      if (e.kind !== "lead_spend" || !e.paid_at) continue;
+      const t = new Date(e.paid_at).getTime();
+      if (t < since || t >= until) continue;
+      const k = e.lead_source_id || e.notes || "unspec";
+      out[k] = (out[k] || 0) + (e.amount_cents || 0);
+    }
+    return out;
+  };
+  const cur = spendBy(startNow30, now), prev = spendBy(startPrior30, startNow30);
+  for (const [k, curCents] of Object.entries(cur)) {
+    const prevCents = prev[k] || 0;
+    if (prevCents < 5000) continue; // ignore noise (<$50 prior)
+    const delta = ((curCents - prevCents) / prevCents) * 100;
+    if (Math.abs(delta) > 30) {
+      anomalies.push({
+        sev: "info",
+        t: "Lead source shift",
+        b: `${k} · ${delta > 0 ? "+" : ""}${delta.toFixed(0)}% spend MoM`,
+        a: "Approve", target: "attribution"
+      });
+    }
+  }
+
+  return anomalies;
+}
+
+// ── States covered: distinct states across POLICIES + APPOINTMENTS ────────
+function _statesCovered() {
+  const set = new Set();
+  for (const p of (AppData.POLICIES || [])) { if (p.state) set.add(p.state); }
+  for (const a of (AppData.APPOINTMENTS || [])) { if (a.state && (!a.status || a.status === "active")) set.add(a.state); }
+  return set.size;
+}
+
+function _recruitingFunnel() {
+  const apps = AppData.RECRUITING_APPLICANTS || [];
   if (apps.length === 0) return [];
   const total = apps.length;
   const contracted = apps.filter(a => a.status === "contracted" || a.status === "first_app" || a.status === "producing").length;
@@ -102,14 +207,29 @@ function PagePnL() {
     if (cents >= 100000)    return `${Math.round(cents / 100).toLocaleString()}`;
     return `${(cents / 100).toFixed(0)}`;
   };
-  // Demo-only fallbacks for the KPI strip
-  const overrideKpi = m.overrideRev > 0 ? dollarsLive(m.overrideRev) : (m.isDemo ? "258,420" : "—");
-  const apKpi       = m.apSubmitted > 0 ? fmtKpiCents(m.apSubmitted) : (m.isDemo ? "1.84M" : "—");
-  const apSub       = m.apsCount > 0 ? `${m.apsCount} apps` : (m.isDemo ? "412 apps" : "needs data");
-  const nigoKpi     = m.nigoDrag > 0 ? dollarsLive(m.nigoDrag) : (m.isDemo ? "11,420" : "—");
+  const fmtDelta = (d, neg = false) => {
+    if (d == null) return "no prior period";
+    const arrow = d >= 0 ? "+" : "";
+    const word  = neg ? (d <= 0 ? "vs last month (good)" : "vs last month (worse)")
+                      : "vs last month";
+    return `${arrow}${d}% ${word}`;
+  };
+  const overrideKpi = m.overrideRev > 0 ? dollarsLive(m.overrideRev) : "—";
+  const apKpi       = m.apSubmitted > 0 ? fmtKpiCents(m.apSubmitted) : "—";
+  const apSub       = m.apsCount > 0 ? `${m.apsCount} app${m.apsCount === 1 ? "" : "s"} · ${fmtDelta(m.apSubmittedDelta)}` : "no apps yet";
+  const nigoKpi     = m.nigoDrag > 0 ? dollarsLive(m.nigoDrag) : "—";
+  const overrideSub = m.overrideRev > 0 ? `live · ${fmtDelta(m.overrideRevDelta)}` : "no override commissions yet";
+  const nigoSub     = m.nigoDrag > 0 ? `live · ${fmtDelta(m.nigoDragDelta, true)}` : "no clawbacks";
   const recFunnel = _recruitingFunnel();
+  const anomalies = _computeAnomalies();
   const [askValue, setAskValue]  = React.useState("");
   const [waterfallDrill, setDrill] = React.useState(null);
+
+  const agency = (window.__activeAgency || {});
+  const agencyName = agency.name || "Your agency";
+  const producerCount = (AppData.REPS || []).length;
+  const stateCount = _statesCovered();
+  const periodLabel = period === "MTD" ? "Month to date" : period === "T12" ? "Trailing 12" : "Year to date";
 
   const ask = (q) => {
     const prompt = q || askValue.trim();
@@ -119,18 +239,58 @@ function PagePnL() {
     setAskValue("");
   };
 
+  // Compute the live waterfall once so both render and export pull from
+  // the same source of truth.
+  const waterfall = (() => {
+    const live = [
+      { l: "Producer commissions (gross)", v: Math.round(m.grossProducer / 100), ind: 0, c: "var(--accent-money)" },
+      { l: "  Med Supp",                   v: Math.round(m.medSupp / 100),       ind: 1, c: "var(--accent-money)" },
+      { l: "  Final Expense",              v: Math.round(m.fe / 100),            ind: 1, c: "var(--accent-money-dim)" },
+      { l: "  Annuity",                    v: Math.round(m.annuity / 100),       ind: 1, c: "var(--state-info)" },
+      { l: "Override pool (your slice)",   v: Math.round(m.overrideRev / 100),   ind: 0, c: "var(--accent-money)" },
+      { l: "− Lead spend",                 v: -Math.round(m.leadSpend / 100),    ind: 0, c: "var(--state-danger)" },
+      { l: "− NIGO chargebacks",           v: -Math.round(m.nigoDrag / 100),     ind: 0, c: "var(--state-danger)" },
+      { l: "− SaaS / payroll / other",     v: -Math.round(m.fixedCosts / 100),   ind: 0, c: "var(--text-quaternary)" },
+    ];
+    // Net to owner = override - outflow (producer commissions are paid OUT to producers, not owner revenue)
+    const net = Math.round(m.overrideRev / 100) - Math.round(m.leadSpend / 100) - Math.round(m.nigoDrag / 100) - Math.round(m.fixedCosts / 100);
+    live.push({ l: "Net to owner", v: net, ind: 0, c: net >= 0 ? "var(--accent-money)" : "var(--state-danger)", bold: true });
+    return live;
+  })();
+
   const exportAudit = () => {
-    const blob = new Blob([JSON.stringify({ period, generated_at: new Date().toISOString(), agency: "Atlas IMO" }, null, 2)], { type: "application/json" });
+    const slug = (agency.slug || agencyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agency");
+    const payload = {
+      period, period_label: periodLabel,
+      generated_at: new Date().toISOString(),
+      agency: { id: agency.id, slug: agency.slug, name: agencyName, plan: agency.plan, is_imo: agency.is_imo },
+      kpis: {
+        override_revenue_cents: m.overrideRev,
+        ap_submitted_cents: m.apSubmitted,
+        apps_count: m.apsCount,
+        nigo_drag_cents: m.nigoDrag,
+        gross_producer_comp_cents: m.grossProducer,
+        lead_spend_cents: m.leadSpend,
+        fixed_costs_cents: m.fixedCosts,
+      },
+      waterfall: waterfall.map(r => ({ label: r.l.trim(), dollars: r.v })),
+      anomalies,
+      counts: {
+        producers: producerCount,
+        states_covered: stateCount,
+        policies: (AppData.POLICIES || []).length,
+        commissions: (AppData.COMMISSIONS || []).length,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `atlas-audit-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.json`;
+    a.href = url; a.download = `${slug}-audit-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.json`;
     a.click(); URL.revokeObjectURL(url);
     window.toast && window.toast(`Exported ${period} audit pack`, "success");
   };
 
-  const handleAnomaly = (kind) => {
-    const map = { "Drill": "book", "Open queue": "nigo", "Notify": "training", "Approve": "attribution" };
-    const target = map[kind];
+  const handleAnomaly = (target) => {
     if (target) window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: target }}));
   };
 
@@ -139,7 +299,7 @@ function PagePnL() {
       <div className="page-h">
         <div>
           <div className="page-title">Agency P&L</div>
-          <div className="page-sub">Atlas Insurance Group · {period === "MTD" ? "Month to date" : period === "T12" ? "Trailing 12" : "Year to date"} · 9 producers · 7 states · live</div>
+          <div className="page-sub">{agencyName} · {periodLabel} · {producerCount} producer{producerCount === 1 ? "" : "s"} · {stateCount} state{stateCount === 1 ? "" : "s"} · {m.hasLive ? "live" : "needs data"}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.SectionPill items={[{k:"MTD",l:"MTD"},{k:"T12",l:"T12"},{k:"YTD",l:"YTD"}]} value={period} onChange={setPeriod} dense/>
@@ -171,9 +331,9 @@ function PagePnL() {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label={`Override revenue · ${period}`} value={overrideKpi} prefix={overrideKpi === "—" ? "" : "$"} sub={m.overrideRev > 0 ? "live · commissions ledger" : (m.isDemo ? "+18.2% vs last month" : "no commissions yet")} trend={m.overrideRev > 0 ? "up" : undefined} spark={m.sparkRev}/>
-        <Shared.KpiCard label="AP submitted" value={apKpi} prefix={apKpi === "—" ? "" : "$"} sub={apSub} trend={m.apSubmitted > 0 ? "up" : undefined} spark={m.sparkOR}/>
-        <Shared.KpiCard label="NIGO drag" value={nigoKpi} prefix={nigoKpi === "—" ? "" : "$"} sub={m.nigoDrag > 0 ? "live · clawbacks" : (m.isDemo ? "-$2.1k WoW" : "no clawbacks")} trend={m.nigoDrag > 0 ? "up" : undefined} neg={m.nigoDrag > 0 || m.isDemo}/>
+        <Shared.KpiCard hero label={`Override revenue · ${period}`} value={overrideKpi} prefix={overrideKpi === "—" ? "" : "$"} sub={overrideSub} trend={m.overrideRevDelta != null ? (m.overrideRevDelta >= 0 ? "up" : "down") : undefined} spark={m.sparkRev}/>
+        <Shared.KpiCard label="AP submitted" value={apKpi} prefix={apKpi === "—" ? "" : "$"} sub={apSub} trend={m.apSubmittedDelta != null ? (m.apSubmittedDelta >= 0 ? "up" : "down") : undefined} spark={m.sparkOR}/>
+        <Shared.KpiCard label="NIGO drag" value={nigoKpi} prefix={nigoKpi === "—" ? "" : "$"} sub={nigoSub} trend={m.nigoDragDelta != null ? (m.nigoDragDelta <= 0 ? "up" : "down") : undefined} neg={m.nigoDrag > 0}/>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -184,36 +344,14 @@ function PagePnL() {
             <span className="meta">drill any row</span>
           </div>
           <div className="list">
-            {(() => {
-              // Demo waterfall when nothing live; otherwise derive in dollars.
-              const demoWaterfall = [
-                { l: "Producer commissions (gross)", v: 412300, ind: 0, c: "var(--accent-money)" },
-                { l: "  Med Supp",                   v: 198200, ind: 1, c: "var(--accent-money)" },
-                { l: "  Final Expense",              v: 134700, ind: 1, c: "var(--accent-money-dim)" },
-                { l: "  Annuity",                    v: 79400,  ind: 1, c: "var(--state-info)" },
-                { l: "Override pool (your slice)",   v: 258420, ind: 0, c: "var(--accent-money)" },
-                { l: "− Lead spend",                 v: -78200, ind: 0, c: "var(--state-danger)" },
-                { l: "− NIGO chargebacks",           v: -11420, ind: 0, c: "var(--state-danger)" },
-                { l: "− SaaS / payroll / other",     v: -64100, ind: 0, c: "var(--text-quaternary)" },
-                { l: "Net to owner",                 v: 104700, ind: 0, c: "var(--accent-money)", bold: true },
-              ];
-              const live = [
-                { l: "Producer commissions (gross)", v: Math.round(m.grossProducer / 100), ind: 0, c: "var(--accent-money)" },
-                { l: "  Med Supp",                   v: Math.round(m.medSupp / 100),       ind: 1, c: "var(--accent-money)" },
-                { l: "  Final Expense",              v: Math.round(m.fe / 100),            ind: 1, c: "var(--accent-money-dim)" },
-                { l: "  Annuity",                    v: Math.round(m.annuity / 100),       ind: 1, c: "var(--state-info)" },
-                { l: "Override pool (your slice)",   v: Math.round(m.overrideRev / 100),   ind: 0, c: "var(--accent-money)" },
-                { l: "− Lead spend",                 v: -Math.round(m.leadSpend / 100),    ind: 0, c: "var(--state-danger)" },
-                { l: "− NIGO chargebacks",           v: -Math.round(m.nigoDrag / 100),     ind: 0, c: "var(--state-danger)" },
-                // SaaS/payroll: load from agency_fixed_costs if present, else "needs data"
-                { l: "− SaaS / payroll / other",     v: -Math.round((AppData.AGENCY_FIXED_COSTS_CENTS || 0) / 100), ind: 0, c: "var(--text-quaternary)" },
-              ];
-              const net = live.reduce((a, r) => a + r.v, 0);
-              live.push({ l: "Net to owner", v: net, ind: 0, c: "var(--accent-money)", bold: true });
-              const useLive = m.hasLive;
-              const rows = useLive ? live : (m.isDemo ? demoWaterfall : []);
-              const max = Math.max(...rows.map(r => Math.abs(r.v)), 1);
-              return rows.map((r, i) => ({ ...r, w: Math.max(2, Math.round(Math.abs(r.v) / max * 100)) }));
+            {(!m.hasLive) && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                No commission or policy data yet. Submit your first app or import commissions to see the waterfall.
+              </div>
+            )}
+            {m.hasLive && (() => {
+              const max = Math.max(...waterfall.map(r => Math.abs(r.v)), 1);
+              return waterfall.map((r, i) => ({ ...r, w: Math.max(2, Math.round(Math.abs(r.v) / max * 100)) }));
             })().map((r, i) => (
               <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 110px", height: 36, paddingLeft: 14 + r.ind * 16, cursor: "pointer", background: waterfallDrill === r.l ? "var(--bg-raised)" : undefined }}
                 onClick={() => setDrill(waterfallDrill === r.l ? null : r.l)}>
@@ -224,12 +362,67 @@ function PagePnL() {
                 <div className="tabular" style={{ textAlign: "right", fontWeight: r.bold ? 600 : 500, color: r.v < 0 ? "var(--state-danger)" : "var(--text-primary)" }}>${Math.abs(r.v).toLocaleString()}</div>
               </div>
             ))}
-            {waterfallDrill && (
-              <div style={{ padding: 12, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                <strong style={{ color: "var(--text-primary)" }}>{waterfallDrill}</strong> — drill panel placeholder. Plug in commission ledger / NIGO / lead-spend tables here for the full breakdown.
-                <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => ask(`Break down "${waterfallDrill}" — top 3 contributors and what changed vs last ${period}`)}><Icons.Sparkles size={10}/> Ask the Book</button>
-              </div>
-            )}
+            {waterfallDrill && (() => {
+              // Real drill: pull contributing rows from the relevant ledger.
+              const label = waterfallDrill.trim();
+              const reps = AppData.REPS || [];
+              const repName = (id) => reps.find(r => r.id === id)?.name || id;
+              const policies = AppData.POLICIES || [];
+              const policyById = Object.fromEntries(policies.map(p => [p.id, p]));
+              let rows = [];
+              let nav = null;
+
+              if (/^Producer commissions/i.test(label) || /Med Supp|Final Expense|Annuity/i.test(label)) {
+                const re = label.includes("Med Supp") ? /med\s*supp|plan\s*g|plan\s*n/i
+                  : label.includes("Final Expense") ? /final\s*expense|^fe\b|fe\s/i
+                  : label.includes("Annuity") ? /annuity|spda|fia/i : null;
+                const filtered = (AppData.COMMISSIONS || []).filter(c => c.kind !== "override" && (!re || re.test(String(policyById[c.policyId]?.product || ""))));
+                const byRep = {};
+                for (const c of filtered) byRep[c.repId] = (byRep[c.repId] || 0) + (c.amount || 0);
+                rows = Object.entries(byRep).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([rid, cents]) => ({ k: repName(rid), v: cents }));
+                nav = "performance";
+              } else if (/Override pool/i.test(label)) {
+                const filtered = (AppData.COMMISSIONS || []).filter(c => c.kind === "override");
+                const byRep = {};
+                for (const c of filtered) byRep[c.repId] = (byRep[c.repId] || 0) + (c.amount || 0);
+                rows = Object.entries(byRep).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([rid, cents]) => ({ k: repName(rid) + " (override)", v: cents }));
+                nav = "performance";
+              } else if (/Lead spend/i.test(label)) {
+                const exp = (AppData.EXPENSES || []).filter(e => e.kind === "lead_spend").slice(0, 5);
+                rows = exp.map(e => ({ k: e.notes || e.lead_source_id || "lead spend", v: -(e.amount_cents || 0) }));
+                nav = "expenses";
+              } else if (/NIGO/i.test(label)) {
+                const cb = AppData.CLAWBACKS || [];
+                const byRep = {};
+                for (const c of cb) byRep[c.repId] = (byRep[c.repId] || 0) + (c.amount || 0);
+                rows = Object.entries(byRep).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([rid, cents]) => ({ k: repName(rid), v: -cents }));
+                nav = "nigo";
+              } else if (/SaaS|payroll/i.test(label)) {
+                const exp = (AppData.EXPENSES || []).filter(e => e.kind !== "lead_spend").slice(0, 5);
+                rows = exp.map(e => ({ k: e.notes || e.kind || "fixed cost", v: -(e.amount_cents || 0) }));
+                nav = "expenses";
+              }
+
+              return (
+                <div style={{ padding: 12, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <strong style={{ color: "var(--text-primary)" }}>{label}</strong>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>top contributors</span>
+                  </div>
+                  {rows.length === 0 && <div style={{ color: "var(--text-quaternary)", fontSize: 11.5 }}>No contributors found in this period.</div>}
+                  {rows.map((r, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11.5 }}>
+                      <span>{r.k}</span>
+                      <span className="tabular" style={{ color: r.v < 0 ? "var(--state-danger)" : "var(--text-primary)" }}>${Math.abs(Math.round(r.v / 100)).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    {nav && <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: nav }}))}><Icons.ArrowUpRight size={11}/> Open ledger</button>}
+                    <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => ask(`Break down "${label}" — top 3 contributors and what changed vs last ${period}`)}><Icons.Sparkles size={10}/> Ask the Book</button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -238,21 +431,22 @@ function PagePnL() {
             <div className="panel-h">
               <Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/>
               <h3>Anomalies</h3>
+              <span className="meta">{anomalies.length === 0 ? "all clear" : `${anomalies.length} signal${anomalies.length === 1 ? "" : "s"}`}</span>
             </div>
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
-                { sev: "warn", t: "Persistency drift", b: "FE 13-mo cohort · -3.2pts WoW · Tampa downline", a: "Drill" },
-                { sev: "danger", t: "NIGO spike", b: "Aetna SRC apps · 4 returned · age verification", a: "Open queue" },
-                { sev: "warn", t: "AEP readiness", b: "3 producers under 80% on TPMO cert", a: "Notify" },
-                { sev: "info", t: "Lead source ROI", b: "FB 'T65 v3' creative · -22% CPL · scale up?", a: "Approve" },
-              ].map((x, i) => (
+              {anomalies.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--text-tertiary)", padding: "16px 0", textAlign: "center" }}>
+                  No anomalies detected. Persistency, NIGO, certs, and lead-spend trends look normal.
+                </div>
+              )}
+              {anomalies.map((x, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
                   <span className={`dot dot-${x.sev === "danger" ? "danger" : x.sev === "warn" ? "warn" : "live"}`} style={{ marginTop: 5 }}></span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{x.t}</div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{x.b}</div>
                   </div>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => handleAnomaly(x.a)}>{x.a}</button>
+                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => handleAnomaly(x.target)}>{x.a}</button>
                 </div>
               ))}
             </div>
@@ -287,9 +481,26 @@ function PagePnL() {
 }
 
 function PageOrgTree() {
-  const { REPS } = AppData;
+  const REPS = AppData.REPS || [];
   const [view, setView] = React.useState("tree");
-  const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
+  const agency = (window.__activeAgency || {});
+  // Prefer the agency object's name; fall back to me().agency_name so brand-new
+  // tenants see their real name even before the agencies row is hydrated.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const agencyName = agency.name || meIdent?.agency_name || "Your agency";
+  const rootTier = agency.is_imo ? "diamond" : "platinum";
+
+  // Derive groups from rep.region if present, else single bucket. Empty agencies
+  // render the agency root with no children.
+  const regionsMap = {};
+  for (const r of REPS) {
+    const key = r.region || "_all";
+    (regionsMap[key] = regionsMap[key] || []).push(r);
+  }
+  const hasRegions = Object.keys(regionsMap).length > 1 || (Object.keys(regionsMap)[0] && Object.keys(regionsMap)[0] !== "_all");
+  const regionList = hasRegions
+    ? Object.entries(regionsMap).map(([k, members]) => ({ id: `region:${k}`, name: k, members }))
+    : [];
 
   // ── Live rollups: book of business + persistency + NIGO rate per rep ──
   // book = sum of AP cents on policies owned by rep. Falls back to rep.mtd (cents)
@@ -316,10 +527,11 @@ function PageOrgTree() {
       overrideByRep[c.repId] = (overrideByRep[c.repId] || 0) + (c.amount || 0);
     }
   }
-  // Convert AP cents to dollars for display sizing
+  // Book of business in dollars. If no policies on file yet, use MTD as a
+  // sizing proxy so the org chart still renders meaningful node sizes.
   const bookFor = (r) => {
     const cents = bookByRep[r.id] || 0;
-    return cents > 0 ? Math.round(cents / 100) : (isDemo ? r.mtd : 0);
+    return cents > 0 ? Math.round(cents / 100) : (r.mtd || 0);
   };
   const persistencyFor = (r) => {
     const total = polCountByRep[r.id] || 0;
@@ -332,39 +544,66 @@ function PageOrgTree() {
     return Math.round(((nigoByRep[r.id] || 0) / total) * 1000) / 10;
   };
 
-  // Hierarchical layout (Tree)
+  // Hierarchical layout (Tree) — root → optional regions → reps. Adaptive to
+  // agency size: 0 reps shows just the agency root; small agencies skip the
+  // region layer; multi-region agencies group accordingly.
   const sizeFromBook = (book) => Math.max(8, Math.min(32, 12 + (book / 8000)));
+  const W = 960;
+  const repNodes = REPS.length > 0 ? (() => {
+    if (hasRegions) {
+      const out = [];
+      let xOff = 0;
+      for (let r = 0; r < regionList.length; r++) {
+        const reg = regionList[r];
+        const w = (reg.members.length / REPS.length) * (W - 80);
+        reg.members.forEach((mem, i) => {
+          const x = 40 + xOff + (reg.members.length === 1 ? w / 2 : (i / (reg.members.length - 1)) * w);
+          out.push({ id: mem.id, x: Math.round(x), y: 290, name: mem.name, tier: mem.tier, size: sizeFromBook(bookFor(mem)), book: bookFor(mem) });
+        });
+        xOff += w;
+      }
+      return out;
+    }
+    return REPS.map((r, i) => {
+      const x = REPS.length === 1 ? W / 2 : 40 + (i / (REPS.length - 1)) * (W - 80);
+      return { id: r.id, x: Math.round(x), y: hasRegions ? 290 : 220, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) };
+    });
+  })() : [];
+  const regionNodes = hasRegions ? regionList.map((reg, i) => {
+    const x = regionList.length === 1 ? W / 2 : 200 + (i / (regionList.length - 1)) * (W - 400);
+    return { id: reg.id, x: Math.round(x), y: 160, name: reg.name, tier: "platinum", size: 18 };
+  }) : [];
   const tree = [
-    { id: "owner", x: 480, y: 40,  name: "Atlas IMO",       tier: "diamond",  size: 22 },
-    { id: "atl",   x: 240, y: 160, name: "Atlanta region", tier: "platinum", size: 18 },
-    { id: "tpa",   x: 720, y: 160, name: "Tampa region",   tier: "platinum", size: 18 },
-    ...REPS.slice(0,5).map((r, i) => ({ id: r.id, x: 80  + i * 90, y: 290, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) })),
-    ...REPS.slice(5).map((r, i) => ({ id: r.id, x: 560 + i * 90, y: 290, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) })),
+    { id: "owner", x: W / 2, y: 40, name: agencyName, tier: rootTier, size: 22 },
+    ...regionNodes,
+    ...repNodes,
   ];
-  const links = [
-    ["owner","atl"],["owner","tpa"],
-    ...REPS.slice(0,5).map(r => ["atl", r.id]),
-    ...REPS.slice(5).map(r => ["tpa", r.id]),
-  ];
+  const links = hasRegions
+    ? [
+        ...regionNodes.map(n => ["owner", n.id]),
+        ...REPS.map(r => [`region:${r.region || "_all"}`, r.id]),
+      ]
+    : REPS.map(r => ["owner", r.id]);
 
-  // Radial layout — owner at center, regions at first ring, reps at outer ring
-  const cx = 480, cy = 220;
+  // Radial layout — owner at center, regions ring (if any), reps on outer ring
+  const cx = W / 2, cy = 220;
   const radial = [
-    { id: "owner", x: cx, y: cy, name: "Atlas IMO", tier: "diamond", size: 22 },
-    ...["atl","tpa"].map((rid, i) => {
-      const a = (i / 2) * Math.PI * 2 - Math.PI / 2;
-      return { id: rid, x: cx + Math.cos(a) * 110, y: cy + Math.sin(a) * 110, name: rid === "atl" ? "Atlanta region" : "Tampa region", tier: "platinum", size: 18 };
+    { id: "owner", x: cx, y: cy, name: agencyName, tier: rootTier, size: 22 },
+    ...regionList.map((reg, i) => {
+      const a = (i / Math.max(regionList.length, 1)) * Math.PI * 2 - Math.PI / 2;
+      return { id: reg.id, x: cx + Math.cos(a) * 110, y: cy + Math.sin(a) * 110, name: reg.name, tier: "platinum", size: 18 };
     }),
     ...REPS.map((r, i) => {
-      const a = (i / REPS.length) * Math.PI * 2 - Math.PI / 2;
+      const a = REPS.length > 0 ? (i / REPS.length) * Math.PI * 2 - Math.PI / 2 : 0;
       return { id: r.id, x: cx + Math.cos(a) * 200, y: cy + Math.sin(a) * 200, name: r.name, tier: r.tier, size: sizeFromBook(bookFor(r)), book: bookFor(r) };
     }),
   ];
-  const radialLinks = [
-    ["owner","atl"],["owner","tpa"],
-    ...REPS.slice(0,5).map(r => ["atl", r.id]),
-    ...REPS.slice(5).map(r => ["tpa", r.id]),
-  ];
+  const radialLinks = hasRegions
+    ? [
+        ...regionList.map(reg => ["owner", reg.id]),
+        ...REPS.map(r => [`region:${r.region || "_all"}`, r.id]),
+      ]
+    : REPS.map(r => ["owner", r.id]);
 
   const layout = view === "radial" ? radial : tree;
   const lk = view === "radial" ? radialLinks : links;
@@ -392,7 +631,7 @@ function PageOrgTree() {
       <div className="page-h">
         <div>
           <div className="page-title">Organization</div>
-          <div className="page-sub">{REPS.length} producers · 2 regions · click a node for scorecard</div>
+          <div className="page-sub">{agencyName} · {REPS.length} producer{REPS.length === 1 ? "" : "s"} {hasRegions ? `· ${regionList.length} region${regionList.length === 1 ? "" : "s"}` : ""} · click a node for scorecard</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <div style={{ display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 2 }}>
@@ -407,10 +646,15 @@ function PageOrgTree() {
         <div className="org-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
           <div className="panel" style={{ height: 480 }}>
             <div className="panel-h">
-              <h3>Atlas IMO {view === "radial" ? "· radial" : "→ regions → producers"}</h3>
+              <h3>{agencyName} {view === "radial" ? "· radial" : (hasRegions ? "→ regions → producers" : "→ producers")}</h3>
               <span className="meta">color = tier · size = book of business</span>
             </div>
-            <svg viewBox="0 0 960 440" style={{ width: "100%", height: "calc(100% - 44px)" }}>
+            {REPS.length === 0 && (
+              <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                No producers yet. Invite your first producer from the <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "invites" }}));}} style={{ color: "var(--accent-money)" }}>Invites</a> page.
+              </div>
+            )}
+            {REPS.length > 0 && <svg viewBox="0 0 960 440" style={{ width: "100%", height: "calc(100% - 44px)" }}>
               <defs>
                 {layout.map(n => (
                   <radialGradient key={`g-${view}-${n.id}`} id={`g-${view}-${n.id}`}>
@@ -431,36 +675,31 @@ function PageOrgTree() {
                   <text x="0" y={n.size + 18} textAnchor="middle" fill="var(--text-secondary)" fontSize="10.5" fontFamily="var(--font-ui)">{n.name.split(" ")[0]}</text>
                 </g>
               ))}
-            </svg>
+            </svg>}
           </div>
 
           <div className="panel">
-            <div className="panel-h"><h3>{sel?.name}</h3><Shared.TierChip tier={sel?.tier || "platinum"}/></div>
+            <div className="panel-h"><h3>{sel?.name || agencyName}</h3><Shared.TierChip tier={sel?.tier || rootTier}/></div>
             {(() => {
               // Resolve scope: rep node → that rep; region/owner → all reps in subtree.
               const repObj = sel?.id ? REPS.find(r => r.id === sel.id) : null;
+              const regionId = sel?.id && sel.id.startsWith("region:") ? sel.id.slice(7) : null;
               const scopeRepIds = repObj ? [repObj.id]
-                : sel?.id === "atl" ? REPS.slice(0, 5).map(r => r.id)
-                : sel?.id === "tpa" ? REPS.slice(5).map(r => r.id)
+                : regionId ? REPS.filter(r => (r.region || "_all") === regionId).map(r => r.id)
                 : REPS.map(r => r.id);
               const totalBookCents = scopeRepIds.reduce((a, id) => a + (bookByRep[id] || 0), 0);
-              const totalBookDollars = totalBookCents > 0 ? Math.round(totalBookCents / 100) : (isDemo ? 1840000 : 0);
+              const totalBookDollars = totalBookCents > 0 ? Math.round(totalBookCents / 100) : 0;
               const totalPolicies = scopeRepIds.reduce((a, id) => a + (polCountByRep[id] || 0), 0);
               const totalActive   = scopeRepIds.reduce((a, id) => a + (activeByRep[id] || 0), 0);
               const totalNigos    = scopeRepIds.reduce((a, id) => a + (nigoByRep[id] || 0), 0);
               const totalOverrideCents = scopeRepIds.reduce((a, id) => a + (overrideByRep[id] || 0), 0);
-              const persistencyPct = totalPolicies > 0 ? Math.round((totalActive / totalPolicies) * 1000) / 10
-                : (isDemo ? 91.4 : null);
-              const nigoRatePct = totalPolicies > 0 ? Math.round((totalNigos / totalPolicies) * 1000) / 10
-                : (isDemo ? 2.1 : null);
-              // Recruits L30: count of recruiting_applicants whose recruiterRepId is in scope and createdAt within 30d
+              const persistencyPct = totalPolicies > 0 ? Math.round((totalActive / totalPolicies) * 1000) / 10 : null;
+              const nigoRatePct    = totalPolicies > 0 ? Math.round((totalNigos / totalPolicies) * 1000) / 10  : null;
               const recApps = AppData.RECRUITING_APPLICANTS || [];
               const cutoff = Date.now() - 30 * 86400000;
               const recruitsL30 = recApps.filter(a => scopeRepIds.includes(a.recruiterRepId) && a.createdAt && new Date(a.createdAt).getTime() >= cutoff).length;
-              // Override % = override commissions / producer commissions in scope (live), else demo 22%
               const producerCommScope = commissions.filter(c => c.kind !== "override" && scopeRepIds.includes(c.repId)).reduce((a, c) => a + (c.amount || 0), 0);
-              const overridePct = producerCommScope > 0 ? Math.round((totalOverrideCents / producerCommScope) * 1000) / 10
-                : (isDemo ? 22 : null);
+              const overridePct = producerCommScope > 0 ? Math.round((totalOverrideCents / producerCommScope) * 1000) / 10 : null;
               const dash = (v, suffix = "") => v == null ? "—" : `${v}${suffix}`;
               return (
             <div style={{ padding: 14 }}>
@@ -474,7 +713,7 @@ function PageOrgTree() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
                 <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Persistency</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(persistencyPct, "%")}</div></div>
                 <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>NIGO rate</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(nigoRatePct, "%")}</div></div>
-                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>{recruitsL30 || (isDemo ? "3" : "—")}</div></div>
+                <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Recruits L30</div><div className="tabular" style={{ fontWeight: 500 }}>{recruitsL30 || "—"}</div></div>
                 <div><div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>Override</div><div className="tabular" style={{ fontWeight: 500 }}>{dash(overridePct, "%")}</div></div>
               </div>
 
@@ -523,10 +762,10 @@ function PageOrgTree() {
                   <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{r.handle}</span>
                 </div>
                 <div><Shared.TierChip tier={r.tier} compact/></div>
-                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${r.mtd.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: r.streak > 10 ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.streak}d</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.appts}</div>
+                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${(r.mtd || 0).toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: (r.streak || 0) > 10 ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.streak || 0}d</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials || 0}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.appts || 0}</div>
               </div>
             ))}
           </div>

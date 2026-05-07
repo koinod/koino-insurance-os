@@ -51,7 +51,7 @@ const STAGE_PROB = new Proxy({}, {
 const FALLBACK_AP = (p) => _fallbackApFor(p.product, AppData.POLICIES || []);
 
 function PagePerformance() {
-  const { REPS } = AppData;
+  const REPS = AppData.REPS || [];
   const pipeline = AppData.PIPELINE || [];
 
   const [period, setPeriod] = React.useState("MTD");          // MTD | WTD | T12 | AEP
@@ -170,19 +170,19 @@ function PagePerformance() {
         <Shared.KpiCard hero
           label="Top performer"
           value={top?.name?.split(" ")[0] || "—"}
-          sub={top ? `$${top.mtd.toLocaleString()} · ${top.streak}d streak` : ""}
-          trend="up"/>
+          sub={top ? `$${(top.mtd || 0).toLocaleString()} · ${top.streak || 0}d streak` : "no producers yet"}
+          trend={top ? "up" : undefined}/>
         <Shared.KpiCard
           label="Weighted pipeline"
-          prefix="$"
-          value={Math.round(weightedAP).toLocaleString()}
-          sub={`${pipeline.length} deals · all stages × prob`}/>
+          prefix={pipeline.length > 0 ? "$" : ""}
+          value={pipeline.length > 0 ? Math.round(weightedAP).toLocaleString() : "—"}
+          sub={pipeline.length > 0 ? `${pipeline.length} deals · all stages × prob` : "no pipeline yet"}/>
         <Shared.KpiCard
           label="Coverage"
-          value={coverage.toFixed(2) + "x"}
-          sub={`vs $${forecastGoal.toLocaleString()} goal`}
-          trend={coverage >= 1 ? "up" : "down"}
-          neg={coverage < 1}/>
+          value={pipeline.length > 0 && weightedAP > 0 ? coverage.toFixed(2) + "x" : "—"}
+          sub={pipeline.length > 0 ? `vs $${forecastGoal.toLocaleString()} goal` : "set a goal in the panel below"}
+          trend={pipeline.length > 0 ? (coverage >= 1 ? "up" : "down") : undefined}
+          neg={pipeline.length > 0 && coverage < 1}/>
         <Shared.KpiCard
           label="Tier movement"
           value={`+${promoted} / -${demoted}`}
@@ -207,8 +207,13 @@ function PagePerformance() {
             </div>
             {sorted.map((r, i) => {
               const eff = overrides[r.id] || r.tier;
-              const isYou = r.id === "marc";
-              const delta = i < 3 ? +(3 - i) : i > 5 ? -(i - 5) : 0;
+              // Highlight the actual signed-in rep, not Marcus from the demo seed.
+              const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+              const isYou = !!(meIdent && r.id === meIdent.rep_id);
+              // Δ column: keep the illustrative gradient in demo mode; show "—"
+              // for real tenants until prior-period rank tracking is wired in.
+              const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+              const delta = isDemo ? (i < 3 ? +(3 - i) : i > 5 ? -(i - 5) : 0) : null;
               return (
                 <div key={r.id} className="row" style={{ gridTemplateColumns: "32px 1.5fr 90px 100px 60px 1fr", height: 38 }}>
                   <div className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</div>
@@ -221,9 +226,9 @@ function PagePerformance() {
                     {r.streak > 10 && <Icons.Flame size={11} style={{ color: "var(--accent-heat)" }}/>}
                   </div>
                   <div><Shared.TierChip tier={eff} compact/></div>
-                  <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${r.mtd.toLocaleString()}</div>
+                  <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${(r.mtd || 0).toLocaleString()}</div>
                   <div className="tabular" style={{ textAlign: "right", fontSize: 11.5, color: delta > 0 ? "var(--accent-money)" : delta < 0 ? "var(--state-danger)" : "var(--text-quaternary)" }}>
-                    {delta > 0 ? `↑${delta}` : delta < 0 ? `↓${-delta}` : "—"}
+                    {delta == null ? "—" : delta > 0 ? `↑${delta}` : delta < 0 ? `↓${-delta}` : "—"}
                   </div>
                   <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden", margin: "0 8px" }}>
                     <div style={{ width: `${(r.mtd / max) * 100}%`, height: "100%", background: i < 3 ? "linear-gradient(90deg, var(--accent-status), var(--accent-money))" : "var(--accent-money-dim)" }}></div>

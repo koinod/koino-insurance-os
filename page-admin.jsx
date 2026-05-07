@@ -42,7 +42,15 @@ function PageAdmin({ role = "owner" }) {
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
-  const liveAgency = agency || { name: "Atlas Insurance Group", slug: "atlas", plan: "trial", state: "GA" };
+  // When the real agency hasn't loaded yet, prefer me().agency_name over the
+  // hardcoded Atlas seed so brand-new tenants don't see another agency's name.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const liveAgency = agency || {
+    name: meIdent?.agency_name || "Your agency",
+    slug: meIdent?.agency_id ? meIdent.agency_id.slice(0, 8) : "—",
+    plan: "trial",
+    state: "—",
+  };
   const reps = AppData.REPS || [];
   const conns = AppData.CONNECTIONS || [];
   const hardware = AppData.HARDWARE || [];

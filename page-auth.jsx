@@ -98,6 +98,7 @@ function LoginScreen() {
 
   const skip = () => {
     sessionStorage.setItem("repflow.demo", "1");
+    window.__demoSkip = true;
     window.dispatchEvent(new CustomEvent("auth:skip"));
   };
 
@@ -258,8 +259,23 @@ function AuthGate({ children }) {
 
   React.useEffect(() => {
     if (!sb) { setSession(null); return; }
-    sb.auth.getSession().then(({ data }) => setSession(data.session || null));
+    sb.auth.getSession().then(({ data }) => {
+      const s = data.session || null;
+      // A real session always wins over the demo skip flag — clear it so
+      // header/sidebar stop calling the user "Guest" or "Demo" after login.
+      if (s) {
+        try { sessionStorage.removeItem("repflow.demo"); } catch {}
+        window.__demoSkip = false;
+        setDemo(false);
+      }
+      setSession(s);
+    });
     const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
+      if (s) {
+        try { sessionStorage.removeItem("repflow.demo"); } catch {}
+        window.__demoSkip = false;
+        setDemo(false);
+      }
       setSession(s);
       if (s) redeemAndRefresh();
     });

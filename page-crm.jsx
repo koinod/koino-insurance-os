@@ -98,7 +98,9 @@ function deriveSources(useSample) {
 function PageCrm({ role = "owner" }) {
   useAppDataTick();
   const [tab, setTab]             = React.useState("inbox");
-  const [useSample, setUseSample] = React.useState(true);
+  // Default sample mode ON only for the demo agency. Real tenants start
+  // empty so they're not confronted with Atlas IMO / Lead Heroes seed rows.
+  const [useSample, setUseSample] = React.useState(() => !!(window.isDemoAgency && window.isDemoAgency()));
   const [stageFilter, setStage]   = React.useState("all");
   const [sourceFilter, setSF]     = React.useState("all");
   const [ownerFilter, setOF]      = React.useState("all");
@@ -516,12 +518,18 @@ function AddLeadModal({ reps, sourceNames, onClose, onSave }) {
             options={[{ v: "Manual entry", l: "Manual entry" }, ...sourceNames.map(n => ({ v: n, l: n }))]}/>
         </Shared.Field>
         <Shared.Field label="Assign to">
-          <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+          {reps.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", padding: "8px 0", lineHeight: 1.5 }}>
+              No teammates yet — invite a producer first under Settings → Team. The lead will be assigned to you when you add the first one.
+            </div>
+          ) : (
+            <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+          )}
         </Shared.Field>
         <div/>
       </div>
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-        <button className="btn btn-primary" disabled={!valid} onClick={() => onSave(form)}>
+        <button className="btn btn-primary" disabled={!valid || (reps.length > 0 && !form.owner)} onClick={() => onSave(form)}>
           <Icons.Plus size={11}/> Add lead
         </button>
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
@@ -621,7 +629,14 @@ function SourcesSection({ sources, setConnectOpen }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "var(--text-tertiary)" }}>
                   <Icons.Clock size={10}/> {s.lastSync} · {s.accountId}
                   <div style={{ flex: 1 }}/>
-                  <button className="btn btn-ghost" style={{ height: 22, padding: "0 6px", fontSize: 10.5 }}>Configure</button>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ height: 22, padding: "0 6px", fontSize: 10.5 }}
+                    onClick={() => {
+                      try { sessionStorage.setItem("repflow.settings.tab", "integrations"); } catch {}
+                      if (window.gotoPage) window.gotoPage("settings");
+                    }}
+                  >Configure</button>
                 </div>
               </div>
             );

@@ -75,10 +75,13 @@ function PageVault({ role = "owner" }) {
           <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
           <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>
           <button className="btn" onClick={() => {
+            const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+            const orgName = meIdent?.agency_name || "Your agency";
+            const artifactCount = ARTIFACTS.length;
             const html = `
               <h1>Compliance Audit Pack</h1>
-              <div class="meta">Atlas Insurance Group · Generated ${new Date().toLocaleDateString()}</div>
-              <p><strong>14,820 artifacts retained</strong> across the trailing 13 months. SOA capture rate 98.2%, TPMO compliance 100%, zero violations.</p>
+              <div class="meta">${orgName} · Generated ${new Date().toLocaleDateString()}</div>
+              <p><strong>${artifactCount.toLocaleString()} artifact${artifactCount === 1 ? "" : "s"} retained</strong> in the vault.</p>
               <table>
                 <thead><tr><th>Kind</th><th>Lead</th><th>Producer</th><th>Captured</th><th>Status</th><th>Retention</th></tr></thead>
                 <tbody>
@@ -450,16 +453,20 @@ function CommissionsRep() {
           <div className="page-sub">Statement · advances vs as-earned · NIGO and chargeback alerts</div>
         </div>
         <button className="btn" style={{ marginLeft: "auto" }} onClick={() => {
+          const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+          const producerName = meIdent?.full_name || "Producer";
+          const orgName = meIdent?.agency_name || "Your agency";
+          const periodLabel = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
           const html = `
-            <h1>Statement · April</h1>
-            <div class="meta">Marcus Avila · Atlas Insurance Group · ${new Date().toLocaleDateString()}</div>
+            <h1>Statement · ${periodLabel}</h1>
+            <div class="meta">${producerName} · ${orgName} · ${new Date().toLocaleDateString()}</div>
             <table>
               <thead><tr><th>Date</th><th>Lead</th><th>Carrier</th><th>Product</th><th style="text-align:right">AP</th><th style="text-align:right">Comp %</th><th style="text-align:right">Expected</th><th style="text-align:right">Paid</th><th>Status</th></tr></thead>
               <tbody>
               ${ROWS.map(r => `<tr><td>${r.date}</td><td>${r.lead}</td><td>${r.carrier}</td><td>${r.product}</td><td style="text-align:right">$${(r.ap || 0).toLocaleString()}</td><td style="text-align:right">${r.pct}%</td><td style="text-align:right">$${r.expected.toLocaleString()}</td><td style="text-align:right">$${r.paid.toLocaleString()}</td><td>${r.status}</td></tr>`).join("")}
               </tbody>
             </table>`;
-          window.exportPDF && window.exportPDF("Statement · April", html);
+          window.exportPDF && window.exportPDF(`Statement · ${periodLabel}`, html);
         }}><Icons.ArrowUpRight size={13}/> Statement PDF</button>
         <button className="btn" style={{ marginLeft: 8 }} onClick={() => window.AppData.exportCsv(ROWS, "commissions-statement",
           [
@@ -2154,15 +2161,18 @@ function PageBook() {
   const carriers = window.AppData?.CARRIERS || [];
   const book     = window.AppData?.BOOK_ENTRIES || [];
 
+  // Demo seed only renders for the demo agency. Real tenants with no policies
+  // see an empty-state CTA instead of fabricated UHC/Humana/Aetna AP numbers.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
   const carrierMix = (() => {
     if (carriers.length === 0 || policies.length === 0) {
-      return [
+      return isDemo ? [
         { id: "uhc",   name: "UHC",            apps: 184, ap: 1842000, persist: 94, nigo: 1.4 },
         { id: "hum",   name: "Humana Vantage", apps: 132, ap: 1320000, persist: 92, nigo: 2.0 },
         { id: "aet",   name: "Aetna SRC",      apps: 124, ap: 1108000, persist: 87, nigo: 3.1 },
         { id: "fg",    name: "F&G Annuities",  apps:  42, ap: 1860000, persist: 96, nigo: 0.6 },
         { id: "moo",   name: "Mutual of Omaha",apps:  88, ap:  708000, persist: 78, nigo: 1.9 },
-      ];
+      ] : [];
     }
     return carriers.map(c => {
       const cps = policies.filter(p => p.carrierId === c.id);
@@ -2177,9 +2187,9 @@ function PageBook() {
       };
     }).sort((a, b) => b.ap - a.ap);
   })();
-  const totalAp = carrierMix.reduce((a, c) => a + c.ap, 0);
-  const maxAp   = Math.max(1, ...carrierMix.map(c => c.ap));
-  const apMM    = (totalAp / 1_000_000).toFixed(2) + "M";
+  const totalAp = carrierMix.reduce((a, c) => a + (c.ap || 0), 0);
+  const maxAp   = Math.max(1, ...carrierMix.map(c => c.ap || 0));
+  const apMM    = totalAp > 0 ? (totalAp / 1_000_000).toFixed(2) + "M" : "—";
 
   const exportBook = () => {
     const headers = ["Carrier","Apps","AP","Persistency","NIGO"];
@@ -2217,12 +2227,14 @@ function PageBook() {
         onChange={setView}
       />
 
-      {/* Compact KPI strip — 4 equal tiles, no hero */}
+      {/* Compact KPI strip — 4 equal tiles, no hero. KPIs display "—" for
+          real tenants until persistency / lapse / cross-sell rollups are
+          computed from policies + book entries. Demo keeps the seed values. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-        <BookKpi label="In-force AP"             value={"$" + apMM}        sub="+9.4% YoY"     trend="up"   tone="money"/>
-        <BookKpi label={`Persistency · ${BOOK_PERIOD_LABELS[period]}`} value="91.4%" sub="goal 90%" trend="up"  tone="money"/>
-        <BookKpi label="Lapse rate"              value="4.2%"              sub="-0.6 WoW"      trend="up"/>
-        <BookKpi label="Cross-sell rate"         value="22%"               sub="FE → Med Supp" trend="up"/>
+        <BookKpi label="In-force AP"             value={apMM === "—" ? "—" : "$" + apMM}        sub={isDemo ? "+9.4% YoY" : ""}     trend={isDemo ? "up" : undefined}   tone="money"/>
+        <BookKpi label={`Persistency · ${BOOK_PERIOD_LABELS[period]}`} value={isDemo ? "91.4%" : "—"} sub={isDemo ? "goal 90%" : "no data"} trend={isDemo ? "up" : undefined}  tone={isDemo ? "money" : undefined}/>
+        <BookKpi label="Lapse rate"              value={isDemo ? "4.2%" : "—"}              sub={isDemo ? "-0.6 WoW" : "no data"}      trend={isDemo ? "up" : undefined}/>
+        <BookKpi label="Cross-sell rate"         value={isDemo ? "22%" : "—"}               sub={isDemo ? "FE → Med Supp" : "no data"} trend={isDemo ? "up" : undefined}/>
       </div>
 
       {/* ─── Carrier mix view ─── */}
@@ -2243,8 +2255,13 @@ function PageBook() {
                 <div className="tabular" style={{ textAlign: "right" }}>NIGO</div>
                 <div></div>
               </div>
+              {carrierMix.length === 0 && (
+                <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                  No carrier data yet — add appointments under Settings → Carriers, then write your first deal on the Floor.
+                </div>
+              )}
               {carrierMix.map(r => {
-                const w = (r.ap / maxAp) * 100;
+                const w = ((r.ap || 0) / maxAp) * 100;
                 const persistTone = r.persist == null ? "var(--text-tertiary)" : r.persist >= 90 ? "var(--accent-money)" : r.persist >= 80 ? "var(--state-warning)" : "var(--state-danger)";
                 return (
                   <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 70px 90px 70px 70px 1fr", cursor: "pointer", background: drill === r.id ? "var(--bg-raised)" : undefined, height: 32 }} onClick={() => setDrill(drill === r.id ? null : r.id)}>
@@ -2291,13 +2308,13 @@ function PageBook() {
               <span className="meta">by carrier × product</span>
             </div>
             <div style={{ padding: 14 }}>
-              {[
+              {(isDemo ? [
                 { l: "Med Supp · UHC",        v: 94 },
                 { l: "Med Supp · Humana",     v: 92 },
                 { l: "FE · UHC",              v: 88 },
                 { l: "FE · Mutual of Omaha",  v: 78 },
                 { l: "Annuity · F&G",         v: 96 },
-              ].map((r, i) => (
+              ] : []).map((r, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 50px 1fr", padding: "4px 0", alignItems: "center", fontSize: 11.5 }}>
                   <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
                   <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}%</span>
@@ -2306,17 +2323,35 @@ function PageBook() {
                   </div>
                 </div>
               ))}
+              {!isDemo && (
+                <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                  No persistency data yet. Cohorts populate as policies hit month 3.
+                </div>
+              )}
             </div>
-            <div className="divider" style={{ margin: "0 14px" }}></div>
-            <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-              <strong style={{ color: "var(--state-warning)" }}>Watch:</strong> FE / Mutual of Omaha at 78% — replacement risk. Pull a cancellations report to confirm.
-            </div>
+            {isDemo && (
+              <>
+                <div className="divider" style={{ margin: "0 14px" }}></div>
+                <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+                  <strong style={{ color: "var(--state-warning)" }}>Watch:</strong> FE / Mutual of Omaha at 78% — replacement risk. Pull a cancellations report to confirm.
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* ─── Cohorts view — issue-month survival curves ─── */}
-      {view === "cohorts" && (
+      {view === "cohorts" && !isDemo && (
+        <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+          <Icons.Activity size={20} style={{ color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No cohort data yet</div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            Survival curves render once policies have aged at least one month. Each issue-month gets its own row; we track in-force % at every month forward.
+          </div>
+        </div>
+      )}
+      {view === "cohorts" && isDemo && (
         <div className="panel">
           <div className="panel-h">
             <Icons.Activity size={13}/>
@@ -2366,7 +2401,16 @@ function PageBook() {
       )}
 
       {/* ─── Cross-sell view — pathway conversion ─── */}
-      {view === "crosssell" && (
+      {view === "crosssell" && !isDemo && (
+        <div className="panel" style={{ padding: 36, textAlign: "center" }}>
+          <Icons.ArrowUpRight size={20} style={{ color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No cross-sell data yet</div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            Pathways populate once you have multi-policy clients. Each "X issued → Y attached" arc tracks conversion rate and avg time-to-attach.
+          </div>
+        </div>
+      )}
+      {view === "crosssell" && isDemo && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div className="panel">
             <div className="panel-h"><Icons.ArrowUpRight size={13}/><h3>Pathway conversion</h3><span className="meta">last {BOOK_PERIOD_LABELS[period]}</span></div>
@@ -2491,10 +2535,15 @@ function PageSettings({ role = "owner" }) {
 }
 
 function SettingsOrg() {
-  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || "Atlas Insurance Group");
-  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || "Atlas IMO LLC");
-  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || "atlasimo.com");
-  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || "19384726");
+  // Don't seed real org fields with Atlas demo strings — empty inputs render
+  // the placeholder cleanly and signal "fill me in" instead of "this is the
+  // seed I should overwrite". Demo agency keeps the seed for the sandbox.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || (isDemo ? "Atlas Insurance Group" : (meIdent?.agency_name || "")));
+  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || (isDemo ? "Atlas IMO LLC" : ""));
+  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || (isDemo ? "atlasimo.com" : ""));
+  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || (isDemo ? "19384726" : ""));
   const [saving, setSaving] = React.useState(false);
   const save = async () => {
     setSaving(true);
@@ -2885,14 +2934,17 @@ function SettingsProfile({ role }) {
    ───────────────────────────────────────────────────────────────────────── */
 function NotificationsPanel({ open, onClose, goto }) {
   if (!open) return null;
-  const FALLBACK = [
+  // Demo-only illustrative notifications. Real tenants get an empty state
+  // ("no notifications yet") instead of seeing Cheryl Hampton / Robert Mendez.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const FALLBACK = isDemo ? [
     { kind: "lead",     t: "Hot inbound · Cheryl Hampton",    d: "14s",       sub: "FB T65 · score 92 · TX",                page: "queue" },
     { kind: "issued",   t: "Deal issued · Naomi Reese",        d: "8m",        sub: "Aetna SRC Plan G · $1,780 AP",          page: "commissions" },
     { kind: "nigo",     t: "NIGO returned · Linda Cho",         d: "1h",        sub: "Sigs missing · Plan N",                  page: "calls" },
     { kind: "coaching", t: "New coaching card",                  d: "2h",        sub: "Open-ended Q drill assigned",            page: "coaching" },
     { kind: "anomaly",  t: "Persistency drift · Tampa",          d: "3h",        sub: "FE 13-mo cohort -3.2pts WoW",           page: "book" },
     { kind: "recruit",  t: "New applicant · Stacy V",            d: "yesterday", sub: "Already licensed in TX",                  page: "recruiting" },
-  ];
+  ] : [];
   // Live notifications: AppData.NOTIFICATIONS, mapped onto the panel shape.
   // Sort unread first, then most recent. Fallback to FALLBACK if empty.
   const fmtDelta = (iso) => {
@@ -2954,7 +3006,13 @@ function NotificationsPanel({ open, onClose, goto }) {
           </div>
         </div>
         <div className="slideout-body" style={{ padding: 0 }}>
-          {items.map((n, i) => (
+          {items.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+              <Icons.Bell size={20} style={{ color: "var(--text-quaternary)" }}/>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No notifications yet</div>
+              <div style={{ fontSize: 11.5, marginTop: 4 }}>Lead assignments, NIGO returns, and team activity will land here.</div>
+            </div>
+          ) : items.map((n, i) => (
             <div key={i} onClick={() => { goto && goto(n.page); onClose(); }} style={{ display: "flex", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}>
               <span className="dot" style={{ background: colorOf(n.kind), marginTop: 6 }}></span>
               <div style={{ flex: 1, minWidth: 0 }}>
