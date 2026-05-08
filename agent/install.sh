@@ -37,25 +37,57 @@ if [ -z "$PY" ]; then
 fi
 echo "  python: $($PY --version) at $(command -v $PY)"
 
-# ── 2. Install deps (user-local, never touches system Python) ───────────────
+# ── 2. Create isolated venv (avoids PEP 668, never touches system Python) ──
 mkdir -p "$AGENT_DIR"
-"$PY" -m pip install --user --quiet --upgrade \
-  'scrapling[fetchers]>=0.4.7' 'playwright>=1.40' 'supabase>=2.0' \
+VENV_DIR="${INSTALL_DIR}/venv"
+if [ ! -d "$VENV_DIR" ]; then
+  "$PY" -m venv "$VENV_DIR" 2>/dev/null || {
+    # Some distros split out venv into python3-venv. Fall back to virtualenv.
+    "$PY" -m pip install --user --quiet --break-system-packages virtualenv >/dev/null 2>&1 || true
+    "$PY" -m virtualenv "$VENV_DIR" 2>/dev/null || {
+      echo "✗ could not create venv. Install: sudo apt install python3-venv  (or equivalent)" >&2
+      exit 1
+    }
+  }
+fi
+VENV_PY="${VENV_DIR}/bin/python"
+"$VENV_PY" -m pip install --quiet --upgrade pip >/dev/null
+"$VENV_PY" -m pip install --quiet --upgrade \
+  'scrapling[fetchers]>=0.4.7' 'playwright>=1.40' 'supabase>=2.0' 'requests>=2.31' \
   >/dev/null
-echo "  installed: scrapling, playwright, supabase"
+echo "  venv:       ${VENV_DIR}"
+echo "  installed:  scrapling, playwright, supabase, requests"
 
 # ── 3. Install Chromium ────────────────────────────────────────────────────
-"$PY" -m playwright install chromium >/dev/null
-echo "  installed: chromium"
+"$VENV_PY" -m playwright install chromium >/dev/null
+# On Linux, also install missing system libs Chromium needs (xrandr, fontconfig,
+# etc). --with-deps requires sudo — skip silently if no sudo.
+if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v sudo &>/dev/null; then
+  sudo -n "$VENV_PY" -m playwright install-deps chromium >/dev/null 2>&1 || true
+fi
+echo "  installed:  chromium"
 
 # ── 4. Download agent files ─────────────────────────────────────────────────
 curl -sSL "${BASE_URL}/quote_agent.py" -o "${AGENT_DIR}/quote_agent.py"
 mkdir -p "${AGENT_DIR}/scrapers"
-for f in __init__.py _template.py uhc.py humana.py; do
+for f in __init__.py _template.py uhc.py humana.py aetna.py cigna.py moo.py lumico.py aig.py fg.py transamerica.py ethos.py americanamicable.py instabrain.py foresters.py sbli.py; do
   curl -sSL "${BASE_URL}/scrapers/${f}" -o "${AGENT_DIR}/scrapers/${f}" || true
 done
 chmod +x "${AGENT_DIR}/quote_agent.py"
-echo "  agent files installed"
+
+# CLI shim: lets `koino-quote` work from any shell.
+SHIM="${INSTALL_DIR}/koino-quote"
+cat > "$SHIM" <<SHIM_EOF
+#!/usr/bin/env bash
+exec "${VENV_DIR}/bin/python" "${AGENT_DIR}/quote_agent.py" "\$@"
+SHIM_EOF
+chmod +x "$SHIM"
+mkdir -p "${HOME}/.local/bin"
+ln -sf "$SHIM" "${HOME}/.local/bin/koino-quote" 2>/dev/null || true
+echo "  agent files + scrapers installed (14 carriers)"
+echo "  CLI:        koino-quote capture <carrier>   (headed login + save session)"
+echo "              koino-quote inspect <carrier>   (dump quote-form selectors)"
+echo "              koino-quote status              (list captured sessions)"
 
 # ── 5. Initial settings ────────────────────────────────────────────────────
 SETTINGS_PATH="${INSTALL_DIR}/settings.json"
@@ -82,7 +114,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 <plist version="1.0"><dict>
   <key>Label</key><string>com.koino.auto-quoter</string>
   <key>ProgramArguments</key><array>
-    <string>$(command -v $PY)</string>
+    <string>${VENV_PY}</string>
     <string>${AGENT_DIR}/quote_agent.py</string>
   </array>
   <key>RunAtLoad</key><true/>
@@ -104,7 +136,7 @@ Description=Koino Auto Quoter Agent
 After=network.target
 
 [Service]
-ExecStart=$(command -v $PY) ${AGENT_DIR}/quote_agent.py
+ExecStart=${VENV_PY} ${AGENT_DIR}/quote_agent.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${INSTALL_DIR}/agent.stdout.log

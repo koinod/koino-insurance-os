@@ -246,7 +246,7 @@ const SidebarUser = ({ setPage }) => {
     || (meIdent ? "Viewer" : "Loading…");
   const tier = meIdent?.tier || matchedRep?.tier || "bronze";
   const role = meIdent?.role ? meIdent.role.replace("_", " ") : null;
-  const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo · Atlas seed" : null);
+  const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo Agency" : null);
   return (
     <div className="sb-user" title={agencyLine ? `${name} · ${agencyLine}` : name}>
       <Avatar rep={avatarRep} size={26}/>
@@ -959,10 +959,19 @@ const isDemoAgency = () => {
   return false;
 };
 
+/* Public version toggle — when true, we hide 'Advanced Agentic' and 
+   'Installation' pages (OCI node management, raw LLM configs) to simplify 
+   the experience for the first wave of real users. */
+const isPublicVersion = () => {
+  if (typeof window === "undefined") return false;
+  return !!(window.location.hostname === "repflow.com" || window.__publicMode);
+};
+
 const fmtMoney = (n) => "$" + Math.round(Number(n) || 0).toLocaleString();
 const fmtMoneyCents = (cents) => "$" + Math.round((Number(cents) || 0) / 100).toLocaleString();
 const fmtMoneyExact = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID, fmtMoney, fmtMoneyCents, fmtMoneyExact };
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID, isPublicVersion, fmtMoney, fmtMoneyCents, fmtMoneyExact };
 window.isDemoAgency = isDemoAgency;
+window.isPublicVersion = isPublicVersion;
 window.AgencyTime = AgencyTime;

@@ -61,8 +61,10 @@
   const DEFAULT_PROFILE = {
     name: "", phone: "", email: "",
     state: "TX", age: 67, gender: "F",
-    heightInches: 65, weightLbs: 145,
+    heightFeet: 5, heightInches: 5,   // ft + in pair; total resolves at quote time
+    weightLbs: 145,
     tobacco: false,
+    prescriptions: [],
     healthDetail: {
       diabetesType:    "none",   // none | type2_oral | type2_insulin | type1
       bpHigh:          "none",   // none | controlled | uncontrolled
@@ -129,9 +131,10 @@
       return ids;
     }, [niches.length, window.AppData?.CARRIERS?.length]);
 
-    // Compute BMI live
-    const bmi = window.RateEngine?.bmiFrom?.(profile.heightInches, profile.weightLbs);
-    const profileForEngine = { ...profile, bmi };
+    // Resolve total inches from ft+in pair, compute BMI live
+    const totalInches = (profile.heightFeet || 0) * 12 + (profile.heightInches || 0);
+    const bmi = window.RateEngine?.bmiFrom?.(totalInches, profile.weightLbs);
+    const profileForEngine = { ...profile, heightInches: totalInches, bmi };
 
     // Run rate engine across appointed carriers that sell this product.
     const quoteResults = useMemo(() => {
@@ -224,9 +227,9 @@
     const conversionRate = quotes.length === 0 ? null
       : Math.round((quotes.filter(q => q.status === "converted").length / quotes.length) * 100);
 
-    const heightDisplay = `${Math.floor(profile.heightInches / 12)}'${profile.heightInches % 12}"`;
+    const heightDisplay = `${profile.heightFeet}'${profile.heightInches}"`;
     const totalAppointed = niches.filter(c => c.products.includes(profile.product))
-      .filter(c => appointedIds === null || appointedIds.has(c.id)).length;
+      .filter(c => appointedIds === null || appointedIds.has(c.id))?.length;
 
     return (
       <div className="page-pad">
@@ -299,15 +302,18 @@
               <div className="divider"></div>
 
               {/* Demographics + build */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr 0.7fr 1fr", gap: 8 }}>
                 <Shared.Field label="Age">
                   <input className="text-input" type="number" value={profile.age} onChange={(e) => set({ age: +e.target.value })}/>
                 </Shared.Field>
                 <Shared.Field label="Gender">
                   <Shared.Select value={profile.gender} onChange={(v) => set({ gender: v })} options={[{ v: "F", l: "Female" }, { v: "M", l: "Male" }]}/>
                 </Shared.Field>
-                <Shared.Field label={`Height · ${heightDisplay}`}>
-                  <input className="text-input" type="number" value={profile.heightInches} onChange={(e) => set({ heightInches: +e.target.value })}/>
+                <Shared.Field label="Height (ft)">
+                  <input className="text-input" type="number" min="3" max="7" value={profile.heightFeet} onChange={(e) => set({ heightFeet: +e.target.value })}/>
+                </Shared.Field>
+                <Shared.Field label={`(in) · ${heightDisplay}`}>
+                  <input className="text-input" type="number" min="0" max="11" value={profile.heightInches} onChange={(e) => set({ heightInches: +e.target.value })}/>
                 </Shared.Field>
                 <Shared.Field label={`Weight · BMI ${bmi ? bmi.toFixed(1) : "—"}`}>
                   <input className="text-input" type="number" value={profile.weightLbs} onChange={(e) => set({ weightLbs: +e.target.value })}/>
@@ -402,6 +408,40 @@
                     style={{ padding: "5px 10px", fontSize: 11.5, background: t.v ? "var(--accent-heat)" : "var(--bg-raised)", color: t.v ? "white" : "var(--text-secondary)" }}>{t.l}</button>
                 ))}
               </div>
+
+              {/* Prescriptions — used by carriers' Rx underwriting checks */}
+              <Shared.Field label={`Prescriptions${(profile.prescriptions || []).length ? ` · ${profile.prescriptions.length}` : ""}`}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                  {(profile.prescriptions || []).map((rx, i) => (
+                    <span key={i} className="chip" style={{ fontSize: 10.5, padding: "3px 8px" }}>
+                      {rx}
+                      <button onClick={() => set({ prescriptions: profile.prescriptions.filter((_, j) => j !== i) })}
+                        style={{ marginLeft: 6, background: "transparent", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 11 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <input className="text-input" placeholder="Type med + Enter (e.g. metformin 500mg, lisinopril, eliquis…)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && e.target.value.trim()) {
+                      const v = e.target.value.trim();
+                      set({ prescriptions: [...(profile.prescriptions || []), v] });
+                      e.target.value = "";
+                      e.preventDefault();
+                    }
+                  }}/>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                  {["metformin", "lisinopril", "atorvastatin", "amlodipine", "metoprolol", "levothyroxine", "omeprazole", "albuterol", "warfarin", "eliquis", "insulin", "trulicity"].map(rx => {
+                    const has = (profile.prescriptions || []).includes(rx);
+                    return (
+                      <button key={rx} onClick={() => set({ prescriptions: has ? profile.prescriptions.filter(x => x !== rx) : [...(profile.prescriptions || []), rx] })}
+                        className="btn"
+                        style={{ padding: "3px 8px", fontSize: 10.5, background: has ? "var(--accent-heat)" : "var(--bg-raised)", color: has ? "white" : "var(--text-secondary)" }}>
+                        {rx}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Shared.Field>
             </div>
           </div>
 

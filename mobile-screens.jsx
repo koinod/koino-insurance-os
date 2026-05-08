@@ -193,8 +193,9 @@ function MScreenCall({ lead, onEnd }) {
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
   const tpmoFired = sec >= 8;
-  const name = lead?.lead || "Cheryl Hampton";
-  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : "67 · Travis County, TX · T65 list";
+  const isDemo = window.isDemoAgency && window.isDemoAgency();
+  const name = lead?.lead || (isDemo ? "Cheryl Hampton" : "—");
+  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : (isDemo ? "67 · Travis County, TX · T65 list" : "no active call");
 
   return (
     <div className="m-call">

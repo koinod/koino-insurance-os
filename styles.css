@@ -256,6 +256,64 @@ input, textarea { font-family: inherit; color: inherit; }
 .topbar .live-badge { margin-left: 6px; height: 22px; }
 .topbar .aep-pill { background: color-mix(in oklch, var(--accent-heat) 18%, transparent); }
 
+/* Liquid-glass OS selector (Auto Quoter Setup → install command) */
+.os-glass-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  background: linear-gradient(145deg,
+    color-mix(in oklch, white 6%, transparent),
+    color-mix(in oklch, white 1%, transparent));
+  border: 1px solid color-mix(in oklch, white 8%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 10%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, black 25%, transparent),
+    0 8px 24px color-mix(in oklch, black 30%, transparent);
+}
+.os-glass-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease, border-color 140ms ease;
+}
+.os-glass-btn:hover {
+  background: color-mix(in oklch, white 4%, transparent);
+  color: var(--text-primary);
+}
+.os-glass-btn.is-active {
+  background: linear-gradient(145deg,
+    color-mix(in oklch, var(--accent-money) 28%, transparent),
+    color-mix(in oklch, var(--accent-money) 12%, transparent));
+  border-color: color-mix(in oklch, var(--accent-money) 45%, transparent);
+  color: var(--text-primary);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+    0 4px 12px color-mix(in oklch, var(--accent-money) 35%, transparent);
+}
+.os-glass-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.os-glass-sub {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.os-glass-btn.is-active .os-glass-sub { color: color-mix(in oklch, var(--accent-money) 70%, var(--text-secondary)); }
+
 /* Section sub-nav pill — for combining related pages within a screen */
 .section-pill {
   display: inline-flex;
@@ -1128,4 +1186,36 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) {
   @keyframes shimmer { 0%, 100% { background-position: 0 0; } }
+}
+
+/* ─── Global text-wrap discipline ───────────────────────────────────────
+   Cards/panels with text content should wrap to fit available width and
+   never break their parent's grid by overflowing horizontally. This is the
+   universal fix for "text spills outside the card" reports.
+
+   Rules:
+   - Every card-shaped container gets min-width:0 so it can shrink under flex
+     /grid pressure (the default min-width:auto is the cause of overflow).
+   - Long unbroken strings (URLs, slugs, IDs) wrap at any character.
+   - .cell-truncate stays single-line + ellipsis (explicit opt-in for tables).
+*/
+.panel, .kpi, .row, .list-h, .modal,
+.os-glass-bar, .os-glass-btn,
+.tier, .chip, .meta {
+  min-width: 0;
+}
+.panel, .kpi, .row, .modal {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.panel pre, .panel code, .modal pre, .modal code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.cell-truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
 }

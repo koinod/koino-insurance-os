@@ -37,6 +37,8 @@ const BY_PRODUCT = [
 function PageAttribution({ role = "owner" }) {
   const [tab, setTab] = React.useState("vendors");
   const [sort, setSort] = React.useState({ key: "roas", dir: "desc" });
+  const [period, setPeriod] = React.useState(() => new Date().toLocaleString("en-US", { month: "long" }));
+  const [pickerOpen, setPickerOpen] = React.useState(false);
 
   const enriched = VENDORS.map(v => ({
     ...v,
@@ -72,10 +74,41 @@ function PageAttribution({ role = "owner" }) {
           <div className="page-title">Lead Vendors · Attribution</div>
           <div className="page-sub">Acquisition cost → Pipeline outcomes → Commissions, by vendor / state / product</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> April</button>
-          <button className="btn"><Icons.ArrowUpRight size={13}/> Export</button>
-          <button className="btn btn-primary"><Icons.Plus size={13}/> New vendor</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, position: "relative" }}>
+          <button className="btn" onClick={() => setPickerOpen(o => !o)}><Icons.Calendar size={13}/> {period}</button>
+          {pickerOpen && (
+            <div
+              onMouseLeave={() => setPickerOpen(false)}
+              style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, padding: 8, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, zIndex: 20, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, minWidth: 220 }}
+            >
+              {["January","February","March","April","May","June","July","August","September","October","November","December"].map(m => (
+                <button key={m} className={`chip ${m === period ? "chip-money" : ""}`} style={{ cursor: "pointer", border: 0 }} onClick={() => { setPeriod(m); setPickerOpen(false); window.toast && window.toast(`Period: ${m}`, "info"); }}>{m.slice(0, 3)}</button>
+              ))}
+            </div>
+          )}
+          <button
+            className="btn"
+            onClick={() => {
+              // CSV export of the current sorted attribution table
+              const headers = ["Vendor","Spend","Leads","Contacts","Issued","AP","CloseRate%","CPA","CPC","ROAS"];
+              const rows = sorted.map(v => [v.vendor, v.spend, v.leads, v.contacts, v.issued, v.ap, v.closeRate.toFixed(1), Math.round(v.cpa), Math.round(v.cpc), v.roas.toFixed(2)]);
+              const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `attribution-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click(); URL.revokeObjectURL(url);
+              window.toast && window.toast(`Exported ${rows.length} vendors`, "success");
+            }}
+          ><Icons.ArrowUpRight size={13}/> Export</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              try { sessionStorage.setItem("repflow.settings.tab", "integrations"); } catch {}
+              if (window.gotoPage) window.gotoPage("settings");
+              window.toast && window.toast("New vendor → connect via Settings → Integrations", "info");
+            }}
+          ><Icons.Plus size={13}/> New vendor</button>
         </div>
       </div>
 

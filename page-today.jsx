@@ -928,7 +928,7 @@ function TodayOwner({ aep }) {
   // GAP-OD1: Owner Today now derives from live tables instead of hardcoded.
   const { REPS, COMMISSIONS, POLICIES, CLAWBACKS } = AppData;
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const agencyName = meIdent?.agency_name || "Atlas Insurance Group";
+  const agencyName = meIdent?.agency_name || "Demo Agency";
 
   const today = todayDateStr();
   const monthPrefix = today.slice(0, 7);

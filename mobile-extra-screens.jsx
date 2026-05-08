@@ -123,7 +123,11 @@ function MScreenVault({ onNav }) {
 
 /* ── Settings mobile ──────────────────────────────────────────────────── */
 function MScreenSettings({ onNav }) {
-  const me = AppData.REPS[0];
+  const meIdent = window.me && window.me();
+  const me = (meIdent?.rep_id && (AppData.REPS || []).find(r => r.id === meIdent.rep_id))
+    || (AppData.REPS && AppData.REPS[0])
+    || { name: meIdent?.email?.split("@")[0] || "Viewer", handle: meIdent?.email || "—" };
+  const initials = (me.name || "?").split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("") || "?";
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -133,10 +137,10 @@ function MScreenSettings({ onNav }) {
       </div>
       <div className="m-scroll">
         <div className="m-card" style={{ padding: 14, marginBottom: 10, display: "flex", alignItems: "center", gap: 12 }}>
-          <div className="m-avatar" style={{ width: 48, height: 48, fontSize: 18, background: me?.color }}>{me?.name.split(" ").map(s => s[0]).join("")}</div>
+          <div className="m-avatar" style={{ width: 48, height: 48, fontSize: 18, background: me.color || "var(--bg-raised)" }}>{initials}</div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{me?.name}</div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{me?.handle} · Atlanta</div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{me.name}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{me.handle || "—"}</div>
           </div>
         </div>
 

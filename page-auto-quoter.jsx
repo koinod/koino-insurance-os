@@ -25,20 +25,27 @@
   // Carrier list — drives credential form rows + carrier-enabled toggles.
   // Keep id in sync with scrapers/<id>.py.
   const SUPPORTED_CARRIERS = [
-    { id: "uhc",    name: "UnitedHealthcare AARP", products: ["medsupp"], requiresLogin: false, note: "Public quoter — no login required" },
-    { id: "humana", name: "Humana",                 products: ["medsupp", "mapd"], requiresLogin: true,  note: "Producer portal · my.humana.com/agent" },
-    { id: "aetna",  name: "Aetna SRC",              products: ["medsupp"], requiresLogin: true,  note: "Producer portal · aetnaseniorproducts.com" },
-    { id: "cigna",  name: "Cigna (ARLIC)",          products: ["medsupp"], requiresLogin: true,  note: "Producer portal · agent.cignaforhcp.com" },
-    { id: "moo",    name: "Mutual of Omaha",        products: ["medsupp", "fe"], requiresLogin: true, note: "Producer portal · sales.mutualofomaha.com" },
-    { id: "lumico", name: "Lumico",                 products: ["fe"], requiresLogin: true, note: "Producer portal · lumicolife.com" },
-    { id: "aig",    name: "AIG (Corebridge)",       products: ["fe", "term"], requiresLogin: true, note: "Producer portal · agent.corebridgefinancial.com" },
-    { id: "fg",     name: "F&G",                     products: ["annuity", "iul"], requiresLogin: true, note: "Producer portal · agentportal.fglife.com" },
+    { id: "uhc",              name: "UnitedHealthcare AARP", products: ["medsupp"],            requiresLogin: false, note: "Public quoter — no login required" },
+    { id: "humana",           name: "Humana",                products: ["medsupp", "mapd"],    requiresLogin: true,  note: "Producer · humana.com/agent" },
+    { id: "aetna",            name: "Aetna SRC",             products: ["medsupp"],            requiresLogin: true,  note: "Producer · aetnaseniorsupplemental.com" },
+    { id: "cigna",            name: "Cigna (ARLIC)",         products: ["medsupp"],            requiresLogin: true,  note: "Producer · cignaforhcp.com" },
+    { id: "moo",              name: "Mutual of Omaha",       products: ["medsupp", "fe"],      requiresLogin: true,  note: "Producer · mutualofomaha.com/agent" },
+    { id: "lumico",           name: "Lumico",                products: ["fe"],                  requiresLogin: true,  note: "Producer · lumico.com" },
+    { id: "aig",              name: "Corebridge (AIG)",      products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Producer · corebridgefinancial.com" },
+    { id: "fg",               name: "F&G",                   products: ["annuity", "iul"],      requiresLogin: true,  note: "Producer · saleslink.fglife.com" },
+    { id: "transamerica",     name: "Transamerica",          products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Producer · transamerica.com/agent" },
+    { id: "ethos",            name: "Ethos",                 products: ["term"],                requiresLogin: true,  note: "Producer · agents.ethoslife.com" },
+    { id: "americanamicable", name: "American Amicable",     products: ["fe", "term"],          requiresLogin: true,  note: "Producer · aalife.com" },
+    { id: "instabrain",       name: "Instabrain (multi)",    products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Aggregator · instabrain.ai" },
+    { id: "foresters",        name: "Foresters",             products: ["term", "iul"],         requiresLogin: true,  note: "Producer · foresters.com/agents" },
+    { id: "sbli",             name: "SBLI",                  products: ["term"],                requiresLogin: true,  note: "Producer · sbli.com/agent" },
   ];
 
   // Local persistence (until the agent <-> supabase wire is fully live)
   const LS_CREDS = "repflow:auto-quoter:creds";
   const LS_SETTINGS = "repflow:auto-quoter:settings";
   const LS_REQUESTS = "repflow:auto-quoter:requests";
+  const LS_SESSIONS = "repflow:auto-quoter:sessions";  // { [carrierId]: { capturedAt, status, lastError } }
 
   function loadJSON(key, fallback) {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
@@ -46,11 +53,22 @@
   function saveJSON(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
   }
+  function formatAgo(iso) {
+    if (!iso) return "never";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 60_000)        return "just now";
+    if (ms < 3_600_000)     return `${Math.floor(ms / 60_000)}m ago`;
+    if (ms < 86_400_000)    return `${Math.floor(ms / 3_600_000)}h ago`;
+    return `${Math.floor(ms / 86_400_000)}d ago`;
+  }
 
   function PageAutoQuoter({ role = "owner" }) {
     const [credentials, setCredentials] = useState(() => loadJSON(LS_CREDS, {}));
     const [settings, setSettings]       = useState(() => loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: ["uhc"] }));
     const [requests, setRequests]       = useState(() => loadJSON(LS_REQUESTS, []));
+    const [sessions, setSessions]       = useState(() => loadJSON(LS_SESSIONS, {}));
+    const [agentLastSeen, setAgentLastSeen] = useState(null);
+    const [capturingCarrier, setCapturingCarrier] = useState(null);
 
     const [tab, setTab] = useState("quote");  // quote | setup | credentials
     const [expandedCarrier, setExpandedCarrier] = useState(null);
@@ -58,15 +76,112 @@
     // Profile form state — same shape as page-quote.jsx for shareability
     const [profile, setProfile] = useState({
       name: "", state: "TX", age: 67, gender: "F",
-      heightInches: 65, weightLbs: 145, tobacco: false,
+      heightFeet: 5, heightInches: 5, weightLbs: 145, tobacco: false,
+      prescriptions: [],   // array of { name, dosage } strings or just names
       healthDetail: { diabetesType: "none", bpHigh: "none", cholesterolHigh: false, sleepApnea: "none", copd: false, cancerWindow: "none", cardiacWindow: "none" },
       product: "medsupp", planVariant: "G", face: 15000, premium: 50000,
     });
+    // Convenience derived: total inches for the rate engine. Update both ways.
+    const totalInches = (profile.heightFeet || 0) * 12 + (profile.heightInches || 0);
     const [activeRequest, setActiveRequest] = useState(null);  // { id, results: [...] }
 
     useEffect(() => saveJSON(LS_CREDS, credentials), [credentials]);
     useEffect(() => saveJSON(LS_SETTINGS, settings), [settings]);
     useEffect(() => saveJSON(LS_REQUESTS, requests), [requests]);
+    useEffect(() => saveJSON(LS_SESSIONS, sessions), [sessions]);
+
+    // Poll Supabase for live session + agent state when LIVE
+    useEffect(() => {
+      if (!window.AppData?.LIVE) return;
+      let cancelled = false;
+      const tick = async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          if (!sb) return;
+          const me = window.me && window.me();
+          if (!me?.rep_id) return;
+          const { data: rows } = await sb.from("carrier_session_status").select("*").eq("rep_id", me.rep_id);
+          if (!cancelled && rows) {
+            const next = {};
+            rows.forEach(r => { next[r.carrier_id] = { capturedAt: r.captured_at, freshness: r.freshness, lastFailure: r.last_failure, lastQuoteAt: r.last_quote_at }; });
+            setSessions(prev => ({ ...prev, ...next }));
+          }
+          const { data: settingsRow } = await sb.from("auto_quoter_settings").select("agent_last_seen").eq("rep_id", me.rep_id).single();
+          if (!cancelled && settingsRow) setAgentLastSeen(settingsRow.agent_last_seen);
+        } catch (e) { /* ignore */ }
+      };
+      tick();
+      const handle = setInterval(tick, 5000);
+      return () => { cancelled = true; clearInterval(handle); };
+    }, []);
+
+    // ── Capture / inspect dispatch ─────────────────────────────────────────
+    const captureSession = async (carrierId) => {
+      setCapturingCarrier(carrierId);
+      const me = window.me && window.me();
+      const sb = window.getSupabase && window.getSupabase();
+      if (window.AppData?.LIVE && sb && me?.rep_id) {
+        try {
+          await sb.from("auto_quote_requests").insert({
+            rep_id: me.rep_id,
+            request_type: "capture_session",
+            carrier_id: carrierId,
+            profile: {},
+            carriers: [carrierId],
+            status: "queued",
+          });
+          window.toast && window.toast(`Capture queued · open the headed Chromium window on your machine and log in to ${carrierId}`, "info");
+        } catch (e) {
+          window.toast && window.toast(`Capture queue failed: ${e.message}`, "warn");
+          setCapturingCarrier(null);
+          return;
+        }
+      } else {
+        // Demo mode: simulate a successful capture after 2s
+        setTimeout(() => {
+          setSessions(prev => ({ ...prev, [carrierId]: { capturedAt: new Date().toISOString(), freshness: "fresh" } }));
+          setCapturingCarrier(null);
+          window.toast && window.toast(`Demo: ${carrierId} session captured`, "success");
+        }, 2000);
+        return;
+      }
+      // Live mode: poll session status until it flips to fresh or 90s timeout
+      const start = Date.now();
+      const handle = setInterval(async () => {
+        if (Date.now() - start > 90_000) { clearInterval(handle); setCapturingCarrier(null); return; }
+        try {
+          const { data: rows } = await sb.from("carrier_session_status").select("*").eq("rep_id", me.rep_id).eq("carrier_id", carrierId);
+          if (rows && rows[0]?.freshness === "fresh") {
+            setSessions(prev => ({ ...prev, [carrierId]: { capturedAt: rows[0].captured_at, freshness: rows[0].freshness } }));
+            clearInterval(handle);
+            setCapturingCarrier(null);
+            window.toast && window.toast(`${carrierId} session captured`, "success");
+          }
+        } catch (e) { /* ignore */ }
+      }, 3000);
+    };
+
+    const inspectForm = async (carrierId) => {
+      const me = window.me && window.me();
+      const sb = window.getSupabase && window.getSupabase();
+      if (window.AppData?.LIVE && sb && me?.rep_id) {
+        try {
+          await sb.from("auto_quote_requests").insert({
+            rep_id: me.rep_id,
+            request_type: "inspect_form",
+            carrier_id: carrierId,
+            profile: {},
+            carriers: [carrierId],
+            status: "queued",
+          });
+          window.toast && window.toast(`Inspect queued · agent will dump ${carrierId} quote-form selectors`, "info");
+        } catch (e) {
+          window.toast && window.toast(`Inspect queue failed: ${e.message}`, "warn");
+        }
+      } else {
+        window.toast && window.toast("Inspect form requires LIVE mode + a captured session", "warn");
+      }
+    };
 
     const setCarrierCred = (carrierId, field, value) => {
       setCredentials(prev => ({
@@ -95,34 +210,45 @@
         return;
       }
 
+      // Snapshot profile with derived totalInches so scrapers + RateEngine
+      // get a single canonical height value (some carriers want raw inches,
+      // others want ft/in pairs — we send both).
+      const profileSnap = {
+        ...profile,
+        heightInches: totalInches,
+        heightFeet: profile.heightFeet,
+        heightInchesPart: profile.heightInches,
+      };
       const newRequest = {
-        id: reqId, profile: { ...profile }, carriers: enabled,
+        id: reqId, profile: profileSnap, carriers: enabled,
         status: "queued", createdAt: new Date().toISOString(),
         results: [],
       };
       setRequests(prev => [newRequest, ...prev].slice(0, 30));
       setActiveRequest(newRequest);
 
-      // Insert to Supabase if LIVE
+      // ALWAYS run the local RateEngine so the rep sees an instant quote
+      // even when no carrier scraper has selectors mapped or the local agent
+      // isn't installed yet. If LIVE, ALSO queue the request so the local
+      // agent (when running) can push a real scraped premium that overrides
+      // the engine estimate.
+      simulateAgent(newRequest);
+
       if (window.AppData?.LIVE) {
         try {
           const sb = window.getSupabase && window.getSupabase();
           if (sb) {
             const me = window.me && window.me();
             const { data } = await sb.from("auto_quote_requests").insert({
-              rep_id: me?.rep_id, profile, carriers: enabled, status: "queued",
+              rep_id: me?.rep_id, profile: profileSnap, carriers: enabled, status: "queued",
             }).select().single();
             if (data?.id) {
               setRequests(prev => prev.map(r => r.id === reqId ? { ...r, id: data.id, supabaseId: data.id } : r));
             }
           }
-        } catch (e) { /* fallback to local-only */ }
-      } else {
-        // Demo mode — simulate the agent by running RateEngine locally and
-        // streaming results with realistic delays per carrier.
-        simulateAgent(newRequest);
+        } catch (_e) { /* engine results already streaming, no user impact */ }
       }
-      window.toast && window.toast(`Quote queued · ${enabled.length} carrier${enabled.length === 1 ? "" : "s"}`, "info");
+      window.toast && window.toast(`Quote running · ${enabled.length} carrier${enabled.length === 1 ? "" : "s"} (engine estimate; live agent overrides when available)`, "info");
     };
 
     // ── Demo-mode simulator (when not LIVE) ────────────────────────────────
@@ -186,7 +312,26 @@
     // ── Render ─────────────────────────────────────────────────────────────
     const me = window.me && window.me();
     const repId = me?.rep_id || "demo-rep";
-    const installCmd = `KOINO_REP_ID=${repId} curl -sSL https://koino-insurance-os.vercel.app/agent/install.sh | bash`;
+
+    // Per-OS install commands. Default OS is auto-detected from userAgent.
+    const detectOs = () => {
+      const ua = (navigator.userAgent || "").toLowerCase();
+      if (ua.includes("mac")) return "macos";
+      if (ua.includes("win")) return "windows";
+      return "linux";
+    };
+    const [osTab, setOsTab] = useState(detectOs);
+    const INSTALL_CMDS = {
+      macos:   `KOINO_REP_ID=${repId} curl -sSL https://koino-insurance-os.vercel.app/agent/install.sh | bash`,
+      linux:   `KOINO_REP_ID=${repId} curl -sSL https://koino-insurance-os.vercel.app/agent/install.sh | bash`,
+      windows: `$env:KOINO_REP_ID="${repId}"; iwr -useb https://koino-insurance-os.vercel.app/agent/install.ps1 | iex`,
+    };
+    const OS_LABELS = {
+      macos:   { label: "macOS",   sub: "bash · launchd" },
+      linux:   { label: "Linux",   sub: "bash · systemd" },
+      windows: { label: "Windows", sub: "PowerShell · Task Scheduler" },
+    };
+    const installCmd = INSTALL_CMDS[osTab];
 
     return (
       <div className="page-pad">
@@ -224,19 +369,25 @@
                     <input className="text-input" value={profile.state} onChange={(e) => setProfile(p => ({ ...p, state: e.target.value.toUpperCase() }))} placeholder="TX" maxLength={2}/>
                   </Shared.Field>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr 0.7fr 1fr", gap: 8 }}>
                   <Shared.Field label="Age">
                     <input className="text-input" type="number" value={profile.age} onChange={(e) => setProfile(p => ({ ...p, age: +e.target.value }))}/>
                   </Shared.Field>
                   <Shared.Field label="Gender">
                     <Shared.Select value={profile.gender} onChange={(v) => setProfile(p => ({ ...p, gender: v }))} options={[{ v: "F", l: "Female" }, { v: "M", l: "Male" }]}/>
                   </Shared.Field>
+                  <Shared.Field label="Height (ft)">
+                    <input className="text-input" type="number" min="3" max="7" value={profile.heightFeet} onChange={(e) => setProfile(p => ({ ...p, heightFeet: +e.target.value }))}/>
+                  </Shared.Field>
                   <Shared.Field label="Height (in)">
-                    <input className="text-input" type="number" value={profile.heightInches} onChange={(e) => setProfile(p => ({ ...p, heightInches: +e.target.value }))}/>
+                    <input className="text-input" type="number" min="0" max="11" value={profile.heightInches} onChange={(e) => setProfile(p => ({ ...p, heightInches: +e.target.value }))}/>
                   </Shared.Field>
                   <Shared.Field label="Weight (lbs)">
                     <input className="text-input" type="number" value={profile.weightLbs} onChange={(e) => setProfile(p => ({ ...p, weightLbs: +e.target.value }))}/>
                   </Shared.Field>
+                </div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: -4 }}>
+                  {profile.heightFeet}'{profile.heightInches}" · {totalInches} in · BMI {(((profile.weightLbs || 0) / Math.max(1, totalInches * totalInches)) * 703).toFixed(1)}
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: profile.product === "medsupp" ? "2fr 1fr" : "1fr", gap: 8 }}>
@@ -291,6 +442,40 @@
                       style={{ padding: "5px 10px", fontSize: 11.5, background: t.v ? "var(--accent-heat)" : "var(--bg-raised)", color: t.v ? "white" : "var(--text-secondary)" }}>{t.l}</button>
                   ))}
                 </div>
+
+                <Shared.Field label={`Prescriptions${profile.prescriptions.length ? ` · ${profile.prescriptions.length}` : ""}`}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                    {profile.prescriptions.map((rx, i) => (
+                      <span key={i} className="chip" style={{ fontSize: 10.5, padding: "3px 8px" }}>
+                        {rx}
+                        <button onClick={() => setProfile(p => ({ ...p, prescriptions: p.prescriptions.filter((_, j) => j !== i) }))}
+                          style={{ marginLeft: 6, background: "transparent", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 11 }}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input className="text-input" placeholder="Type med + Enter (e.g. metformin 500mg, lisinopril, eliquis…)"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && e.target.value.trim()) {
+                        const v = e.target.value.trim();
+                        setProfile(p => ({ ...p, prescriptions: [...p.prescriptions, v] }));
+                        e.target.value = "";
+                        e.preventDefault();
+                      }
+                    }}/>
+                  {/* Quick chips for common ones — saves typing the top 12 */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                    {["metformin", "lisinopril", "atorvastatin", "amlodipine", "metoprolol", "levothyroxine", "omeprazole", "albuterol", "warfarin", "eliquis", "insulin", "trulicity"].map(rx => {
+                      const has = profile.prescriptions.includes(rx);
+                      return (
+                        <button key={rx} onClick={() => setProfile(p => ({ ...p, prescriptions: has ? p.prescriptions.filter(x => x !== rx) : [...p.prescriptions, rx] }))}
+                          className="btn"
+                          style={{ padding: "3px 8px", fontSize: 10.5, background: has ? "var(--accent-heat)" : "var(--bg-raised)", color: has ? "white" : "var(--text-secondary)" }}>
+                          {rx}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Shared.Field>
 
                 <div className="divider"></div>
 
@@ -386,19 +571,48 @@
         {tab === "setup" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="panel">
-              <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>One-line install</h3></div>
+              <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>One-line install</h3>
+                {agentLastSeen && (Date.now() - new Date(agentLastSeen).getTime() < 60_000)
+                  ? <span className="chip chip-money" style={{ marginLeft: "auto", fontSize: 10 }}>agent online · {formatAgo(agentLastSeen)}</span>
+                  : agentLastSeen
+                    ? <span className="chip" style={{ marginLeft: "auto", fontSize: 10, color: "var(--state-warning)" }}>agent stale · last {formatAgo(agentLastSeen)}</span>
+                    : <span className="chip" style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-tertiary)" }}>agent not seen</span>}
+              </div>
               <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                  Run this on the rep's machine. Installs Python deps, Chromium, the local agent, and a launchd/systemd unit so the agent restarts on reboot.
+                  Run this on the rep's machine. Installs Python deps, Chromium, the local agent, and a service so it restarts on reboot.
                 </div>
+
+                {/* ── Liquid glass OS selector ─────────────────────────────── */}
+                <div className="os-glass-bar" role="tablist" aria-label="Operating system">
+                  {["macos", "linux", "windows"].map(os => {
+                    const active = osTab === os;
+                    return (
+                      <button key={os} role="tab" aria-selected={active} onClick={() => setOsTab(os)}
+                        className={"os-glass-btn" + (active ? " is-active" : "")}>
+                        <div className="os-glass-label">{OS_LABELS[os].label}</div>
+                        <div className="os-glass-sub">{OS_LABELS[os].sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <pre className="mono" style={{ background: "var(--bg-raised)", padding: 12, borderRadius: 6, fontSize: 11.5, overflow: "auto", margin: 0, lineHeight: 1.55 }}>
                   {installCmd}
                 </pre>
-                <button className="btn" onClick={() => { navigator.clipboard.writeText(installCmd); window.toast && window.toast("Install command copied", "success"); }}>
-                  <Icons.Copy size={11}/> Copy
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn" onClick={() => { navigator.clipboard.writeText(installCmd); window.toast && window.toast(`${OS_LABELS[osTab].label} install command copied`, "success"); }}>
+                    <Icons.Copy size={11}/> Copy
+                  </button>
+                  {osTab === "windows" && (
+                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", alignSelf: "center", flex: 1 }}>
+                      Open <strong>PowerShell</strong> (not Command Prompt). If blocked: run <code style={{ fontSize: 10 }}>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code> once.
+                    </span>
+                  )}
+                </div>
                 <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                  Files installed to <code style={{ fontSize: 10.5 }}>~/.koino/auto-quoter/</code>. Credentials stored locally with chmod 600 — never leave your machine.
+                  Files installed to <code style={{ fontSize: 10.5 }}>{osTab === "windows" ? "%LOCALAPPDATA%\\Koino\\auto-quoter\\" : "~/.koino/auto-quoter/"}</code>.
+                  Credentials stored locally — never leave your machine.
                 </div>
               </div>
             </div>
@@ -433,31 +647,71 @@
               <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Enabled carriers</h3>
                 <span className="meta" style={{ marginLeft: "auto" }}>{settings.enabledCarriers.length} of {SUPPORTED_CARRIERS.length}</span>
               </div>
-              <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+              <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 }}>
                 {SUPPORTED_CARRIERS.map(c => {
                   const enabled = settings.enabledCarriers.includes(c.id);
-                  const credsOk = !c.requiresLogin || (credentials[c.id]?.username && credentials[c.id]?.password);
+                  const sess = sessions[c.id];
+                  const sessionFresh = sess?.freshness === "fresh";
+                  const sessionStale = sess?.freshness === "stale" || sess?.freshness === "expired";
+                  const sessionAge = sess?.capturedAt ? formatAgo(sess.capturedAt) : null;
+                  const isCapturing = capturingCarrier === c.id;
+                  const sessionChipColor =
+                    !c.requiresLogin ? "var(--text-tertiary)"
+                    : sessionFresh ? "var(--accent-money)"
+                    : sessionStale ? "var(--state-warning)"
+                    : "var(--state-danger)";
+                  const sessionChipText =
+                    !c.requiresLogin ? "no login needed"
+                    : sessionFresh ? `session · ${sessionAge}`
+                    : sessionStale ? `stale · re-capture`
+                    : "no session";
                   return (
-                    <label key={c.id} style={{
-                      display: "flex", alignItems: "flex-start", gap: 10, padding: 12,
+                    <div key={c.id} style={{
+                      display: "flex", flexDirection: "column", gap: 8, padding: 12,
                       background: enabled ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)",
                       border: enabled ? "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)" : "1px solid var(--border-subtle)",
-                      borderRadius: 6, cursor: "pointer",
+                      borderRadius: 6,
                     }}>
-                      <input type="checkbox" checked={enabled} onChange={() => toggleCarrier(c.id)} style={{ marginTop: 2 }}/>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 12.5 }}>{c.name}</div>
-                        <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.note}</div>
-                        <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {c.products.map(p => <span key={p} className="chip" style={{ fontSize: 9.5 }}>{p}</span>)}
-                          {c.requiresLogin && (
-                            <span className="chip" style={{ fontSize: 9.5, color: credsOk ? "var(--accent-money)" : "var(--state-warning)" }}>
-                              {credsOk ? "creds ✓" : "creds missing"}
-                            </span>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                        <input type="checkbox" checked={enabled} onChange={() => toggleCarrier(c.id)} style={{ marginTop: 2 }}/>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12.5 }}>{c.name}</div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.note}</div>
+                          <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {c.products.map(p => <span key={p} className="chip" style={{ fontSize: 9.5 }}>{p}</span>)}
+                            <span className="chip" style={{ fontSize: 9.5, color: sessionChipColor }}>{sessionChipText}</span>
+                          </div>
+                          {sess?.lastFailure && (
+                            <div style={{ fontSize: 10, color: "var(--state-danger)", marginTop: 4 }} title={sess.lastFailure}>
+                              ⚠ {(sess.lastFailure || "").slice(0, 60)}
+                            </div>
                           )}
                         </div>
-                      </div>
-                    </label>
+                      </label>
+                      {c.requiresLogin && (
+                        <div style={{ display: "flex", gap: 6, paddingTop: 6, borderTop: "1px solid var(--border-subtle)" }}>
+                          <button
+                            className="btn"
+                            disabled={isCapturing}
+                            onClick={() => captureSession(c.id)}
+                            style={{ flex: 1, padding: "6px 10px", fontSize: 11, opacity: isCapturing ? 0.6 : 1 }}
+                            title="Open headed browser, log in once, save the session for headless quotes."
+                          >
+                            <Icons.Shield size={11}/>
+                            {isCapturing ? "waiting for login…" : (sess?.capturedAt ? "Re-capture" : "Capture login")}
+                          </button>
+                          <button
+                            className="btn btn-ghost"
+                            disabled={!sess?.capturedAt}
+                            onClick={() => inspectForm(c.id)}
+                            style={{ padding: "6px 10px", fontSize: 11, opacity: sess?.capturedAt ? 1 : 0.5 }}
+                            title="Dump the carrier's quote-form selectors so the scraper can be repaired after a portal redesign."
+                          >
+                            <Icons.Search size={11}/> Inspect
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

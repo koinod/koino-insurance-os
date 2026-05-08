@@ -157,7 +157,7 @@ function LoginScreen() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@atlasimo.com"
+              placeholder="you@agency.com"
               onKeyDown={(e) => e.key === "Enter" && (mode === "magic" ? send() : signInWithPassword())}
               autoFocus
               style={{ marginTop: 6, fontSize: 14, padding: "10px 12px" }}
@@ -195,13 +195,13 @@ function LoginScreen() {
                 Skip → Continue with demo data
               </button>
               <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-quaternary)", textAlign: "center" }}>
-                No account, no real data — just the prototype on mocks.
+                No account required — explore a read-only instance of Repflow.
               </div>
             </div>
           </>
         )}
       </div>
-      <div className="login-foot">Atlas IMO · powered by Repflow</div>
+      <div className="login-foot">Repflow · operator-grade for life & health distribution</div>
     </div>
   );
 }

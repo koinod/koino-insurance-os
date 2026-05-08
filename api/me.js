@@ -68,26 +68,20 @@ export default async function handler(req) {
     }), { status: 200, headers: corsHeaders() });
   }
 
-  // Anonymous / signed-out callers get the demo identity: Marcus, the Atlas
-  // owner. Read-only because anon RLS only grants SELECT on Atlas-scoped rows
-  // (see migration 0006_anon_demo_read). Gives ?demo=1 visitors the full
-  // owner view — fleet KPIs, P&L, predictive cards — without an account.
+  // Anonymous / signed-out callers get the demo identity.
+  // Read-only because anon RLS only grants SELECT on Atlas-scoped rows.
   if (!me || !me.rep_id) {
-    const downlineRows = await callRpc("downline_of", { root_rep_id: "marc" }, null);
-    const downline_ids = Array.isArray(downlineRows)
-      ? downlineRows.map(r => (typeof r === "string" ? r : r.rep_id)).filter(Boolean)
-      : [];
     return new Response(JSON.stringify({
-      rep_id: "marc",
+      rep_id: "demo-user",
       user_id: null,
-      full_name: "Marcus Avila",
-      handle: "@marc",
+      full_name: "Demo User",
+      handle: "@demo",
       role: "owner",
-      tier: "diamond",
+      tier: "bronze",
       agency_id: DEMO_AGENCY_ID,
-      agency_name: "Atlas Insurance Group",
+      agency_name: "Demo Agency",
       upline_id: null,
-      downline_ids,
+      downline_ids: [],
       is_demo: true,
       authenticated: false,
     }), { status: 200, headers: corsHeaders() });

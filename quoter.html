@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Auto Quoter — Koino Insurance OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css?v=56"/>
+<link rel="icon" type="image/svg+xml" href="/icon.svg"/>
+<style>
+  /* Standalone wrapper — no sidebar, no topbar. Just the page surface. */
+  body { background: var(--bg-base); margin: 0; }
+  .quoter-shell {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    max-width: 1480px; margin: 0 auto;
+  }
+  .quoter-banner {
+    padding: 10px 22px;
+    background: color-mix(in oklch, var(--accent-money) 10%, var(--bg-elevated));
+    border-bottom: 1px solid color-mix(in oklch, var(--accent-money) 25%, transparent);
+    display: flex; align-items: center; gap: 12px; font-size: 12px;
+  }
+  .quoter-banner strong { color: var(--accent-money); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
+  .quoter-banner a { color: var(--text-primary); text-decoration: underline; opacity: 0.85; }
+  .quoter-banner a:hover { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+
+<!-- Minimum dependencies for PageAutoQuoter to render. Order matters:
+     data.jsx → icons.jsx → shared.jsx → page-queue.jsx (CARRIER_NICHES) → page-quote.jsx → page-auto-quoter.jsx -->
+<script src="lib/supabase-config.js?v=56"></script>
+<script src="lib/me.js?v=56"></script>
+<script src="lib/rate-engine.js?v=56"></script>
+<script type="text/babel" src="data.jsx?v=56"></script>
+<script type="text/babel" src="icons.jsx?v=56"></script>
+<script type="text/babel" src="shared.jsx?v=56"></script>
+<script type="text/babel" src="page-queue.jsx?v=56"></script>
+<script type="text/babel" src="page-quote.jsx?v=56"></script>
+<script type="text/babel" src="page-auto-quoter.jsx?v=56"></script>
+<script type="text/babel" src="polish.jsx?v=56"></script>
+
+<script type="text/babel">
+/* Standalone Auto Quoter shell.
+   Bypasses the auth wall entirely. Loads window.PageAutoQuoter (defined by
+   page-auto-quoter.jsx) and mounts it inside a minimal layout — no sidebar,
+   no topbar, no role-switch. Defaults to owner role since that's the only
+   role that has the Auto Quoter tab in the main app.
+*/
+function QuoterApp() {
+  // Polish.jsx mounts ToastHost into document.body, but only when its own
+  // App boots. Re-trigger by waiting for it.
+  React.useEffect(() => {
+    if (!window.toast || typeof window.toast !== "function") {
+      // polish.jsx defines window.toast at top-level — should be there.
+      console.warn("[/quoter] window.toast not initialized");
+    }
+  }, []);
+
+  const Page = window.PageAutoQuoter;
+  if (!Page) {
+    return <div style={{ padding: 40, color: "var(--text-tertiary)", fontSize: 13 }}>Loading…</div>;
+  }
+
+  return (
+    <div className="quoter-shell">
+      <div className="quoter-banner">
+        <strong>Standalone Auto Quoter</strong>
+        <span style={{ color: "var(--text-secondary)" }}>
+          Test surface for the local-agent quote flow · no auth · no sidebar ·
+          all data is localStorage
+        </span>
+        <a href="/" style={{ marginLeft: "auto" }}>← back to full app</a>
+      </div>
+      <Page role="owner"/>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<QuoterApp/>);
+</script>
+</body>
+</html>
