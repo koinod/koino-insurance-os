@@ -140,9 +140,9 @@ const SidebarBrand = () => {
   }, []);
   const me = (typeof window !== "undefined" && window.me && window.me()) || null;
   // Agency name shown under "Repflow" brand — real agency for authed users,
-  // "Demo · Atlas seed" for ?demo=1 sandbox, "—" while resolving.
+  // "Demo Agency" for ?demo=1 sandbox, "—" while resolving.
   const agencyLabel = me?.agency_name
-    || (me?.is_demo ? "Demo · Atlas seed" : (me ? "—" : "Loading…"));
+    || (me?.is_demo ? "Demo Agency" : (me ? "—" : "Loading…"));
   return (
     <div className="sb-brand">
       <div className="sb-brand-mark">R</div>
@@ -300,7 +300,7 @@ const AccountChip = () => {
     ? (me.agency_name || (me.role ? me.role.replace("_", " ") : ""))
     : isLoading
       ? "Loading…"
-      : (inDemo || me?.is_demo ? "Read-only · Atlas seed" : "Not signed in");
+      : (inDemo || me?.is_demo ? "Read-only · Demo Instance" : "Not signed in");
 
   const tone = isAuthed ? "var(--accent-money)"
     : isLoading ? "var(--text-tertiary)"
@@ -354,7 +354,10 @@ const AccountChip = () => {
               </>
             ) : (
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}
-                onClick={() => window.signOut && window.signOut()}>
+                onClick={() => {
+                  try { sessionStorage.removeItem("repflow.demo"); } catch(_e) {}
+                  window.location.reload();
+                }}>
                 <Icons.Send size={11}/> Sign in to a real account
               </button>
             )}
