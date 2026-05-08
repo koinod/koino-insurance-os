@@ -4,7 +4,7 @@ const { useState, useEffect, useRef, useMemo } = React;
 const TierChip = ({ tier, compact }) => (
   <span className={`tier tier-${tier}`}>
     <span className="gem"></span>
-    {!compact && AppData.TIER_LABELS[tier]}
+    {!compact && (AppData.TIER_LABELS[tier] || String(tier).toUpperCase())}
   </span>
 );
 
@@ -355,7 +355,7 @@ const AccountChip = () => {
             ) : (
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}
                 onClick={() => {
-                  try { sessionStorage.removeItem("repflow.demo"); } catch(_e) {}
+                  try { sessionStorage.clear(); } catch(_e) {}
                   window.location.reload();
                 }}>
                 <Icons.Send size={11}/> Sign in to a real account
