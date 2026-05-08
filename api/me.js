@@ -103,6 +103,7 @@ export default async function handler(req) {
     agency_id:    me.agency_id,
     agency_name:  me.agency_name,
     upline_id:    me.upline_id,
+    subscription_status: me.subscription_status || "trialing",
     downline_ids,
     is_demo:      me.agency_id === DEMO_AGENCY_ID,
     authenticated: true,

@@ -353,10 +353,13 @@ function AuthGate({ children }) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Loading your agency...</div></div>;
   }
 
-  // No agency_members row at all → user-type picker (Start / Join / Solo).
-  // FirstRun handles the agency creation, invite redemption, or solo flow,
-  // then refreshes tenant when done.
-  if (session && tenant && !tenant.member && window.PageFirstRun) {
+  // Handle "unmapped" users who have an auth session but no agency links yet.
+  // This covers the specific request to send unmapped accounts through onboarding.
+  const me = window.me && window.me();
+  const isUnmapped = !!(session && me && (me.role === "unmapped" || me.needs_onboarding));
+
+  // No agency_members row at all OR explicitly unmapped → user-type picker.
+  if (session && (isUnmapped || (tenant && !tenant.member)) && window.PageFirstRun) {
     const F = window.PageFirstRun;
     return <F session={session} onDone={() => refreshTenant()}/>;
   }

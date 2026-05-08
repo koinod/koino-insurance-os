@@ -126,7 +126,7 @@
 
     const STEPS = [
       "Identity", "Contact", "Licensing", "Products",
-      "Carriers", "Compensation", "Compliance", "Branding", "Review",
+      "Carriers", "Compensation", "Compliance", "Branding", "Plan", "Review",
     ];
 
     const persist = async (complete = false) => {
@@ -338,6 +338,38 @@
           )}
 
           {step === 8 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                Select a starting plan for your agency. You can change this or add a custom domain later.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[
+                  { id: "trial", name: "14-Day Free Trial", desc: "Full feature access, no card required today.", price: "$0" },
+                  { id: "growth", name: "Growth", desc: "Up to 5 producers, auto-dialer included.", price: "$499/mo" },
+                  { id: "scale", name: "Scale", desc: "Unlimited producers, AI co-pilot, custom docs.", price: "$1,299/mo" },
+                  { id: "enterprise", name: "Enterprise", desc: "Custom IMO volume, dedicated OCI nodes.", price: "Custom" },
+                ].map(p => (
+                  <button key={p.id} className="panel" onClick={() => set({ plan: p.id })}
+                    style={{
+                      textAlign: "left", padding: 12, border: form.plan === p.id ? "1px solid var(--accent-money)" : "1px solid var(--border-subtle)",
+                      background: form.plan === p.id ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-elevated))" : "var(--bg-elevated)",
+                      transition: "border-color 120ms"
+                    }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--accent-money)", fontWeight: 600 }}>{p.price}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{p.desc}</div>
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 10, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+                <Icons.Shield size={11}/> Subscription verification is currently in <strong>Manual Mode</strong>. Trials are auto-approved.
+              </div>
+            </div>
+          )}
+
+          {step === 9 && (
             <div>
               <div style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, fontSize: 12.5, lineHeight: 1.6 }}>
                 <div><strong>{form.name}</strong> · /{form.slug || form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}</div>
@@ -349,7 +381,7 @@
                   <strong>{form.default_carriers.length}</strong> carrier{form.default_carriers.length === 1 ? "" : "s"}
                 </div>
                 <div style={{ marginTop: 6, color: "var(--text-tertiary)" }}>
-                  {form.comp_default_split}% producer split · {form.call_recording_consent === "two-party" ? "two-party" : "one-party"} recording consent
+                  Plan: <span style={{ textTransform: "capitalize", color: "var(--accent-money)", fontWeight: 600 }}>{form.plan}</span> · {form.comp_default_split}% producer split
                 </div>
               </div>
               <div style={{ marginTop: 12, padding: 12, background: "color-mix(in oklch, var(--accent-money) 8%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 25%, transparent)", borderRadius: 6, fontSize: 12, lineHeight: 1.55 }}>
