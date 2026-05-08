@@ -959,6 +959,10 @@ const isDemoAgency = () => {
   return false;
 };
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID };
+const fmtMoney = (n) => "$" + Math.round(Number(n) || 0).toLocaleString();
+const fmtMoneyCents = (cents) => "$" + Math.round((Number(cents) || 0) / 100).toLocaleString();
+const fmtMoneyExact = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID, fmtMoney, fmtMoneyCents, fmtMoneyExact };
 window.isDemoAgency = isDemoAgency;
 window.AgencyTime = AgencyTime;

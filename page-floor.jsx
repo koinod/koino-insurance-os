@@ -354,7 +354,7 @@
       };
     }, []);
 
-    // GAP-D1 — resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+    // Resolve the actual signed-in viewer instead of REPS[0]=Marcus.
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
             || (AppData.REPS && AppData.REPS[0]);

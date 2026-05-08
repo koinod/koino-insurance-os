@@ -8,7 +8,7 @@ function PageQueue({ onCall, role = "rep" }) {
 
 function DialQueueView({ onCall }) {
   const { QUEUE, PIPELINE } = AppData;
-  // GAP-D2 — reps see "their" queue by default: their own assigned pipeline
+  // Reps see "their" queue by default: their own assigned pipeline
   // leads (New + Contacted) merged into a dial-ready list. The shared inbound
   // funnel is one click away via the "Inbound (all)" tab so nobody loses
   // speed-to-lead access. Manager + owner views (DispatchView / Floor's
@@ -152,45 +152,239 @@ function DialQueueView({ onCall }) {
   );
 }
 
+/* ─── Producer insights panel — used on Dispatch + Routing settings.
+   Shows each producer's routing-relevant state ONCE (not per inbound row).
+   Surfaces: presence, current load, close rate L30, licensed states,
+   carrier appt count. Manager can read at a glance who's available + why
+   they'd score the way they do. */
+function ProducerInsightsPanel({ REPS, ctx, agencyRules, onEdit }) {
+  const apptStateCount = (rid) => Object.keys(ctx.apptIdx[rid] || {}).length;
+  const apptCarrierCount = (rid) => {
+    const states = ctx.apptIdx[rid] || {};
+    const set = new Set();
+    for (const s of Object.values(states)) for (const c of s) set.add(c);
+    return set.size;
+  };
+  const sorted = [...REPS].sort((a, b) => {
+    // idle first, then live, then offline; tier desc within group
+    const presenceRank = { idle: 3, live: 2, off: 0, offline: 0 };
+    const pa = presenceRank[a.presence] || 1, pb = presenceRank[b.presence] || 1;
+    if (pa !== pb) return pb - pa;
+    const tierRank = { diamond: 5, platinum: 4, gold: 3, silver: 2, bronze: 1 };
+    return (tierRank[b.tier] || 0) - (tierRank[a.tier] || 0);
+  });
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/>
+        <h3>Producer insights</h3>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={onEdit}><Icons.Edit size={11}/> Routing</button>
+      </div>
+      <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 0 }}>
+        {REPS.length === 0 && (
+          <div style={{ padding: "16px 0", textAlign: "center", color: "var(--text-tertiary)" }}>No producers yet — invite one to start routing.</div>
+        )}
+        {sorted.map(r => {
+          const inFlight = (ctx.pickCount[r.id] || 0) + (r.appts || 0);
+          const cr = ctx.closeRateByRep[r.id];
+          const states = apptStateCount(r.id);
+          const carriers = apptCarrierCount(r.id);
+          const presenceColor = r.presence === "idle" ? "var(--accent-money)" : r.presence === "live" ? "var(--state-warning)" : "var(--text-quaternary)";
+          return (
+            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--border-subtle)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span className="dot" style={{ background: presenceColor, width: 6, height: 6 }}></span>
+                <Shared.Avatar rep={r} size={20}/>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name.split(" ")[0]}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{r.tier} · {r.presence}</div>
+                </div>
+              </div>
+              <div style={{ textAlign: "right", fontSize: 10.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+                <div>load <strong style={{ color: inFlight >= 6 ? "var(--state-danger)" : inFlight >= 3 ? "var(--state-warning)" : "var(--text-primary)" }}>{inFlight}</strong></div>
+                <div>{cr?.total >= 3 ? `${cr.pct}% close · L30` : "—"}</div>
+                <div>{states > 0 ? `${states} states · ${carriers} carriers` : "no appts"}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", color: "var(--text-tertiary)", fontSize: 11 }}>
+          {agencyRules.length > 0
+            ? `${agencyRules.length} active routing rule${agencyRules.length === 1 ? "" : "s"} — open Routing to edit`
+            : "Auto-routing scores by appointment + capacity + close rate. Add a custom rule to override."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tone-coloured reason chip strip (used in dispatch row + drilldown) ── */
+function ReasonChips({ reasons }) {
+  if (!reasons || reasons.length === 0) return null;
+  const toneColor = {
+    ok:      "var(--accent-money)",
+    warn:    "var(--state-warning)",
+    bad:     "var(--state-danger)",
+    neutral: "var(--text-tertiary)",
+  };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+      {reasons.map((r, i) => {
+        const text = typeof r === "string" ? r : r.t;
+        const tone = typeof r === "string" ? "neutral" : (r.tone || "neutral");
+        const color = toneColor[tone] || toneColor.neutral;
+        return (
+          <span key={i} style={{
+            fontSize: 10,
+            padding: "1px 6px",
+            borderRadius: 999,
+            color,
+            border: `1px solid color-mix(in oklch, ${color} 30%, transparent)`,
+            background: `color-mix(in oklch, ${color} 8%, transparent)`,
+            whiteSpace: "nowrap",
+          }}>{text}</span>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
-   Smart routing — score each rep against each lead.
+   Smart routing — score each rep against each lead using real data.
 
-   Inputs: rep presence, tier, current load (in-flight assignments + appts),
-   and a stub product/carrier match. Returns score + 1-2-word reason chip
-   so the manager can see *why* a rep was suggested.
+   Pulls from:
+     - APPOINTMENTS  → rep × carrier × state (active appointments)
+     - PRODUCTS      → resolve lead product → carrier(s)
+     - POLICIES + COMMISSIONS → recent close rate per rep (L30)
+     - QUEUE picks + rep.appts → current load
+     - ROUTING_RULES → agency overrides (source/route/weight)
 
-   This stub uses heuristics; the real routing connects to:
-     - rep.appointed_carriers[product][state] → carrier_appt
-     - rep.languages → language match
-     - rep.live_call_sec → "in flight" capacity
-   When that data lands, swap the score function — the rest of the UI is wired.
+   Returns { score, reasons[] } where each reason is structured so the
+   dispatch UI can colour it (ok / warn / bad / neutral).
    ───────────────────────────────────────────────────────────────────────── */
-function scoreRepForLead(rep, lead, picks) {
-  if (rep.presence === "off") return { score: -1, reasons: ["off"] };
+function _productCategoryRegex(productName) {
+  const p = String(productName || "").toLowerCase();
+  if (/med\s*supp|plan\s*g|plan\s*n/.test(p))            return /med\s*supp|plan\s*g|plan\s*n/i;
+  if (/final\s*expense|^fe\b|fe\s/.test(p))              return /final\s*expense|^fe\b|fe\s/i;
+  if (/annuity|spda|fia/.test(p))                        return /annuity|spda|fia/i;
+  if (/iul|whole\s*life|wl|term/.test(p))                return /iul|whole\s*life|wl|term/i;
+  return /./;  // unknown product → don't filter carriers
+}
+
+function buildRoutingContext(REPS, picks) {
+  const appts = AppData.APPOINTMENTS || [];
+  const products = AppData.PRODUCTS || [];
+  const policies = AppData.POLICIES || [];
+
+  // apptIdx[repId][state] = Set(carrierIds) — active appointments only
+  const apptIdx = {};
+  for (const a of appts) {
+    if (a.status && a.status !== "active") continue;
+    if (!a.repId || !a.state || !a.carrierId) continue;
+    apptIdx[a.repId] = apptIdx[a.repId] || {};
+    (apptIdx[a.repId][a.state] = apptIdx[a.repId][a.state] || new Set()).add(a.carrierId);
+  }
+
+  // Recent close rate L30 per rep — issued vs (issued + lost) on apps submitted in window
+  const cutoff = Date.now() - 30 * 86400000;
+  const closeRateByRep = {};
+  for (const p of policies) {
+    if (!p.owner || !p.submissionDate) continue;
+    if (new Date(p.submissionDate).getTime() < cutoff) continue;
+    const c = closeRateByRep[p.owner] = closeRateByRep[p.owner] || { total: 0, won: 0 };
+    c.total += 1;
+    if (p.status === "issued" || p.status === "in_force" || p.status === "active") c.won += 1;
+  }
+  for (const k of Object.keys(closeRateByRep)) {
+    const c = closeRateByRep[k];
+    c.pct = c.total > 0 ? Math.round((c.won / c.total) * 100) : 0;
+  }
+
+  // pickCount[repId] = how many leads currently routed to that rep this session
+  const pickCount = {};
+  for (const rid of Object.values(picks || {})) {
+    if (rid) pickCount[rid] = (pickCount[rid] || 0) + 1;
+  }
+
+  // Carriers matching each product category — { regex.source: Set(carrierId) }
+  // Lazy: compute per-call in scoreRepForLead since each lead has its own product.
+  const carriersByProductRegex = (re) => {
+    const set = new Set();
+    for (const p of products) {
+      if (re.test(`${p.name || ""} ${p.category || ""}`)) set.add(p.carrierId);
+    }
+    return set;
+  };
+
+  return { apptIdx, closeRateByRep, pickCount, carriersByProductRegex, hasAppts: appts.length > 0 };
+}
+
+function scoreRepForLead(rep, lead, picks, ctx) {
+  if (rep.presence === "off") return { score: -1, reasons: [{ t: "offline", tone: "bad" }] };
+  ctx = ctx || buildRoutingContext(AppData.REPS || [], picks);
+
   let score = 50;
   const reasons = [];
 
-  if (rep.presence === "idle")      { score += 30; reasons.push("idle now"); }
-  else if (rep.presence === "live") { score += 12; reasons.push("on call"); }
+  // 1) Presence
+  if (rep.presence === "idle")      { score += 25; reasons.push({ t: "idle now", tone: "ok" }); }
+  else if (rep.presence === "live") { score += 6;  reasons.push({ t: "on call", tone: "neutral" }); }
 
+  // 2) Capacity
+  const inFlight = (ctx.pickCount[rep.id] || 0) + (rep.appts || 0);
+  if (inFlight >= 6)      { score -= 30; reasons.push({ t: `over capacity (${inFlight})`, tone: "bad" }); }
+  else if (inFlight >= 3) {              reasons.push({ t: `load ${inFlight}`, tone: "warn" }); }
+  else if (inFlight > 0)  {              reasons.push({ t: `load ${inFlight}`, tone: "neutral" }); }
+
+  // 3) Carrier appointment match (state + product). Only enforced when we have
+  // appointment data on file; new agencies without imported appointments are
+  // not penalized — manager picks the rule.
+  if (ctx.hasAppts) {
+    const repAppts = ctx.apptIdx[rep.id] || {};
+    const stateAppts = (lead.state && repAppts[lead.state]) || null;  // Set(carrierIds) | null
+    const productRe = _productCategoryRegex(lead.product);
+    const productCarriers = ctx.carriersByProductRegex(productRe);
+
+    if (!stateAppts) {
+      score -= 30;
+      reasons.push({ t: `not licensed in ${lead.state || "state"}`, tone: "bad" });
+    } else if (productCarriers.size > 0) {
+      const matches = [...stateAppts].filter(cid => productCarriers.has(cid));
+      if (matches.length > 0) {
+        score += 25;
+        reasons.push({ t: `appt ${lead.state} · ${matches.length} carrier${matches.length === 1 ? "" : "s"}`, tone: "ok" });
+      } else {
+        score -= 10;
+        reasons.push({ t: `${lead.state} licensed · no carrier appt for product`, tone: "warn" });
+      }
+    } else {
+      // Unknown product — no penalty, just confirm state license
+      score += 8;
+      reasons.push({ t: `licensed ${lead.state}`, tone: "ok" });
+    }
+  }
+
+  // 4) Recent close rate
+  const cr = ctx.closeRateByRep[rep.id];
+  if (cr && cr.total >= 3) {
+    if (cr.pct >= 30)     { score += 14; reasons.push({ t: `${cr.pct}% close · L30`, tone: "ok" }); }
+    else if (cr.pct < 10) { score -= 8;  reasons.push({ t: `${cr.pct}% close · L30`, tone: "warn" }); }
+    else                  {              reasons.push({ t: `${cr.pct}% close · L30`, tone: "neutral" }); }
+  }
+
+  // 5) Tier — tiebreak + don't waste hot leads on bronze
   const tierRank = { diamond: 5, platinum: 4, gold: 3, silver: 2, bronze: 1 };
   const t = tierRank[rep.tier] || 0;
-  if ((lead.score || 0) >= 90 && t >= 4)      { score += 18; reasons.push(`Tier ${rep.tier}`); }
-  else if ((lead.score || 0) >= 80 && t >= 3) { score += 10; reasons.push(`Tier ${rep.tier}`); }
-  else if (t <= 1 && (lead.score || 0) >= 90) score -= 20;  // don't waste a hot lead on bronze
-
-  // In-flight load — both this session's picks and active appts.
-  const inFlight = Object.values(picks).filter(rid => rid === rep.id).length + (rep.appts || 0);
-  score -= inFlight * 6;
-  if (inFlight >= 6) reasons.push("over capacity");
-
-  // Product/carrier match stub — gold+ are appointed broadly; bronze is MS-only.
-  const product = String(lead.product || "").toLowerCase();
-  const isMedSupp = product.includes("med") || product.includes("supp");
-  const isAnnuity = product.includes("annuity");
-  const productFit = isMedSupp ? true : isAnnuity ? t >= 4 : t >= 2;
-  if (productFit) reasons.push(`appt ${product.split(" ")[0] || "OK"}`);
-  else            { score -= 25; reasons.push("no carrier appt"); }
+  score += t * 2;
+  if ((lead.score || 0) >= 90 && t <= 1) {
+    score -= 18;
+    reasons.push({ t: "bronze on hot lead", tone: "warn" });
+  } else if (t >= 4 && (lead.score || 0) >= 80) {
+    reasons.push({ t: `${rep.tier}`, tone: "ok" });
+  } else if (t >= 1) {
+    reasons.push({ t: `${rep.tier}`, tone: "neutral" });
+  }
 
   return { score, reasons };
 }
@@ -201,19 +395,35 @@ function DispatchView({ onCall }) {
   const [filter, setFilter]       = React.useState({ heat: "all", product: "all" });
   const [autoRoute, setAutoRoute] = React.useState(false);
   const [showRules, setShowRules] = React.useState(false);
+  const [insightLeadId, setInsightLeadId] = React.useState(null);
+  const [agencyRules, setAgencyRules] = React.useState([]);
+
+  // Routing context — rebuilt when picks/REPS/data change. Single source of
+  // truth for both the dropdown options and the suggestion engine.
+  const ctx = React.useMemo(() => buildRoutingContext(REPS, picks), [REPS, picks, AppData.LIVE]);
+
+  // Pull agency-specific routing rules so the side panel reflects what's actually
+  // configured. Falls back to the score weights when no rules are defined.
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !AppData.LIVE) return;
+    sb.from("routing_rules").select("*").eq("active", true).order("weight", { ascending: false })
+      .then(({ data }) => { if (Array.isArray(data)) setAgencyRules(data); });
+  }, [AppData.LIVE]);
 
   const filtered = QUEUE.filter(q =>
     (filter.heat === "all" || (filter.heat === "hot" ? q.elapsed < 30 : q.elapsed >= 30)) &&
     (filter.product === "all" || q.product === filter.product)
   );
 
-  // Best rep per lead (memoize across changing picks → reasons stay current)
+  // Best rep per lead — sorted by score desc using the shared context.
+  const rankedFor = (lead) => REPS
+    .map(r => ({ rep: r, ...scoreRepForLead(r, lead, picks, ctx) }))
+    .filter(x => x.score >= 0)
+    .sort((a, b) => b.score - a.score);
   const suggestionFor = (lead) => {
-    const ranked = REPS
-      .map(r => ({ rep: r, ...scoreRepForLead(r, lead, picks) }))
-      .filter(x => x.score >= 0)
-      .sort((a, b) => b.score - a.score);
-    return ranked[0] || { rep: REPS[0], reasons: ["fallback"] };
+    const ranked = rankedFor(lead);
+    return ranked[0] || { rep: REPS[0], reasons: [{ t: "fallback", tone: "neutral" }], score: 0 };
   };
 
   const setPick = (qid, rid) => setPicks(p => ({ ...p, [qid]: rid }));
@@ -273,12 +483,26 @@ function DispatchView({ onCall }) {
         </div>
       </div>
 
-      <SpendStrip items={[
-        { l: "Team CPA today", v: "$87",   tone: "money" },
-        { l: "Lead spend today", v: "$1,240" },
-        { l: "Avg dispatch SLA", v: "21s",  tone: "money" },
-        { l: "Breaches",         v: "4",    tone: "warn" },
-      ]}/>
+      {(() => {
+        // Live spend strip — CPA today, lead spend today, dispatch SLA, breaches
+        const today = new Date(); today.setHours(0,0,0,0);
+        const issuedToday = (AppData.POLICIES || []).filter(p => p.issuedAt && new Date(p.issuedAt) >= today).length;
+        const leadSpendToday = (AppData.EXPENSES || [])
+          .filter(e => e.kind === "lead_spend" && e.paid_at && new Date(e.paid_at) >= today)
+          .reduce((s, e) => s + (e.amount_cents || 0), 0);
+        const cpaToday = issuedToday > 0 ? Math.round(leadSpendToday / 100 / issuedToday) : null;
+        const queueElapsed = QUEUE.map(q => q.elapsed || 0).filter(n => n > 0);
+        const avgSla = queueElapsed.length > 0 ? Math.round(queueElapsed.reduce((a, b) => a + b, 0) / queueElapsed.length) : null;
+        const breaches = QUEUE.filter(q => (q.elapsed || 0) > 120).length;
+        return (
+          <SpendStrip items={[
+            { l: "Team CPA today", v: cpaToday != null ? `$${cpaToday.toLocaleString()}` : "—", tone: cpaToday != null ? "money" : undefined },
+            { l: "Lead spend today", v: leadSpendToday > 0 ? `$${Math.round(leadSpendToday / 100).toLocaleString()}` : "—" },
+            { l: "Avg dispatch SLA", v: avgSla != null ? `${avgSla}s` : "—", tone: avgSla != null && avgSla < 60 ? "money" : (avgSla != null && avgSla > 120 ? "warn" : undefined) },
+            { l: "SLA breaches",    v: String(breaches), tone: breaches > 0 ? "warn" : undefined },
+          ]}/>
+        );
+      })()}
 
       {/* LIVE FLOOR MAP — full-width producer grid */}
       <LiveFloorMap reps={REPS} picks={picks}/>
@@ -304,7 +528,7 @@ function DispatchView({ onCall }) {
             {filtered.map(q => {
               const c = q.elapsed < 30 ? "var(--accent-money)" : q.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
               const suggestion = suggestionFor(q);
-              const rid = picks[q.id] || suggestion.rep.id;
+              const rid = picks[q.id] || (suggestion.rep && suggestion.rep.id);
               const isManual = picks[q.id] && picks[q.id] !== suggestion.rep.id;
               return (
                 <div key={q.id} className="row" style={{ gridTemplateColumns: "16px 1.4fr 60px 1fr 64px 1.6fr 70px" }}>
@@ -316,15 +540,14 @@ function DispatchView({ onCall }) {
                   <div className="tabular" style={{ color: "var(--text-tertiary)" }}>{q.age} · {q.state}</div>
                   <div className="cell-truncate"><span className="chip">{q.product}</span></div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{q.elapsed}s</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
                     <Shared.Select value={rid} onChange={(v) => setPick(q.id, v)}
-                      options={REPS.map(r => {
-                        const s = scoreRepForLead(r, q, picks);
-                        return { v: r.id, l: `${r.name.split(" ")[0]} · ${r.presence} · score ${s.score}` };
-                      })}/>
-                    <span style={{ fontSize: 10.5, color: isManual ? "var(--text-tertiary)" : "var(--accent-money)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {isManual ? "manual override" : suggestion.reasons.join(" · ")}
-                    </span>
+                      options={rankedFor(q).map(({ rep, score }) => ({ v: rep.id, l: `${rep.name.split(" ")[0]} · ${rep.presence} · score ${score}` }))}/>
+                    {isManual ? (
+                      <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>manual override</span>
+                    ) : (
+                      <ReasonChips reasons={suggestion.reasons}/>
+                    )}
                   </div>
                   <button className="btn btn-primary" style={{ padding: "3px 8px" }} onClick={() => sendOne(q, rid)}><Icons.Phone size={11}/> Send</button>
                 </div>
@@ -338,23 +561,7 @@ function DispatchView({ onCall }) {
           </div>
         </div>
 
-        <div className="panel">
-          <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Routing rules</h3>
-            <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => setShowRules(true)}><Icons.Edit size={11}/> Edit</button>
-          </div>
-          <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 6, lineHeight: 1.55 }}>
-            <div><span style={{ color: "var(--text-tertiary)" }}>Score weights —</span></div>
-            <div>• Idle producer: <strong style={{ color: "var(--accent-money)" }}>+30</strong></div>
-            <div>• Already on call: <strong>+12</strong></div>
-            <div>• Tier ≥ Platinum on score ≥ 90: <strong>+18</strong></div>
-            <div>• Each in-flight assignment: <strong style={{ color: "var(--state-warning)" }}>−6</strong></div>
-            <div>• No carrier appointment for product: <strong style={{ color: "var(--state-danger)" }}>−25</strong></div>
-            <div>• Bronze + score ≥ 90: <strong style={{ color: "var(--state-danger)" }}>−20</strong></div>
-            <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", color: "var(--text-tertiary)", fontSize: 11.5 }}>
-              Toggle <strong>Auto-route ON</strong> to fill assignments with the highest-scoring producer per inbound. Manual picks always win.
-            </div>
-          </div>
-        </div>
+        <ProducerInsightsPanel REPS={REPS} ctx={ctx} agencyRules={agencyRules} onEdit={() => setShowRules(true)}/>
       </div>
 
       {showRules && <RoutingRulesModal onClose={() => setShowRules(false)}/>}
@@ -659,6 +866,118 @@ const CARRIER_NICHES = [
       if (i.age >= 55 && i.age <= 75) { score += 6; reasons.push("pre-retiree sweet spot"); }
       if (i.product === "annuity") reasons.push("top-3 MYGA rates");
       else                          reasons.push("Pathsetter IUL · 0.25% floor");
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+
+  /* ─── Newly added carriers (life-side: Term / FE / IUL) ─────────────── */
+  {
+    id: "transamerica", name: "Transamerica", products: ["fe", "term", "iul"],
+    underwriting: {
+      issueAges: { fe: [50, 85], term: [18, 80], iul: [0, 85] },
+      uwClasses: ["Preferred Plus", "Preferred", "Standard Plus", "Standard", "Standard II", "Graded"],
+      sweetSpot: "Trendsetter Term aggressive 30–55 healthy non-tobacco; FE GIWL fallback for substandard cases",
+      sources: ["Transamerica Trendsetter Super Underwriting Guide TASE-G", "GIWL/SIWL Field Guide TPM4042"],
+    },
+    fit: (i) => {
+      let score = 78;
+      const reasons = [];
+      if (i.age < 30) { score -= 6; reasons.push("term aggressive 30+"); }
+      if (i.tobacco)  { score -= 8; reasons.push("tobacco rate-up"); }
+      if (i.bmi >= 35) { score -= 6; reasons.push("build watch"); }
+      if (i.product === "fe" && i.age >= 60) { score += 8; reasons.push("FE GIWL strong 60+"); }
+      else if (i.product === "term" && i.age >= 30 && i.age <= 55) { score += 10; reasons.push("Trendsetter sweet spot"); }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "ethos", name: "Ethos", products: ["term"],
+    underwriting: {
+      issueAges: { term: [20, 65] },
+      uwClasses: ["Preferred", "Standard"],
+      instantIssue: { maxFace: 1500000, maxAge: 55 },   // no exam under these caps
+      sweetSpot: "Healthy 25–50 buyers wanting <60 second instant issue; auto-decline above moderate health flags",
+      sources: ["Ethos Life Underwriting Guide 2025"],
+    },
+    fit: (i) => {
+      if (i.age > 65) return { score: 0, reason: "term issue-age cap 65" };
+      let score = 80;
+      const reasons = [];
+      if (i.age <= 50 && !i.tobacco && (i.bmi || 0) < 32 && (i.flags || 0) <= 1) {
+        score += 12; reasons.push("instant-issue eligible");
+      } else if ((i.flags || 0) >= 2) {
+        score -= 25; reasons.push("Ethos declines moderate-substandard");
+      }
+      if (i.tobacco) score -= 8;
+      return { score, reason: reasons.slice(0, 2).join(" · ") || "digital instant issue" };
+    },
+  },
+  {
+    id: "americanamicable", name: "American Amicable", products: ["fe", "term"],
+    underwriting: {
+      issueAges: { fe: [50, 85], term: [18, 75] },
+      uwClasses: ["Preferred Non-Tobacco", "Standard Non-Tobacco", "Preferred Tobacco", "Standard Tobacco", "Modified", "Graded"],
+      sweetSpot: "Senior Choice FE — wins on Type-2 diabetes oral, controlled HBP cases other FE carriers decline",
+      sources: ["American Amicable Senior Choice Field Guide AA-SCH", "Term Made Simple UW Manual"],
+    },
+    fit: (i) => {
+      let score = 76;
+      const reasons = [];
+      if (i.product === "fe" && (i.diabetes || i.bpHigh)) {
+        score += 10; reasons.push("Senior Choice keeps mild substandard");
+      }
+      if (i.tobacco) { score -= 6; reasons.push("tobacco rate-up"); }
+      if (i.age >= 60 && i.age <= 80) { score += 4; reasons.push("FE sweet spot 60–80"); }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "instabrain", name: "Instabrain (multi)", products: ["fe", "term", "iul"],
+    underwriting: {
+      issueAges: { fe: [40, 85], term: [18, 75], iul: [0, 80] },
+      aggregator: true,
+      sweetSpot: "Use as the auto-router fallback — feeds the same profile to 12+ life carriers and surfaces the cheapest binding offer in <90 seconds",
+      sources: ["Instabrain partner UW (multi-carrier aggregator)"],
+    },
+    fit: (i) => {
+      let score = 82;
+      const reasons = ["multi-carrier aggregator"];
+      if ((i.flags || 0) >= 2) { score += 6; reasons.push("auto-routes to substandard-friendly carrier"); }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "foresters", name: "Foresters", products: ["term", "iul"],
+    underwriting: {
+      issueAges: { term: [18, 80], iul: [0, 80] },
+      uwClasses: ["Preferred Plus", "Preferred", "Standard Plus", "Standard", "Standard II"],
+      memberBenefits: true,
+      sweetSpot: "Term + IUL with member benefit pull (scholarships, will kits) — wins on family-budget conscious 30–55",
+      sources: ["Foresters Your Term Underwriting Guide", "Advantage Plus II IUL guide"],
+    },
+    fit: (i) => {
+      let score = 74;
+      const reasons = [];
+      if (i.age >= 30 && i.age <= 55) { score += 6; reasons.push("family-stage sweet spot"); }
+      if (i.tobacco) { score -= 7; reasons.push("tobacco rate-up"); }
+      reasons.push("member benefits");
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  {
+    id: "sbli", name: "SBLI", products: ["term"],
+    underwriting: {
+      issueAges: { term: [18, 75] },
+      uwClasses: ["Preferred Plus Non-Tobacco", "Preferred Non-Tobacco", "Standard Plus Non-Tobacco", "Standard Non-Tobacco", "Preferred Tobacco", "Standard Tobacco"],
+      sweetSpot: "Best-in-class term rates 30–50 healthy non-tobacco; consistently top-2 on Compulife rate sheets for healthy applicants",
+      sources: ["SBLI 2026 Term UW Guide"],
+    },
+    fit: (i) => {
+      let score = 80;
+      const reasons = [];
+      if (i.age <= 50 && !i.tobacco && (i.flags || 0) <= 1) { score += 10; reasons.push("top-2 best-class price"); }
+      if (i.tobacco) score -= 6;
+      if ((i.flags || 0) >= 2) { score -= 12; reasons.push("substandard not its sweet spot"); }
       return { score, reason: reasons.slice(0, 2).join(" · ") };
     },
   },
@@ -1506,8 +1825,29 @@ function InCall({ onClose, lead, autodial }) {
             {tab === "quote"     && <InCallQuoteAssist lead={activeLead}/>}
             {tab === "rebuttals" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {["I already have coverage", "It's too expensive", "Let me think about it", "Send me something in the mail"].map(r => (
-                  <button key={r} className="btn" style={{ justifyContent: "flex-start" }}><Icons.Sparkles size={11} style={{ color: "var(--accent-money)" }}/>{r}</button>
+                {[
+                  { obj: "I already have coverage", reb: "Totally fair — most folks I talk to do. The only reason I'm asking is plans changed for 2026 and a lot of carriers raised premiums. Worth a 90-second comparison so you know either way?" },
+                  { obj: "It's too expensive",       reb: "Hear you on price. Let me ask — vs what you have today, or vs what feels reasonable? Because we have a tier that's $42/mo with similar drug coverage, and most people don't realize that's even an option." },
+                  { obj: "Let me think about it",    reb: "Of course — what specifically would you want to think over? I'd rather walk through it now while I'm here than have you sit on questions for a week." },
+                  { obj: "Send me something in the mail", reb: "Happy to. The carrier requires we run quote tool live since it pulls real plan data. Two minutes — if it's not a fit I'll mail the comparison anyway. Sound fair?" },
+                ].map(r => (
+                  <button
+                    key={r.obj}
+                    className="btn"
+                    style={{ justifyContent: "flex-start", height: "auto", padding: "8px 10px", whiteSpace: "normal", textAlign: "left" }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(r.reb).then(() => {
+                        window.toast && window.toast(`Rebuttal copied: "${r.obj}"`, "success");
+                      });
+                    }}
+                    title="Click to copy the full rebuttal to clipboard"
+                  >
+                    <Icons.Sparkles size={11} style={{ color: "var(--accent-money)", flexShrink: 0 }}/>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 500, fontSize: 12 }}>{r.obj}</span>
+                      <span style={{ color: "var(--text-tertiary)", fontSize: 11, lineHeight: 1.45 }}>{r.reb}</span>
+                    </div>
+                  </button>
                 ))}
               </div>
             )}

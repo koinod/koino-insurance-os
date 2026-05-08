@@ -91,7 +91,7 @@ const WORKFLOWS = [
 
 window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS, LIVE: false };
 
-// ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
+// ─── CSV export helper ───────────────────────────────────────────────────
 // Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
 //   window.AppData.exportCsv(rows, "filename", [{k:"name",l:"Name"}, ...])
 // Properly escapes embedded commas, quotes, newlines.
@@ -151,7 +151,7 @@ window.getSupabase = function () {
 };
 
 window.getActiveAgencyId = function () {
-  // GAP-X2 — agency scope priority: explicit switcher → me().agency_id → null.
+  // Agency scope priority: explicit switcher → me().agency_id → null.
   // null = unscoped (only acceptable on shared reference tables).
   try {
     const explicit = localStorage.getItem("repflow.active_agency");
@@ -320,7 +320,7 @@ window.hydrateFromSupabase = async function () {
         sb.from("carriers").select("*").order("name"),
         sb.from("products").select("*"),
         sb.from("carrier_appointments").select("*"),
-        // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
+        // Tenant-specific tables — scope by viewer's agency_id:
         scope(sb.from("policies").select("*").order("issued_at", { ascending: false })),
         scope(sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500)),
         scope(sb.from("payouts").select("*").order("period_end", { ascending: false }).limit(100)),
@@ -1396,7 +1396,7 @@ window.AppData.mutate = {
     _emitMutation("connections", "update", id);
   },
 
-  /* ── Queue claim / release (GAP-D2) ─────────────────────────────────────
+  /* ── Queue claim / release ──────────────────────────────────────────────
      Lets a rep claim an unassigned queue lead so peers stop seeing it in
      their "Unassigned" view. Persists locally today; attempts a tolerant
      Supabase write so it starts persisting the moment the migration adds
@@ -1589,7 +1589,7 @@ window.AppData.mutate = {
   },
   quickLinkDelete: (id) => window.AppData.mutate._resourceDelete("agency_quick_links", "QUICK_LINKS", id),
 
-  /* ── Messaging (GAP-C2) — threads + messages ──────────────────────────── */
+  /* ── Messaging — threads + messages ───────────────────────────────────── */
   async threadEnsure({ memberHandles, kind = "dm", subject = "", relatedLeadId = null }) {
     // Find an existing dm-kind thread whose membership matches exactly,
     // otherwise create a new one. Idempotent — opening a DM twice between

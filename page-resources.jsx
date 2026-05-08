@@ -104,7 +104,7 @@ function useAppDataTick() {
   }, []);
 }
 
-const fmtMoney  = (n) => "$" + Math.round(n || 0).toLocaleString();
+const fmtMoney = Shared.fmtMoney;
 const fmtPct    = (n, d = 1) => (n == null || isNaN(n)) ? "—" : (n).toFixed(d) + "%";
 const safeDiv   = (a, b) => (b ? a / b : 0);
 
@@ -669,6 +669,17 @@ function CarriersSection({ carriers, phone, setPhone, age, setAge, zip, setZip, 
           <Icons.Folder size={13}/>
           <h3>Appointed carriers</h3>
           <span className="meta">{carriers.length} · {carriers.reduce((a, c) => a + (c.appts || 0), 0)} appts</span>
+          <button
+            className="btn btn-ghost"
+            style={{ marginLeft: "auto", fontSize: 11, padding: "3px 10px" }}
+            onClick={() => {
+              try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}
+              if (window.gotoPage) window.gotoPage("settings");
+            }}
+            title="Add, edit, or remove carriers"
+          >
+            <Icons.Edit size={11}/> Manage
+          </button>
         </div>
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "1.4fr 60px 80px 70px 70px" }}>

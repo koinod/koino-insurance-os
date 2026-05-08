@@ -1,5 +1,5 @@
 /* Mobile rep view — swipe-to-act on real data.
-   GAP-M1 — scope cards to "my queue" (own pipeline rows + unassigned inbound)
+   Scope cards to "my queue" (own pipeline rows + unassigned inbound)
    instead of the global QUEUE. Resolves the rep identity via me() so SMS
    bodies and outbound dials use the actual signed-in producer rather than
    the seeded Marcus row. */
@@ -14,7 +14,7 @@ function MobileRep() {
   const myFirst = (meIdent?.full_name || (AppData.REPS && AppData.REPS[0]?.name) || "your producer").split(" ")[0];
 
   // Build "my queue" — own pipeline (New + Contacted) merged with the global
-  // unassigned inbound queue, scored highest-heat first. Mirrors the GAP-D2
+  // unassigned inbound queue, scored highest-heat first. Mirrors the
   // semantics on the desktop Dial Queue.
   const buildCards = React.useCallback(() => {
     const myPipe = (AppData.PIPELINE || [])

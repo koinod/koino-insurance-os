@@ -29,7 +29,7 @@ function SpendStrip({ items }) {
   );
 }
 
-/* GAP-P3 — single goal column. Bar tinted by progress band. */
+/* Single goal column. Bar tinted by progress band. */
 function GoalRow({ label, actual, target, pct }) {
   const tone = pct >= 100 ? "var(--accent-money)" : pct >= 60 ? "var(--state-warning)" : "var(--state-danger)";
   return (
@@ -47,7 +47,7 @@ function GoalRow({ label, actual, target, pct }) {
   );
 }
 
-/* Quick-action tile used by GAP-D4 + GAP-OC1. */
+/* Quick-action tile. */
 function ActionTile({ icon, label, sub, onClick }) {
   const Ico = Icons[icon] || Icons.ArrowRight;
   return (
@@ -63,7 +63,7 @@ function ActionTile({ icon, label, sub, onClick }) {
   );
 }
 
-/* GAP-D5 — Resolve the actual AEP state for the viewer instead of hardcoding
+/* Resolve the actual AEP state for the viewer instead of hardcoding
    "AEP Day 14". Returns null when there's no active period, or when the role
    is 'rep' but the rep has no assignment row for it. */
 function useAepContext(repId, role) {
@@ -147,7 +147,7 @@ function ForecastStrip({ scope = "team" }) {
   );
 }
 
-/* GAP-X1 v1 — predictive heuristics (RETAINER + RECRUITER sub-agents preview).
+/* Predictive heuristics (RETAINER + RECRUITER sub-agents preview).
    Pure derivation from AppData; no ML yet. ML model lands in Sprint-1.
    Manager scope: filtered to downline via window.scopeRepIds().
    Owner scope: full fleet.
@@ -320,13 +320,26 @@ function TasksPanel({ repId, limit = 6 }) {
 /* ───── Rep view ─────────────────────────────────────────────────────────── */
 // GAP-D1: KPIs now derive from the signed-in rep via window.me() + AppData.
 // Falls back to AppData.REPS[0] only when no session (demo / unauthenticated).
-const TIER_TARGETS = {
+const _TIER_TARGETS_FALLBACK = {
   bronze:   { next: "silver",    threshold: 12000 },
   silver:   { next: "gold",      threshold: 20000 },
   gold:     { next: "platinum",  threshold: 35000 },
   platinum: { next: "diamond",   threshold: 50000 },
   diamond:  { next: null,        threshold: null   },
 };
+
+const TIER_TARGETS = new Proxy({}, {
+  get(_t, key) { 
+    return (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().tier_targets && window.AgencyConfig.get().tier_targets[key]) 
+           || _TIER_TARGETS_FALLBACK[key];
+  },
+  ownKeys() { return Object.keys(_TIER_TARGETS_FALLBACK); },
+  getOwnPropertyDescriptor(_t, key) {
+    const val = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().tier_targets && window.AgencyConfig.get().tier_targets[key]) 
+                || _TIER_TARGETS_FALLBACK[key];
+    return { configurable: true, enumerable: true, value: val };
+  },
+});
 
 function todayDateStr() {
   const d = new Date(); d.setHours(0,0,0,0);
@@ -402,7 +415,7 @@ function TodayRep({ aep }) {
   const spark1 = [12,18,15,22,30,28,35,42];
   const spark2 = [4,6,5,8,11,9,12,14];
 
-  // GAP-A1 — first-action CTA. Show a hero banner whenever the rep has done
+  // First-action CTA. Show a hero banner whenever the rep has done
   // nothing today (no dials, no apps, no commissions) so a brand-new producer
   // is not staring at a wall of zeros wondering what to click first.
   const dayIsBlank = dialsToday === 0 && appsToday === 0 && todayCommission === 0;
@@ -411,7 +424,7 @@ function TodayRep({ aep }) {
   const goCrm   = () => window.gotoPage && window.gotoPage("crm");
   const goMessages = () => window.gotoPage && window.gotoPage("messages");
 
-  // GAP-P3 — my-goals card data. Daily target derives from tier threshold /
+  // My-goals card data. Daily target derives from tier threshold /
   // 22 workdays, weekly = daily × 5, monthly = tier threshold. Real targets
   // can override via tier-specific goals schema later.
   const dailyTarget   = Math.round((tierInfo.threshold || 12000) / 22);
@@ -420,7 +433,7 @@ function TodayRep({ aep }) {
   const dailyPct   = Math.min(100, (todayCommission / Math.max(1, dailyTarget))   * 100);
   const monthlyPct = Math.min(100, (mtdNum         / Math.max(1, monthlyTarget)) * 100);
 
-  // GAP-A4 — onboarding checklist progress. Pulls live from
+  // Onboarding checklist progress. Pulls live from
   // AppData.ONBOARDING_PROGRESS where available; treats every step as false
   // when no row exists yet so brand-new reps see a 0/5 banner with all
   // todos visible. Hides itself once 5/5 complete.
@@ -435,7 +448,7 @@ function TodayRep({ aep }) {
   const onboardingDone = onboardingSteps.filter(s => onboardingRow[s.k]).length;
   const showOnboarding = onboardingDone < onboardingSteps.length;
 
-  // GAP-OC1 — DM-your-manager. Resolve upline rep from me().upline_id when
+  // DM-your-manager. Resolve upline rep from me().upline_id when
   // available; fall back to first manager-role rep. Click → Messages page
   // with a thread auto-opened to that manager.
   const myManagerId = meIdent?.upline_id || null;
@@ -448,7 +461,7 @@ function TodayRep({ aep }) {
     goMessages();
   };
 
-  // GAP-D4 — log-activity quick action. Opens the existing CRM Add-lead flow
+  // Log-activity quick action. Opens the existing CRM Add-lead flow
   // pre-scoped to the rep so anything they touch outside the dialer (a
   // referral, a walk-in, an event lead) gets captured before it falls out.
   const openLogActivity = () => {

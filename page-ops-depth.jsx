@@ -65,7 +65,7 @@ function PageNIGO({ role = "manager" }) {
   // NIGOs see the empty state, never fake names like "Linda Cho".
   const isDemo = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
   const baseNigos = liveNigos && liveNigos.length > 0 ? liveNigos : (isDemo ? NIGOS : []);
-  // GAP-MP2 — manager view scopes NIGOs to their downline. Owner sees the
+  // Manager view scopes NIGOs to their downline. Owner sees the
   // fleet. The owner === rep_id check folds in unassigned items so a manager
   // can claim them.
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && role === "manager")

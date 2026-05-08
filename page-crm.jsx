@@ -55,7 +55,7 @@ const STAGE_TONE = {
 };
 const HEAT_TONE = { fresh: "var(--accent-money)", hot: "var(--state-warning)", warm: "var(--accent-info)", cold: "var(--text-tertiary)" };
 
-const fmtMoney = (n) => "$" + Math.round(n || 0).toLocaleString();
+const fmtMoney = Shared.fmtMoney;
 const safeDiv = (a, b) => (b ? a / b : 0);
 
 function useAppDataTick() {
@@ -110,7 +110,7 @@ function PageCrm({ role = "owner" }) {
   const [addLeadOpen, setAddLeadOpen] = React.useState(false);
   const [csvOpen, setCsvOpen]         = React.useState(false);
 
-  // GAP-D4 — Today's "Log activity" tile dispatches crm:addLead, which we
+  // Today's "Log activity" tile dispatches crm:addLead, which we
   // pick up here to pop the Add-lead modal automatically on landing.
   React.useEffect(() => {
     const fn = () => setAddLeadOpen(true);

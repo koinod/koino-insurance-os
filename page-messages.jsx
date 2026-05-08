@@ -1,5 +1,5 @@
 /* page-messages.jsx — agency-internal Messages.
-   Closes GAP-C2. Threaded DM + group chat for managers and reps. Lives
+   Threaded DM + group chat for managers and reps. Lives
    alongside the broadcast tool (Admin) and the notifications panel.
 
    Two-column layout:

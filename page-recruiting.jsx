@@ -6,7 +6,7 @@
  * Reads from window.AppData.RECRUITING_{CAMPAIGNS,APPLICANTS,MESSAGES}
  * (hydrated by data.jsx from public.recruiting_* tables).
  *
- * Scoping (GAP-MR1): manager view filters applicants/campaigns to their
+ * Scoping: manager view filters applicants/campaigns to their
  * downline (window.scopeRepIds()); owner sees fleet-wide; rep doesn't have
  * a recruiting nav entry.
  *
@@ -39,7 +39,7 @@
     email: "Mail", phone: "Phone", facebook: "MessageSquare",
   };
 
-  const fmt$ = (n) => "$" + (n || 0).toLocaleString();
+  const fmt$ = Shared.fmtMoney;
   const ago = (iso) => {
     if (!iso) return "—";
     const ms = Date.now() - new Date(iso).getTime();
@@ -83,7 +83,7 @@
     const me = scope.me;
     const agencyName = me?.agency_name || "Recruiting";
 
-    // GAP-MR1: manager scopes to downline; owner sees fleet.
+    // Manager scopes to downline; owner sees fleet.
     const filterByScope = (rows, key = "recruiterId") => {
       if (!isManager || !scope.repIds) return rows;
       const set = new Set(scope.repIds);
@@ -265,7 +265,7 @@
       window.AppData.mutate.recruitingApplicantSetStatus(a.id, next);
     };
 
-    // GAP-MR2 — send a real onboarding invite (mint_invite RPC) so the
+    // Send a real onboarding invite (mint_invite RPC) so the
     // applicant gets a magic link instead of staying stuck in pre-application
     // limbo.
     const sendInvite = async (e) => {

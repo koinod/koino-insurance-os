@@ -2026,7 +2026,7 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
 function PageCalls({ role = "rep" }) {
   const { RECORDINGS, REPS } = AppData;
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
-  // GAP-D1 — resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+  // Resolve the actual signed-in viewer instead of REPS[0]=Marcus.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const meId = meIdent?.rep_id || (REPS[0] && REPS[0].id);
   // Manager view scopes to downline; rep to self; owner sees fleet.
