@@ -196,7 +196,9 @@ window.hydrateFromSupabase = async function () {
        awaited block applies scope() to every Promise.all entry below.) */
     const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows] = await Promise.all([
       scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
-      scope(sb.from("pipeline").select("*").order("days_in_stage", { ascending: false })),
+      // Order by created_at desc so freshly-imported leads land at the top.
+      // (Was order("days_in_stage") which buried new leads under stale ones.)
+      scope(sb.from("pipeline").select("*").order("created_at", { ascending: false })),
       scope(sb.from("queue").select("*").order("score", { ascending: false })),
       scope(sb.from("courses").select("*")),
       scope(sb.from("recordings").select("*").order("recorded_at", { ascending: false })),
@@ -702,7 +704,7 @@ window.subscribeRealtime = function () {
     if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
     if (table === "ai_agents")  return { id: r.id, name: r.name, host: r.host_id, reqs: r.reqs_per_day, success: parseFloat(r.success_rate), last: "live", desc: r.description };
     if (table === "connections")return { id: r.id, name: r.name, category: r.category, status: r.status, meta: r.meta };
-    if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run };
+    if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run ? new Date(r.last_run).toLocaleString() : "—" };
     if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
     if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
     if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
