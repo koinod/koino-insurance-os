@@ -166,7 +166,32 @@ window.hydrateFromSupabase = async function () {
     // pin every query to it. RLS already restricts reads, but explicit scoping is
     // required when the user is a member of multiple agencies.
     const activeAgency = window.getActiveAgencyId();
-    const scope = (q) => activeAgency ? q.eq("agency_id", activeAgency) : q;
+    // Only force-inject agency_id=eq.X on tables that actually have an
+    // agency_id column. Otherwise PostgREST returns 400 "column does not
+    // exist" and the entire hydrate falls over for that promise. Tables
+    // without agency_id rely on RLS + FK-joined policies for tenant
+    // isolation (e.g. coaching_notes scopes via rep_id → reps.agency_id).
+    const TABLES_WITH_AGENCY_ID = new Set([
+      "reps", "pipeline", "queue", "courses", "recordings", "connections",
+      "hardware", "ai_agents", "workflows", "policies", "commissions",
+      "payouts", "clawbacks", "agent_deployments", "agent_runs",
+      "automation_rules", "automation_runs", "followup_runs",
+      "followup_templates", "onboarding_progress", "recruiting_applicants",
+      "recruiting_campaigns", "recruiting_messages", "sequence_enrollments",
+      "tiering_overrides", "workflow_assignments",
+      "agency_scripts", "agency_videos", "agency_docs", "agency_quick_links",
+      "agency_lead_sources", "agency_expenses", "expense_allocations",
+      "lead_quotes", "sms_outbox", "agency_notifications",
+    ]);
+    const scope = (q) => {
+      if (!activeAgency) return q;
+      // q.url.pathname looks like "/rest/v1/<table>"; extract table name.
+      try {
+        const tbl = (q.url && (q.url.pathname || "").split("/").pop()) || "";
+        if (!TABLES_WITH_AGENCY_ID.has(tbl)) return q;
+      } catch (_e) { return q; }
+      return q.eq("agency_id", activeAgency);
+    };
     /* (Older variant of this function below uses unscoped queries; the next
        awaited block applies scope() to every Promise.all entry below.) */
     const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows] = await Promise.all([
