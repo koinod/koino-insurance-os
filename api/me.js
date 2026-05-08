@@ -54,6 +54,20 @@ export default async function handler(req) {
   const meRows = await callRpc("me", {}, jwt);
   const me = Array.isArray(meRows) && meRows.length > 0 ? meRows[0] : null;
 
+  // Handle the case where the user is signed in but not yet in the `reps` table.
+  // This happens for new signups who haven't been added to an agency yet.
+  if (jwt && (!me || !me.rep_id)) {
+    return new Response(JSON.stringify({
+      rep_id: null,
+      user_id: null, // We could decode the JWT to get this if needed
+      full_name: "Unmapped User",
+      role: "unmapped",
+      agency_id: null,
+      authenticated: true,
+      needs_onboarding: true,
+    }), { status: 200, headers: corsHeaders() });
+  }
+
   // Anonymous / signed-out callers get the demo identity: Marcus, the Atlas
   // owner. Read-only because anon RLS only grants SELECT on Atlas-scoped rows
   // (see migration 0006_anon_demo_read). Gives ?demo=1 visitors the full

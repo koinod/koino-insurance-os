@@ -163,13 +163,15 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
     <nav className="sidebar">
       <SidebarBrand/>
 
-      <div className="role-switch">
-        {["rep","manager","owner","admin","super_admin"].map(r => (
-          <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-            {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
-          </button>
-        ))}
-      </div>
+      {(window.isSuperAdmin() || window.isDemoAgency()) && (
+        <div className="role-switch">
+          {["rep","manager","owner","admin","super_admin"].map(r => (
+            <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
+              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="sb-section">Workspace</div>
       <div className="sb-nav">

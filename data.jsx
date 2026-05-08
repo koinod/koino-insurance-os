@@ -135,6 +135,12 @@ window.AppData.exportCsv = function (rows, filename, columns) {
 window.SUPABASE_URL  = window.SUPABASE_URL  || "https://jfphwmzwteermalzwojp.supabase.co";
 window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
+// Restore demo-skip flag across reloads so isDemoAgency() reads true after a
+// signOut+reload when the user never created an account.
+try {
+  if (sessionStorage.getItem("repflow.demo") === "1") window.__demoSkip = true;
+} catch (_e) {}
+
 window.getSupabase = function () {
   if (!window.__supabase && window.supabase?.createClient) {
     window.__supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON, {
@@ -166,10 +172,33 @@ window.hydrateFromSupabase = async function () {
     // pin every query to it. RLS already restricts reads, but explicit scoping is
     // required when the user is a member of multiple agencies.
     const activeAgency = window.getActiveAgencyId();
-    const scope = (q) => activeAgency ? q.eq("agency_id", activeAgency) : q;
+    // Hard scope: even if RLS would let a super_admin see everything, pin
+    // queries to the active agency so demo data doesn't leak into a real
+    // user's dashboard. If no active agency (rare), exclude is_demo=true
+    // agencies so seeded demo rows never bleed into a real signed-in user.
+    const demoAgencyIds = (() => {
+      try {
+        // Cached set from the agencies query so we don't refetch per scope() call
+        return window.__demoAgencyIds || [];
+      } catch { return []; }
+    })();
+    // Refresh cache once per hydrate
+    try {
+      const { data: demoAgs } = await sb.from("agencies").select("id").eq("is_demo", true);
+      window.__demoAgencyIds = (demoAgs || []).map(a => a.id);
+    } catch (_e) {}
+    const scope = (q) => {
+      if (activeAgency) return q.eq("agency_id", activeAgency);
+      // No active agency: exclude demo agencies for non-demo viewers, OR
+      // restrict to demo agencies for demo viewers.
+      const inDemo = window.isDemoAgency && window.isDemoAgency();
+      const ids = window.__demoAgencyIds || [];
+      if (ids.length === 0) return q;
+      return inDemo ? q.in("agency_id", ids) : q.not("agency_id", "in", `(${ids.join(",")})`);
+    };
     /* (Older variant of this function below uses unscoped queries; the next
        awaited block applies scope() to every Promise.all entry below.) */
-    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows] = await Promise.all([
+    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows, orgSettings] = await Promise.all([
       scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
       scope(sb.from("pipeline").select("*").order("days_in_stage", { ascending: false })),
       scope(sb.from("queue").select("*").order("score", { ascending: false })),
@@ -179,18 +208,31 @@ window.hydrateFromSupabase = async function () {
       scope(sb.from("hardware").select("*")),
       scope(sb.from("ai_agents").select("*")),
       scope(sb.from("workflows").select("*")),
+      scope(sb.from("org_settings").select("*")),
     ]);
 
-    if (reps.data?.length) {
-      window.AppData.REPS = reps.data.map(r => ({
+    // When the user is signed in (not in demo skip mode), REPLACE arrays
+    // unconditionally — even with empty ones. Otherwise a brand-new agency
+    // (zero reps, zero leads) keeps the demo seed and looks like Atlas with
+    // mock pipeline. The presence of an active scope means we know the
+    // user picked / belongs to a real agency.
+    const hasRealSession = !!activeAgency;
+    
+    if (orgSettings.data || hasRealSession) {
+      const map = {};
+      (orgSettings.data || []).forEach(s => { map[s.key] = s.value; });
+      window.AppData.ORG_SETTINGS = map;
+    }
+    if (reps.data || hasRealSession) {
+      window.AppData.REPS = (reps.data || []).map(r => ({
         id: r.id, name: r.name, handle: r.handle, tier: r.tier,
         mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
         streak: r.streak_days, dials: r.dials, presence: r.presence,
         appts: r.appts, color: r.color
       }));
     }
-    if (pipeline.data?.length) {
-      window.AppData.PIPELINE = pipeline.data.map(p => ({
+    if (pipeline.data || hasRealSession) {
+      window.AppData.PIPELINE = (pipeline.data || []).map(p => ({
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
@@ -198,46 +240,46 @@ window.hydrateFromSupabase = async function () {
         phone: p.phone || null, email: p.email || null,
       }));
     }
-    if (queue.data?.length) {
-      window.AppData.QUEUE = queue.data.map(q => ({
+    if (queue.data || hasRealSession) {
+      window.AppData.QUEUE = (queue.data || []).map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
         product: q.product, elapsed: q.elapsed_seconds, score: q.score,
         phone: q.phone || null, email: q.email || null,
         assignedRepId: q.assigned_rep_id || null,
       }));
     }
-    if (courses.data?.length) {
-      window.AppData.COURSES = courses.data.map(c => ({
+    if (courses.data || hasRealSession) {
+      window.AppData.COURSES = (courses.data || []).map(c => ({
         id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
       }));
     }
-    if (recordings.data?.length) {
-      window.AppData.RECORDINGS = recordings.data.map(r => ({
+    if (recordings.data || hasRealSession) {
+      window.AppData.RECORDINGS = (recordings.data || []).map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
         durSec: r.duration_sec, talkRatio: r.talk_ratio_pct, openQ: r.open_questions,
         ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
       }));
     }
-    if (connections.data?.length) {
-      window.AppData.CONNECTIONS = connections.data.map(c => ({
+    if (connections.data || hasRealSession) {
+      window.AppData.CONNECTIONS = (connections.data || []).map(c => ({
         id: c.id, name: c.name, category: c.category, status: c.status, meta: c.meta
       }));
     }
-    if (hardware.data?.length) {
-      window.AppData.HARDWARE = hardware.data.map(h => ({
+    if (hardware.data || hasRealSession) {
+      window.AppData.HARDWARE = (hardware.data || []).map(h => ({
         id: h.id, name: h.name, kind: h.kind, status: h.status, uptime: h.uptime_text,
         load: h.load_pct, agents: h.agent_count, last: "live"
       }));
     }
-    if (agents.data?.length) {
-      window.AppData.AGENTS = agents.data.map(a => ({
+    if (agents.data || hasRealSession) {
+      window.AppData.AGENTS = (agents.data || []).map(a => ({
         id: a.id, name: a.name, host: a.host_id, reqs: a.reqs_per_day,
         success: parseFloat(a.success_rate), last: "live", desc: a.description
       }));
     }
-    if (workflows.data?.length) {
-      window.AppData.WORKFLOWS = workflows.data.map(w => ({
+    if (workflows.data || hasRealSession) {
+      window.AppData.WORKFLOWS = (workflows.data || []).map(w => ({
         id: w.id, name: w.name, runs: w.runs_per_day,
         lastRun: w.last_run ? new Date(w.last_run).toLocaleString() : "—"
       }));
@@ -608,6 +650,38 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] resources hydrate skipped:", resErr?.message ?? resErr);
     }
 
+    // Cache the active agency object so isDemoAgency() / isSuperAdmin() / UI
+    // banners can read it synchronously.
+    if (activeAgency) {
+      try {
+        const { data: a } = await sb.from("agencies").select("id, slug, name, is_imo, is_demo, imo_id, plan, status").eq("id", activeAgency).single();
+        if (a) window.__activeAgency = a;
+      } catch (_e) { /* ignore */ }
+    }
+
+    // Hydrate expenses → fold into AppData.EXPENSES + LEAD_SPEND_TOTALS so
+    // P&L / Today ROAS / Owner outflow rollups read live data.
+    try {
+      const { data: ex } = await scope(sb.from("agency_expenses").select("*").order("paid_at", { ascending: false }));
+      window.AppData.EXPENSES = ex || [];
+      const now = new Date();
+      const startMtd = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startQtd = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const startYtd = new Date(now.getFullYear(), 0, 1);
+      const inRange = (e, start) => e.paid_at && new Date(e.paid_at) >= start;
+      const sumLeadSpend = (start) => (ex || [])
+        .filter(e => e.kind === "lead_spend" && inRange(e, start))
+        .reduce((s, e) => s + (e.amount_cents || 0), 0);
+      window.AppData.LEAD_SPEND_TOTALS = {
+        mtd: sumLeadSpend(startMtd),
+        qtd: sumLeadSpend(startQtd),
+        ytd: sumLeadSpend(startYtd),
+      };
+    } catch (_e) {
+      window.AppData.EXPENSES = window.AppData.EXPENSES || [];
+      window.AppData.LEAD_SPEND_TOTALS = window.AppData.LEAD_SPEND_TOTALS || { mtd: 0, qtd: 0, ytd: 0 };
+    }
+
     window.AppData.LIVE = true;
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
@@ -713,12 +787,24 @@ window.subscribeRealtime = function () {
 // Auto-subscribe after first hydrate
 window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (_e) {} }, { once: true });
 
+// Audit logger — fire-and-forget Supabase RPC. Never blocks the mutation;
+// any failure is silently swallowed so mutates work in demo mode too.
+async function _writeAudit(action, target, metadata) {
+  try {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !window.AppData.LIVE) return;
+    await sb.rpc("write_audit", { p_action: action, p_target: target || null, p_metadata: metadata || {} });
+  } catch (_e) { /* never block on audit */ }
+}
+
 window.AppData.mutate = {
+  _audit: _writeAudit,
   async pipelineStage(id, stage) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
     const previousStage = row?.stage;
     if (row) { row.stage = stage; row.last = "Just now"; }
     _emitMutation("pipeline", "update", id);
+    _writeAudit("pipeline.stage", row?.lead || id, { from: previousStage, to: stage, lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
@@ -836,8 +922,10 @@ window.AppData.mutate = {
 
   async pipelineOwner(id, ownerRepId) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
+    const prev = row?.owner;
     if (row) row.owner = ownerRepId;
     _emitMutation("pipeline", "update", id);
+    _writeAudit("pipeline.assign", row?.lead || id, { from: prev, to: ownerRepId, lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("pipeline").update({ owner_rep_id: ownerRepId }).eq("id", id);
@@ -868,6 +956,7 @@ window.AppData.mutate = {
     }
     window.AppData.PIPELINE.unshift(row);
     _emitMutation("pipeline", "insert", row.id);
+    _writeAudit("pipeline.create", row.lead, { product: row.product, ap: row.ap, source: row.source });
   },
 
   async pipelineContact(id, patch) {
@@ -888,9 +977,11 @@ window.AppData.mutate = {
   },
 
   async pipelineDelete(id) {
+    const row = window.AppData.PIPELINE.find(p => p.id === id);
     const idx = window.AppData.PIPELINE.findIndex(p => p.id === id);
     if (idx >= 0) window.AppData.PIPELINE.splice(idx, 1);
     _emitMutation("pipeline", "delete", id);
+    _writeAudit("pipeline.delete", row?.lead || id, { lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("pipeline").delete().eq("id", id);
@@ -931,6 +1022,7 @@ window.AppData.mutate = {
       }
     }
     _emitMutation("tiering_overrides", "upsert", repId);
+    _writeAudit("rep.tier_override", repId, { tier });
   },
 
   async sequenceEnroll(leadId, sequenceId, ownerRepId) {
@@ -952,8 +1044,17 @@ window.AppData.mutate = {
     // patch: object of key/value pairs to upsert into org_settings
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
-      const rows = Object.entries(patch).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }));
-      const { error } = await sb.from("org_settings").upsert(rows, { onConflict: "key" });
+      const me = window.me && window.me();
+      const agencyId = me?.agency_id || window.getActiveAgencyId();
+      if (!agencyId) return;
+      
+      const rows = Object.entries(patch).map(([key, value]) => ({ 
+        agency_id: agencyId,
+        key, 
+        value, 
+        updated_at: new Date().toISOString() 
+      }));
+      const { error } = await sb.from("org_settings").upsert(rows, { onConflict: "agency_id,key" });
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
     window.AppData.ORG_SETTINGS = { ...(window.AppData.ORG_SETTINGS || {}), ...patch };
@@ -984,6 +1085,7 @@ window.AppData.mutate = {
     }
     (window.AppData.VAULT_ARTIFACTS = window.AppData.VAULT_ARTIFACTS || []).unshift(artifact);
     _emitMutation("vault_artifacts", "insert", artifact.id);
+    _writeAudit("vault.artifact_added", artifact.lead_name || artifact.kind, { kind: artifact.kind });
   },
 
   async vaultRetentionUpdate(id, retention) {
@@ -1016,6 +1118,7 @@ window.AppData.mutate = {
       if (status === "resolved") row.resolved_at = new Date().toISOString();
       if (detail) row.detail = detail;
     }
+    _writeAudit("nigo.status_change", row?.lead_name || id, { to: status, detail });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const patch = { status };

@@ -100,6 +100,7 @@ function LoginScreen() {
     sessionStorage.setItem("repflow.demo", "1");
     window.__demoSkip = true;
     window.dispatchEvent(new CustomEvent("auth:skip"));
+    if (window.hydrateFromSupabase) window.hydrateFromSupabase();
   };
 
   return (
