@@ -76,8 +76,11 @@
               onClick={() => onPick("solo")}
             />
           </div>
-          <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "var(--text-tertiary)" }}>
-            Your agency starts at zero — no demo data, no leftover sample leads.
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>Your agency starts at zero — no demo data, no leftover sample leads.</div>
+            <button className="btn btn-ghost" style={{ alignSelf: "center" }} onClick={() => window.signOut && window.signOut()}>
+              <Icons.X size={11}/> Use a different account
+            </button>
           </div>
         </div>
       </div>
