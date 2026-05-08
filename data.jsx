@@ -329,7 +329,10 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("tiering_overrides").select("*")),
         scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
         scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
-      ]);
+      ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
+      // ↑ Resilience: any single query that throws is converted into `{ data: [],
+      // error }` so the rest of the hydrate proceeds. Without this, one missing
+      // table (or transient network blip) silently dropped 38 tables on the floor.
 
       const cents = (n) => Math.round((Number(n) || 0) / 100);
       const mapRows = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
@@ -783,7 +786,11 @@ window.AppData.mutate = {
     const carriers = window.AppData.CARRIERS || [];
     const productLower = String(pipeRow.product || "").toLowerCase();
     const carrierGuess = carriers.find(c => {
-      const products = (c.products || []).map(p => String(p).toLowerCase());
+      // CARRIERS hydrate exposes `productLines` (mapped from product_lines column),
+      // not `products`. Old code looked at `c.products` which was always undefined
+      // so the fallback `: true` always matched and the first carrier in the list
+      // was used regardless of product.
+      const products = (c.productLines || c.products || []).map(p => String(p).toLowerCase());
       return productLower.includes("med") ? products.some(p => p.includes("med") || p.includes("supp"))
            : productLower.includes("annuity") ? products.some(p => p.includes("annuity"))
            : productLower.includes("expense") ? products.some(p => p.includes("fe") || p.includes("expense"))

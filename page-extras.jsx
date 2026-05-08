@@ -917,8 +917,9 @@ const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity",
 function PageTraining({ role = "rep", defaultTab = "coaching" }) {
   const [tab, setTab] = React.useState(defaultTab);
   const store = ProductTraining.useStore();
-  const meId = AppData.REPS[0].id;
-  const requiredOpen = ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments);
+  // Guard: empty REPS (fresh agency, pre-hydrate) must not crash the page.
+  const meId = (window.me && window.me()?.rep_id) || AppData.REPS[0]?.id || null;
+  const requiredOpen = meId ? ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments) : 0;
 
   const tabs = [
     { k: "coaching", l: "Call Coaching",    icon: "Activity" },
@@ -2947,22 +2948,28 @@ function SettingsNotifications_OLD() {
 }
 
 function SettingsProfile({ role }) {
-  const me = AppData.REPS[0];
+  // Resolve real signed-in identity first; fall back to first rep only for the
+  // bare demo, never blow up if REPS is empty.
+  const meCtx = (window.me && window.me()) || {};
+  const fallback = AppData.REPS && AppData.REPS[0];
+  const me = (fallback && (fallback.id === meCtx.rep_id || !meCtx.rep_id)) ? fallback : null;
+  const name   = meCtx.full_name  || me?.name    || "—";
+  const handle = meCtx.handle     || me?.handle  || "";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0 }}>Profile</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
-          <Shared.Avatar rep={me} size={48}/>
+          <Shared.Avatar rep={me || { name, handle, color: "var(--text-tertiary)" }} size={48}/>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{me.name}</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{me.handle} · Atlanta · {role}</div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{name}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{handle} · Atlanta · {role}</div>
           </div>
           <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Change avatar</button>
         </div>
         <div className="divider"></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Shared.Field label="Display name"><input className="text-input" defaultValue={me.name}/></Shared.Field>
+          <Shared.Field label="Display name"><input className="text-input" defaultValue={name}/></Shared.Field>
           <Shared.Field label="Email"><input className="text-input" defaultValue="marcus@atlasimo.com"/></Shared.Field>
           <Shared.Field label="Phone"><input className="text-input" defaultValue="+1 (404) 555-0142"/></Shared.Field>
           <Shared.Field label="Time zone"><Shared.Select value="ET" onChange={() => {}} options={[{ v: "ET", l: "Eastern" }, { v: "CT", l: "Central" }, { v: "MT", l: "Mountain" }, { v: "PT", l: "Pacific" }]}/></Shared.Field>
