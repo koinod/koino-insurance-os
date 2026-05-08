@@ -42,7 +42,10 @@ export default async function handler(req) {
   // Fire transcription async (don't block Twilio's webhook on Whisper latency).
   // EdgeRuntime exposes waitUntil via req when available; fall back to a detached fetch.
   if (process.env.OPENAI_API_KEY && recording_url) {
-    const job = transcribeAndPersist({ recording_url, artifactId, anon });
+    // Edge runtime requires absolute URLs for fetch — derive from the inbound
+    // request URL so the transcribe call works on prod, preview, AND localhost.
+    const origin = (() => { try { return new URL(req.url).origin; } catch { return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""; } })();
+    const job = transcribeAndPersist({ recording_url, artifactId, anon, origin });
     if (typeof req.waitUntil === "function") req.waitUntil(job);
     // else: detached promise — Vercel edge will let it run for a few seconds
   }
@@ -50,12 +53,12 @@ export default async function handler(req) {
   return new Response("ok", { status: 200 });
 }
 
-async function transcribeAndPersist({ recording_url, artifactId, anon }) {
+async function transcribeAndPersist({ recording_url, artifactId, anon, origin }) {
   try {
     // Twilio recording URLs need basic auth — pass account SID + auth token
     const sid = process.env.TWILIO_ACCOUNT_SID || "";
     const tok = process.env.TWILIO_AUTH_TOKEN || "";
-    const r = await fetch("/api/transcribe", {
+    const r = await fetch(`${origin || ""}/api/transcribe`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
