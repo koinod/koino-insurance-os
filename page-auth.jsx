@@ -389,31 +389,37 @@ window.signOut = async function () {
   try { if (sb) await sb.auth.signOut(); } catch (e) { console.error("supabase signOut:", e); }
 
   // Sweep every Repflow-owned key from session + local storage so the next
-  // sign-in starts from a true clean slate (no agency pin, no impersonation
-  // residue, no cached me(), no per-user UI state leaking across users).
-  const sweep = (storage) => {
-    try {
+  // sign-in starts from a true clean slate.
+  try {
+    sessionStorage.removeItem("repflow.demo");
+    sessionStorage.removeItem("repflow.pending_invite");
+    sessionStorage.removeItem("repflow.firstRunDone");
+    localStorage.removeItem("repflow.onboarding_complete");
+    // Also sweep keys matching the pattern
+    const sweep = (storage) => {
       const keys = [];
       for (let i = 0; i < storage.length; i++) {
         const k = storage.key(i);
-        if (k && (k.startsWith("repflow.") || k.startsWith("repflow:") || k === "__repflow_me_v1")) {
+        if (k && (k.startsWith("repflow.") || k.startsWith("repflow:") || k === "__repflow_me_v1" || k.includes("supabase.auth.token"))) {
           keys.push(k);
         }
       }
       for (const k of keys) { try { storage.removeItem(k); } catch {} }
-    } catch {}
-  };
-  sweep(sessionStorage);
-  sweep(localStorage);
+    };
+    sweep(sessionStorage);
+    sweep(localStorage);
+  } catch (e) { console.error("storage sweep failed:", e); }
 
-  // Wipe in-memory globals — belt-and-suspenders since reload clears them too,
-  // but explicit so any future SPA-style sign-out doesn't leak.
+  // Wipe in-memory globals
   window.__me = null;
   window.__activeAgency = null;
   window.__demoSkip = false;
   window.__demoAgencyIds = [];
   window.__authRole = null;
   window.adminImpersonate = null;
+
+  // Final fallback: just clear session entirely if we're in demo mode
+  try { sessionStorage.clear(); } catch {}
 
   // Reload bootstraps the supabase client + AppData hydrate from scratch.
   window.location.reload();
