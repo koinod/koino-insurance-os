@@ -1,0 +1,20 @@
+# Default to LF for text files; let git auto-detect text vs binary.
+* text=auto eol=lf
+
+# Force LF on shell/python/sql/config so they execute on Linux runners.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.sql   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Treat binaries explicitly so we never normalize them.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.svg   text eol=lf
+*.ico   binary
+*.pdf   binary
+*.b64   binary
