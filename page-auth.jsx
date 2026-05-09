@@ -185,6 +185,20 @@ function LoginScreen() {
                   ? <><Icons.Send size={12}/> Email me a sign-in link</>
                   : <><Icons.Shield size={12}/> Sign in</>}
             </button>
+
+            <button
+              className="btn btn-ghost"
+              onClick={async () => {
+                const search = pendingInvite ? `?invite=${encodeURIComponent(pendingInvite)}` : "";
+                await sb.auth.signInWithOAuth({
+                  provider: "google",
+                  options: { redirectTo: window.location.origin + window.location.pathname + search }
+                });
+              }}
+              style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 13 }}
+            >
+              <Icons.Chrome size={12} style={{ marginRight: 6 }}/> Sign in with Google
+            </button>
             {stage === "error" && (
               <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>
                 {errMsg}

@@ -6,16 +6,24 @@
 function MobileRep() {
   const [tab, setTab] = React.useState("dial");
   const [drag, setDrag] = React.useState({ x: 0, y: 0 });
-  const [actionFlash, setActionFlash] = React.useState(null); // {dir, label}
+  const [actionFlash, setActionFlash] = React.useState(null);
   const startRef = React.useRef(null);
+  const [hydrated, setHydrated] = React.useState(!!window.AppData);
+
+  React.useEffect(() => {
+    const onHydrate = () => setHydrated(true);
+    window.addEventListener("data:hydrated", onHydrate);
+    return () => window.removeEventListener("data:hydrated", onHydrate);
+  }, []);
+
+  if (!hydrated) {
+    return <div className="mobile-stage"><div className="mobile-frame" style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-tertiary)" }}>Loading Repflow...</div></div>;
+  }
 
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
   const myFirst = (meIdent?.full_name || (AppData.REPS && AppData.REPS[0]?.name) || "your producer").split(" ")[0];
 
-  // Build "my queue" — own pipeline (New + Contacted) merged with the global
-  // unassigned inbound queue, scored highest-heat first. Mirrors the
-  // semantics on the desktop Dial Queue.
   const buildCards = React.useCallback(() => {
     const myPipe = (AppData.PIPELINE || [])
       .filter(p => p.owner === myRepId && (p.stage === "New" || p.stage === "Contacted"))
