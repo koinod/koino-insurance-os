@@ -33,9 +33,9 @@
     const [path, setPath] = useState(hasPendingInvite ? "join" : null);
 
     if (!path) return <UserTypePicker onPick={setPath}/>;
-    if (path === "join")  return <JoinFlow session={session} onDone={onDone}/>;
-    if (path === "solo")  return <SoloFlow session={session} onDone={onDone}/>;
-    if (path === "owner") return <AgencyWizard session={session} onDone={onDone}/>;
+    if (path === "join")  return <JoinFlow session={session} onDone={onDone} onBack={() => setPath(null)}/>;
+    if (path === "solo")  return <SoloFlow session={session} onDone={onDone} onBack={() => setPath(null)}/>;
+    if (path === "owner") return <AgencyWizard session={session} onDone={onDone} onBack={() => setPath(null)}/>;
     return null;
   }
 
@@ -109,7 +109,7 @@
   }
 
   // ── Branch 1: Owner — multi-step agency wizard ──────────────────────────
-  function AgencyWizard({ session, onDone }) {
+  function AgencyWizard({ session, onDone, onBack }) {
     const [step, setStep]   = useState(0);
     const [agencyId, setId] = useState(null);
     const [busy, setBusy]   = useState(false);
@@ -399,7 +399,7 @@
           )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            {step > 0 && <button className="btn btn-ghost" onClick={() => setStep(s => s - 1)} disabled={busy}>Back</button>}
+            <button className="btn btn-ghost" onClick={() => step === 0 ? onBack() : setStep(s => s - 1)} disabled={busy}>Back</button>
             <div style={{ flex: 1 }}/>
             {step < STEPS.length - 1 ? (
               <button className="btn btn-primary" onClick={next} disabled={busy || (step === 0 && !form.name.trim())}>
@@ -417,7 +417,7 @@
   }
 
   // ── Branch 2: Join via invite ───────────────────────────────────────────
-  function JoinFlow({ session, onDone }) {
+  function JoinFlow({ session, onDone, onBack }) {
     const [token, setToken] = useState(() => {
       try {
         const stash = sessionStorage.getItem("repflow.pending_invite") || "";
@@ -455,10 +455,13 @@
               placeholder="abc123-def456-..." autoFocus
               onKeyDown={(e) => e.key === "Enter" && redeem()}/>
           </Shared.Field>
-          <button className="btn btn-primary" onClick={redeem} disabled={busy || !token.trim()}
-            style={{ width: "100%", justifyContent: "center", marginTop: 12, padding: "10px 14px" }}>
-            {busy ? "Redeeming…" : <><Icons.Check size={12}/> Join agency</>}
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn btn-ghost" onClick={onBack} disabled={busy}>Back</button>
+            <button className="btn btn-primary" onClick={redeem} disabled={busy || !token.trim()}
+              style={{ flex: 1, justifyContent: "center", padding: "10px 14px" }}>
+              {busy ? "Redeeming…" : <><Icons.Check size={12}/> Join agency</>}
+            </button>
+          </div>
           {err && <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>{err}</div>}
         </div>
       </div>
@@ -466,7 +469,7 @@
   }
 
   // ── Branch 3: Solo producer ─────────────────────────────────────────────
-  function SoloFlow({ session, onDone }) {
+  function SoloFlow({ session, onDone, onBack }) {
     const [busy, setBusy] = useState(false);
     const [err, setErr]   = useState("");
     const [form, setForm] = useState({
@@ -511,10 +514,13 @@
           <Shared.Field label="Primary state">
             <input className="text-input" value={form.state} onChange={(e) => set({ state: e.target.value.toUpperCase() })} maxLength={2} style={{ width: 100 }}/>
           </Shared.Field>
-          <button className="btn btn-primary" onClick={create} disabled={busy || !form.name.trim()}
-            style={{ width: "100%", justifyContent: "center", marginTop: 12, padding: "10px 14px" }}>
-            {busy ? "Creating…" : <><Icons.Check size={12}/> Create solo agency</>}
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn btn-ghost" onClick={onBack} disabled={busy}>Back</button>
+            <button className="btn btn-primary" onClick={create} disabled={busy || !form.name.trim()}
+              style={{ flex: 1, justifyContent: "center", padding: "10px 14px" }}>
+              {busy ? "Creating…" : <><Icons.Check size={12}/> Create solo agency</>}
+            </button>
+          </div>
           {err && <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>{err}</div>}
         </div>
       </div>
