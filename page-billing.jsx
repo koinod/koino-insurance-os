@@ -200,15 +200,32 @@ function AgencySwitcher() {
   React.useEffect(() => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
-    sb.auth.getSession().then(({ data }) => {
+    sb.auth.getSession().then(async ({ data }) => {
       if (!data?.session) return;
-      sb.from("agency_members").select("agency_id, role, agencies(id, slug, name)").eq("user_id", data.session.user.id).eq("active", true).then(({ data: m }) => {
-        if (!m) return;
-        setMemberships(m);
+      
+      const isSuper = window.isSuperAdmin && window.isSuperAdmin();
+      let memberships = [];
+
+      if (isSuper) {
+        // Super admin sees ALL agencies.
+        const { data: allAgencies } = await sb.from("agencies").select("id, slug, name").order("name");
+        memberships = (allAgencies || []).map(a => ({
+          agency_id: a.id,
+          role: "super_admin",
+          agencies: a
+        }));
+      } else {
+        // Regular user sees only their memberships.
+        const { data: m } = await sb.from("agency_members").select("agency_id, role, agencies(id, slug, name)").eq("user_id", data.session.user.id).eq("active", true);
+        memberships = m || [];
+      }
+
+      if (memberships.length > 0) {
+        setMemberships(memberships);
         const stored = localStorage.getItem("repflow.active_agency");
-        const found = m.find(x => x.agency_id === stored) || m[0];
+        const found = memberships.find(x => x.agency_id === stored) || memberships[0];
         if (found) setActive(found);
-      });
+      }
     });
   }, []);
 

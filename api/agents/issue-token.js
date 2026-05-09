@@ -19,7 +19,7 @@ export const config = { runtime: "edge" };
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
-const ALLOWED_ROLES = new Set(["owner", "manager"]);
+const ALLOWED_ROLES = new Set(["owner", "manager", "super_admin"]);
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
