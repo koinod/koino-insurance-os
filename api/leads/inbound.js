@@ -251,7 +251,7 @@ export default async function handler(req) {
         await pgInsert("touchpoints", {
           lead_pipeline_id: inserted.id,
           source_id: null,                       // resolved by reconciler if source name matches a lead_sources row
-          kind: "inbound_form",
+          kind: "form_submit",
           occurred_at: new Date().toISOString(),
           ...(agencyId ? { agency_id: agencyId } : {}),
         }, agencyId);

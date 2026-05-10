@@ -127,35 +127,41 @@ window.hydrateFromSupabase = async function () {
     // pin every query to it. RLS already restricts reads, but explicit scoping is
     // required when the user is a member of multiple agencies.
     const activeAgency = window.getActiveAgencyId();
-    // Hard scope: even if RLS would let a super_admin see everything, pin
-    // queries to the active agency so demo data doesn't leak into a real
-    // user's dashboard. If no active agency (rare), exclude is_demo=true
-    // agencies so seeded demo rows never bleed into a real signed-in user.
-    const demoAgencyIds = (() => {
-      try {
-        // Cached set from the agencies query so we don't refetch per scope() call
-        return window.__demoAgencyIds || [];
-      } catch { return []; }
-    })();
-    // Refresh cache once per hydrate
-    try {
-      const { data: demoAgs } = await sb.from("agencies").select("id").eq("is_demo", true);
-      window.__demoAgencyIds = (demoAgs || []).map(a => a.id);
-    } catch (_e) {}
+    // Only force-inject agency_id=eq.X on tables that actually have an
+    // agency_id column. Otherwise PostgREST returns 400 "column does not
+    // exist" and the entire hydrate falls over for that promise. Tables
+    // without agency_id rely on RLS + FK-joined policies for tenant
+    // isolation (e.g. coaching_notes scopes via rep_id → reps.agency_id).
+    // RLS is now locked down (migration 0024) so the older demo-bleed
+    // workaround is no longer needed at the hydrate layer.
+    const TABLES_WITH_AGENCY_ID = new Set([
+      "reps", "pipeline", "queue", "courses", "recordings", "connections",
+      "hardware", "ai_agents", "workflows", "policies", "commissions",
+      "payouts", "clawbacks", "agent_deployments", "agent_runs",
+      "automation_rules", "automation_runs", "followup_runs",
+      "followup_templates", "onboarding_progress", "recruiting_applicants",
+      "recruiting_campaigns", "recruiting_messages", "sequence_enrollments",
+      "tiering_overrides", "workflow_assignments",
+      "agency_scripts", "agency_videos", "agency_docs", "agency_quick_links",
+      "agency_lead_sources", "agency_expenses", "expense_allocations",
+      "lead_quotes", "sms_outbox", "agency_notifications",
+    ]);
     const scope = (q) => {
-      if (activeAgency) return q.eq("agency_id", activeAgency);
-      // No active agency: exclude demo agencies for non-demo viewers, OR
-      // restrict to demo agencies for demo viewers.
-      const inDemo = window.isDemoAgency && window.isDemoAgency();
-      const ids = window.__demoAgencyIds || [];
-      if (ids.length === 0) return q;
-      return inDemo ? q.in("agency_id", ids) : q.not("agency_id", "in", `(${ids.join(",")})`);
+      if (!activeAgency) return q;
+      // q.url.pathname looks like "/rest/v1/<table>"; extract table name.
+      try {
+        const tbl = (q.url && (q.url.pathname || "").split("/").pop()) || "";
+        if (!TABLES_WITH_AGENCY_ID.has(tbl)) return q;
+      } catch (_e) { return q; }
+      return q.eq("agency_id", activeAgency);
     };
     /* (Older variant of this function below uses unscoped queries; the next
        awaited block applies scope() to every Promise.all entry below.) */
     const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows, orgSettings] = await Promise.all([
       scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
-      scope(sb.from("pipeline").select("*").order("days_in_stage", { ascending: false })),
+      // Order by created_at desc so freshly-imported leads land at the top.
+      // (Was order("days_in_stage") which buried new leads under stale ones.)
+      scope(sb.from("pipeline").select("*").order("created_at", { ascending: false })),
       scope(sb.from("queue").select("*").order("score", { ascending: false })),
       scope(sb.from("courses").select("*")),
       scope(sb.from("recordings").select("*").order("recorded_at", { ascending: false })),
@@ -326,7 +332,10 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("tiering_overrides").select("*")),
         scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
         scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
-      ]);
+      ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
+      // ↑ Resilience: any single query that throws is converted into `{ data: [],
+      // error }` so the rest of the hydrate proceeds. Without this, one missing
+      // table (or transient network blip) silently dropped 38 tables on the floor.
 
       const cents = (n) => Math.round((Number(n) || 0) / 100);
       const mapRows = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
@@ -690,6 +699,9 @@ window.subscribeRealtime = function () {
     agency_videos:      "VIDEOS",
     agency_docs:        "DOCS",
     agency_quick_links: "QUICK_LINKS",
+    // GAP-X5 — notifications + commissions stream so badges and PnL update without refresh
+    notifications:      "NOTIFICATIONS",
+    commissions:        "COMMISSIONS",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -700,13 +712,15 @@ window.subscribeRealtime = function () {
     if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
     if (table === "ai_agents")  return { id: r.id, name: r.name, host: r.host_id, reqs: r.reqs_per_day, success: parseFloat(r.success_rate), last: "live", desc: r.description };
     if (table === "connections")return { id: r.id, name: r.name, category: r.category, status: r.status, meta: r.meta };
-    if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run };
+    if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run ? new Date(r.last_run).toLocaleString() : "—" };
     if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
     if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
     if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
     if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, createdBy: r.created_by, createdAt: r.created_at };
     if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, createdBy: r.created_by, createdAt: r.created_at };
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
+    if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
+    if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
     return r;
   };
 
@@ -819,7 +833,11 @@ window.AppData.mutate = {
     const carriers = window.AppData.CARRIERS || [];
     const productLower = String(pipeRow.product || "").toLowerCase();
     const carrierGuess = carriers.find(c => {
-      const products = (c.products || []).map(p => String(p).toLowerCase());
+      // CARRIERS hydrate exposes `productLines` (mapped from product_lines column),
+      // not `products`. Old code looked at `c.products` which was always undefined
+      // so the fallback `: true` always matched and the first carrier in the list
+      // was used regardless of product.
+      const products = (c.productLines || c.products || []).map(p => String(p).toLowerCase());
       return productLower.includes("med") ? products.some(p => p.includes("med") || p.includes("supp"))
            : productLower.includes("annuity") ? products.some(p => p.includes("annuity"))
            : productLower.includes("expense") ? products.some(p => p.includes("fe") || p.includes("expense"))

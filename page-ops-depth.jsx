@@ -103,9 +103,14 @@ function PageNIGO({ role = "manager" }) {
       </div>
 
       {(() => {
-        const open = baseNigos.filter(n => n.status === "open");
-        const inReview = baseNigos.filter(n => n.status === "in_review");
-        const fixed = baseNigos.filter(n => n.status === "fixed");
+        // GAP-MP2 follow-on — KPIs honor the same scope as the queue list so a
+        // manager doesn't see fleet-level open counts for items outside downline.
+        const scoped = scopeIds
+          ? baseNigos.filter(n => !n.owner || scopeIds.has(n.owner))
+          : baseNigos;
+        const open = scoped.filter(n => n.status === "open");
+        const inReview = scoped.filter(n => n.status === "in_review");
+        const fixed = scoped.filter(n => n.status === "fixed");
         // Avg time-to-fix: use raw NIGOS rows from AppData (have createdAt + resolvedAt)
         // to compute; else "—" rather than a fake value.
         const rawN = (AppData.NIGOS || []).filter(n => n.resolvedAt && n.createdAt);

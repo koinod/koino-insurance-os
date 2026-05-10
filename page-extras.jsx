@@ -642,6 +642,21 @@ function CommissionsOwner() {
     ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
     : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
 
+  // GAP-RP1 — CSV export of the per-rep statement powering the override pool
+  const exportCommissions = () => {
+    const headers = ["Period","Rep","Carrier","Lead","AP","Expected","Paid","Status"];
+    const rows = allRows.map(r => {
+      const pol = (AppData.POLICIES || []).find(p => p.id === r.policyId) || {};
+      const rep = (AppData.REPS    || []).find(p => p.id === pol.owner)    || {};
+      return [r.period || "", rep.name || "", pol.carrier || "", pol.lead || "", r.ap || 0, r.expected || 0, r.paid || 0, r.status || ""];
+    });
+    const csv = [headers.join(","), ...rows.map(r => r.map(v => typeof v === "string" && v.includes(",") ? `"${v.replace(/"/g, '""')}"` : v).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `commissions-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${rows.length} commission rows`, "success");
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -649,6 +664,7 @@ function CommissionsOwner() {
           <div className="page-title">Commissions · Override pool</div>
           <div className="page-sub">Account-wide rollup · {issued || 14} issues this period · override % set by you below</div>
         </div>
+        <button className="btn" onClick={exportCommissions} disabled={isEmpty} title={isEmpty ? "No commission rows to export" : "Download CSV of all commission rows"}>Export CSV</button>
       </div>
       <div className="kpi-row">
         <Shared.KpiCard hero label="Override pool · MTD" prefix="$" value={display.pool.toLocaleString()} sub={`${overridePct}% of $${display.totalAp.toLocaleString()} AP`} trend="up"/>
@@ -909,8 +925,10 @@ function PageTraining({ role = "rep", defaultTab = "coaching" }) {
   const [tab, setTab] = React.useState(defaultTab);
   const store = ProductTraining.useStore();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  // Real rep id when signed in. In demo-agency mode fall back to the first
+  // seeded rep so the page renders. Fresh non-demo agencies see 0 required.
   const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? AppData.REPS[0]?.id : null);
-  const requiredOpen = ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments);
+  const requiredOpen = meId ? ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments) : 0;
 
   const tabs = [
     { k: "coaching", l: "Call Coaching",    icon: "Activity" },
@@ -2947,6 +2965,8 @@ function SettingsProfile({ role }) {
     name: meIdent.full_name || meIdent.handle || "Viewer",
     handle: meIdent.handle || "",
   } : { id: "viewer", name: "—", handle: "" });
+  const name   = me.name;
+  const handle = me.handle || "";
   const displayEmail = meIdent?.email || "";
   const displayPhone = meIdent?.phone || "";
   return (
@@ -2954,16 +2974,16 @@ function SettingsProfile({ role }) {
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0 }}>Profile</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
-          <Shared.Avatar rep={me} size={48}/>
+          <Shared.Avatar rep={me || { name, handle, color: "var(--text-tertiary)" }} size={48}/>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{me.name}</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{me.handle || ""} {role ? "· " + role : ""}</div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{name}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{handle || ""} {role ? "· " + role : ""}</div>
           </div>
           <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Change avatar</button>
         </div>
         <div className="divider"></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Shared.Field label="Display name"><input className="text-input" defaultValue={me.name}/></Shared.Field>
+          <Shared.Field label="Display name"><input className="text-input" defaultValue={name}/></Shared.Field>
           <Shared.Field label="Email"><input className="text-input" defaultValue={displayEmail} placeholder="you@example.com"/></Shared.Field>
           <Shared.Field label="Phone"><input className="text-input" defaultValue={displayPhone} placeholder="+1 555 555 5555"/></Shared.Field>
           <Shared.Field label="Time zone"><Shared.Select value="ET" onChange={() => {}} options={[{ v: "ET", l: "Eastern" }, { v: "CT", l: "Central" }, { v: "MT", l: "Mountain" }, { v: "PT", l: "Pacific" }]}/></Shared.Field>

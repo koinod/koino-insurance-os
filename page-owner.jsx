@@ -290,6 +290,20 @@ function PagePnL() {
     window.toast && window.toast(`Exported ${period} audit pack`, "success");
   };
 
+  // GAP-RP1 — CSV export of the live PnL waterfall (separate from the JSON audit pack)
+  const exportPnlCsv = () => {
+    const slug = (agency.slug || agencyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agency");
+    const headers = ["Line","Dollars","Period"];
+    const rows = waterfall.map(r => [r.l.trim(), r.v, period]);
+    const csv = [headers.join(","), ...rows.map(r => r.map(v => typeof v === "string" && v.includes(",") ? `"${v.replace(/"/g, '""')}"` : v).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${slug}-pnl-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${period} PnL CSV`, "success");
+  };
+
   const handleAnomaly = (target) => {
     if (target) window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: target }}));
   };
@@ -303,6 +317,7 @@ function PagePnL() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.SectionPill items={[{k:"MTD",l:"MTD"},{k:"T12",l:"T12"},{k:"YTD",l:"YTD"}]} value={period} onChange={setPeriod} dense/>
+          <button className="btn" onClick={exportPnlCsv} title="Download waterfall as CSV">CSV</button>
           <button className="btn" onClick={exportAudit}><Icons.ArrowUpRight size={13}/> Export audit</button>
         </div>
       </div>

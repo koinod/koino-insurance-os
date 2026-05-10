@@ -150,6 +150,17 @@ function PagePerformance() {
   const promoted    = history.filter(h => TIER_ORDER.indexOf(h.to) > TIER_ORDER.indexOf(h.from))?.length;
   const demoted     = history.filter(h => TIER_ORDER.indexOf(h.to) < TIER_ORDER.indexOf(h.from))?.length;
 
+  // GAP-RP1 — CSV export of standings (rank · rep · MTD · today · streak · dials · tier)
+  const exportStandingsCsv = () => {
+    const headers = ["Rank","Rep","Tier","MTD","Today","Streak","Dials","Appts"];
+    const rows = sorted.map((r, i) => [i + 1, r.name || "", r.tier || "", r.mtd || 0, r.today || 0, r.streak || 0, r.dials || 0, r.appts || 0]);
+    const csv = [headers.join(","), ...rows.map(r => r.map(v => typeof v === "string" && v.includes(",") ? `"${v.replace(/"/g, '""')}"` : v).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `performance-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${rows.length} producers · ${period}`, "success");
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -159,6 +170,7 @@ function PagePerformance() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.SectionPill items={[{k:"WTD",l:"WTD"},{k:"MTD",l:"MTD"},{k:"T12",l:"T12"},{k:"AEP",l:"AEP"}]} value={period} onChange={setPeriod} dense/>
+          <button className="btn" onClick={exportStandingsCsv} disabled={sorted.length === 0} title={sorted.length === 0 ? "No producers to export" : "Download standings CSV"}>CSV</button>
           <button className="btn" onClick={() => setTierOpen(o => !o)}>
             <Icons.Award size={13}/> {tierOpen ? "Hide" : "Tier rules"}
           </button>
