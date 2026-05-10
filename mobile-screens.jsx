@@ -44,7 +44,9 @@ function MBottomNav({ active = "home", onNav = () => {} }) {
 // ── Screen 1: Today ─────────────────────────────────────────────────────
 function MScreenToday({ onNav }) {
   // Hydrate everything from demo / live AppData so the screen is honest.
-  const me   = AppData.REPS && AppData.REPS[0];
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+          || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
   const hot  = (AppData.QUEUE || []).filter(q => q.elapsed < 60).slice(0, 3);
   const upNext = (AppData.PIPELINE || [])
     .filter(p => p.next && p.stage !== "Issued" && p.stage !== "Lost")
@@ -55,7 +57,7 @@ function MScreenToday({ onNav }) {
   const pct = Math.min(100, Math.round((todayBooked / target) * 100));
   const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const monthDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const initials = me?.name?.split(" ").map(s => s[0]).join("") || "MA";
+  const initials = me?.name?.split(" ").map(s => s[0]).join("") || (meIdent?.full_name?.split(" ").map(s => s[0]).join("")) || "—";
   const issuedToday = (AppData.PIPELINE || []).filter(p => p.stage === "Issued").length;
 
   return (
@@ -183,7 +185,7 @@ function MScreenQueue({ onNav, onCall, onLead }) {
 }
 
 // ── Screen 3: In-Call ───────────────────────────────────────────────────
-function MScreenCall({ lead, onEnd }) {
+function MScreenCall({ lead, onEnd, onNote }) {
   const [sec, setSec] = useState(34);
   const [muted, setMuted] = useState(false);
   React.useEffect(() => {
@@ -193,65 +195,88 @@ function MScreenCall({ lead, onEnd }) {
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
   const tpmoFired = sec >= 8;
-  const name = lead?.lead || "Cheryl Hampton";
-  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : "67 · Travis County, TX · T65 list";
+  const isDemo = window.isDemoAgency && window.isDemoAgency();
+  const name = lead?.lead || (isDemo ? "Cheryl Hampton" : "—");
+  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : (isDemo ? "67 · Travis County, TX · T65 list" : "no active call");
+
+  const endCall = async () => {
+    // Log the call to Supabase
+    const sb = window.getSupabase();
+    if (sb && lead) {
+       await sb.from("agency_calls").insert({
+         rep_id: window.me()?.rep_id,
+         lead_id: lead.id,
+         duration_sec: sec,
+         created_at: new Date().toISOString()
+       });
+    }
+    onEnd();
+  };
 
   return (
     <div className="m-call">
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span className="m-live"></span>
-        <span style={{ fontSize: 11, color: "var(--accent-money)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>LIVE</span>
-        <span className="m-call-time" style={{ marginLeft: "auto" }}>{mm}:{ss}</span>
-      </div>
-      <div className="m-call-name" style={{ marginTop: 18 }}>{name}</div>
-      <div className="m-call-sub">{meta}</div>
-
-      <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
-        <span className="m-chip info">Plan G eligible</span>
-        <span className="m-chip">No prior MS</span>
-        <span className="m-chip money">LeadiD ✓</span>
-      </div>
-
-      <div className="m-coach" style={{
-        background: tpmoFired ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "color-mix(in oklch, var(--accent-heat) 12%, transparent)",
-        borderColor: tpmoFired ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "color-mix(in oklch, var(--accent-heat) 30%, transparent)",
-      }}>
-        <div className="m-coach-l" style={{ color: tpmoFired ? "var(--accent-money)" : "var(--accent-heat)" }}>
-          <MIcon.Shield/> TPMO {tpmoFired ? "captured" : `firing in ${Math.max(0, 8 - sec)}s`}
+      <MHeader title="Call in progress" />
+      <div style={{ padding: "0 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="m-live"></span>
+          <span style={{ fontSize: 11, color: "var(--accent-money)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>LIVE</span>
+          <span className="m-call-time" style={{ marginLeft: "auto" }}>{mm}:{ss}</span>
         </div>
-        <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-          "We do not offer every plan available in your area. Any information we provide is limited..."
-        </div>
-      </div>
+        <div className="m-call-name" style={{ marginTop: 18 }}>{name}</div>
+        <div className="m-call-sub">{meta}</div>
 
-      <div className="m-coach" style={{ marginTop: 10 }}>
-        <div className="m-coach-l"><MIcon.Sparkles/> AI suggests now</div>
-        <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>
-          Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <b>Plan G drug-free coverage gap</b>.
+        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+          <span className="m-chip info">Plan G eligible</span>
+          <span className="m-chip">No prior MS</span>
+          <span className="m-chip money">LeadiD ✓</span>
         </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-          <span className="m-chip">Show script</span>
-          <span className="m-chip">Send SOA</span>
-          <span className="m-chip">Quote $145/mo</span>
-        </div>
-      </div>
 
-      <div className="m-call-actions">
-        <button className="m-cab" data-active={muted} onClick={() => setMuted(m => !m)}>
-          {muted ? <MIcon.MicOff/> : <MIcon.Mic/>}
-          <span>{muted ? "Muted" : "Mute"}</span>
-        </button>
-        <button className="m-cab"><MIcon.Hash/><span>Keypad</span></button>
-        <button className="m-cab"><MIcon.Sparkles s={20}/><span>Rebut</span></button>
+        <div className="m-coach" style={{
+          background: tpmoFired ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "color-mix(in oklch, var(--accent-heat) 12%, transparent)",
+          borderColor: tpmoFired ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "color-mix(in oklch, var(--accent-heat) 30%, transparent)",
+        }}>
+          <div className="m-coach-l" style={{ color: tpmoFired ? "var(--accent-money)" : "var(--accent-heat)" }}>
+            <MIcon.Shield/> TPMO {tpmoFired ? "captured" : `firing in ${Math.max(0, 8 - sec)}s`}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            "We do not offer every plan available in your area. Any information we provide is limited..."
+          </div>
+        </div>
+
+        <div className="m-coach" style={{ marginTop: 10 }}>
+          <div className="m-coach-l"><MIcon.Sparkles/> AI suggests now</div>
+          <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>
+            {isDemo
+              ? <>Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <b>Plan G drug-free coverage gap</b>.</>
+              : <>Open with a daily-routine question to surface medication context before pivoting to product fit.</>}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+            <span className="m-chip">Show script</span>
+            <span className="m-chip">Send SOA</span>
+            <span className="m-chip">Quote $145/mo</span>
+          </div>
+        </div>
+
+        <div className="m-call-actions">
+          <button className="m-cab" data-active={muted} onClick={() => setMuted(m => !m)}>
+            {muted ? <MIcon.MicOff/> : <MIcon.Mic/>}
+            <span>{muted ? "Muted" : "Mute"}</span>
+          </button>
+          <button className="m-cab" onClick={onNote}><MIcon.Plus/><span>Add note</span></button>
+          <button className="m-cab"><MIcon.Sparkles s={20}/><span>Rebut</span></button>
+        </div>
+        <button className="m-cab danger" style={{ height: 56, marginTop: 4 }} onClick={endCall}>End call</button>
       </div>
-      <button className="m-cab danger" style={{ height: 56, marginTop: 4 }} onClick={onEnd}>End call</button>
     </div>
   );
 }
 
 // ── Screen 4: Lead Detail ───────────────────────────────────────────────
 function MScreenLead({ lead, onBack, onCall }) {
-  const l = lead || { lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", score: 92, elapsed: 14 };
+  const _isDemoML = !!(window.isDemoAgency && window.isDemoAgency());
+  const l = lead || (_isDemoML
+    ? { lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", score: 92, elapsed: 14 }
+    : { lead: "—", age: "—", state: "—", source: "—", product: "—", score: 0, elapsed: 0 });
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -304,13 +329,7 @@ function MScreenLeaderboard({ onNav }) {
   const ranked = [...AppData.REPS].sort((a, b) => b.mtd - a.mtd);
   return (
     <div className="m-screen">
-      <div className="m-header">
-        <div style={{ flex: 1 }}>
-          <div className="m-title" style={{ fontSize: 24 }}>Leaderboard</div>
-          <div className="m-sub">MTD premium · Atlanta office</div>
-        </div>
-        <span className="m-chip">Oct</span>
-      </div>
+      <MHeader title="Leaderboard" sub="MTD premium · Atlanta office" />
 
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6 }}>
         {["Office", "All teams", "Personal"].map((t, i) => (
@@ -370,13 +389,7 @@ function MScreenComm({ onNav }) {
   const months = [{ l: "May", v: 38 }, { l: "Jun", v: 44 }, { l: "Jul", v: 52 }, { l: "Aug", v: 48 }, { l: "Sep", v: 61 }, { l: "Oct", v: 42, cur: true }];
   return (
     <div className="m-screen">
-      <div className="m-header">
-        <div style={{ flex: 1 }}>
-          <div className="m-title" style={{ fontSize: 24 }}>Commissions</div>
-          <div className="m-sub">October · paid weekly</div>
-        </div>
-        <button className="m-btn m-btn-pill" style={{ height: 32 }}>Statement</button>
-      </div>
+      <MHeader title="Commissions" sub="October · paid weekly" />
 
       <div className="m-scroll">
         <div className="m-card" style={{ padding: 18 }}>
@@ -395,13 +408,13 @@ function MScreenComm({ onNav }) {
 
         <div className="m-section-h"><span>Recent issues</span></div>
         <div className="m-card" style={{ padding: 0 }}>
-          {[
+          {((window.isDemoAgency && window.isDemoAgency()) ? [
             { who: "Cheryl Hampton", p: "Plan G", ap: 1840, com: 920, st: "advance", c: "money" },
             { who: "Robert Mendez", p: "FE $15K", ap: 1320, com: 660, st: "advance", c: "money" },
             { who: "Henry Akins", p: "Annuity", ap: 4250, com: 425, st: "as-earned", c: "info" },
             { who: "Linda Cho", p: "Plan N", ap: 1490, com: 0, st: "NIGO · sigs missing", c: "warn" },
             { who: "Don Phelps", p: "FE $10K", ap: 0, com: 0, st: "Chargeback risk", c: "warn" },
-          ].map((r, i, arr) => (
+          ] : []).map((r, i, arr) => (
             <div key={i} style={{ display: "flex", alignItems: "center", padding: "12px 14px", borderBottom: i < arr.length - 1 ? "1px solid var(--border-subtle)" : 0, gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>{r.who}</div>
@@ -432,5 +445,17 @@ function MScreenComm({ onNav }) {
   );
 }
 
-// Export
-Object.assign(window, { MScreenToday, MScreenQueue, MScreenCall, MScreenLead, MScreenLeaderboard, MScreenComm, MBottomNav });
+// ── Mobile Header (shared) ──────────────────────────────────────────────
+function MHeader({ title, sub }) {
+  return (
+    <div className="m-header" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <button className="m-btn m-btn-ghost" style={{ padding: "0 8px" }} onClick={() => window.history.back()}>
+        <MIcon.ChevR style={{ transform: "rotate(180deg)" }}/>
+      </button>
+      <div style={{ flex: 1 }}>
+        <div className="m-title" style={{ fontSize: 24 }}>{title}</div>
+        {sub && <div className="m-sub">{sub}</div>}
+      </div>
+    </div>
+  );
+}

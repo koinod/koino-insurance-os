@@ -166,10 +166,10 @@ function OnboardingWizard({ onComplete }) {
         {step === 0 && (
           <>
             <Shared.Field label="Agency name">
-              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Atlas Insurance Group" autoFocus/>
+              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your agency name" autoFocus/>
             </Shared.Field>
             <Shared.Field label="URL slug">
-              <input className="text-input" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="atlas (auto from name if blank)"/>
+              <input className="text-input" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="auto from name if blank"/>
             </Shared.Field>
             <Shared.Field label="Primary state">
               <Shared.Select value={form.state} onChange={(v) => setForm({ ...form, state: v })} options={["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"].map(s => ({ v: s, l: s }))}/>

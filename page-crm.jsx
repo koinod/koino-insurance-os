@@ -15,8 +15,9 @@
 const SAMPLE_SOURCES = [
   { id: "fb-leads",    name: "Facebook Lead Ads",     kind: "owned_ads",   vendor: "Meta",     status: "connected", costPerLead: 28.40, leadsMtd: 142, contactedMtd: 124, issuedMtd: 14, ap: 26840, accountId: "act_18293817", lastSync: "2m ago" },
   { id: "google-ads",  name: "Google Search Ads",      kind: "owned_ads",   vendor: "Google",   status: "connected", costPerLead: 70.91, leadsMtd: 88,  contactedMtd: 52,  issuedMtd: 12, ap: 24400, accountId: "8128-491-2918", lastSync: "5m ago" },
-  { id: "convoso",     name: "Convoso · inbound",      kind: "transfers",   vendor: "Convoso",  status: "connected", costPerLead: 33.68, leadsMtd: 38,  contactedMtd: 38,  issuedMtd: 14, ap: 28110, accountId: "atlas-imo",   lastSync: "now" },
-  { id: "leadhero",    name: "Lead Heroes",             kind: "vendor",      vendor: "LeadHeroes", status: "connected", costPerLead: 17.14, leadsMtd: 42,  contactedMtd: 29,  issuedMtd: 5,  ap:  6420, accountId: "atlas-04",     lastSync: "1h ago" },
+  { id: "convoso",     name: "Convoso · inbound",      kind: "transfers",   vendor: "Convoso",  status: "connected", costPerLead: 33.68, leadsMtd: 38,  contactedMtd: 38,  issuedMtd: 14, ap: 28110, accountId: "agency-comms",    lastSync: "now" },
+  { id: "leadhero",    name: "Lead Heroes",             kind: "vendor",      vendor: "LeadHeroes", status: "connected", costPerLead: 17.14, leadsMtd: 42,  contactedMtd: 29,  issuedMtd: 5,  ap:  6420, accountId: "agency-leads",     lastSync: "1h ago" },
+
   { id: "datamail",    name: "DataMail · T65 list",    kind: "list",        vendor: "DataMail", status: "manual",    costPerLead: 10.00, leadsMtd: 184, contactedMtd: 92,  issuedMtd: 6,  ap:  9340, accountId: "csv import",   lastSync: "2d ago" },
   { id: "referral",    name: "Producer referrals",      kind: "referral",    vendor: "Internal", status: "always_on", costPerLead:  3.53, leadsMtd: 34,  contactedMtd: 32,  issuedMtd: 11, ap: 22180, accountId: "—",            lastSync: "now" },
 ];
@@ -55,7 +56,7 @@ const STAGE_TONE = {
 };
 const HEAT_TONE = { fresh: "var(--accent-money)", hot: "var(--state-warning)", warm: "var(--accent-info)", cold: "var(--text-tertiary)" };
 
-const fmtMoney = (n) => "$" + Math.round(n || 0).toLocaleString();
+const fmtMoney = Shared.fmtMoney;
 const safeDiv = (a, b) => (b ? a / b : 0);
 
 function useAppDataTick() {
@@ -110,7 +111,7 @@ function PageCrm({ role = "owner" }) {
   const [addLeadOpen, setAddLeadOpen] = React.useState(false);
   const [csvOpen, setCsvOpen]         = React.useState(false);
 
-  // GAP-D4 — Today's "Log activity" tile dispatches crm:addLead, which we
+  // Today's "Log activity" tile dispatches crm:addLead, which we
   // pick up here to pop the Add-lead modal automatically on landing.
   React.useEffect(() => {
     const fn = () => setAddLeadOpen(true);

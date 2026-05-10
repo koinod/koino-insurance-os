@@ -1,11 +1,10 @@
 /* Page: Manager — Team Board (dispatch) and Coaching (role-aware)
- * GAP closures shipped in this revision:
- *   GAP-MD1 — Team rollup scoped to manager's downline via window.scopeRepIds()
- *   GAP-MD2 — At-risk badge per rep card (heuristic shared with PredictiveCards)
- *   GAP-MD3 — Breakout badge per rep card
- *   GAP-MD4 — Coaching cards bound to AppData.COACHING_SESSIONS / NOTES
- *   GAP-MC1 — Inline "coaching note" capture from rep card + drill-down
- *   GAP-MC2 — Inline "focus alert" sends a notification to the rep
+ *   Team rollup scoped to manager's downline via window.scopeRepIds()
+ *   At-risk badge per rep card (heuristic shared with PredictiveCards)
+ *   Breakout badge per rep card
+ *   Coaching cards bound to AppData.COACHING_SESSIONS / NOTES
+ *   Inline "coaching note" capture from rep card + drill-down
+ *   Inline "focus alert" sends a notification to the rep
  */
 
 /* ── Heuristics: same shape as PredictiveCards in page-today.jsx, scoped local
@@ -83,8 +82,8 @@ function PageTeam() {
   const [bulkPicks, setBulkPicks] = React.useState({});  // queueId -> repId
   const [routingOpen, setRoutingOpen] = React.useState(false);
   const [repDrill, setRepDrill] = React.useState(null);
-  const [noteFor, setNoteFor] = React.useState(null);    // GAP-MC1
-  const [alertFor, setAlertFor] = React.useState(null);  // GAP-MC2
+  const [noteFor, setNoteFor] = React.useState(null);
+  const [alertFor, setAlertFor] = React.useState(null);
 
   const visibleQueue = QUEUE.filter(q => !assigned[q.id]);
 
@@ -267,12 +266,12 @@ function PageTeam() {
                     )}
                   </div>
 
-                  {/* GAP-MC1/MC2 — inline manager actions */}
+                  {/* Inline manager actions */}
                   <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
-                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setNoteFor(r); }} title="Coaching note (GAP-MC1)">
+                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setNoteFor(r); }} title="Coaching note">
                       <Icons.MessageSquare size={11}/> Note
                     </button>
-                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setAlertFor(r); }} title="Send focus alert (GAP-MC2)">
+                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setAlertFor(r); }} title="Send focus alert">
                       <Icons.Bell size={11}/> Alert
                     </button>
                   </div>
@@ -320,7 +319,7 @@ function PageTeam() {
   );
 }
 
-/* ─── Coaching note modal (GAP-MC1) ────────────────────────────────── */
+/* ─── Coaching note modal ──────────────────────────────────────────── */
 function CoachingNoteModal({ rep, onClose }) {
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -354,7 +353,7 @@ function CoachingNoteModal({ rep, onClose }) {
   );
 }
 
-/* ─── Focus alert modal (GAP-MC2) ──────────────────────────────────── */
+/* ─── Focus alert modal ────────────────────────────────────────────── */
 function FocusAlertModal({ rep, onClose }) {
   const presets = [
     { t: "Get on a dial",        b: "You haven't logged a dial in over an hour — get on the next one." },
@@ -428,7 +427,7 @@ function PageCoaching({ role = "manager" }) {
   return <CoachingManager/>;
 }
 
-/* GAP-MD4 — coaching manager bound to AppData.COACHING_SESSIONS.
+/* Coaching manager bound to AppData.COACHING_SESSIONS.
    Falls back to a deterministic seed when no sessions exist (demo + new agency). */
 function deriveCoachingCards() {
   const reps = scopedReps();
@@ -684,7 +683,7 @@ function ReplayMomentModal({ card, onClose }) {
 function CoachingRep() {
   useMeReady();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0]?.id);
+  const myRepId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]?.id) : null);
 
   const mySessions  = (AppData.COACHING_SESSIONS || []).filter(s => s.repId === myRepId);
   const myNotes     = (AppData.COACHING_NOTES    || []).filter(n => n.repId === myRepId);

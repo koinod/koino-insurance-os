@@ -1,16 +1,22 @@
 // api/copilot.js — Vercel Edge function backing the AI co-pilot rail.
 //
 // FREE-MODEL CASCADE (NO PAID MODELS — protects koinocapital@gmail.com bill):
-//   Gemini 2.5 Flash (Google AI Studio, free tier, 15 RPM/1M TPD) →
-//   Gemini 2.0 Flash (Google AI Studio, free tier) →
-//   google/gemini-2.0-flash-exp:free (OpenRouter free, ~50 req/day) →
-//   meta-llama/llama-3.3-70b-instruct:free (OpenRouter free, last resort)
+//   Gemini 2.5 Flash (Google AI direct) →
+//   Gemini 2.0 Flash (Google AI direct) →
+//   google/gemini-2.0-flash-001 (OpenRouter — free pool routing) →
+//   meta-llama/llama-3.3-70b-instruct:free (OpenRouter free) →
+//   deepseek/deepseek-chat-v3-0324:free (OpenRouter free) →
+//   qwen/qwen-2.5-72b-instruct:free (OpenRouter free) →
+//   meta-llama/llama-3.2-3b-instruct:free (small, almost always available)
 //
+// gemini-2.0-flash-exp:free was retired by Google — do NOT add back.
 // Anthropic Claude (any tier) is PAID via OpenRouter. NEVER add it back.
 //
 // Tool-calls: before asking the model, the fn inspects the prompt + context
 // for data questions and runs Supabase queries via the public PostgREST API.
 // Results are inlined into the model prompt as JSON.
+
+import { DEMO_AGENCY_ID } from "../lib/demo.js";
 
 export const config = { runtime: "edge" };
 
@@ -243,10 +249,10 @@ async function tryOpenRouter(key, prompt, model) {
     body: JSON.stringify({
       // NEVER set this to a paid model. Free OpenRouter models have a `:free`
       // suffix and cost $0/1M tokens (rate-limited, but free).
-      model: model || "google/gemini-2.0-flash-exp:free",
+      model: model || "meta-llama/llama-3.3-70b-instruct:free",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.5,
-      max_tokens: 600
+      max_tokens: 900
     })
   });
   if (!resp.ok) return { ok: false, status: resp.status, detail: await resp.text() };
@@ -280,7 +286,6 @@ export default async function handler(req) {
   // every fetched tool returned zero rows, switch to "guide me" tone:
   // explain the metric, name the missing data, point at the right page to
   // populate it. Never fail flatly.
-  const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
   const isDemo = data.agencyId === DEMO_AGENCY_ID;
   const allEmpty = data.used.length > 0 && /\(no rows/.test(data.block) && !/\[\s*{/.test(data.block);
   const demoAssist = (isDemo || allEmpty)
@@ -302,14 +307,20 @@ DEMO_ASSIST RULES (override style #7 only when in this mode):
   const userMsg = `${SYSTEM}${demoAssist}\n\n[Page context: ${context || "(none)"}]${historyBlock}${data.block ? `\n\n=== DATA fetched on your behalf ===${data.block}` : ""}\n\n[Operator question]\n${prompt}`;
 
   // FREE-only cascade. NO paid models.
-  // Gemini 2.5 Flash (Google direct) → Gemini 2.0 Flash (Google direct)
-  //   → gemini-2.0-flash-exp:free (OpenRouter free) → llama-3.3-70b:free (OpenRouter free)
+  // Gemini direct fails with 429 when the koinocapital project's daily quota
+  // is exhausted. OpenRouter free models route through their pool — different
+  // throttle, often available when Gemini direct isn't. Ordered by quality
+  // (Gemini direct > Llama 3.3-70B > DeepSeek V3 > Qwen 2.5-72B > Llama 3.2-3B).
+  // gemini-2.0-flash-exp:free was retired by Google — do NOT add back.
   const attempts = [];
   for (const [name, fn] of [
     ["gemini-2.5-flash",                  () => gKey  && tryGemini("gemini-2.5-flash", gKey, userMsg)],
     ["gemini-2.0-flash",                  () => gKey  && tryGemini("gemini-2.0-flash", gKey, userMsg)],
-    ["gemini-2.0-flash-exp:free (OR)",    () => orKey && tryOpenRouter(orKey, userMsg, "google/gemini-2.0-flash-exp:free")],
-    ["llama-3.3-70b:free (OR)",            () => orKey && tryOpenRouter(orKey, userMsg, "meta-llama/llama-3.3-70b-instruct:free")],
+    ["gemini-2.0-flash (OR)",             () => orKey && tryOpenRouter(orKey, userMsg, "google/gemini-2.0-flash-001")],
+    ["llama-3.3-70b:free (OR)",           () => orKey && tryOpenRouter(orKey, userMsg, "meta-llama/llama-3.3-70b-instruct:free")],
+    ["deepseek-v3:free (OR)",             () => orKey && tryOpenRouter(orKey, userMsg, "deepseek/deepseek-chat-v3-0324:free")],
+    ["qwen-2.5-72b:free (OR)",            () => orKey && tryOpenRouter(orKey, userMsg, "qwen/qwen-2.5-72b-instruct:free")],
+    ["llama-3.2-3b:free (OR)",            () => orKey && tryOpenRouter(orKey, userMsg, "meta-llama/llama-3.2-3b-instruct:free")],
   ]) {
     const r = await fn();
     if (!r) continue;

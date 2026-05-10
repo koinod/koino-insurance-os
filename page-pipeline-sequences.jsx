@@ -45,30 +45,72 @@ const ENROLLED = [
 ];
 
 function PipelineSequences({ role = "owner" }) {
+  const [sequences, setSequences] = React.useState(SEQ);
   const [activeId, setActiveId] = React.useState(SEQ[0].id);
   const [edits, setEdits] = React.useState({});
-  const seq = SEQ.find(s => s.id === activeId) || SEQ[0];
+  const [paused, setPaused] = React.useState({});
+  const seq = sequences.find(s => s.id === activeId) || sequences[0];
   const enrolled = ENROLLED.filter(e => e.seq === seq.id);
 
   const updateStep = (i, body) => setEdits({ ...edits, [seq.id]: { ...(edits[seq.id] || {}), [i]: body } });
+
+  const addSequence = () => {
+    const name = prompt("Name for the new sequence?");
+    if (!name?.trim()) return;
+    const id = "ps" + (sequences.length + 1) + "_" + Math.random().toString(36).slice(2, 6);
+    const fresh = { id, name: name.trim(), channel: "sms_email", active: 0, days: 7, steps: [
+      { day: 0, ch: "SMS", template: "Hi {{first}}, this is {{rep}}. Quick follow-up." }
+    ]};
+    setSequences(s => [...s, fresh]);
+    setActiveId(id);
+    window.toast && window.toast(`Created "${name.trim()}" — edit steps below`, "success");
+  };
+
+  const togglePause = () => {
+    setPaused(p => ({ ...p, [seq.id]: !p[seq.id] }));
+    const isPausing = !paused[seq.id];
+    window.toast && window.toast(isPausing ? `Paused "${seq.name}" · enrolled leads will skip next sends` : `Resumed "${seq.name}"`, isPausing ? "info" : "success");
+  };
+
+  const saveEdits = () => {
+    const myEdits = edits[seq.id] || {};
+    const count = Object.keys(myEdits).length;
+    if (count === 0) { window.toast && window.toast("No edits to save", "info"); return; }
+    setSequences(prev => prev.map(s => {
+      if (s.id !== seq.id) return s;
+      return { ...s, steps: s.steps.map((st, i) => myEdits[i] != null ? { ...st, template: myEdits[i] } : st) };
+    }));
+    setEdits(e => ({ ...e, [seq.id]: {} }));
+    window.toast && window.toast(`Saved ${count} edit${count === 1 ? "" : "s"} to "${seq.name}"`, "success");
+  };
+
+  const addStep = () => {
+    setSequences(prev => prev.map(s => {
+      if (s.id !== seq.id) return s;
+      const lastDay = s.steps.length > 0 ? s.steps[s.steps.length - 1].day : 0;
+      return { ...s, steps: [...s.steps, { day: lastDay + 2, ch: "SMS", template: "Hey {{first}}, just a quick check-in." }] };
+    }));
+  };
 
   return (
     <div className="seq-grid" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 14 }}>
       <div className="panel">
         <div className="panel-h"><h3>Sequences</h3>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}><Icons.Plus size={11}/></button>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={addSequence} title="New sequence"><Icons.Plus size={11}/></button>
         </div>
         <div style={{ padding: 6 }}>
-          {SEQ.map(s => {
+          {sequences.map(s => {
             const en = ENROLLED.filter(e => e.seq === s.id && e.status === "active").length;
+            const isPaused = !!paused[s.id];
             return (
               <button key={s.id} onClick={() => setActiveId(s.id)} className="btn btn-ghost" style={{ width: "100%", padding: 10, marginBottom: 4, justifyContent: "stretch", flexDirection: "column", alignItems: "stretch", gap: 4, background: activeId === s.id ? "var(--bg-overlay)" : "transparent" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <strong style={{ fontSize: 12.5 }}>{s.name}</strong>
                   <span className="tabular" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.steps.length} · {s.days}d</span>
                 </div>
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <span className="chip" style={{ fontSize: 10 }}>{s.channel}</span>
+                  {isPaused && <span className="chip chip-status" style={{ fontSize: 10 }}>paused</span>}
                   <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>· {en} active</span>
                 </div>
               </button>
@@ -84,8 +126,10 @@ function PipelineSequences({ role = "owner" }) {
             <span className="chip">{seq.channel}</span>
             <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>· {seq.active} leads in flight</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="btn btn-ghost"><Icons.Pause size={11}/> Pause</button>
-              <button className="btn btn-primary"><Icons.Check size={11}/> Save</button>
+              <button className="btn btn-ghost" onClick={togglePause}>
+                <Icons.Pause size={11}/> {paused[seq.id] ? "Resume" : "Pause"}
+              </button>
+              <button className="btn btn-primary" onClick={saveEdits}><Icons.Check size={11}/> Save</button>
             </div>
           </div>
           <div style={{ padding: 12 }}>
@@ -107,7 +151,7 @@ function PipelineSequences({ role = "owner" }) {
                 </div>
               </div>
             ))}
-            <button className="btn btn-ghost" style={{ marginTop: 10 }}><Icons.Plus size={11}/> Add step</button>
+            <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={addStep}><Icons.Plus size={11}/> Add step</button>
           </div>
         </div>
 

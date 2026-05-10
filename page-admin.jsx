@@ -208,7 +208,7 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
     const { data: ag } = await sb.from("agencies").select("id, name").limit(1).single();
     if (!ag) { setLoading(false); return; }
     setAgency(ag);
-    // GAP-C1 — notifications targeted to this rep, plus agency-wide broadcasts
+    // Notifications targeted to this rep, plus agency-wide broadcasts
     // (recipient_rep_id IS NULL). Manager/owner see everything.
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const role = meIdent?.role || "rep";
@@ -306,7 +306,7 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
 }
 window.PerAgencyNotificationsPanel = PerAgencyNotificationsPanel;
 
-// ─── Owner broadcast tool (GAP-OC2) ─────────────────────────────────────
+// ─── Owner broadcast tool ─────────────────────────────────────────────────
 // Posts to agency_notifications. recipient_rep_id IS NULL → everyone in
 // the agency sees it on their next panel open + via realtime channel.
 // Targeted broadcast supported by selecting a single rep in the modal.

@@ -13,10 +13,10 @@
 
 export const config = { runtime: "edge" };
 
+import { DEMO_AGENCY_ID } from "../lib/demo.js";
+
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
-// Atlas Insurance Group (the seeded demo tenant) — agencies.id from the live DB.
-const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
 
 function corsHeaders() {
   return {
@@ -54,26 +54,34 @@ export default async function handler(req) {
   const meRows = await callRpc("me", {}, jwt);
   const me = Array.isArray(meRows) && meRows.length > 0 ? meRows[0] : null;
 
-  // Anonymous / signed-out callers get the demo identity: Marcus, the Atlas
-  // owner. Read-only because anon RLS only grants SELECT on Atlas-scoped rows
-  // (see migration 0006_anon_demo_read). Gives ?demo=1 visitors the full
-  // owner view — fleet KPIs, P&L, predictive cards — without an account.
-  if (!me || !me.rep_id) {
-    const downlineRows = await callRpc("downline_of", { root_rep_id: "marc" }, null);
-    const downline_ids = Array.isArray(downlineRows)
-      ? downlineRows.map(r => (typeof r === "string" ? r : r.rep_id)).filter(Boolean)
-      : [];
+  // Handle the case where the user is signed in but not yet in the `reps` table.
+  // This happens for new signups who haven't been added to an agency yet.
+  if (jwt && (!me || !me.rep_id)) {
     return new Response(JSON.stringify({
-      rep_id: "marc",
+      rep_id: null,
+      user_id: null, // We could decode the JWT to get this if needed
+      full_name: "Unmapped User",
+      role: "unmapped",
+      agency_id: null,
+      authenticated: true,
+      needs_onboarding: true,
+    }), { status: 200, headers: corsHeaders() });
+  }
+
+  // Anonymous / signed-out callers get the demo identity.
+  // Read-only because anon RLS only grants SELECT on Atlas-scoped rows.
+  if (!me || !me.rep_id) {
+    return new Response(JSON.stringify({
+      rep_id: "demo-user",
       user_id: null,
-      full_name: "Marcus Avila",
-      handle: "@marc",
+      full_name: "Demo User",
+      handle: "@demo",
       role: "owner",
-      tier: "diamond",
+      tier: "bronze",
       agency_id: DEMO_AGENCY_ID,
-      agency_name: "Atlas Insurance Group",
+      agency_name: "Demo Agency",
       upline_id: null,
-      downline_ids,
+      downline_ids: [],
       is_demo: true,
       authenticated: false,
     }), { status: 200, headers: corsHeaders() });
@@ -95,6 +103,7 @@ export default async function handler(req) {
     agency_id:    me.agency_id,
     agency_name:  me.agency_name,
     upline_id:    me.upline_id,
+    subscription_status: me.subscription_status || "trialing",
     downline_ids,
     is_demo:      me.agency_id === DEMO_AGENCY_ID,
     authenticated: true,

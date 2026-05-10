@@ -4,7 +4,7 @@ const { useState, useEffect, useRef, useMemo } = React;
 const TierChip = ({ tier, compact }) => (
   <span className={`tier tier-${tier}`}>
     <span className="gem"></span>
-    {!compact && AppData.TIER_LABELS[tier]}
+    {!compact && (AppData.TIER_LABELS[tier] || String(tier).toUpperCase())}
   </span>
 );
 
@@ -140,9 +140,9 @@ const SidebarBrand = () => {
   }, []);
   const me = (typeof window !== "undefined" && window.me && window.me()) || null;
   // Agency name shown under "Repflow" brand — real agency for authed users,
-  // "Demo · Atlas seed" for ?demo=1 sandbox, "—" while resolving.
+  // "Demo Agency" for ?demo=1 sandbox, "—" while resolving.
   const agencyLabel = me?.agency_name
-    || (me?.is_demo ? "Demo · Atlas seed" : (me ? "—" : "Loading…"));
+    || (me?.is_demo ? "Demo Agency" : (me ? "—" : "Loading…"));
   return (
     <div className="sb-brand">
       <div className="sb-brand-mark">R</div>
@@ -163,13 +163,15 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
     <nav className="sidebar">
       <SidebarBrand/>
 
-      <div className="role-switch">
-        {["rep","manager","owner","admin","super_admin"].map(r => (
-          <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-            {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
-          </button>
-        ))}
-      </div>
+      {(window.isSuperAdmin() || window.isDemoAgency()) && (
+        <div className="role-switch">
+          {["rep","manager","owner","admin","super_admin"].map(r => (
+            <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
+              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="sb-section">Workspace</div>
       <div className="sb-nav">
@@ -244,7 +246,7 @@ const SidebarUser = ({ setPage }) => {
     || (meIdent ? "Viewer" : "Loading…");
   const tier = meIdent?.tier || matchedRep?.tier || "bronze";
   const role = meIdent?.role ? meIdent.role.replace("_", " ") : null;
-  const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo · Atlas seed" : null);
+  const agencyLine = meIdent?.agency_name || (meIdent?.is_demo ? "Demo Agency" : null);
   return (
     <div className="sb-user" title={agencyLine ? `${name} · ${agencyLine}` : name}>
       <Avatar rep={avatarRep} size={26}/>
@@ -298,7 +300,7 @@ const AccountChip = () => {
     ? (me.agency_name || (me.role ? me.role.replace("_", " ") : ""))
     : isLoading
       ? "Loading…"
-      : (inDemo || me?.is_demo ? "Read-only · Atlas seed" : "Not signed in");
+      : (inDemo || me?.is_demo ? "Read-only · Demo Instance" : "Not signed in");
 
   const tone = isAuthed ? "var(--accent-money)"
     : isLoading ? "var(--text-tertiary)"
@@ -352,7 +354,10 @@ const AccountChip = () => {
               </>
             ) : (
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}
-                onClick={() => window.signOut && window.signOut()}>
+                onClick={() => {
+                  try { sessionStorage.clear(); } catch(_e) {}
+                  window.location.reload();
+                }}>
                 <Icons.Send size={11}/> Sign in to a real account
               </button>
             )}
@@ -440,8 +445,8 @@ const CMD_ITEMS = {
   ],
   "Ask Repflow": [
     { label: "Show leads I haven't touched in 7 days",            icon: "Sparkles", nav: "pipeline" },
-    { label: "Compare my conversion vs Tony's, last month",       icon: "Sparkles", nav: "leaderboard" },
-    { label: "Why did Cheryl Hampton's policy charge back?",      icon: "Sparkles", nav: "calls" },
+    { label: "Compare my conversion vs the team, last month",     icon: "Sparkles", nav: "leaderboard" },
+    { label: "Why did my last chargeback happen?",                icon: "Sparkles", nav: "calls" },
   ],
 };
 
@@ -957,6 +962,19 @@ const isDemoAgency = () => {
   return false;
 };
 
-window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID };
+/* Public version toggle — when true, we hide 'Advanced Agentic' and 
+   'Installation' pages (OCI node management, raw LLM configs) to simplify 
+   the experience for the first wave of real users. */
+const isPublicVersion = () => {
+  if (typeof window === "undefined") return false;
+  return !!(window.location.hostname === "repflow.com" || window.__publicMode);
+};
+
+const fmtMoney = (n) => "$" + Math.round(Number(n) || 0).toLocaleString();
+const fmtMoneyCents = (cents) => "$" + Math.round((Number(cents) || 0) / 100).toLocaleString();
+const fmtMoneyExact = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, AIRail, NAV, Modal, Field, Select, SectionPill, Validate, ValidatedInput, ErrorBoundary, Skeleton, AgencyTime, isDemoAgency, DEMO_AGENCY_ID, isPublicVersion, fmtMoney, fmtMoneyCents, fmtMoneyExact };
 window.isDemoAgency = isDemoAgency;
+window.isPublicVersion = isPublicVersion;
 window.AgencyTime = AgencyTime;

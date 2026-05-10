@@ -186,7 +186,7 @@
     const [busy, setBusy] = useState(false);
 
     const me = (typeof window !== "undefined" && window.me && window.me()) || null;
-    const myRow = me?.rep_id ? AppData.REPS.find(r => r.id === me.rep_id) : (AppData.REPS && AppData.REPS[0]);
+    const myRow = me?.rep_id ? AppData.REPS.find(r => r.id === me.rep_id) : null;
 
     const submit = async () => {
       if (!when) { window.toast && window.toast("Pick a date/time", "error"); return; }

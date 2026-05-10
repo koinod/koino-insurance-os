@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Repflow — the operating system for insurance distribution</title>
+<meta name="description" content="Auto-dialer, multi-tenant CRM, AI copilot, recruiting, and call coaching — built for IMOs, agencies, and solo producers."/>
+<link rel="icon" href="/icon.svg" type="image/svg+xml"/>
+<style>
+  :root{
+    --bg:#0f1115;
+    --bg-elev:#161922;
+    --line:#23272f;
+    --line-strong:#2f343d;
+    --text:#f4f5f7;
+    --text-2:#b9bdc6;
+    --text-3:#7d828d;
+    --accent:#7ad9a3;
+    --accent-dim:#3e8a5d;
+    --radius:8px;
+    --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;letter-spacing:-0.01em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+  /* Header */
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+  .brand-mark{width:26px;height:26px;border-radius:6px;background:linear-gradient(180deg,#2a2f3a,#1a1d24);border:1px solid var(--line-strong);display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--accent)}
+  .nav-links{display:flex;align-items:center;gap:18px;font-size:13px;color:var(--text-2)}
+  .nav-links a:hover{color:var(--text)}
+  /* Hero */
+  .hero{padding:80px 0 64px;display:flex;flex-direction:column;align-items:flex-start;gap:22px;max-width:760px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-size:clamp(34px,5.2vw,56px);line-height:1.05;font-weight:600;letter-spacing:-0.025em;margin:0}
+  .sub{font-size:clamp(15px,1.6vw,18px);line-height:1.55;color:var(--text-2);max-width:600px;margin:0}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:var(--radius);font-size:14px;font-weight:500;border:1px solid transparent;transition:transform .12s ease,background .12s ease,border-color .12s ease;cursor:pointer}
+  .btn-primary{background:var(--accent);color:#0a0e0c;border-color:var(--accent)}
+  .btn-primary:hover{transform:translateY(-1px);background:#92e3b3}
+  .btn-secondary{background:transparent;color:var(--text);border-color:var(--line-strong)}
+  .btn-secondary:hover{border-color:#4a525e;background:var(--bg-elev)}
+  .btn-arrow{font-size:13px;opacity:.7}
+  /* Proof */
+  .proof{margin-top:28px;font-size:12.5px;color:var(--text-3);display:flex;align-items:center;gap:10px}
+  .proof-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(122,217,163,.12)}
+  /* Features */
+  .features{padding:48px 0 80px;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+  .feature{display:flex;flex-direction:column;gap:10px}
+  .feature-num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-3);letter-spacing:.08em}
+  .feature h3{font-size:16px;font-weight:600;margin:0;letter-spacing:-0.01em}
+  .feature p{font-size:13.5px;line-height:1.55;color:var(--text-2);margin:0}
+  /* Footer */
+  footer{border-top:1px solid var(--line);padding:24px 0 36px;font-size:12px;color:var(--text-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  /* Responsive */
+  @media (max-width:760px){
+    .hero{padding:56px 0 40px}
+    .features{grid-template-columns:1fr;gap:32px;padding:40px 0 64px}
+    .nav-links a:not(.btn){display:none}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="nav">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <span>Repflow</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="/index.html">Sign in</a>
+        <a class="btn btn-secondary" href="/index.html?signup=1">Get started</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow">Insurance OS</div>
+      <h1>The operating system for insurance distribution.</h1>
+      <p class="sub">
+        Auto-dialer, multi-tenant CRM, AI copilot, carrier appointments, recruiting, and call coaching — in one place. Built for IMOs, agencies, and solo producers who run a real book.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/index.html?signup=1">
+          Start free <span class="btn-arrow">→</span>
+        </a>
+        <a class="btn btn-secondary" href="/index.html">
+          See it in action
+        </a>
+      </div>
+      <div class="proof">
+        <span class="proof-dot"></span>
+        In private beta with insurance agencies in TX, NY, and CA.
+      </div>
+    </section>
+
+    <section id="features" class="features">
+      <div class="feature">
+        <div class="feature-num">01 / Dial</div>
+        <h3>Auto-dialer with cadence + redial queue</h3>
+        <p>Reps work a single queue. The system handles dispositions, redials, and follow-ups so nothing rots in a spreadsheet.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-num">02 / Sell</div>
+        <h3>Pipeline from lead to commission</h3>
+        <p>Lead, quote, write, NIGO, paid — tracked end-to-end. Carrier appointments and E&O on every producer.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-num">03 / Coach</div>
+        <h3>AI copilot trained on your floor</h3>
+        <p>Call recordings transcribed and scored. Coaching prompts, recruiting funnel, and an onboarding wizard scoped per role.</p>
+      </div>
+    </section>
+
+    <footer>
+      <div>© Repflow · A KOINO Capital product</div>
+      <div><a href="/index.html">Open the app →</a></div>
+    </footer>
+  </div>
+</body>
+</html>

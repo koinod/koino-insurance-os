@@ -36,7 +36,7 @@ function PagePipeline({ role = "owner" }) {
   const heatColor = (h) => h === "hot" ? "var(--accent-heat)" : h === "warm" ? "var(--state-warning)" : h === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
 
   const meIdent = window.me && window.me();
-  const meId = meIdent?.rep_id || (REPS && REPS[0]?.id) || "viewer";
+  const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (REPS && REPS[0]?.id) : null) || "viewer";
   const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
   const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
   const filtered = scoped.filter(p =>
@@ -295,7 +295,7 @@ function PagePipeline({ role = "owner" }) {
             <button className="btn btn-primary" onClick={submit} disabled={!newRow.lead.trim()}><Icons.Plus size={12}/> Add to pipeline</button>
           </>
         }>
-          <Shared.Field label="Name"><input className="text-input" value={newRow.lead} onChange={(e) => setNewRow({ ...newRow, lead: e.target.value })} placeholder="Cheryl Hampton" autoFocus/></Shared.Field>
+          <Shared.Field label="Name"><input className="text-input" value={newRow.lead} onChange={(e) => setNewRow({ ...newRow, lead: e.target.value })} placeholder="Lead full name" autoFocus/></Shared.Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Shared.Field label="Phone"><input className="text-input" type="tel" value={newRow.phone} onChange={(e) => setNewRow({ ...newRow, phone: e.target.value })} placeholder="+1 512 555 1234" inputMode="tel"/></Shared.Field>
             <Shared.Field label="Email (optional)"><input className="text-input" type="email" value={newRow.email} onChange={(e) => setNewRow({ ...newRow, email: e.target.value })} placeholder="lead@example.com"/></Shared.Field>

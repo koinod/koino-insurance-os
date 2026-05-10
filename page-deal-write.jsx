@@ -27,7 +27,7 @@
   const today = () => new Date().toISOString().slice(0, 10);
   const cents = (n) => Math.round((Number(n) || 0) * 100);
   const dollars = (c) => (Number(c) || 0) / 100;
-  const fmt$ = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt$ = Shared.fmtMoneyExact;
 
   function isIULProduct(p) {
     if (!p) return false;
@@ -107,10 +107,10 @@
 
     async function submit() {
       setError(null);
-      // GAP-D1 — resolve the signed-in producer instead of REPS[0]=Marcus.
+      // Resolve the signed-in producer instead of REPS[0]=Marcus.
       const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
       const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
-              || (AppData.REPS && AppData.REPS[0]);
+              || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
       if (!leadId)     return setError("Pick a linked lead");
       if (!carrierId)  return setError("Pick a carrier");
       if (!productId)  return setError("Pick a product");

@@ -50,7 +50,7 @@
     other: "Other",
   };
 
-  const fmt$ = (cents) => "$" + (Math.round((cents || 0) / 100)).toLocaleString();
+  const fmt$ = Shared.fmtMoneyCents;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
 
   function useExpenses(agencyId) {

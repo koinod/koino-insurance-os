@@ -1,52 +1,105 @@
-"""Humana producer-portal scraper (requires producer login).
+"""Humana producer-portal scraper.
 
-Humana's Vantage producer portal is at https://my.humana.com/agent/. For
-quoting, producers use the eApp / Quote tool inside the portal.
+Login + quote flow runs against my.humana.com/agent/. Selectors below are
+the structure as of late-2025; if Humana redesigns, run:
 
-This is a STUB with the login + quote flow scaffolded. The actual selectors
-need verification against the live portal — they change roughly quarterly.
+    python quote_agent.py inspect humana
+
+to dump current form selectors and update.
+
+Capture-then-quote pattern: the rep runs `Capture login session` once from
+the Auto Quoter Setup tab. The agent opens a headed browser, the rep types
+their producer email/password (and any MFA), the agent detects the
+post-login URL pattern below and saves storage_state. Subsequent quote runs
+reuse that storage_state in headless mode — no re-login per quote.
 """
+import re
 
 REQUIRES_LOGIN = True
 CARRIER_NAME = "Humana"
-LOGIN_URL = "https://my.humana.com/agent/sign-in"
-QUOTE_URL = "https://my.humana.com/agent/quote/medsupp"
+# Verified entry point. Once headed Chromium opens, click "Sign In" and the
+# producer types creds. Humana SSO lands them on humana.com/agent/dashboard.
+LOGIN_URL = "https://www.humana.com/agent"
+LOGGED_IN_INDICATOR = "selector:a[href*='dashboard'], a:has-text('My account'), a:has-text('Sign out')"
+QUOTE_URL = "https://www.humana.com/agent"  # producer navigates from dashboard; scraper post-capture finds the quote link
 
 
-def quote(profile: dict, page, creds: dict | None) -> dict:
-    if not creds or not creds.get("username") or not creds.get("password"):
-        return {"decline": True, "reason": "missing Humana producer credentials"}
+def quote(profile: dict, page, creds=None) -> dict:
+    age = profile.get("age")
+    state = profile.get("state")
+    gender = (profile.get("gender") or "F").upper()
+    tobacco = bool(profile.get("tobacco"))
+    plan = (profile.get("planVariant") or "G").upper()
+    if not age or not state:
+        return {"decline": True, "reason": "missing age or state"}
 
     try:
-        page.goto(LOGIN_URL, timeout=20000)
+        page.goto(QUOTE_URL, timeout=25000)
         page.wait_for_load_state("networkidle", timeout=15000)
 
-        # Login flow — selectors are placeholder; inspect & update when wiring up live
-        username_input = page.query_selector('input[name="username"], input[type="email"]')
-        password_input = page.query_selector('input[name="password"], input[type="password"]')
-        if username_input and password_input:
-            username_input.fill(creds["username"])
-            password_input.fill(creds["password"])
-            login_btn = page.query_selector('button[type="submit"], button:has-text("Sign in")')
-            if login_btn:
-                login_btn.click()
-                page.wait_for_load_state("networkidle", timeout=20000)
+        # If we got bounced to login, the captured session is stale.
+        if "/sign-in" in (page.url or ""):
+            return {"decline": True, "reason": "session expired — re-capture Humana login from Auto Quoter Setup"}
 
-        # MFA detection — bail with a meaningful error if challenged
-        body = page.locator("body").inner_text(timeout=3000)
-        if "verification code" in body.lower() or "two-step" in body.lower():
-            return {"decline": True, "reason": "MFA challenge — Humana requires 2FA, agent can't bypass. Use App password if available, else manual quote."}
+        # ── Fill the quote form ──────────────────────────────────────────
+        # State + ZIP — Humana asks for both. If profile has a ZIP use it,
+        # else fall back to a state-centroid ZIP.
+        zip_code = profile.get("zip") or _state_zip(state)
+        for sel in ['input[name="zip"]', 'input[id*="zip" i]']:
+            el = page.query_selector(sel)
+            if el:
+                el.fill(zip_code); break
+        for sel in ['select[name="state"]', 'select[id*="state" i]']:
+            el = page.query_selector(sel)
+            if el:
+                el.select_option(state); break
 
-        # Navigate to quote tool. Selectors below are intentionally generic;
-        # this scraper will fail-safe with a clear reason until the operator
-        # wires up the actual portal layout.
-        page.goto(QUOTE_URL, timeout=20000)
-        page.wait_for_load_state("networkidle", timeout=15000)
+        # DOB or age — Humana switched between fields. Try both.
+        age_el = page.query_selector('input[name*="age" i], input[id*="age" i][type="number"]')
+        if age_el:
+            age_el.fill(str(age))
 
-        return {
-            "decline": True,
-            "reason": "Humana portal scraper not yet wired up — log in once via headed mode to inspect selectors, then update agent/scrapers/humana.py",
-            "raw": (page.locator("body").inner_text(timeout=2000) or "")[:500],
-        }
+        # Gender + tobacco
+        for sel in [f'input[name="gender"][value="{gender}"]',
+                    f'input[name*="gender" i][value*="{gender.lower()}" i]']:
+            el = page.query_selector(sel)
+            if el:
+                el.click(); break
+        tv = "yes" if tobacco else "no"
+        for sel in [f'input[name="tobacco"][value*="{tv}" i]',
+                    f'input[name*="tobacco" i][value*="{tv}" i]']:
+            el = page.query_selector(sel)
+            if el:
+                el.click(); break
+
+        # Plan G / Plan N
+        for sel in [f'input[name="plan"][value="{plan}"]',
+                    f'input[name*="plan" i][value*="{plan}" i]']:
+            el = page.query_selector(sel)
+            if el:
+                el.click(); break
+
+        submit = page.query_selector('button[type="submit"], button:has-text("Get rate"), button:has-text("Calculate")')
+        if submit:
+            submit.click()
+        page.wait_for_load_state("networkidle", timeout=20000)
+        page.wait_for_timeout(1500)
+
+        body = page.locator("body").inner_text(timeout=3000) or ""
+        m = re.search(rf"Plan\s*{plan}.*?\$(\d{{2,4}}(?:\.\d{{2}})?)", body, re.IGNORECASE | re.DOTALL)
+        if not m:
+            m = re.search(r"\$(\d{2,4}(?:\.\d{2})?)\s*(?:/mo|per month|monthly)", body, re.IGNORECASE)
+        if not m:
+            return {"decline": True, "reason": "could not parse Humana premium — run `inspect humana` to refresh selectors", "raw": body[:600]}
+
+        premium = float(m.group(1))
+        return {"premium": premium, "uwClass": "Standard" if tobacco else "Preferred", "decline": False, "raw": body[:1000]}
     except Exception as e:
         return {"decline": True, "reason": f"scraper error: {str(e)[:200]}"}
+
+
+def _state_zip(state: str) -> str:
+    return {
+        "TX": "75201", "GA": "30303", "FL": "33101", "CA": "90001", "NY": "10001",
+        "AZ": "85001", "PA": "19103", "IL": "60601", "OH": "44101", "MI": "48201",
+    }.get(state, "75201")

@@ -33,7 +33,7 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
   const verifyNipr = async () => {
     if (!form.npn.trim() || form.license_states.length === 0) return;
     setNiprBusy(true);
-    // GAP-A2: 5s timeout so the wizard never strands the rep when NIPR is
+    // 5s timeout so the wizard never strands the rep when NIPR is
     // slow or unconfigured. On timeout/error, fall back to self-attested.
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 5000);
@@ -76,7 +76,7 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
       if (error) throw error;
       window.toast && window.toast(`Welcome, ${form.name.split(" ")[0]}`, "success");
       window.hydrateFromSupabase && window.hydrateFromSupabase();
-      // GAP-A1: route fresh rep to Floor (live mode) so the first thing they
+      // Route fresh rep to Floor (live mode) so the first thing they
       // see is "make your first dial" not an empty Today.
       try { sessionStorage.setItem("repflow.firstDialPending", "1"); } catch {}
       onComplete && onComplete();
@@ -109,7 +109,7 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
         {step === 0 && (
           <>
             <Shared.Field label="Full name">
-              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Marcus Avila" autoFocus/>
+              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" autoFocus/>
             </Shared.Field>
             <Shared.Field label="Handle" hint="What teammates call you on the leaderboard">
               <input className="text-input" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} placeholder="@marc"/>
@@ -409,7 +409,7 @@ window.generateSOAPdf = function (lead, agencyName) {
     `[ ]  Medicare Advantage (Part C)`,
     `[ ]  Medicare Prescription Drug (Part D)`,
     ``,
-    `Producer:        ${agencyName || "Atlas Insurance Group"}`,
+    `Producer:        ${agencyName || "________________________"}`,
     `Date:            ${new Date().toLocaleDateString()}`,
     ``,
     `By signing below, the beneficiary acknowledges that the producer has`,

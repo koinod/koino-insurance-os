@@ -9,3 +9,7 @@ out
 .vercel
 smoke-artifacts/
 supabase/.temp/
+.env.vercel.production
+.env.vercel.local
+test-results/
+tests/screenshots/

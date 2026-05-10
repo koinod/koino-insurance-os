@@ -39,6 +39,17 @@ function LoginScreen() {
   const [errMsg, setErrMsg]   = React.useState("");
   const sb = window.getSupabase();
   const pendingInvite = stashInviteFromUrl();
+  // ?signup=1 — landing-page CTA path. Focus email + show "Create account" header.
+  const isSignup = React.useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get("signup") === "1"; }
+    catch { return false; }
+  }, []);
+  const emailRef = React.useRef(null);
+  React.useEffect(() => {
+    if (isSignup && emailRef.current) {
+      try { emailRef.current.focus(); } catch {}
+    }
+  }, [isSignup]);
 
   const signInWithPassword = async () => {
     if (!email.trim() || !password) return;
@@ -100,6 +111,7 @@ function LoginScreen() {
     sessionStorage.setItem("repflow.demo", "1");
     window.__demoSkip = true;
     window.dispatchEvent(new CustomEvent("auth:skip"));
+    if (window.hydrateFromSupabase) window.hydrateFromSupabase();
   };
 
   return (
@@ -108,8 +120,12 @@ function LoginScreen() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
           <div className="sb-brand-mark" style={{ width: 36, height: 36, fontSize: 18 }}>R</div>
           <div>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>Repflow</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>Operator-grade for life & health distribution</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>
+              {isSignup ? "Create your account" : "Repflow"}
+            </div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
+              {isSignup ? "Enter your work email — we'll send a sign-in link." : "Operator-grade for life & health distribution"}
+            </div>
           </div>
         </div>
 
@@ -152,11 +168,12 @@ function LoginScreen() {
 
             <div className="field-l">{mode === "magic" ? "Sign in with email" : "Email + password"}</div>
             <input
+              ref={emailRef}
               className="text-input"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@atlasimo.com"
+              placeholder="you@agency.com"
               onKeyDown={(e) => e.key === "Enter" && (mode === "magic" ? send() : signInWithPassword())}
               autoFocus
               style={{ marginTop: 6, fontSize: 14, padding: "10px 12px" }}
@@ -184,6 +201,20 @@ function LoginScreen() {
                   ? <><Icons.Send size={12}/> Email me a sign-in link</>
                   : <><Icons.Shield size={12}/> Sign in</>}
             </button>
+
+            <button
+              className="btn btn-ghost"
+              onClick={async () => {
+                const search = pendingInvite ? `?invite=${encodeURIComponent(pendingInvite)}` : "";
+                await sb.auth.signInWithOAuth({
+                  provider: "google",
+                  options: { redirectTo: window.location.origin + window.location.pathname + search }
+                });
+              }}
+              style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 13 }}
+            >
+              <Icons.Chrome size={12} style={{ marginRight: 6 }}/> Sign in with Google
+            </button>
             {stage === "error" && (
               <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>
                 {errMsg}
@@ -194,13 +225,13 @@ function LoginScreen() {
                 Skip → Continue with demo data
               </button>
               <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-quaternary)", textAlign: "center" }}>
-                No account, no real data — just the prototype on mocks.
+                No account required — explore a read-only instance of Repflow.
               </div>
             </div>
           </>
         )}
       </div>
-      <div className="login-foot">Atlas IMO · powered by Repflow</div>
+      <div className="login-foot">Repflow · operator-grade for life & health distribution</div>
     </div>
   );
 }
@@ -352,10 +383,13 @@ function AuthGate({ children }) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Loading your agency...</div></div>;
   }
 
-  // No agency_members row at all → user-type picker (Start / Join / Solo).
-  // FirstRun handles the agency creation, invite redemption, or solo flow,
-  // then refreshes tenant when done.
-  if (session && tenant && !tenant.member && window.PageFirstRun) {
+  // Handle "unmapped" users who have an auth session but no agency links yet.
+  // This covers the specific request to send unmapped accounts through onboarding.
+  const me = window.me && window.me();
+  const isUnmapped = !!(session && me && (me.role === "unmapped" || me.needs_onboarding));
+
+  // No agency_members row at all OR explicitly unmapped → user-type picker.
+  if (session && (isUnmapped || (tenant && !tenant.member)) && window.PageFirstRun) {
     const F = window.PageFirstRun;
     return <F session={session} onDone={() => refreshTenant()}/>;
   }
@@ -388,31 +422,37 @@ window.signOut = async function () {
   try { if (sb) await sb.auth.signOut(); } catch (e) { console.error("supabase signOut:", e); }
 
   // Sweep every Repflow-owned key from session + local storage so the next
-  // sign-in starts from a true clean slate (no agency pin, no impersonation
-  // residue, no cached me(), no per-user UI state leaking across users).
-  const sweep = (storage) => {
-    try {
+  // sign-in starts from a true clean slate.
+  try {
+    sessionStorage.removeItem("repflow.demo");
+    sessionStorage.removeItem("repflow.pending_invite");
+    sessionStorage.removeItem("repflow.firstRunDone");
+    localStorage.removeItem("repflow.onboarding_complete");
+    // Also sweep keys matching the pattern
+    const sweep = (storage) => {
       const keys = [];
       for (let i = 0; i < storage.length; i++) {
         const k = storage.key(i);
-        if (k && (k.startsWith("repflow.") || k.startsWith("repflow:") || k === "__repflow_me_v1")) {
+        if (k && (k.startsWith("repflow.") || k.startsWith("repflow:") || k === "__repflow_me_v1" || k.includes("supabase.auth.token"))) {
           keys.push(k);
         }
       }
       for (const k of keys) { try { storage.removeItem(k); } catch {} }
-    } catch {}
-  };
-  sweep(sessionStorage);
-  sweep(localStorage);
+    };
+    sweep(sessionStorage);
+    sweep(localStorage);
+  } catch (e) { console.error("storage sweep failed:", e); }
 
-  // Wipe in-memory globals — belt-and-suspenders since reload clears them too,
-  // but explicit so any future SPA-style sign-out doesn't leak.
+  // Wipe in-memory globals
   window.__me = null;
   window.__activeAgency = null;
   window.__demoSkip = false;
   window.__demoAgencyIds = [];
   window.__authRole = null;
   window.adminImpersonate = null;
+
+  // Final fallback: just clear session entirely if we're in demo mode
+  try { sessionStorage.clear(); } catch {}
 
   // Reload bootstraps the supabase client + AppData hydrate from scratch.
   window.location.reload();

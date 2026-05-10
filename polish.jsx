@@ -198,7 +198,7 @@ function CSVImport({ onClose }) {
 
   const REPS    = (typeof AppData !== "undefined" && AppData.REPS) || [];
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || REPS[0]?.id || null;
+  const myRepId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? REPS[0]?.id : null) || null;
 
   const parseInput = (raw) => {
     const { headers, rows } = parseCsvText(raw);
@@ -345,7 +345,7 @@ function CSVImport({ onClose }) {
           </div>
           <div style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center", marginBottom: 6 }}>— or paste text —</div>
           <textarea className="text-input" rows={8} value={text} onChange={(e) => setText(e.target.value)}
-            placeholder={`name,phone,email,age,state,product,ap,source\nCheryl Hampton,+15125551234,cheryl@example.com,67,TX,Med Supp Plan G,1840,FB Lead Form\nRobert Mendez,(305) 555-9821,,71,FL,Final Expense $15K,1320,Inbound call`}
+            placeholder={`name,phone,email,age,state,product,ap,source\nJane Doe,+15125551234,jane@example.com,67,TX,Med Supp Plan G,1840,FB Lead Form\nJohn Smith,(305) 555-9821,,71,FL,Final Expense $15K,1320,Inbound call`}
             style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-mono)", fontSize: 11.5 }}/>
         </>
       )}

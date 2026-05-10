@@ -12,6 +12,12 @@ scraper would be needed — that's a separate, REQUIRES_LOGIN=True module.
 
 REQUIRES_LOGIN = False
 CARRIER_NAME = "UnitedHealthcare AARP"
+LOGIN_URL = None  # public quoter, no login
+LOGGED_IN_INDICATOR = None
+# UHC retired aarpmedicaresupplement.com/get-rate-quote in 2026; the consumer
+# entry point is now uhc.com's estimate flow, which submits ZIP → plan-summary.
+# Plan G premiums are visible on the post-ZIP results page once the flow loads.
+QUOTE_URL = "https://www.uhc.com/medicare/shop/estimate/ms-costs.html"
 
 
 # Map state code → ZIP centroid (rough — AARP quoter is state-driven really
@@ -47,8 +53,19 @@ def quote(profile: dict, page, creds=None) -> dict:
         return {"decline": True, "reason": f"no ZIP fallback for state {state}"}
 
     try:
-        page.goto("https://www.aarpmedicaresupplement.com/get-rate-quote/", timeout=20000)
-        page.wait_for_load_state("networkidle", timeout=15000)
+        # New 2026 flow: enter ZIP on the estimate landing page, get redirected to
+        # plan-summary which lists Plan A–N with monthly premiums.
+        page.goto(QUOTE_URL, timeout=20000)
+        try: page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception: pass  # UHC has long-running tracking pixels; domcontentloaded is enough
+        zip_field = page.query_selector('input[name="uhc-store-planfinderZipcode"], input[id*="planfinderZipcode" i]')
+        if zip_field:
+            zip_field.fill(zip_code)
+            submit = page.query_selector('button[type="submit"], button:has-text("View plans")')
+            if submit:
+                submit.click()
+                page.wait_for_load_state("networkidle", timeout=20000)
+                page.wait_for_timeout(2000)
 
         # The quoter form has shifted layouts repeatedly. We try multiple
         # selectors (ZIP first then age) and tolerate either order.
