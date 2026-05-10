@@ -13,10 +13,10 @@
 
 export const config = { runtime: "edge" };
 
+import { DEMO_AGENCY_ID } from "../lib/demo.js";
+
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 const ANON     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
-// Atlas Insurance Group (the seeded demo tenant) — agencies.id from the live DB.
-const DEMO_AGENCY_ID = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
 
 function corsHeaders() {
   return {

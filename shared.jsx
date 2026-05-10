@@ -445,8 +445,8 @@ const CMD_ITEMS = {
   ],
   "Ask Repflow": [
     { label: "Show leads I haven't touched in 7 days",            icon: "Sparkles", nav: "pipeline" },
-    { label: "Compare my conversion vs Tony's, last month",       icon: "Sparkles", nav: "leaderboard" },
-    { label: "Why did Cheryl Hampton's policy charge back?",      icon: "Sparkles", nav: "calls" },
+    { label: "Compare my conversion vs the team, last month",     icon: "Sparkles", nav: "leaderboard" },
+    { label: "Why did my last chargeback happen?",                icon: "Sparkles", nav: "calls" },
   ],
 };
 

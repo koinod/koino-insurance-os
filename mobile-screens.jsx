@@ -44,7 +44,9 @@ function MBottomNav({ active = "home", onNav = () => {} }) {
 // ── Screen 1: Today ─────────────────────────────────────────────────────
 function MScreenToday({ onNav }) {
   // Hydrate everything from demo / live AppData so the screen is honest.
-  const me   = AppData.REPS && AppData.REPS[0];
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
+          || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
   const hot  = (AppData.QUEUE || []).filter(q => q.elapsed < 60).slice(0, 3);
   const upNext = (AppData.PIPELINE || [])
     .filter(p => p.next && p.stage !== "Issued" && p.stage !== "Lost")
@@ -55,7 +57,7 @@ function MScreenToday({ onNav }) {
   const pct = Math.min(100, Math.round((todayBooked / target) * 100));
   const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const monthDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const initials = me?.name?.split(" ").map(s => s[0]).join("") || "MA";
+  const initials = me?.name?.split(" ").map(s => s[0]).join("") || (meIdent?.full_name?.split(" ").map(s => s[0]).join("")) || "—";
   const issuedToday = (AppData.PIPELINE || []).filter(p => p.stage === "Issued").length;
 
   return (
@@ -244,7 +246,9 @@ function MScreenCall({ lead, onEnd, onNote }) {
         <div className="m-coach" style={{ marginTop: 10 }}>
           <div className="m-coach-l"><MIcon.Sparkles/> AI suggests now</div>
           <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>
-            Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <b>Plan G drug-free coverage gap</b>.
+            {isDemo
+              ? <>Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <b>Plan G drug-free coverage gap</b>.</>
+              : <>Open with a daily-routine question to surface medication context before pivoting to product fit.</>}
           </div>
           <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
             <span className="m-chip">Show script</span>
@@ -269,7 +273,10 @@ function MScreenCall({ lead, onEnd, onNote }) {
 
 // ── Screen 4: Lead Detail ───────────────────────────────────────────────
 function MScreenLead({ lead, onBack, onCall }) {
-  const l = lead || { lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", score: 92, elapsed: 14 };
+  const _isDemoML = !!(window.isDemoAgency && window.isDemoAgency());
+  const l = lead || (_isDemoML
+    ? { lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", score: 92, elapsed: 14 }
+    : { lead: "—", age: "—", state: "—", source: "—", product: "—", score: 0, elapsed: 0 });
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -401,13 +408,13 @@ function MScreenComm({ onNav }) {
 
         <div className="m-section-h"><span>Recent issues</span></div>
         <div className="m-card" style={{ padding: 0 }}>
-          {[
+          {((window.isDemoAgency && window.isDemoAgency()) ? [
             { who: "Cheryl Hampton", p: "Plan G", ap: 1840, com: 920, st: "advance", c: "money" },
             { who: "Robert Mendez", p: "FE $15K", ap: 1320, com: 660, st: "advance", c: "money" },
             { who: "Henry Akins", p: "Annuity", ap: 4250, com: 425, st: "as-earned", c: "info" },
             { who: "Linda Cho", p: "Plan N", ap: 1490, com: 0, st: "NIGO · sigs missing", c: "warn" },
             { who: "Don Phelps", p: "FE $10K", ap: 0, com: 0, st: "Chargeback risk", c: "warn" },
-          ].map((r, i, arr) => (
+          ] : []).map((r, i, arr) => (
             <div key={i} style={{ display: "flex", alignItems: "center", padding: "12px 14px", borderBottom: i < arr.length - 1 ? "1px solid var(--border-subtle)" : 0, gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>{r.who}</div>

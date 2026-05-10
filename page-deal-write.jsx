@@ -110,7 +110,7 @@
       // Resolve the signed-in producer instead of REPS[0]=Marcus.
       const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
       const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
-              || (AppData.REPS && AppData.REPS[0]);
+              || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
       if (!leadId)     return setError("Pick a linked lead");
       if (!carrierId)  return setError("Pick a carrier");
       if (!productId)  return setError("Pick a product");

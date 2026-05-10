@@ -39,6 +39,17 @@ function LoginScreen() {
   const [errMsg, setErrMsg]   = React.useState("");
   const sb = window.getSupabase();
   const pendingInvite = stashInviteFromUrl();
+  // ?signup=1 — landing-page CTA path. Focus email + show "Create account" header.
+  const isSignup = React.useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get("signup") === "1"; }
+    catch { return false; }
+  }, []);
+  const emailRef = React.useRef(null);
+  React.useEffect(() => {
+    if (isSignup && emailRef.current) {
+      try { emailRef.current.focus(); } catch {}
+    }
+  }, [isSignup]);
 
   const signInWithPassword = async () => {
     if (!email.trim() || !password) return;
@@ -109,8 +120,12 @@ function LoginScreen() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
           <div className="sb-brand-mark" style={{ width: 36, height: 36, fontSize: 18 }}>R</div>
           <div>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>Repflow</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>Operator-grade for life & health distribution</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>
+              {isSignup ? "Create your account" : "Repflow"}
+            </div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
+              {isSignup ? "Enter your work email — we'll send a sign-in link." : "Operator-grade for life & health distribution"}
+            </div>
           </div>
         </div>
 
@@ -153,6 +168,7 @@ function LoginScreen() {
 
             <div className="field-l">{mode === "magic" ? "Sign in with email" : "Email + password"}</div>
             <input
+              ref={emailRef}
               className="text-input"
               type="email"
               value={email}

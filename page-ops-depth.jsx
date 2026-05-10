@@ -53,7 +53,7 @@ function PageNIGO({ role = "manager" }) {
         product: pol?.product || lead?.product || "—",
         reason: reason?.label || n.notes || "Reason unspecified",
         apAtRisk,
-        owner: n.assignedTo || lead?.owner || (AppData.REPS[0] && AppData.REPS[0].id),
+        owner: n.assignedTo || lead?.owner || null,
         deadline: reason?.severity === "critical" ? "Today" : reason?.severity === "high" ? "Tomorrow" : "This week",
         status,
         priority: sevToPriority[reason?.severity || "med"] || "p1",

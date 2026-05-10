@@ -354,10 +354,10 @@
       };
     }, []);
 
-    // Resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+    // Resolve the actual signed-in viewer. Fall back to REPS[0] only in demo.
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
-            || (AppData.REPS && AppData.REPS[0]);
+            || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
     const tasksOpen = (AppData.TASKS || []).filter(t => t.status === "open" && (!me || !t.repId || t.repId === me.id))?.length;
     const queueLen  = (AppData.QUEUE || []).length;
     const myPipeline = (AppData.PIPELINE || []).filter(p =>
@@ -527,7 +527,7 @@
     const Recent = window.RecentDeals;
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
-            || (AppData.REPS && AppData.REPS[0]);
+            || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
     const [refreshKey, setRefreshKey] = useState(0);
     if (!Form || !Recent) {
       return <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading deal-write form…</div>;

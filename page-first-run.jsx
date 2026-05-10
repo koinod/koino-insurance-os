@@ -207,9 +207,9 @@
 
           {step === 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <Shared.Field label="Agency name"><input className="text-input" autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Atlas Insurance Group"/></Shared.Field>
-              <Shared.Field label="Slug (URL)"><input className="text-input" value={form.slug} onChange={(e) => set({ slug: e.target.value })} placeholder="atlas — auto-derived if blank"/></Shared.Field>
-              <Shared.Field label="Your name"><input className="text-input" value={form.owner_name} onChange={(e) => set({ owner_name: e.target.value })} placeholder="Marcus Avila"/></Shared.Field>
+              <Shared.Field label="Agency name"><input className="text-input" autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Your agency name"/></Shared.Field>
+              <Shared.Field label="Slug (URL)"><input className="text-input" value={form.slug} onChange={(e) => set({ slug: e.target.value })} placeholder="auto-derived if blank"/></Shared.Field>
+              <Shared.Field label="Your name"><input className="text-input" value={form.owner_name} onChange={(e) => set({ owner_name: e.target.value })} placeholder="Your full name"/></Shared.Field>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Shared.Field label="EIN (optional now)"><input className="text-input" value={form.ein} onChange={(e) => set({ ein: e.target.value })}/></Shared.Field>
                 <Shared.Field label="Agency NPN (optional now)"><input className="text-input" value={form.npn} onChange={(e) => set({ npn: e.target.value })}/></Shared.Field>
@@ -509,7 +509,7 @@
             </div>
           </div>
           <Shared.Field label="Your name (used on agency)">
-            <input className="text-input" autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Marcus Avila"/>
+            <input className="text-input" autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Your full name"/>
           </Shared.Field>
           <Shared.Field label="Primary state">
             <input className="text-input" value={form.state} onChange={(e) => set({ state: e.target.value.toUpperCase() })} maxLength={2} style={{ width: 100 }}/>

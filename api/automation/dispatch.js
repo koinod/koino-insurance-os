@@ -7,6 +7,8 @@
 //     lead_id?: uuid, lead?: { name, phone, email, source, status },
 //     rep_id?: text }
 
+import { DEMO_AGENCY_ID } from "../../lib/demo.js";
+
 export const config = { runtime: "edge" };
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
@@ -60,7 +62,7 @@ export default async function handler(req) {
   });
   const meRows = meR.ok ? await meR.json() : [];
   const me = (Array.isArray(meRows) && meRows[0]) || null;
-  const agencyId = (me && me.agency_id) || "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
+  const agencyId = (me && me.agency_id) || DEMO_AGENCY_ID;
 
   // Pull active rules for this trigger.
   const rulesR = await fetch(

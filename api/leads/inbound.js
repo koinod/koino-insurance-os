@@ -149,9 +149,21 @@ export default async function handler(req) {
     return err(400, "lead must include at least name, phone, email, or fb_leadgen_id");
   }
 
-  // Resolve agency_id
+  // Resolve agency_id.
+  //
+  // SECURITY: callers MUST NOT be able to address an arbitrary tenant via
+  // body or query — that would let a webhook signed with the shared secret
+  // dump leads into someone else's pipeline. We bind the agency to the
+  // deployment via the DEFAULT_AGENCY_ID env var. To route inbound to
+  // multiple tenants, set up per-tenant webhook URLs (one Vercel project
+  // env override each) or extend this to a per-secret tenant-binding table.
+  //
+  // body.agency_id / ?agency are still honored ONLY when LEADS_WEBHOOK_SECRET
+  // is unset (dev mode) so local testing isn't blocked.
   const url = new URL(req.url);
-  const agencyId = body.agency_id || url.searchParams.get("agency") || DEFAULT_AGENCY || null;
+  const agencyId = SECRET
+    ? (DEFAULT_AGENCY || null)
+    : (body.agency_id || url.searchParams.get("agency") || DEFAULT_AGENCY || null);
 
   // Branch: insurance lead vs recruit. Recruits land in recruiting_applicants
   // (Recruiting page). Insurance leads land in pipeline (Pipeline/CRM).

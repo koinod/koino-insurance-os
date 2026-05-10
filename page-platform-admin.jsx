@@ -1104,9 +1104,9 @@
         <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
           <div className="modal-h"><h3>New agency</h3><button className="btn btn-ghost" onClick={onClose}>×</button></div>
           <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            <Shared.Field label="Agency name"><input className="text-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value, slug: draft.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") })} placeholder="Atlas Insurance Group"/></Shared.Field>
-            <Shared.Field label="Slug"><input className="text-input" value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value })} placeholder="atlas"/></Shared.Field>
-            <Shared.Field label="Owner email (will receive invite)"><input className="text-input" type="email" value={draft.owner_email} onChange={(e) => setDraft({ ...draft, owner_email: e.target.value })} placeholder="founder@atlas.com"/></Shared.Field>
+            <Shared.Field label="Agency name"><input className="text-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value, slug: draft.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") })} placeholder="Agency name"/></Shared.Field>
+            <Shared.Field label="Slug"><input className="text-input" value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value })} placeholder="url-slug"/></Shared.Field>
+            <Shared.Field label="Owner email (will receive invite)"><input className="text-input" type="email" value={draft.owner_email} onChange={(e) => setDraft({ ...draft, owner_email: e.target.value })} placeholder="owner@example.com"/></Shared.Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <Shared.Field label="Primary state"><input className="text-input" value={draft.primary_state} onChange={(e) => setDraft({ ...draft, primary_state: e.target.value.toUpperCase() })} maxLength={2}/></Shared.Field>
               <Shared.Field label="Plan"><Shared.Select value={draft.plan} onChange={(v) => setDraft({ ...draft, plan: v })} options={[

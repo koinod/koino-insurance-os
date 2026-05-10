@@ -109,7 +109,7 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
         {step === 0 && (
           <>
             <Shared.Field label="Full name">
-              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Marcus Avila" autoFocus/>
+              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" autoFocus/>
             </Shared.Field>
             <Shared.Field label="Handle" hint="What teammates call you on the leaderboard">
               <input className="text-input" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} placeholder="@marc"/>
@@ -409,7 +409,7 @@ window.generateSOAPdf = function (lead, agencyName) {
     `[ ]  Medicare Advantage (Part C)`,
     `[ ]  Medicare Prescription Drug (Part D)`,
     ``,
-    `Producer:        ${agencyName || "Atlas Insurance Group"}`,
+    `Producer:        ${agencyName || "________________________"}`,
     `Date:            ${new Date().toLocaleDateString()}`,
     ``,
     `By signing below, the beneficiary acknowledges that the producer has`,

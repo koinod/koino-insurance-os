@@ -354,8 +354,9 @@ function TodayRep({ aep }) {
   // Synthesize a stub from me() identity when REPS is empty (brand-new agency)
   // so we never crash on `myRow.id` lookups below.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const _isDemoToday = !!(window.isDemoAgency && window.isDemoAgency());
   const myRow   = (REPS || []).find(r => meIdent && (r.id === meIdent.rep_id || r.handle === meIdent.handle))
-                || (REPS || [])[0]
+                || (_isDemoToday ? (REPS || [])[0] : null)
                 || (meIdent ? {
                       id: meIdent.rep_id || "viewer",
                       name: meIdent.full_name || "Viewer",
@@ -646,7 +647,9 @@ function TodayRep({ aep }) {
             <div style={{ padding: "14px 16px" }}>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Ask 3 more open-ended questions per hour.</div>
               <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55 }}>
-                On Cheryl Hampton's call, you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.
+                {(window.isDemoAgency && window.isDemoAgency())
+                  ? `On Cheryl Hampton's call, you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.`
+                  : `Open with a behavioral question instead of a yes/no. Closed-ended questions in the first 6 minutes correlate with -12% close rate.`}
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
                 <button
@@ -904,17 +907,22 @@ function TodayManager({ aep }) {
           <div className="panel">
             <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Needs me</h3></div>
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
+              {((window.isDemoAgency && window.isDemoAgency()) ? [
                 { l: "Robert Mendez App In · carrier review pending",   a: "Push" },
                 { l: "Ramona Diaz · beneficiary form not signed",       a: "Nudge" },
                 { l: "Henry Akins · annuity sigs · 4d in stage",         a: "Escalate" },
-              ].map((x, i) => (
+              ] : []).map((x, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
                   <span className="dot dot-warn"></span>
                   <span style={{ flex: 1 }}>{x.l}</span>
                   <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>{x.a}</button>
                 </div>
               ))}
+              {!(window.isDemoAgency && window.isDemoAgency()) && (
+                <div style={{ padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                  Nothing flagged yet.
+                </div>
+              )}
             </div>
           </div>
         </div>

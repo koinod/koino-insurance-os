@@ -56,11 +56,12 @@ function MScreenPipeline({ onNav, onLead }) {
 
 /* ── Coaching mobile ──────────────────────────────────────────────────── */
 function MScreenCoaching({ onNav }) {
-  const cards = [
+  const _isDemoMC = !!(window.isDemoAgency && window.isDemoAgency());
+  const cards = _isDemoMC ? [
     { focus: "Ask 3 more open-ended questions/hr", evidence: "4 closed-ended in first 6 min of Cheryl Hampton call", impact: "+12% close rate" },
     { focus: "Cut talk-listen 52% → 45%",            evidence: "Talked over Robert Mendez on his medication concern", impact: "+6pts persistency" },
     { focus: "Use Plan G price-anchor sequence",     evidence: "0 anchors used in 14 quoted calls last week",         impact: "+38% closes" },
-  ];
+  ] : [];
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -81,6 +82,7 @@ function MScreenCoaching({ onNav }) {
             </div>
           </div>
         ))}
+        {cards.length === 0 && <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No coaching cards yet.</div>}
       </div>
     </div>
   );
@@ -88,13 +90,14 @@ function MScreenCoaching({ onNav }) {
 
 /* ── Vault mobile (read-only) ─────────────────────────────────────────── */
 function MScreenVault({ onNav }) {
-  const items = [
+  const _isDemoMV = !!(window.isDemoAgency && window.isDemoAgency());
+  const items = _isDemoMV ? [
     { kind: "SOA",       lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
     { kind: "Recording", lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
     { kind: "TPMO",      lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
     { kind: "SOA",       lead: "Robert Mendez",   when: "Today, 9:02a",  retain: "10y" },
     { kind: "LeadiD",    lead: "Cheryl Hampton",  when: "Today, 11:01a", retain: "13mo" },
-  ];
+  ] : [];
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -116,6 +119,7 @@ function MScreenVault({ onNav }) {
             <span className="m-chip">{a.retain}</span>
           </div>
         ))}
+        {items.length === 0 && <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No artifacts yet.</div>}
       </div>
     </div>
   );
@@ -125,8 +129,8 @@ function MScreenVault({ onNav }) {
 function MScreenSettings({ onNav }) {
   const meIdent = window.me && window.me();
   const me = (meIdent?.rep_id && (AppData.REPS || []).find(r => r.id === meIdent.rep_id))
-    || (AppData.REPS && AppData.REPS[0])
-    || { name: meIdent?.email?.split("@")[0] || "Viewer", handle: meIdent?.email || "—" };
+    || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null)
+    || { name: meIdent?.full_name || meIdent?.email?.split("@")[0] || "Viewer", handle: meIdent?.handle || meIdent?.email || "—" };
   const initials = (me.name || "?").split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("") || "?";
   return (
     <div className="m-screen">

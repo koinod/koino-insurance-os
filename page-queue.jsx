@@ -14,7 +14,7 @@ function DialQueueView({ onCall }) {
   // speed-to-lead access. Manager + owner views (DispatchView / Floor's
   // role-aware queue) already see fleet-wide.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
+  const myRepId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id) : null);
 
   const [tab, setTab] = React.useState("mine");
 
@@ -1708,8 +1708,12 @@ function InCall({ onClose, lead, autodial }) {
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
 
-  // Demo lead used by AutoDialBar / UI when caller didn't pass one in
-  const activeLead = lead || { id: "demo-cheryl", lead: "Cheryl Hampton", state: "TX", product: "Med Supp Plan G" };
+  // Demo lead used by AutoDialBar / UI when caller didn't pass one in. Only
+  // synthesized for the demo agency — real tenants render an empty placeholder.
+  const _isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const activeLead = lead || (_isDemo
+    ? { id: "demo-cheryl", lead: "Cheryl Hampton", state: "TX", product: "Med Supp Plan G" }
+    : { id: "no-lead", lead: "—", state: "—", product: "—" });
   const isAutodial = autodial || (adState && adState.active);
   const stage = adState?.stage;
   const paused = adState?.paused;

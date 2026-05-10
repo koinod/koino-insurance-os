@@ -19,6 +19,8 @@
 //
 // Pure compute — no third-party APIs, no creds. Always works.
 
+import { DEMO_AGENCY_ID } from "../lib/demo.js";
+
 export const config = { runtime: "edge" };
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
@@ -141,7 +143,7 @@ export default async function handler(req) {
     if (Array.isArray(meRows) && meRows[0]) agencyId = meRows[0].agency_id || meRows[0].agency_id;
   } catch {}
   // Anon callers in demo mode get Atlas
-  if (!agencyId) agencyId = "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
+  if (!agencyId) agencyId = DEMO_AGENCY_ID;
 
   try {
     await fetch(`${SUPA_URL}/rest/v1/quote_runs`, {

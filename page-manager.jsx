@@ -683,7 +683,7 @@ function ReplayMomentModal({ card, onClose }) {
 function CoachingRep() {
   useMeReady();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0]?.id);
+  const myRepId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]?.id) : null);
 
   const mySessions  = (AppData.COACHING_SESSIONS || []).filter(s => s.repId === myRepId);
   const myNotes     = (AppData.COACHING_NOTES    || []).filter(n => n.repId === myRepId);

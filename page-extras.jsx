@@ -32,8 +32,9 @@ function PageVault({ role = "owner" }) {
     } catch (_e) {}
   };
 
-  // Synthesized SOAs + consent receipts to back the page
-  const SEED_ARTIFACTS = [
+  // Synthesized SOAs + consent receipts to back the page — DEMO ONLY.
+  const _isDemoVault = !!(window.isDemoAgency && window.isDemoAgency());
+  const SEED_ARTIFACTS = _isDemoVault ? [
     { id: "soa-1", kind: "SOA",        lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "scheduled" },
     { id: "soa-2", kind: "SOA",        lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "captured"  },
     { id: "lid-1", kind: "LeadiD",     lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:01a", retention: "13mo", status: "captured"  },
@@ -42,7 +43,7 @@ function PageVault({ role = "owner" }) {
     { id: "rec-2", kind: "Recording",  lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "complete"  },
     { id: "con-1", kind: "Consent",    lead: "Linda Cho",      repId: "marc", date: "Yesterday",     retention: "13mo", status: "captured"  },
     { id: "tpmo-1",kind: "TPMO disc.", lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "captured"  },
-  ];
+  ] : [];
 
   const ARTIFACTS = [...extras, ...SEED_ARTIFACTS].map(a => retentionEdits[a.id] ? { ...a, retention: retentionEdits[a.id] } : a);
   const filtered = ARTIFACTS.filter(a => !q || (a.lead + " " + a.kind).toLowerCase().includes(q.toLowerCase()));
@@ -202,7 +203,7 @@ function VaultUploadModal({ onClose, onSubmit }) {
         <Shared.Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v })} options={["SOA","Recording","LeadiD","TrustedForm","Consent","TPMO disc.","App","Other"].map(k => ({ v: k, l: k }))}/>
       </Shared.Field>
       <Shared.Field label="Lead name">
-        <input className="text-input" value={form.lead} onChange={(e) => setForm({ ...form, lead: e.target.value })} placeholder="Cheryl Hampton" autoFocus/>
+        <input className="text-input" value={form.lead} onChange={(e) => setForm({ ...form, lead: e.target.value })} placeholder="Lead full name" autoFocus/>
       </Shared.Field>
       <Shared.Field label="Producer">
         <Shared.Select value={form.repId} onChange={(v) => setForm({ ...form, repId: v })} options={AppData.REPS.map(r => ({ v: r.id, l: r.name }))}/>
@@ -234,10 +235,12 @@ function PageTiering() {
   });
   // Per-rep overrides
   const [overrides, setOverrides] = React.useState({});
-  const [history, setHistory] = React.useState([
-    { who: "Tony Park",   from: "gold",     to: "platinum", reason: "Lost a lead to no fault — protect tier",    when: "Apr 28" },
-    { who: "Remy Chen",   from: "silver",   to: "bronze",   reason: "Persistency drift, 6-mo cohort",            when: "Apr 21" },
-  ]);
+  const [history, setHistory] = React.useState(
+    (window.isDemoAgency && window.isDemoAgency()) ? [
+      { who: "Tony Park",   from: "gold",     to: "platinum", reason: "Lost a lead to no fault — protect tier",    when: "Apr 28" },
+      { who: "Remy Chen",   from: "silver",   to: "bronze",   reason: "Persistency drift, 6-mo cohort",            when: "Apr 21" },
+    ] : []
+  );
 
   const persFor = (rep) => 88 + (rep.streak % 7); // synthesized
 
@@ -438,9 +441,11 @@ function buildStatement({ repId } = {}) {
 function CommissionsRep() {
   // Always recompute from policies + commissions ledger so any deal entered
   // anywhere by this rep flows through immediately.
-  const repId = AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id;
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const _isDemoCR = !!(window.isDemoAgency && window.isDemoAgency());
+  const repId = meIdent?.rep_id || (_isDemoCR ? (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id) : null);
   const liveRows = buildStatement({ repId });
-  const ROWS = liveRows && liveRows.length ? liveRows : STATEMENT;
+  const ROWS = (liveRows && liveRows.length) ? liveRows : (_isDemoCR ? STATEMENT : []);
   const total = ROWS.reduce((a, r) => a + r.expected, 0);
   const paid  = ROWS.reduce((a, r) => a + r.paid, 0);
   const inClearing = total - Math.max(0, paid);
@@ -541,9 +546,11 @@ function CommissionsManager() {
   const teamIc       = Math.max(0, teamExpected - teamPaid);
   const teamCharge   = perRep.reduce((a, x) => a + x.charge, 0);
 
-  // Fall back to demo numbers if no policies have been written yet
+  // Fall back to demo numbers only on the demo agency. Real agencies with no
+  // policies yet see zeros + an empty-state CTA below.
+  const _isDemoCM = !!(window.isDemoAgency && window.isDemoAgency());
   const isEmpty = teamAp === 0 && teamExpected === 0;
-  const display = isEmpty
+  const display = (isEmpty && _isDemoCM)
     ? { ap: 295000, expected: 184260, paid: 142080, ic: 42180, charge: -11420 }
     : { ap: teamAp, expected: teamExpected, paid: teamPaid, ic: teamIc, charge: teamCharge };
 
@@ -557,9 +564,9 @@ function CommissionsManager() {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Team expected MTD" prefix="$" value={display.expected.toLocaleString()} sub={`across ${perRep.reduce((a, x) => a + x.issued, 0) || 14} issues`} trend="up"/>
+        <Shared.KpiCard hero label="Team expected MTD" prefix="$" value={display.expected.toLocaleString()} sub={`across ${perRep.reduce((a, x) => a + x.issued, 0) || (_isDemoCM ? 14 : 0)} issues`} trend="up"/>
         <Shared.KpiCard label="Team paid MTD" prefix="$" value={display.paid.toLocaleString()} sub="advances + as-earned"/>
-        <Shared.KpiCard label="In clearing" prefix="$" value={display.ic.toLocaleString()} sub={isEmpty ? "14 apps" : "expected − paid"}/>
+        <Shared.KpiCard label="In clearing" prefix="$" value={display.ic.toLocaleString()} sub={(isEmpty && _isDemoCM) ? "14 apps" : "expected − paid"}/>
         <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(display.charge).toLocaleString()} sub="last 30d" neg/>
       </div>
 
@@ -575,14 +582,14 @@ function CommissionsManager() {
             <div className="tabular" style={{ textAlign: "right" }}>In-clearing</div>
           </div>
           {perRep.map(({ rep, issued, ap, expected, paid, ic }) => {
-            // Synthesize numbers when no real policies yet so the page isn't empty
+            // Synthesize numbers when no real policies yet — DEMO ONLY.
             const fakeAp = rep.mtd;
             const fakePaid = Math.round(rep.mtd * 0.62);
-            const showAp = isEmpty ? fakeAp : ap;
-            const showExpected = isEmpty ? Math.round(rep.mtd * 0.5) : expected;
-            const showPaid = isEmpty ? fakePaid : paid;
-            const showIc = isEmpty ? Math.max(0, showExpected - showPaid) : ic;
-            const showIssued = isEmpty ? Math.round(rep.mtd / 1800) : issued;
+            const showAp = (isEmpty && _isDemoCM) ? fakeAp : ap;
+            const showExpected = (isEmpty && _isDemoCM) ? Math.round(rep.mtd * 0.5) : expected;
+            const showPaid = (isEmpty && _isDemoCM) ? fakePaid : paid;
+            const showIc = (isEmpty && _isDemoCM) ? Math.max(0, showExpected - showPaid) : ic;
+            const showIssued = (isEmpty && _isDemoCM) ? Math.round(rep.mtd / 1800) : issued;
             return (
               <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.6fr 70px 100px 110px 100px 100px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -901,7 +908,8 @@ const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity",
 function PageTraining({ role = "rep", defaultTab = "coaching" }) {
   const [tab, setTab] = React.useState(defaultTab);
   const store = ProductTraining.useStore();
-  const meId = AppData.REPS[0].id;
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? AppData.REPS[0]?.id : null);
   const requiredOpen = ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments);
 
   const tabs = [
@@ -964,7 +972,8 @@ function CoachingPane({ role }) {
 
 function CallLibraryPane({ role }) {
   const { RECORDINGS, REPS } = AppData;
-  const meId = REPS[0].id;
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? REPS[0]?.id : null);
   const visible = role === "rep" ? RECORDINGS.filter(r => !r.repId || r.repId === meId) : RECORDINGS;
 
   const [selId, setSelId] = React.useState(visible[0]?.id);
@@ -2028,7 +2037,7 @@ function PageCalls({ role = "rep" }) {
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
   // Resolve the actual signed-in viewer instead of REPS[0]=Marcus.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const meId = meIdent?.rep_id || (REPS[0] && REPS[0].id);
+  const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (REPS[0] && REPS[0].id) : null);
   // Manager view scopes to downline; rep to self; owner sees fleet.
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
   const visible = role === "rep"
@@ -2931,7 +2940,15 @@ function SettingsNotifications_OLD() {
 }
 
 function SettingsProfile({ role }) {
-  const me = AppData.REPS[0];
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const matched = meIdent?.rep_id ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id) : null;
+  const me = matched || (meIdent ? {
+    id: meIdent.rep_id || "viewer",
+    name: meIdent.full_name || meIdent.handle || "Viewer",
+    handle: meIdent.handle || "",
+  } : { id: "viewer", name: "—", handle: "" });
+  const displayEmail = meIdent?.email || "";
+  const displayPhone = meIdent?.phone || "";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
@@ -2940,15 +2957,15 @@ function SettingsProfile({ role }) {
           <Shared.Avatar rep={me} size={48}/>
           <div>
             <div style={{ fontSize: 16, fontWeight: 500 }}>{me.name}</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{me.handle} · Atlanta · {role}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{me.handle || ""} {role ? "· " + role : ""}</div>
           </div>
           <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Change avatar</button>
         </div>
         <div className="divider"></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Shared.Field label="Display name"><input className="text-input" defaultValue={me.name}/></Shared.Field>
-          <Shared.Field label="Email"><input className="text-input" defaultValue="marcus@atlasimo.com"/></Shared.Field>
-          <Shared.Field label="Phone"><input className="text-input" defaultValue="+1 (404) 555-0142"/></Shared.Field>
+          <Shared.Field label="Email"><input className="text-input" defaultValue={displayEmail} placeholder="you@example.com"/></Shared.Field>
+          <Shared.Field label="Phone"><input className="text-input" defaultValue={displayPhone} placeholder="+1 555 555 5555"/></Shared.Field>
           <Shared.Field label="Time zone"><Shared.Select value="ET" onChange={() => {}} options={[{ v: "ET", l: "Eastern" }, { v: "CT", l: "Central" }, { v: "MT", l: "Mountain" }, { v: "PT", l: "Pacific" }]}/></Shared.Field>
         </div>
       </div>
