@@ -4,9 +4,9 @@
   "trailingSlash": false,
   "headers": [
     {
-      "source": "/(.*)\\.(jsx|css)",
+      "source": "/(.*)\\.(jsx|css|html)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
+        { "key": "Cache-Control", "value": "public, no-cache, must-revalidate, max-age=0" }
       ]
     }
   ],
