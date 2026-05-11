@@ -50,6 +50,40 @@ export default async function handler(req) {
   const auth = req.headers.get("authorization") || req.headers.get("x-supabase-auth") || "";
   const jwt = auth.replace(/^Bearer\s+/i, "") || null;
 
+  // ── Emergency Override: Hardcoded Super Admin ──────────────────────────────
+  // If the user is signed in as iankmeeks@gmail.com, force the Super Admin
+  // identity. This solves the "unmapped loop" even if the DB migration 0022
+  // hasn't been applied yet.
+  if (jwt) {
+    try {
+      // Decode JWT payload (standard Supabase format)
+      const base64Url = jwt.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(base64));
+      
+      if (payload.email === "iankmeeks@gmail.com") {
+        return new Response(JSON.stringify({
+          rep_id:       "admin-ian",
+          user_id:      payload.sub,
+          full_name:    "Ian Meeks",
+          handle:       "@ian",
+          role:         "super_admin",
+          tier:         "platinum",
+          agency_id:    "00000000-0000-0000-0000-000000000000", // System UUID
+          agency_name:  "Koino HQ",
+          upline_id:    null,
+          subscription_status: "active",
+          downline_ids: [],
+          is_demo:      false,
+          authenticated: true,
+          needs_onboarding: false,
+        }), { status: 200, headers: corsHeaders() });
+      }
+    } catch (e) {
+      console.error("JWT decode error in emergency override:", e);
+    }
+  }
+
   // me() returns 0 or 1 row
   const meRows = await callRpc("me", {}, jwt);
   const me = Array.isArray(meRows) && meRows.length > 0 ? meRows[0] : null;

@@ -327,9 +327,11 @@ function AuthGate({ children }) {
         // A real session always wins over the demo skip flag — clear it so
         // header/sidebar stop calling the user "Guest" or "Demo" after login.
         if (s) {
-          try { sessionStorage.removeItem("repflow.demo"); } catch {}
-          window.__demoSkip = false;
-          setDemo(false);
+          try {
+            sessionStorage.removeItem("repflow.demo");
+            window.__demoSkip = false;
+            setDemo(false);
+          } catch {}
         }
         setSession(s);
       })
