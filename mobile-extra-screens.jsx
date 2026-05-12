@@ -56,29 +56,41 @@ function MScreenPipeline({ onNav, onLead }) {
 
 /* ── Coaching mobile ──────────────────────────────────────────────────── */
 function MScreenCoaching({ onNav }) {
-  const cards = [
-    { focus: "Ask 3 more open-ended questions/hr", evidence: "4 closed-ended in first 6 min of Cheryl Hampton call", impact: "+12% close rate" },
-    { focus: "Cut talk-listen 52% → 45%",            evidence: "Talked over Robert Mendez on his medication concern", impact: "+6pts persistency" },
-    { focus: "Use Plan G price-anchor sequence",     evidence: "0 anchors used in 14 quoted calls last week",         impact: "+38% closes" },
-  ];
+  // Was 3 hardcoded coaching cards naming "Cheryl Hampton" and "Robert
+  // Mendez" — those bleed into real rep accounts. Now: hydrate from
+  // AppData.COACHING_NOTES for me when present, else demo-only copy.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const myId    = meIdent?.rep_id || (isDemo ? AppData.REPS?.[0]?.id : null);
+  const liveCards = (AppData.COACHING_NOTES || [])
+    .filter(n => !myId || n.repId === myId || n.rep_id === myId)
+    .slice(0, 6)
+    .map(n => ({ focus: n.focus || n.title || "Coaching focus", evidence: n.body || n.summary || "", impact: n.impact || "" }));
+  const demoCards = isDemo && liveCards.length === 0 ? [
+    { focus: "Ask 3 more open-ended questions/hr", evidence: "4 closed-ended in first 6 min on a recent Plan G call", impact: "+12% close rate" },
+    { focus: "Cut talk-listen 52% → 45%",            evidence: "Talked over a prospect on a medication concern",        impact: "+6pts persistency" },
+    { focus: "Use Plan G price-anchor sequence",     evidence: "0 anchors used in 14 quoted calls last week",            impact: "+38% closes" },
+  ] : [];
+  const cards = liveCards.length > 0 ? liveCards : demoCards;
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Coaching</div>
-          <div className="m-sub">3 cards · drills ready</div>
+          <div className="m-sub">{cards.length} card{cards.length === 1 ? "" : "s"}{cards.length > 0 ? " · drills ready" : ""}</div>
         </div>
       </div>
       <div className="m-scroll">
+        {cards.length === 0 && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No coaching notes yet. After your next AI-scored call, your upline can drop focus cards here.
+          </div>
+        )}
         {cards.map((c, i) => (
           <div key={i} className="m-card" style={{ padding: 14, marginBottom: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{c.evidence}</div>
-            <div style={{ fontSize: 11, color: "var(--accent-money)", marginTop: 6 }}>Impact: {c.impact}</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              <button className="m-btn m-btn-pri m-btn-pill" style={{ height: 30 }}>Replay</button>
-              <button className="m-btn m-btn-pill" style={{ height: 30 }}>Drill</button>
-            </div>
+            {c.evidence && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{c.evidence}</div>}
+            {c.impact && <div style={{ fontSize: 11, color: "var(--accent-money)", marginTop: 6 }}>Impact: {c.impact}</div>}
           </div>
         ))}
       </div>
@@ -88,22 +100,40 @@ function MScreenCoaching({ onNav }) {
 
 /* ── Vault mobile (read-only) ─────────────────────────────────────────── */
 function MScreenVault({ onNav }) {
-  const items = [
+  // Was 5 hardcoded SOA/Recording rows for Cheryl Hampton + Robert Mendez
+  // and a "14,820 artifacts" literal. Now hydrates from VAULT_FILES.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const myId    = meIdent?.rep_id || (isDemo ? AppData.REPS?.[0]?.id : null);
+  const fmtWhen = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" });
+  };
+  const liveItems = (AppData.VAULT_FILES || [])
+    .filter(f => !myId || f.repId === myId || f.rep_id === myId)
+    .slice(0, 20)
+    .map(f => ({ kind: f.kind || "File", lead: f.lead || f.leadName || "—", when: fmtWhen(f.createdAt || f.created_at), retain: f.retentionLabel || (f.kind === "LeadiD" ? "13mo" : "10y") }));
+  const demoItems = isDemo && liveItems.length === 0 ? [
     { kind: "SOA",       lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
     { kind: "Recording", lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
     { kind: "TPMO",      lead: "Cheryl Hampton",  when: "Today, 11:14a", retain: "10y" },
-    { kind: "SOA",       lead: "Robert Mendez",   when: "Today, 9:02a",  retain: "10y" },
-    { kind: "LeadiD",    lead: "Cheryl Hampton",  when: "Today, 11:01a", retain: "13mo" },
-  ];
+  ] : [];
+  const items = liveItems.length > 0 ? liveItems : demoItems;
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Vault</div>
-          <div className="m-sub">14,820 artifacts retained</div>
+          <div className="m-sub">{items.length} artifact{items.length === 1 ? "" : "s"}{items.length > 0 ? " retained" : ""}</div>
         </div>
       </div>
       <div className="m-scroll">
+        {items.length === 0 && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No compliance artifacts retained yet. Recorded calls, SOAs, and TPMO captures will land here.
+          </div>
+        )}
         {items.map((a, i) => (
           <div key={i} className="m-card" style={{ padding: 12, marginBottom: 8, display: "flex", gap: 10, alignItems: "center" }}>
             <div style={{ width: 36, height: 36, borderRadius: 6, background: "var(--bg-raised)", display: "grid", placeItems: "center" }}>
@@ -123,7 +153,26 @@ function MScreenVault({ onNav }) {
 
 /* ── Settings mobile ──────────────────────────────────────────────────── */
 function MScreenSettings({ onNav }) {
-  const me = AppData.REPS[0];
+  // Was: `const me = AppData.REPS[0]` — crashed when REPS was empty
+  // (".name of undefined") and leaked Marcus's name + Atlanta + "Atlas IMO"
+  // onto every signed-in operator's mobile settings.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const meRep   = meIdent?.rep_id ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id) : null;
+  const fallback = isDemo ? (AppData.REPS || [])[0] : null;
+  const meRow = meRep || fallback || {
+    id: meIdent?.rep_id || "viewer",
+    name: meIdent?.full_name || "You",
+    handle: meIdent?.handle || "",
+    color: undefined,
+  };
+  const initials = (meRow.name || "?").split(" ").map(s => s[0]).filter(Boolean).join("").slice(0, 2);
+  const agencyLine = meIdent?.agency_name || (isDemo ? "Demo · Atlas seed" : null);
+  const licStates  = (meIdent?.licensed_states && Array.isArray(meIdent.licensed_states)) ? meIdent.licensed_states.length : null;
+  const carrierApps = (AppData.APPOINTMENTS || []).filter(a => a.repId === meRow.id && a.status === "appointed").length;
+
+  const goSettings = () => window.gotoPage && window.gotoPage("settings");
+
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -133,29 +182,33 @@ function MScreenSettings({ onNav }) {
       </div>
       <div className="m-scroll">
         <div className="m-card" style={{ padding: 14, marginBottom: 10, display: "flex", alignItems: "center", gap: 12 }}>
-          <div className="m-avatar" style={{ width: 48, height: 48, fontSize: 18, background: me?.color }}>{me?.name.split(" ").map(s => s[0]).join("")}</div>
+          <div className="m-avatar" style={{ width: 48, height: 48, fontSize: 18, background: meRow.color }}>{initials}</div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{me?.name}</div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{me?.handle} · Atlanta</div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{meRow.name}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+              {meRow.handle ? meRow.handle : ""}
+              {meRow.handle && agencyLine ? " · " : ""}
+              {agencyLine || ""}
+            </div>
           </div>
         </div>
 
         {[
-          { k: "notif", l: "Notifications",     v: "All on"  },
-          { k: "audio", l: "Audio quality",     v: "Wideband" },
-          { k: "thm",    l: "Theme",              v: "Dark"     },
-          { k: "lang",   l: "Language",            v: "English"  },
-          { k: "lic",     l: "Licenses",           v: "5 active"  },
-          { k: "carriers", l: "Carrier appointments", v: "5"      },
-          { k: "logout",  l: "Sign out",            v: ""         },
+          { k: "notif",    l: "Notifications",         v: "Manage",                       go: goSettings },
+          { k: "thm",      l: "Theme",                  v: "System",                        go: goSettings },
+          { k: "lic",      l: "Licenses",               v: licStates != null ? (licStates === 0 ? "none yet" : `${licStates} active`) : "set in profile", go: goSettings },
+          { k: "carriers", l: "Carrier appointments", v: carrierApps > 0 ? String(carrierApps) : (isDemo ? "5" : "—"), go: goSettings },
+          { k: "logout",  l: "Sign out",                v: "",                              go: () => window.signOut && window.signOut() },
         ].map((row, i) => (
-          <div key={i} className="m-card" style={{ padding: "12px 14px", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={row.k === "logout" ? () => window.signOut && window.signOut() : undefined}>
+          <div key={i} className="m-card"
+               style={{ padding: "12px 14px", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+               onClick={row.go}>
             <span style={{ fontSize: 13, fontWeight: 500, color: row.k === "logout" ? "var(--state-danger)" : undefined }}>{row.l}</span>
-            <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{row.v} ›</span>
+            <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{row.v} {row.v ? "›" : ""}</span>
           </div>
         ))}
 
-        <div style={{ textAlign: "center", color: "var(--text-quaternary)", fontSize: 11, marginTop: 20 }}>Repflow · v2.0 · Atlas IMO</div>
+        <div style={{ textAlign: "center", color: "var(--text-quaternary)", fontSize: 11, marginTop: 20 }}>Repflow{agencyLine ? " · " + agencyLine : ""}</div>
       </div>
     </div>
   );
