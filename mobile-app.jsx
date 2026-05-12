@@ -1,0 +1,90 @@
+const { useState, useEffect } = React;
+const PHONE_W = 402;
+const PHONE_H = 874;
+
+function Phone({ children }) {
+  return (
+    <IOSDevice width={PHONE_W} height={PHONE_H} dark={true} hasBottomBar={false} statusBar={null}>
+      <div style={{ width: "100%", height: "100%", background: "var(--bg-base)", display: "flex", flexDirection: "column" }}>{children}</div>
+    </IOSDevice>
+  );
+}
+
+function FullScreen({ children }) {
+  // On a real phone, just fill the viewport — no bezel, no fake status bar.
+  return (
+    <div style={{ width: "100vw", height: "100dvh", background: "var(--bg-base)", display: "flex", flexDirection: "column", overflow: "hidden", touchAction: "none" }}>
+      {children}
+    </div>
+  );
+}
+
+function ResponsiveFrame({ children }) {
+  const [mode, setMode] = useState(() => window.matchMedia("(max-width: 700px)").matches ? "phone" : "desktop");
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const recompute = () => {
+      const phone = window.matchMedia("(max-width: 700px)").matches;
+      setMode(phone ? "phone" : "desktop");
+      if (!phone) {
+        const padX = 32, padY = 32;
+        const sx = (window.innerWidth  - padX) / (PHONE_W + 60);
+        const sy = (window.innerHeight - padY) / (PHONE_H + 60);
+        setScale(Math.min(1.1, Math.min(sx, sy)));
+      }
+    };
+    recompute();
+    window.addEventListener("resize", recompute);
+    window.addEventListener("orientationchange", recompute);
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("orientationchange", recompute);
+    };
+  }, []);
+  if (mode === "phone") return <FullScreen>{children}</FullScreen>;
+  return (
+    <div className="mobile-stage-host">
+      <div className="mobile-frame-fit" style={{ transform: `scale(${scale})` }}>
+        <Phone>{children}</Phone>
+      </div>
+    </div>
+  );
+}
+
+function FlowPhone() {
+  const [view, setView] = useState({ name: "home", lead: null });
+  const nav = (n) => setView({ name: n, lead: null });
+  let screen;
+  if      (view.name === "home")     screen = <MScreenToday       onNav={nav}/>;
+  else if (view.name === "queue")    screen = <MScreenQueue       onNav={nav} onCall={(l) => setView({ name: "call", lead: l })} onLead={(l) => setView({ name: "lead", lead: l })}/>;
+  else if (view.name === "call")     screen = <MScreenCall        lead={view.lead} onEnd={() => setView({ name: "queue", lead: null })}/>;
+  else if (view.name === "lead")     screen = <MScreenLead        lead={view.lead} onBack={() => setView({ name: "queue", lead: null })} onCall={() => { window.repflowDial && window.repflowDial("+1512555" + (view.lead?.id || "0").toString().padStart(4, "0").slice(0, 4), view.lead?.lead); setView({ name: "call", lead: view.lead }); }}/>;
+  else if (view.name === "lb")       screen = <MScreenLeaderboard onNav={nav}/>;
+  else if (view.name === "comm")     screen = <MScreenComm        onNav={nav}/>;
+  else if (view.name === "pipeline" && window.MScreenPipeline) { const C = window.MScreenPipeline; screen = <C onNav={nav} onLead={(l) => setView({ name: "lead", lead: l })}/>; }
+  else if (view.name === "coaching" && window.MScreenCoaching) { const C = window.MScreenCoaching; screen = <C onNav={nav}/>; }
+  else if (view.name === "vault"     && window.MScreenVault)    { const C = window.MScreenVault;    screen = <C onNav={nav}/>; }
+  else if (view.name === "settings"  && window.MScreenSettings) { const C = window.MScreenSettings; screen = <C onNav={nav}/>; }
+  else screen = <MScreenToday onNav={nav}/>;
+
+  return <>
+    {screen}
+    <div className="m-quicknav" style={{ flexShrink: 0 }}>
+      {[
+        { k: "home",     l: "Today" },
+        { k: "pipeline", l: "Pipe" },
+        { k: "queue",    l: "Queue" },
+        { k: "coaching", l: "Coach" },
+        { k: "vault",    l: "Vault" },
+        { k: "settings", l: "Set" },
+      ].map(t => (
+        <button key={t.k} className={`m-quicknav-btn ${view.name === t.k ? "active" : ""}`} onClick={() => nav(t.k)}>{t.l}</button>
+      ))}
+    </div>
+  </>;
+}
+
+function App() {
+  return <ResponsiveFrame><FlowPhone/></ResponsiveFrame>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

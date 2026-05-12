@@ -19,9 +19,8 @@
 <body>
 <div id="root"></div>
 
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
 <script src="lib/supabase-config.js?v=75"></script>
@@ -30,323 +29,47 @@
 <script src="lib/dial-rules.js?v=74"></script>
 <script src="lib/rate-engine.js?v=74"></script>
 <script src="lib/call-recorder.js?v=74"></script>
-<script type="text/babel" src="tweaks-panel.jsx?v=74"></script>
-<script type="text/babel" src="data.jsx?v=81"></script>
-<script type="text/babel" src="icons.jsx?v=79"></script>
-<script type="text/babel" src="shared.jsx?v=79"></script>
-<script type="text/babel" src="page-today.jsx?v=80"></script>
-<script type="text/babel" src="page-pipeline-sequences.jsx?v=74"></script>
-<script type="text/babel" src="page-pipeline.jsx?v=79"></script>
-<script type="text/babel" src="page-queue.jsx?v=80"></script>
-<script type="text/babel" src="page-manager.jsx?v=79"></script>
-<script type="text/babel" src="page-owner.jsx?v=79"></script>
-<script type="text/babel" src="page-ops.jsx?v=76"></script>
-<script type="text/babel" src="page-extras.jsx?v=79"></script>
-<script type="text/babel" src="page-expenses.jsx?v=76"></script>
-<script type="text/babel" src="page-invite-team.jsx?v=74"></script>
-<script type="text/babel" src="page-recruiting.jsx?v=74"></script>
-<script type="text/babel" src="page-attribution.jsx?v=74"></script>
-<script type="text/babel" src="page-ops-depth.jsx?v=79"></script>
-<script type="text/babel" src="page-performance.jsx?v=79"></script>
-<script type="text/babel" src="page-resources.jsx?v=74"></script>
-<script type="text/babel" src="page-crm.jsx?v=75"></script>
-<script type="text/babel" src="page-messages.jsx?v=78"></script>
-<script type="text/babel" src="page-library.jsx?v=76"></script>
-<script type="text/babel" src="page-platform.jsx?v=74"></script>
-<script type="text/babel" src="page-tenant.jsx?v=79"></script>
-<script type="text/babel" src="page-onboarding.jsx?v=78"></script>
-<script type="text/babel" src="page-first-run.jsx?v=78"></script>
-<script type="text/babel" src="page-admin.jsx?v=74"></script>
-<script type="text/babel" src="page-platform-admin.jsx?v=78"></script>
-<script type="text/babel" src="page-billing.jsx?v=74"></script>
-<script type="text/babel" src="page-autodialer.jsx?v=74"></script>
-<script type="text/babel" src="page-deal-write.jsx?v=78"></script>
-<script type="text/babel" src="page-floor.jsx?v=78"></script>
-<script type="text/babel" src="page-floor-actions.jsx?v=78"></script>
-<script type="text/babel" src="page-redial-queue.jsx?v=74"></script>
-<script type="text/babel" src="page-transcriber.jsx?v=74"></script>
-<script type="text/babel" src="page-quote-card.jsx?v=74"></script>
-<script type="text/babel" src="page-quote.jsx?v=74"></script>
-<script type="text/babel" src="page-auto-quoter.jsx?v=74"></script>
-<script type="text/babel" src="polish.jsx?v=78"></script>
-<script type="text/babel" src="page-auth.jsx?v=78"></script>
-<script type="text/babel" src="page-mobile.jsx?v=75"></script>
-
-<script type="text/babel">
-const { useState, useEffect, useMemo } = React;
-
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "role": "owner",
-  "page": "pnl",
-  "density": "comfortable",
-  "aiRail": false,
-  "aepMode": true,
-  "mobile": false
-}/*EDITMODE-END*/;
-
-function App() {
-  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const { role, page, density, aiRail, aepMode, mobile } = tweaks;
-  const [cmdkOpen, setCmdkOpen] = useState(false);
-  const [callOpen, setCallOpen] = useState(false);
-  const [callLead, setCallLead] = useState(null);
-  const [callAutodial, setCallAutodial] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [, force] = useState(0);
-
-  // Re-render on Supabase hydrate so all pages flip from mock → live data
-  useEffect(() => {
-    const onHydrate = () => force(n => n + 1);
-    window.addEventListener("data:hydrated", onHydrate);
-    return () => window.removeEventListener("data:hydrated", onHydrate);
-  }, []);
-
-  // Global incall:open / incall:dismiss — used by AutoDialBar to pop the rich
-  // dashboard for each lead, and by any per-row Phone button that wants the
-  // same panel rather than just firing repflowCall().
-  useEffect(() => {
-    const onOpen = (e) => {
-      setCallLead(e.detail?.lead || null);
-      setCallAutodial(!!e.detail?.autodial);
-      setCallOpen(true);
-      window.dispatchEvent(new CustomEvent("incall:opened"));
-    };
-    const onDismiss = () => {
-      setCallOpen(false); setCallAutodial(false);
-      window.dispatchEvent(new CustomEvent("incall:closed"));
-    };
-    window.addEventListener("incall:open",    onOpen);
-    window.addEventListener("incall:dismiss", onDismiss);
-    return () => {
-      window.removeEventListener("incall:open",    onOpen);
-      window.removeEventListener("incall:dismiss", onDismiss);
-    };
-  }, []);
-
-  // Auto-correct page if role changes and page doesn't exist for that role
-  useEffect(() => {
-    const navForRole = Shared.NAV[role] || Shared.NAV.owner;
-    const validPages = [...navForRole.map(i => i.id), ...Shared.NAV.ops.map(i => i.id), "settings"];
-    if (!validPages.includes(page)) {
-      setTweak("page", navForRole[0].id);
-    }
-  }, [role]);
-
-  // When the user signs in (real Supabase session, not demo), pull their real
-  // role from me() and switch the UI to it. Specifically: platform admins
-  // (role='admin') get the admin dashboard automatically — no role-switcher
-  // hack required. The Tweaks panel still allows manual role switching for
-  // testing every persona.
-  useEffect(() => {
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    let cancelled = false;
-    const sync = async () => {
-      try {
-        const { data: { session } } = await sb.auth.getSession();
-        if (!session) return;
-        const { data: meRow } = await sb.from("agency_members")
-          .select("role, agency_id, rep_id")
-          .eq("user_id", session.user.id)
-          .eq("active", true)
-          .order("joined_at", { ascending: false })
-          .limit(1).single();
-        if (cancelled) return;
-        if (meRow?.role && meRow.role !== role) {
-          window.__authRole = meRow.role;
-          setTweak("role", meRow.role);
-          // Land platform admins on the overview page
-          if (meRow.role === "admin") {
-            setTweak("page", "platform");
-            // Suppress the welcome-tour for signed-in admins
-            try { localStorage.setItem("repflow.tour.dismissed", "1"); } catch {}
-          }
-        }
-      } catch (_e) {}
-    };
-    sync();
-    const sub = sb.auth.onAuthStateChange((_event, _sess) => sync());
-    return () => { cancelled = true; sub?.data?.subscription?.unsubscribe?.(); };
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdkOpen(o => !o); }
-      else if (e.key === "?" && !cmdkOpen && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-        e.preventDefault(); setHelpOpen(h => !h);
-      }
-      else if (e.key === "Escape") { setCmdkOpen(false); setCallOpen(false); setNotifOpen(false); setHelpOpen(false); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [cmdkOpen]);
-
-  const goto = (p) => { setTweak("page", p); setCmdkOpen(false); };
-
-  // Expose goto + listen to nav:goto events from anywhere (SectionPill, deep-links, etc.)
-  React.useEffect(() => {
-    window.gotoPage = goto;
-    const onNav = (e) => goto(e.detail?.page || e.detail);
-    const onAsk = () => { if (!aiRail) setTweak("aiRail", true); };  // auto-open rail when an Ask the Book fires
-    window.addEventListener("nav:goto", onNav);
-    window.addEventListener("ai:ask", onAsk);
-    return () => { window.removeEventListener("nav:goto", onNav); window.removeEventListener("ai:ask", onAsk); };
-  }, [aiRail]);
-
-  const pageEl = useMemo(() => {
-    // GAP-M1: mobile reps land on Floor (the actual workspace) instead of
-    // the legacy MobileRep mock. Manager + owner still get MobileRep — they
-    // don't dial from phones.
-    if (mobile && role === "rep") return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
-    if (mobile) return <MobileRep/>;
-    switch (page) {
-      case "today":       return <PageToday aep={aepMode} role={role}/>;
-      case "floor":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
-      case "pipeline":    return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="pipeline"/>;
-      case "queue":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
-      case "leaderboard": return (() => {
-        // page-leaderboard.jsx was removed — fall through to Performance for
-        // owners, or a stub message for non-owner roles.
-        const P = window.PagePerformance;
-        if (P) return <P/>;
-        return <div style={{ padding: 30, color: "var(--text-tertiary)", fontSize: 13 }}>Leaderboard view not available — open P&L → Performance instead.</div>;
-      })();
-      case "performance": return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "team":        return <PageTeam/>;
-      case "coaching":    return <PageTraining role={role} defaultTab="coaching"/>;
-      case "pnl":         return <PagePnL/>;
-      case "tree":        return <PageOrgTree/>;
-      case "connections": return <PageConnections/>;
-      case "calls":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="history"/>;
-      case "commissions": return <PageCommissions role={role}/>;
-      case "training":    return <PageTraining role={role}/>;
-      case "vault":       return <PageVault role={role}/>;
-      case "resources":   return (() => { const P = window.PageResources;   return P ? <P role={role}/> : null; })();
-      case "crm":         return (() => { const P = window.PageCrm;         return P ? <P role={role}/> : null; })();
-      case "messages":    return (() => { const P = window.PageMessages;    return P ? <P role={role}/> : null; })();
-      case "quote":       return (() => { const P = window.PageQuote;       return P ? <P role={role}/> : null; })();
-      case "auto-quoter": return (() => { const P = window.PageAutoQuoter;  return P ? <P role={role}/> : null; })();
-      case "book":        return <PageBook/>;
-      case "recruiting":  return <PageRecruiting role={role}/>;
-      case "settings":    return <PageSettings role={role}/>;
-      case "admin":       return (() => {
-        // Only platform-admin (and super_admin via NAV.super_admin) gets an
-        // admin surface. The single-agency PageAdmin is disabled across the
-        // agency hierarchy (owner/manager) and the demo hierarchy.
-        if (role === "admin" || role === "super_admin") {
-          const P = window.PagePlatformAdmin;
-          return P ? <P subpage="platform"/> : null;
-        }
-        return <PageStub title="Page" sub=""/>;
-      })();
-      // Admin-only sub-pages (only reachable from NAV.admin)
-      case "platform":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="platform"/> : null; })();
-      case "agencies":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="agencies"/> : null; })();
-      case "users":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="users"/>    : null; })();
-      case "billing":     return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="billing"/>  : null; })();
-      case "audit":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="audit"/>    : null; })();
-      case "system":      return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="system"/>   : null; })();
-      case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
-      case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
-
-      // Consolidated NAV aliases (NAV restructure 2026-05-05).
-      // Old routes (vault/tree/performance/attribution/training/resources/
-      // commissions) still have direct case handlers above for deep-link
-      // back-compat — these are the new top-level NAV ids.
-      case "library":     return (() => { const P = window.PageLibrary; return P ? <P role={role}/> : <PageTraining role={role}/>; })();
-      case "org":         return <PageOrgTree/>;
-      case "compliance":  return <PageVault role={role}/>;
-      case "pay":         return <PageCommissions role={role}/>;
-      case "expenses":    return (() => { const P = window.PageExpenses;    return P ? <P role={role}/> : null; })();
-
-      // Legacy routes — kept so deep links + AI nav: hints don't 404 after
-      // earlier owner nav consolidation. They redirect into related pages.
-      case "tiering":     return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "forecast":    return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "carriers":    return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
-      case "scrubbers":   return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
-      case "hardware":    return (() => { const P = window.PageHardware;    return P ? <P/> : null; })();
-      case "agents":      return (() => { const P = window.PageAgents;      return P ? <P/> : null; })();
-      case "workflows":   return (() => { const P = window.PageWorkflows;   return P ? <P/> : null; })();
-
-      default:            return <PageStub title="Page" sub=""/>;
-    }
-  }, [page, mobile, aepMode, role]);
-
-  const crumbs = useMemo(() => {
-    const role_ = { rep: "Rep", manager: "Manager", owner: "Owner" }[role];
-    const item = [...Shared.NAV[role], ...Shared.NAV.ops].find(i => i.id === page);
-    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-    const agencyName = meIdent?.agency_name || "Agency";
-    return [agencyName, role_, item?.label || page];
-  }, [role, page]);
-
-  return (
-    <div className="app" data-rail={aiRail && !mobile ? "on" : "off"} data-mobile={mobile ? "on" : "off"} data-density={density}>
-      {!mobile && (
-        <Shared.Sidebar
-          role={role}
-          setRole={(r) => setTweak("role", r)}
-          page={page}
-          setPage={goto}
-          openCmdK={() => setCmdkOpen(true)}
-        />
-      )}
-      <main className="workspace">
-        {window.ImpersonationBanner && (() => { const B = window.ImpersonationBanner; return <B/>; })()}
-        {!mobile && (
-          <Shared.Topbar
-            crumbs={crumbs}
-            aep={aepMode}
-            openCmdK={() => setCmdkOpen(true)}
-            toggleRail={() => setTweak("aiRail", !aiRail)}
-            railOn={aiRail}
-            openMobile={() => setTweak("mobile", true)}
-            openNotifications={() => setNotifOpen(true)}
-            openSettings={() => goto("settings")}
-            notifCount={6}
-          />
-        )}
-        <div className="page">{pageEl}</div>
-      </main>
-      {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
-
-      <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
-      {(() => { const T = window.ToastHost; return T ? <T/> : null; })()}
-      {(() => { const O = window.OnboardingTour; return O ? <O/> : null; })()}
-      {(() => { const NP = window.PerAgencyNotificationsPanel || NotificationsPanel; return <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>; })()}
-      {window.AutoDialBar && (() => { const A = window.AutoDialBar; return <A/>; })()}
-      {window.FloorActionsHost && (() => { const F = window.FloorActionsHost; return <F/>; })()}
-      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
-      {callOpen && <InCall lead={callLead} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
-
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="View"/>
-        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"},{value:"admin",label:"Admin"},{value:"super_admin",label:"Super"}]} onChange={(v) => setTweak("role", v)}/>
-        <TweakSelect label="Page" value={page} options={[
-          ...Shared.NAV[role].map(i => ({ value: i.id, label: i.label })),
-          ...Shared.NAV.ops.map(i => ({ value: i.id, label: `Ops · ${i.label}` }))
-        ]} onChange={(v) => setTweak("page", v)}/>
-        <TweakToggle label="Mobile rep view" value={mobile} onChange={(v) => setTweak("mobile", v)}/>
-        <TweakSection label="Density & UI"/>
-        <TweakRadio label="Density" value={density} options={[{value:"comfortable",label:"Comfy"},{value:"compact",label:"Compact"}]} onChange={(v) => setTweak("density", v)}/>
-        <TweakToggle label="AI co-pilot rail" value={aiRail} onChange={(v) => setTweak("aiRail", v)}/>
-        <TweakToggle label="AEP surge mode" value={aepMode} onChange={(v) => setTweak("aepMode", v)}/>
-        <TweakSection label="Try"/>
-        <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
-        <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>
-        <TweakButton label="Open mobile prototype (full screen)" onClick={() => window.location.assign("/mobile.html")}/>
-      </TweaksPanel>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <Shared.ErrorBoundary>
-    <AuthGate><App/></AuthGate>
-  </Shared.ErrorBoundary>
-);
-</script>
+<script src="dist/tweaks-panel.js?v=74"></script>
+<script src="dist/data.js?v=81"></script>
+<script src="dist/icons.js?v=79"></script>
+<script src="dist/shared.js?v=79"></script>
+<script src="dist/page-today.js?v=80"></script>
+<script src="dist/page-pipeline-sequences.js?v=74"></script>
+<script src="dist/page-pipeline.js?v=79"></script>
+<script src="dist/page-queue.js?v=80"></script>
+<script src="dist/page-manager.js?v=79"></script>
+<script src="dist/page-owner.js?v=79"></script>
+<script src="dist/page-ops.js?v=76"></script>
+<script src="dist/page-extras.js?v=79"></script>
+<script src="dist/page-expenses.js?v=76"></script>
+<script src="dist/page-invite-team.js?v=74"></script>
+<script src="dist/page-recruiting.js?v=74"></script>
+<script src="dist/page-attribution.js?v=74"></script>
+<script src="dist/page-ops-depth.js?v=79"></script>
+<script src="dist/page-performance.js?v=79"></script>
+<script src="dist/page-resources.js?v=74"></script>
+<script src="dist/page-crm.js?v=75"></script>
+<script src="dist/page-messages.js?v=78"></script>
+<script src="dist/page-library.js?v=76"></script>
+<script src="dist/page-platform.js?v=74"></script>
+<script src="dist/page-tenant.js?v=79"></script>
+<script src="dist/page-onboarding.js?v=78"></script>
+<script src="dist/page-first-run.js?v=78"></script>
+<script src="dist/page-admin.js?v=74"></script>
+<script src="dist/page-platform-admin.js?v=78"></script>
+<script src="dist/page-billing.js?v=74"></script>
+<script src="dist/page-autodialer.js?v=74"></script>
+<script src="dist/page-deal-write.js?v=78"></script>
+<script src="dist/page-floor.js?v=78"></script>
+<script src="dist/page-floor-actions.js?v=78"></script>
+<script src="dist/page-redial-queue.js?v=74"></script>
+<script src="dist/page-transcriber.js?v=74"></script>
+<script src="dist/page-quote-card.js?v=74"></script>
+<script src="dist/page-quote.js?v=74"></script>
+<script src="dist/page-auto-quoter.js?v=74"></script>
+<script src="dist/polish.js?v=78"></script>
+<script src="dist/page-auth.js?v=78"></script>
+<script src="dist/page-mobile.js?v=75"></script>
+<script src="dist/app.js?v=81"></script>
 </body>
 </html>

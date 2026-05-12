@@ -1,10 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm install --no-audit --no-fund && npm run build",
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
     {
-      "source": "/(.*)\\.(jsx|css)",
+      "source": "/dist/(.*)\\.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.css",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
       ]
