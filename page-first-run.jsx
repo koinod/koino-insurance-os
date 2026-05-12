@@ -819,6 +819,23 @@ function AgencyWizard({ agency, onDone }) {
   const submitStep = async (payload) => {
     setBusy(true); setErr("");
     try {
+      // P6 — when the operator fills out their first agency profile, also
+      // seed their own public.profiles row with the overlapping fields so
+      // Settings → Profile shows real values on first open instead of
+      // empty inputs. save_profile preserves keys not sent, so this only
+      // upserts what we know from the form.
+      if (nextKey === "profile" && payload) {
+        try {
+          const userPatch = {};
+          if (payload.legal_name)    userPatch.full_name = payload.legal_name;
+          if (payload.email)         userPatch.email     = payload.email;
+          if (payload.phone)         userPatch.phone     = payload.phone;
+          if (payload.npn)           userPatch.npn       = payload.npn;
+          if (Object.keys(userPatch).length > 0) {
+            await sb.rpc("save_profile", { p: userPatch });
+          }
+        } catch (_userErr) { /* non-blocking — agency profile still saves below */ }
+      }
       await completeStep(sb, agency.id, nextKey, payload || {});
       await refresh();
     } catch (e) {

@@ -3244,54 +3244,291 @@ function SettingsNotifications_OLD() {
   );
 }
 
+/* Settings → Profile — bound to public.profiles via save_profile +
+ * get_my_profile RPCs (2026-05-11 backend).
+ *
+ * Was: every input was uncontrolled (defaultValue=) with no onChange,
+ * no save button, and hardcoded "marcus@atlasimo.com" / Atlas chips —
+ * the "can't save my profile info" bug Ian reported.
+ *
+ * Now:
+ *  - get_my_profile() on mount loads profile + memberships + agency_id
+ *  - controlled inputs across every editable field
+ *  - save_profile(p jsonb) on click — backend preserves keys not sent
+ *  - v_user_metrics rendered as a tiny KPI strip for the signed-in user
+ *  - NPN, licensed_states (multi-select), license_expirations
+ *    (per-state date), E&O carrier + expiry, notification_prefs
+ *    (email / sms / telegram / in_app + digest_frequency) all wired.
+ */
+const PROFILE_ALL_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+const PROFILE_TIMEZONES = [
+  { v: "America/New_York",     l: "Eastern (ET)" },
+  { v: "America/Chicago",      l: "Central (CT)" },
+  { v: "America/Denver",       l: "Mountain (MT)" },
+  { v: "America/Phoenix",      l: "Arizona (no DST)" },
+  { v: "America/Los_Angeles",  l: "Pacific (PT)" },
+  { v: "America/Anchorage",    l: "Alaska" },
+  { v: "Pacific/Honolulu",     l: "Hawaii" },
+];
+const DIGEST_FREQ = [
+  { v: "off",     l: "Off" },
+  { v: "realtime",l: "Real-time" },
+  { v: "daily",   l: "Daily digest" },
+  { v: "weekly",  l: "Weekly digest" },
+];
+
 function SettingsProfile({ role }) {
-  // Resolve real signed-in identity first; fall back to first rep only for the
-  // bare demo, never blow up if REPS is empty.
-  const meCtx = (window.me && window.me()) || {};
-  const fallback = AppData.REPS && AppData.REPS[0];
-  const me = (fallback && (fallback.id === meCtx.rep_id || !meCtx.rep_id)) ? fallback : null;
-  const name   = meCtx.full_name  || me?.name    || "—";
-  const handle = meCtx.handle     || me?.handle  || "";
+  const sb = window.getSupabase && window.getSupabase();
+  const [loading,  setLoading]  = React.useState(true);
+  const [loadErr,  setLoadErr]  = React.useState(null);
+  const [saving,   setSaving]   = React.useState(false);
+  const [saveMsg,  setSaveMsg]  = React.useState("");
+  const [bundle,   setBundle]   = React.useState(null); // { profile, memberships, current_agency_id, is_platform_admin }
+  const [metrics,  setMetrics]  = React.useState(null);
+
+  // Form state shadows the bundle.profile fields. We track ONLY user-touched
+  // fields in `dirty` so save_profile sends a minimal patch and the backend
+  // preserves untouched keys (the contract per the RPC spec).
+  const [form,  setForm]  = React.useState({});
+  const [dirty, setDirty] = React.useState({});
+  const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
+  const updateNotif = (k, v) => {
+    setForm(f => ({ ...f, notification_prefs: { ...(f.notification_prefs || {}), [k]: v } }));
+    setDirty(d => ({ ...d, notification_prefs: true }));
+  };
+
+  const load = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true); setLoadErr(null);
+    try {
+      const r = await sb.rpc("get_my_profile");
+      if (r.error) throw r.error;
+      const b = (typeof r.data === "string") ? JSON.parse(r.data) : (r.data || {});
+      setBundle(b);
+      const p = b?.profile || {};
+      setForm({
+        display_name:        p.display_name || "",
+        full_name:           p.full_name || "",
+        email:               p.email || "",
+        phone:               p.phone || "",
+        title:               p.title || "",
+        bio:                 p.bio || "",
+        pronouns:            p.pronouns || "",
+        avatar_url:          p.avatar_url || "",
+        linkedin_url:        p.linkedin_url || "",
+        website_url:         p.website_url || "",
+        timezone:            p.timezone || "America/New_York",
+        theme:               p.theme || "system",
+        density:             p.density || "comfortable",
+        default_landing:     p.default_landing || "",
+        npn:                 p.npn || "",
+        licensed_states:     Array.isArray(p.licensed_states) ? p.licensed_states : [],
+        license_expirations: (p.license_expirations && typeof p.license_expirations === "object") ? p.license_expirations : {},
+        eando_carrier:       p.eando_carrier || "",
+        eando_expires_at:    p.eando_expires_at || "",
+        notification_prefs:  (p.notification_prefs && typeof p.notification_prefs === "object") ? p.notification_prefs : {
+          email: true, sms: false, telegram: false, in_app: true, digest_frequency: "daily",
+        },
+      });
+      setDirty({});
+      // Fetch metrics in the background — don't block the form on this.
+      try {
+        const mr = await sb.from("v_user_metrics").select("*").maybeSingle();
+        if (mr.data) setMetrics(mr.data);
+      } catch (_e) {}
+    } catch (e) {
+      setLoadErr(String(e?.message || e));
+    } finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!sb) return;
+    setSaving(true); setSaveMsg("");
+    try {
+      // Build minimal patch — only dirty keys + their current value.
+      const patch = {};
+      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      if (Object.keys(patch).length === 0) {
+        setSaveMsg("Nothing to save."); setSaving(false);
+        setTimeout(() => setSaveMsg(""), 1500);
+        return;
+      }
+      const r = await sb.rpc("save_profile", { p: patch });
+      if (r.error) throw r.error;
+      setSaveMsg("Saved.");
+      window.toast && window.toast("Profile saved", "success");
+      // Refresh me() so any header chip / sidebar greeting picks up the new
+      // display_name without a full reload.
+      if (window.refreshMe) await window.refreshMe();
+      await load();
+      setTimeout(() => setSaveMsg(""), 1500);
+    } catch (e) {
+      setSaveMsg("");
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setSaving(false); }
+  };
+
+  const toggleState = (s) => {
+    const cur = Array.isArray(form.licensed_states) ? form.licensed_states : [];
+    const next = cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s].sort();
+    update("licensed_states", next);
+  };
+  const setStateExpiry = (s, iso) => {
+    const cur = (form.license_expirations && typeof form.license_expirations === "object") ? form.license_expirations : {};
+    const next = { ...cur };
+    if (iso) next[s] = iso; else delete next[s];
+    update("license_expirations", next);
+  };
+
+  if (loading) {
+    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading profile…</div>;
+  }
+  if (loadErr) {
+    return (
+      <div className="panel" style={{ padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load your profile</div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{loadErr}</div>
+        <button className="btn" onClick={load}>Try again</button>
+        <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
+      </div>
+    );
+  }
+
+  const memberships = bundle?.memberships || [];
+  const isPlatformAdmin = !!bundle?.is_platform_admin;
+  const np = form.notification_prefs || {};
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0 }}>Profile</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
-          <Shared.Avatar rep={me || { name, handle, color: "var(--text-tertiary)" }} size={48}/>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{name}</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{handle} · Atlanta · {role}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <Shared.Avatar rep={{ name: form.display_name || form.full_name || form.email || "—", handle: form.display_name ? "@" + form.display_name.split(/\s+/)[0].toLowerCase() : "", color: "var(--text-tertiary)" }} size={48}/>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{form.display_name || form.full_name || form.email || "Set your name"}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
+              {form.title || role}
+              {isPlatformAdmin && <span className="chip chip-status" style={{ marginLeft: 8, fontSize: 10 }}>platform admin</span>}
+              {memberships.length > 0 && <span style={{ marginLeft: 8 }}>· {memberships.length} membership{memberships.length === 1 ? "" : "s"}</span>}
+            </div>
           </div>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}>Change avatar</button>
         </div>
+
+        {/* Metrics strip (best-effort — hidden if v_user_metrics is missing). */}
+        {metrics && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginTop: 14 }}>
+            {[
+              ["Commissions",       metrics.commissions_count       ?? 0],
+              ["Calls recorded",    metrics.calls_recorded          ?? 0],
+              ["Agency policies",   metrics.agency_policies_total   ?? 0],
+              ["Agency open pipe",  metrics.agency_pipeline_open    ?? 0],
+            ].map(([l, v]) => (
+              <div key={l} style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 6 }}>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}>{l}</div>
+                <div className="tabular" style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="divider"></div>
+
+        <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Identity</h4>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Shared.Field label="Display name"><input className="text-input" defaultValue={name}/></Shared.Field>
-          <Shared.Field label="Email"><input className="text-input" defaultValue="marcus@atlasimo.com"/></Shared.Field>
-          <Shared.Field label="Phone"><input className="text-input" defaultValue="+1 (404) 555-0142"/></Shared.Field>
-          <Shared.Field label="Time zone"><Shared.Select value="ET" onChange={() => {}} options={[{ v: "ET", l: "Eastern" }, { v: "CT", l: "Central" }, { v: "MT", l: "Mountain" }, { v: "PT", l: "Pacific" }]}/></Shared.Field>
+          <Shared.Field label="Display name"><input className="text-input" value={form.display_name} onChange={(e) => update("display_name", e.target.value)} placeholder="What teammates call you"/></Shared.Field>
+          <Shared.Field label="Legal full name"><input className="text-input" value={form.full_name} onChange={(e) => update("full_name", e.target.value)} placeholder="On your producer license"/></Shared.Field>
+          <Shared.Field label="Email"><input className="text-input" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@agency.com"/></Shared.Field>
+          <Shared.Field label="Phone"><input className="text-input" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="+1 (404) 555-0142"/></Shared.Field>
+          <Shared.Field label="Title"><input className="text-input" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Senior producer"/></Shared.Field>
+          <Shared.Field label="Pronouns"><input className="text-input" value={form.pronouns} onChange={(e) => update("pronouns", e.target.value)} placeholder="they/them"/></Shared.Field>
+          <Shared.Field label="Avatar URL"><input className="text-input" value={form.avatar_url} onChange={(e) => update("avatar_url", e.target.value)} placeholder="https://…"/></Shared.Field>
+          <Shared.Field label="Website"><input className="text-input" value={form.website_url} onChange={(e) => update("website_url", e.target.value)} placeholder="https://your.site"/></Shared.Field>
+          <Shared.Field label="LinkedIn"><input className="text-input" value={form.linkedin_url} onChange={(e) => update("linkedin_url", e.target.value)} placeholder="https://linkedin.com/in/…"/></Shared.Field>
+          <Shared.Field label="Time zone"><Shared.Select value={form.timezone} onChange={(v) => update("timezone", v)} options={PROFILE_TIMEZONES}/></Shared.Field>
         </div>
+        <Shared.Field label="Bio"><textarea className="text-input" rows={3} value={form.bio} onChange={(e) => update("bio", e.target.value)} placeholder="Short bio — appears in your producer profile."/></Shared.Field>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Licensing</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Shared.Field label="NPN" hint="National Producer Number"><input className="text-input" value={form.npn} onChange={(e) => update("npn", e.target.value.replace(/\D/g, ""))} placeholder="19384726"/></Shared.Field>
+          <Shared.Field label="E&O carrier"><input className="text-input" value={form.eando_carrier} onChange={(e) => update("eando_carrier", e.target.value)} placeholder="NAPA / E&amp;O Pro / Hiscox"/></Shared.Field>
+          <Shared.Field label="E&O expiration"><input className="text-input" type="date" value={form.eando_expires_at || ""} onChange={(e) => update("eando_expires_at", e.target.value || null)}/></Shared.Field>
+        </div>
+        <Shared.Field label={`Licensed states (${(form.licensed_states || []).length})`} hint="Click a state to toggle. Set its expiration on the right when active.">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: 8, background: "var(--bg-raised)", borderRadius: 6, maxHeight: 200, overflowY: "auto" }}>
+            {PROFILE_ALL_STATES.map(s => {
+              const on = (form.licensed_states || []).includes(s);
+              return (
+                <button key={s} onClick={() => toggleState(s)} className={`chip ${on ? "chip-money" : ""}`} style={{ cursor: "pointer", border: 0, fontWeight: 500 }}>
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        </Shared.Field>
+        {(form.licensed_states || []).length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+            {(form.licensed_states || []).map(s => (
+              <div key={s} style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="chip chip-money" style={{ fontSize: 10.5 }}>{s}</span>
+                <input className="text-input" type="date" style={{ flex: 1, fontSize: 11.5, padding: "4px 6px" }} value={(form.license_expirations || {})[s] || ""} onChange={(e) => setStateExpiry(s, e.target.value || null)}/>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Notification preferences</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+          {[
+            ["email",    "Email"],
+            ["sms",      "SMS"],
+            ["telegram", "Telegram"],
+            ["in_app",   "In-app"],
+          ].map(([k, l]) => {
+            const on = !!np[k];
+            return (
+              <label key={k} style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: on ? "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))" : "var(--bg-raised)", borderRadius: 6, cursor: "pointer", fontSize: 12.5, border: on ? "1px solid var(--accent-money)" : "1px solid var(--border-subtle)" }}>
+                <input type="checkbox" checked={on} onChange={() => updateNotif(k, !on)}/>
+                <span>{l}</span>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Shared.Field label="Digest frequency"><Shared.Select value={np.digest_frequency || "daily"} onChange={(v) => updateNotif("digest_frequency", v)} options={DIGEST_FREQ}/></Shared.Field>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>App preferences</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <Shared.Field label="Theme"><Shared.Select value={form.theme} onChange={(v) => update("theme", v)} options={[
+            { v: "system", l: "Match system" }, { v: "light",  l: "Light" }, { v: "dark",   l: "Dark" },
+          ]}/></Shared.Field>
+          <Shared.Field label="Density"><Shared.Select value={form.density} onChange={(v) => update("density", v)} options={[
+            { v: "comfortable", l: "Comfortable" }, { v: "compact",     l: "Compact" },
+          ]}/></Shared.Field>
+          <Shared.Field label="Default landing page"><input className="text-input" value={form.default_landing} onChange={(e) => update("default_landing", e.target.value)} placeholder="today / floor / pipeline …"/></Shared.Field>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16, display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
+          <Icons.Check size={12}/> {saving ? "Saving…" : "Save profile"}
+        </button>
+        {saveMsg && <span style={{ color: "var(--accent-money)", fontSize: 12 }}>{saveMsg}</span>}
+        {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length === 1 ? "" : "s"}</span>}
       </div>
 
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0 }}>Session</h3>
         <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
           <button className="btn" onClick={() => window.signOut && window.signOut()}><Icons.X size={12}/> Sign out</button>
-          <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>Ends your Supabase session and clears demo flag.</span>
-        </div>
-      </div>
-
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0 }}>Licenses + appointments</h3>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-          {["TX","FL","GA","NV","AZ"].map(s => <span key={s} className="chip chip-money">{s} · active</span>)}
-          {["NY"].map(s => <span key={s} className="chip chip-status">{s} · pending</span>)}
-        </div>
-        <div className="divider"></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
-          {["UHC","Humana","Aetna SRC","Mutual of Omaha","F&G Annuities"].map(c => (
-            <div key={c} className="chip">{c}</div>
-          ))}
+          <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>Ends your Supabase session and clears local state.</span>
         </div>
       </div>
     </div>
