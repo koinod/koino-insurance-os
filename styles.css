@@ -1140,3 +1140,124 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 @media (prefers-reduced-motion: reduce) {
   @keyframes shimmer { 0%, 100% { background-position: 0 0; } }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Koino.capital design system — scoped to .koino-skin.
+   Applied to the admin / imo_owner audit surface so the IMO HQ matches the
+   marketing site (near-black bg + teal-green accent #00d4aa, JetBrains Mono
+   for tabular numbers + labels, tighter 12–14px card padding, denser grids).
+   ───────────────────────────────────────────────────────────────────────── */
+.koino-skin {
+  /* Pulled verbatim from storefront-static/index.html :root tokens. */
+  --k-bg:    #050505;
+  --k-s1:    #0d0d0d;
+  --k-s2:    #151515;
+  --k-b:     #1a1a1a;
+  --k-bh:    #2a2a2a;
+  --k-t:     #e8e8e8;
+  --k-t2:    #888;
+  --k-t3:    #555;
+  --k-a:     #00d4aa;
+  --k-ag:    rgba(0,212,170,0.15);
+  --k-ad:    rgba(0,212,170,0.08);
+  --k-p:     #7c3aed;
+  --k-warn:  #f59e0b;
+  --k-danger:#ef4444;
+  --k-mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --k-sans:  "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  background: var(--k-bg);
+  color: var(--k-t);
+  font-family: var(--k-sans);
+}
+
+.koino-skin .k-h { display:flex; align-items:flex-start; gap:12px; padding:18px 0 16px; border-bottom:1px solid var(--k-b); margin-bottom:18px; }
+.koino-skin .k-h .k-h-title { font-size:1.05rem; font-weight:700; letter-spacing:-0.01em; color:var(--k-t); }
+.koino-skin .k-h .k-h-sub   { font-family:var(--k-mono); font-size:0.7rem; color:var(--k-t3); letter-spacing:0.08em; text-transform:uppercase; margin-top:4px; }
+
+/* Tab pill bar */
+.koino-skin .k-tabs { display:flex; gap:4px; padding:4px; background:var(--k-s1); border:1px solid var(--k-b); border-radius:8px; margin-bottom:16px; }
+.koino-skin .k-tab  { flex:1; padding:8px 10px; font-size:0.78rem; font-weight:500; color:var(--k-t2); background:transparent; border:none; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; transition:all 0.15s; font-family:var(--k-sans); }
+.koino-skin .k-tab:hover { color:var(--k-t); }
+.koino-skin .k-tab.on { background:var(--k-s2); color:var(--k-t); border:1px solid var(--k-b); }
+.koino-skin .k-tab.on .k-tab-dot { background:var(--k-a); }
+.koino-skin .k-tab-dot { width:5px; height:5px; border-radius:50%; background:var(--k-t3); }
+
+/* Cards — smaller + cooler + tighter than the storefront */
+.koino-skin .k-card { background:var(--k-s1); border:1px solid var(--k-b); border-radius:10px; overflow:hidden; transition:border-color 0.15s; }
+.koino-skin .k-card:hover { border-color:var(--k-bh); }
+.koino-skin .k-card-h { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--k-b); }
+.koino-skin .k-card-h h3 { font-size:0.78rem; font-weight:600; color:var(--k-t); letter-spacing:0.02em; }
+.koino-skin .k-card-h .k-meta { font-family:var(--k-mono); font-size:0.65rem; color:var(--k-t3); letter-spacing:0.06em; text-transform:uppercase; margin-left:6px; }
+.koino-skin .k-card-h .k-actions { margin-left:auto; display:flex; gap:6px; align-items:center; }
+.koino-skin .k-card-body { padding:12px 14px; }
+
+/* KPI strip — 4-up, denser */
+.koino-skin .k-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:14px; }
+.koino-skin .k-kpi { background:var(--k-s1); border:1px solid var(--k-b); border-radius:10px; padding:12px 14px; }
+.koino-skin .k-kpi.k-hero { background:linear-gradient(135deg, var(--k-ad) 0%, var(--k-s1) 60%); border-color:rgba(0,212,170,0.2); }
+.koino-skin .k-kpi .k-kpi-label { font-family:var(--k-mono); font-size:0.65rem; color:var(--k-t3); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:6px; }
+.koino-skin .k-kpi .k-kpi-value { font-family:var(--k-mono); font-size:1.55rem; font-weight:700; color:var(--k-t); letter-spacing:-0.02em; line-height:1.05; }
+.koino-skin .k-kpi.k-hero .k-kpi-value { color:var(--k-a); }
+.koino-skin .k-kpi .k-kpi-sub   { font-size:0.72rem; color:var(--k-t2); margin-top:4px; }
+
+/* Buttons */
+.koino-skin .k-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; font-size:0.78rem; font-weight:500; border-radius:6px; border:1px solid var(--k-b); background:var(--k-s2); color:var(--k-t); cursor:pointer; transition:all 0.15s; font-family:var(--k-sans); }
+.koino-skin .k-btn:hover { border-color:var(--k-bh); background:var(--k-b); }
+.koino-skin .k-btn:disabled { opacity:0.45; cursor:not-allowed; }
+.koino-skin .k-btn-primary { background:var(--k-a); color:#000; border-color:var(--k-a); font-weight:600; }
+.koino-skin .k-btn-primary:hover { background:#00e0b8; border-color:#00e0b8; box-shadow:0 4px 18px var(--k-ag); }
+.koino-skin .k-btn-ghost { background:transparent; border-color:transparent; color:var(--k-t2); padding:6px 10px; }
+.koino-skin .k-btn-ghost:hover { color:var(--k-t); background:var(--k-s2); border-color:var(--k-b); }
+.koino-skin .k-btn-danger  { color:var(--k-danger); }
+.koino-skin .k-btn-danger:hover { background:rgba(239,68,68,0.08); border-color:rgba(239,68,68,0.3); }
+
+/* Form controls */
+.koino-skin .k-input, .koino-skin .k-select {
+  background:var(--k-s2); border:1px solid var(--k-b); border-radius:6px;
+  color:var(--k-t); font-family:var(--k-sans); font-size:0.78rem;
+  padding:6px 10px; outline:none; transition:border-color 0.15s;
+  height:32px;
+}
+.koino-skin .k-input:focus, .koino-skin .k-select:focus { border-color:var(--k-a); box-shadow:0 0 0 2px var(--k-ad); }
+.koino-skin .k-select { padding-right:24px; appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path fill='%23888' d='M3 4.5L6 8 9 4.5z'/></svg>"); background-repeat:no-repeat; background-position:right 8px center; background-size:10px; }
+
+/* Tables — denser than the storefront */
+.koino-skin .k-table { width:100%; }
+.koino-skin .k-tr { display:grid; gap:10px; padding:9px 14px; border-bottom:1px solid var(--k-b); align-items:center; font-size:0.78rem; }
+.koino-skin .k-tr:last-child { border-bottom:none; }
+.koino-skin .k-tr.k-head { padding:8px 14px; background:var(--k-bg); border-bottom:1px solid var(--k-b); }
+.koino-skin .k-tr.k-head > div { font-family:var(--k-mono); font-size:0.62rem; color:var(--k-t3); text-transform:uppercase; letter-spacing:0.08em; }
+.koino-skin .k-tr.k-body:hover { background:rgba(255,255,255,0.015); }
+.koino-skin .k-cell-name { font-weight:600; color:var(--k-t); }
+.koino-skin .k-cell-sub  { font-family:var(--k-mono); font-size:0.65rem; color:var(--k-t3); margin-top:2px; }
+.koino-skin .k-mono { font-family:var(--k-mono); }
+.koino-skin .k-num  { font-family:var(--k-mono); font-variant-numeric:tabular-nums; }
+
+/* Chips / pills */
+.koino-skin .k-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; font-family:var(--k-mono); font-size:0.62rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--k-t2); background:var(--k-s2); border:1px solid var(--k-b); border-radius:4px; }
+.koino-skin .k-chip.k-chip-live   { color:var(--k-a);     border-color:rgba(0,212,170,0.3); background:var(--k-ad); }
+.koino-skin .k-chip.k-chip-warn   { color:var(--k-warn);  border-color:rgba(245,158,11,0.3); background:rgba(245,158,11,0.08); }
+.koino-skin .k-chip.k-chip-danger { color:var(--k-danger);border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.08); }
+.koino-skin .k-chip.k-chip-demo   { color:var(--k-p);     border-color:rgba(124,58,237,0.3); background:rgba(124,58,237,0.08); }
+
+/* Dense 2-col grid */
+.koino-skin .k-2col { display:grid; grid-template-columns: 1.5fr 1fr; gap:12px; }
+.koino-skin .k-stack { display:flex; flex-direction:column; gap:10px; }
+
+/* Empty state */
+.koino-skin .k-empty { padding:24px 14px; text-align:center; color:var(--k-t3); font-size:0.78rem; line-height:1.6; }
+.koino-skin .k-error { padding:12px 14px; color:var(--k-danger); font-family:var(--k-mono); font-size:0.72rem; background:rgba(239,68,68,0.06); border-top:1px solid rgba(239,68,68,0.2); }
+
+/* System probe row */
+.koino-skin .k-probe { display:flex; align-items:flex-start; gap:10px; padding:10px 14px; border-bottom:1px solid var(--k-b); }
+.koino-skin .k-probe:last-child { border-bottom:none; }
+.koino-skin .k-probe-dot { width:7px; height:7px; border-radius:50%; margin-top:6px; flex-shrink:0; }
+.koino-skin .k-probe-label { font-size:0.82rem; font-weight:600; color:var(--k-t); display:flex; align-items:center; gap:6px; }
+.koino-skin .k-probe-hint  { font-size:0.72rem; color:var(--k-t2); margin-top:3px; line-height:1.5; }
+.koino-skin .k-probe-detail{ font-family:var(--k-mono); font-size:0.7rem; color:var(--k-t3); margin-top:4px; }
+
+@media (max-width: 900px) {
+  .koino-skin .k-kpis  { grid-template-columns:repeat(2, 1fr); }
+  .koino-skin .k-2col  { grid-template-columns:1fr; }
+}

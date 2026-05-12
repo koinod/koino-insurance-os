@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=77"/>
+<link rel="stylesheet" href="styles.css?v=78"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
 <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
@@ -57,7 +57,7 @@
 <script type="text/babel" src="page-onboarding.jsx?v=76"></script>
 <script type="text/babel" src="page-first-run.jsx?v=77"></script>
 <script type="text/babel" src="page-admin.jsx?v=76"></script>
-<script type="text/babel" src="page-platform-admin.jsx?v=76"></script>
+<script type="text/babel" src="page-imo.jsx?v=78"></script>
 <script type="text/babel" src="page-billing.jsx?v=76"></script>
 <script type="text/babel" src="page-autodialer.jsx?v=76"></script>
 <script type="text/babel" src="page-deal-write.jsx?v=76"></script>
@@ -177,7 +177,7 @@ function App() {
         if (top.role && top.role !== role) {
           window.__authRole = top.role;
           setTweak("role", top.role);
-          if (top.role === "admin" || top.role === "super_admin") {
+          if (top.role === "admin" || top.role === "super_admin" || top.role === "imo_owner") {
             setTweak("page", "platform");
             try { localStorage.setItem("repflow.tour.dismissed", "1"); } catch {}
           }
@@ -250,21 +250,21 @@ function App() {
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
       case "admin":       return (() => {
-        // Platform-admin gets the cross-agency super-admin dashboard;
-        // anyone else (owner, manager) gets the single-agency admin view.
-        if (role === "admin") {
-          const P = window.PagePlatformAdmin;
+        // admin / imo_owner / super_admin → cross-agency IMO dashboard.
+        // owner / manager → single-agency admin view (page-admin.jsx).
+        if (role === "admin" || role === "imo_owner" || role === "super_admin") {
+          const P = window.PageImo || window.PagePlatformAdmin;
           return P ? <P subpage="platform"/> : null;
         }
         const P = window.PageAdmin; return P ? <P role={role}/> : null;
       })();
       // Admin-only sub-pages (only reachable from NAV.admin)
-      case "platform":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="platform"/> : null; })();
-      case "agencies":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="agencies"/> : null; })();
-      case "users":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="users"/>    : null; })();
-      case "billing":     return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="billing"/>  : null; })();
-      case "audit":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="audit"/>    : null; })();
-      case "system":      return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="system"/>   : null; })();
+      case "platform":    return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="platform"/> : null; })();
+      case "agencies":    return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="agencies"/> : null; })();
+      case "users":       return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="users"/>    : null; })();
+      case "billing":     return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="billing"/>  : null; })();
+      case "audit":       return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="audit"/>    : null; })();
+      case "system":      return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="system"/>   : null; })();
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
 
@@ -341,7 +341,7 @@ function App() {
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="View"/>
-        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"},{value:"admin",label:"Admin"},{value:"super_admin",label:"Super"}]} onChange={(v) => setTweak("role", v)}/>
+        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"},{value:"imo_owner",label:"IMO"},{value:"admin",label:"Admin"},{value:"super_admin",label:"Super"}]} onChange={(v) => setTweak("role", v)}/>
         <TweakSelect label="Page" value={page} options={[
           ...Shared.NAV[role].map(i => ({ value: i.id, label: i.label })),
           ...Shared.NAV.ops.map(i => ({ value: i.id, label: `Ops · ${i.label}` }))

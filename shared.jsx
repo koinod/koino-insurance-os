@@ -106,10 +106,26 @@ const NAV = {
   admin: [
     { id: "platform",    label: "Platform",     icon: "Shield" },
     { id: "agencies",    label: "Agencies",     icon: "Building" },
-    { id: "users",       label: "Users",        icon: "Users" },
+    { id: "users",       label: "Members",      icon: "Users" },
     { id: "billing",     label: "Billing",      icon: "Wallet" },
     { id: "audit",       label: "Audit log",    icon: "Activity" },
     { id: "system",      label: "System",       icon: "Bolt" },
+  ],
+  // IMO owner — runs an upper-IMO with child sub-agencies. Same top-level
+  // surface as admin (the page-imo.jsx routes by subpage), plus the owner's
+  // single-agency workspace pages folded in so they can also operate their
+  // own producing agency.
+  imo_owner: [
+    { id: "platform",    label: "IMO HQ",       icon: "Shield" },
+    { id: "agencies",    label: "Sub-agencies", icon: "Building" },
+    { id: "users",       label: "Members",      icon: "Users" },
+    { id: "billing",     label: "Billing",      icon: "Wallet" },
+    { id: "audit",       label: "Audit log",    icon: "Activity" },
+    { id: "system",      label: "System",       icon: "Bolt" },
+    { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
+    { id: "org",         label: "Org",          icon: "Users" },
+    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "compliance",  label: "Compliance",   icon: "Shield" },
   ],
   // Internal team / super-admin — Ian, Repflow developers. Sees every IMO,
   // every agency (real + demo), every user, plus internal-only views.
