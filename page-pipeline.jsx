@@ -1,14 +1,21 @@
 /* Page: Pipeline — Attio-style dense list + kanban drag-drop + lead detail.
    Role-aware: rep view scopes to my deals; mgr/owner see the full org. */
 function PagePipeline({ role = "owner" }) {
-  const { PIPELINE, REPS } = AppData;
-  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  const { PIPELINE = [], REPS = [] } = AppData;
+  const repById = Object.fromEntries((REPS || []).map(r => [r.id, r]));
   const [view, setView] = React.useState("list");
   const [sel, setSel] = React.useState(new Set());
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [newOpen, setNewOpen] = React.useState(false);
   const [filters, setFilters] = React.useState({ stage: "all", heat: "all", owner: "all", state: "all", source: "all", maxDays: 30 });
-  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: REPS[0]?.id || "", phone: "", email: "" });
+  // For reps, default the owner to themselves (resolved below) so a new
+  // lead they create lands in their own queue rather than the first row
+  // of the seeded REPS array (which used to be Marcus on demo tenants).
+  const _meIdentEarly = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const _defaultOwner = role === "rep"
+    ? (_meIdentEarly?.rep_id || REPS[0]?.id || "")
+    : (REPS[0]?.id || "");
+  const [newRow, setNewRow] = React.useState({ lead: "", age: 65, state: "TX", product: "Med Supp Plan G", source: "FB Lead Form", owner: _defaultOwner, phone: "", email: "" });
   const [extra, setExtra] = React.useState([]);
   const [overrides, setOverrides] = React.useState({}); // id -> { stage, owner }
   // When live data hydrates (initial load OR realtime tick), drop the local
@@ -31,13 +38,18 @@ function PagePipeline({ role = "owner" }) {
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
-  const sources = Array.from(new Set(PIPELINE.map(p => p.source)));
-  const states = Array.from(new Set(PIPELINE.map(p => p.state)));
+  const sources = Array.from(new Set((PIPELINE || []).map(p => p.source).filter(Boolean)));
+  const states = Array.from(new Set((PIPELINE || []).map(p => p.state).filter(Boolean)));
   const heatColor = (h) => h === "hot" ? "var(--accent-heat)" : h === "warm" ? "var(--state-warning)" : h === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
 
   const meIdent = window.me && window.me();
-  const meId = meIdent?.rep_id || (REPS && REPS[0]?.id) || "viewer";
-  const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
+  // GAP-REP1 — for reps, never fall through to REPS[0]?.id as the viewer
+  // id. That was the path that made a fresh rep account see Marcus's
+  // pipeline (REPS[0] was the demo Marcus row). When me() hasn't resolved
+  // yet, use a sentinel that no real pipeline.owner row can match, so the
+  // filter renders the empty state instead of someone else's leads.
+  const meId = meIdent?.rep_id || (role === "rep" ? "__unresolved_rep__" : (REPS && REPS[0]?.id) || "viewer");
+  const all = [...extra, ...(PIPELINE || [])].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
   const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
   const filtered = scoped.filter(p =>
     (filters.stage  === "all" || p.stage  === filters.stage) &&
@@ -52,10 +64,14 @@ function PagePipeline({ role = "owner" }) {
   const submit = async () => {
     if (!newRow.lead.trim()) return;
     const localId = "tmp-" + Date.now();
+    // Reps can only create leads owned by themselves — the Owner select is
+    // hidden for them, so newRow.owner could be a stale demo id from initial
+    // state. Force it to meId for the rep role.
+    const effectiveOwner = role === "rep" ? meId : newRow.owner;
     const row = {
       id: localId, lead: newRow.lead, age: +newRow.age, state: newRow.state,
       stage: "New", product: newRow.product, ap: 0, days: 0, last: "Just added",
-      next: "First dial", source: newRow.source, owner: newRow.owner,
+      next: "First dial", source: newRow.source, owner: effectiveOwner,
       consent: "verified", heat: "fresh",
       phone: (newRow.phone || "").trim() || null,
       email: (newRow.email || "").trim() || null,
@@ -221,7 +237,24 @@ function PagePipeline({ role = "owner" }) {
                 <button className="icon-btn" onClick={(e) => { e.stopPropagation(); const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n); }}><Icons.Dots size={13}/></button>
               </div>
             ))}
-            {filtered.length === 0 && <div style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No leads match these filters.</div>}
+            {filtered.length === 0 && (
+              <div style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+                {scoped.length === 0 && role === "rep" ? (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>No pipeline yet.</div>
+                    <div>Pull a lead from the Dial Queue or add one manually.</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <button className="btn" onClick={() => window.gotoPage && window.gotoPage("queue")}><Icons.Phone size={11}/> Open Dial Queue</button>
+                      <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={11}/> New lead</button>
+                    </div>
+                  </>
+                ) : scoped.length === 0 ? (
+                  <div>No leads to show yet.</div>
+                ) : (
+                  <div>No leads match these filters.</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -295,7 +328,7 @@ function PagePipeline({ role = "owner" }) {
             <button className="btn btn-primary" onClick={submit} disabled={!newRow.lead.trim()}><Icons.Plus size={12}/> Add to pipeline</button>
           </>
         }>
-          <Shared.Field label="Name"><input className="text-input" value={newRow.lead} onChange={(e) => setNewRow({ ...newRow, lead: e.target.value })} placeholder="Cheryl Hampton" autoFocus/></Shared.Field>
+          <Shared.Field label="Name"><input className="text-input" value={newRow.lead} onChange={(e) => setNewRow({ ...newRow, lead: e.target.value })} placeholder="Lead full name" autoFocus/></Shared.Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Shared.Field label="Phone"><input className="text-input" type="tel" value={newRow.phone} onChange={(e) => setNewRow({ ...newRow, phone: e.target.value })} placeholder="+1 512 555 1234" inputMode="tel"/></Shared.Field>
             <Shared.Field label="Email (optional)"><input className="text-input" type="email" value={newRow.email} onChange={(e) => setNewRow({ ...newRow, email: e.target.value })} placeholder="lead@example.com"/></Shared.Field>
