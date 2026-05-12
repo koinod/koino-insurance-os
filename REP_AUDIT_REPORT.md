@@ -7,9 +7,12 @@ Scope: every surface a `role="rep"` viewer actually touches —
 `page-today`, `page-pipeline` (rep scope), `page-queue`, `page-mobile`,
 `mobile-screens`, `mobile-extra-screens`, `Settings → Profile`.
 
-7 commits, one per surface, on top of `1f94472` (P7/P8 onboarding tip).
+8 commits (7 fixes + 1 DS-realignment + 1 report), on top of `1f94472`
+(P7/P8 onboarding tip).
 
 ```
+ddec527 style(rep): refit new empty-state CTAs to koino.capital DS
+6592736 docs: REP_AUDIT_REPORT.md — 7-commit summary, file:line cites
 7481aed fix(settings/rep): profile as default tab + load existing notif prefs
 779547c fix(mobile-extra-screens/rep): kill demo names + dead handlers + REPS[0]
 afa6fdf fix(mobile-screens/rep): derive everything from AppData + me()
@@ -19,9 +22,9 @@ afa6fdf fix(mobile-screens/rep): derive everything from AppData + me()
 faf55bd fix(today/rep): kill demo bleed + dead Phone handler + hardcoded queue
 ```
 
-Cache busters bumped: `page-today.jsx?v=78`, `page-pipeline.jsx?v=78`,
+Cache busters bumped: `page-today.jsx?v=79`, `page-pipeline.jsx?v=79`,
 `page-queue.jsx?v=78`, `page-mobile.jsx?v=76`, `page-extras.jsx?v=83`,
-`mobile-screens.jsx?v=15`, `mobile-extra-screens.jsx?v=15`.
+`mobile-screens.jsx?v=16`, `mobile-extra-screens.jsx?v=16`.
 
 All seven changed `.jsx` files compile cleanly under
 `@babel/standalone@7.29.0` (the same version `index.html` loads).
@@ -128,14 +131,41 @@ Local smoke test is Ian's next step — see "Verify" at the bottom.
 
 ---
 
-## (c) UI — KOINO DS tokens, mobile-first
+## (c) UI — koino.capital DS (per Ian's correction mid-pass)
 
-No regressions introduced. All edits stay inside the existing token
-vocabulary (`var(--accent-money)`, `var(--state-warning)`, `var(--bg-raised)`,
-etc.) and reuse `m-card / m-chip / m-section-h / m-rank / m-bar`
-classes from `mobile-styles.css`. No new color literals.
+Ian's mid-pass correction: don't use the existing dark+amber OS DS.
+Match the koino.capital marketing site — green + black, rounded soft,
+modern tech-stack look. Tokens lifted from
+`KOINO/ventures/products/storefront-static/index.html`:
 
-Mobile-first surface (mobile.html shell): every screen now renders
+| Token | Marketing site | Used where |
+|---|---|---|
+| Accent green | `#00d4aa` | Empty-state tag lines, primary CTA bg |
+| Accent glow | `rgba(0,212,170,0.18)` | Button box-shadow on hover/rest |
+| Primary text on accent | `#000` | All teal buttons get black text |
+| Border radius | `8px` (buttons), `10-12px` (cards) | New empty-state buttons |
+| Tag label | `font-family:JetBrains Mono; font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase; color:#00d4aa` | `// queue · empty`, `// no notes yet`, `// vault · empty`, etc. |
+| Body font | `Inter` | Already the OS default (`--font-ui`) |
+| Padding (cards) | smaller than OS — 14–20px | Empty-state hero containers |
+
+Where applied (NEW components only, not the existing OS surfaces):
+- `page-today.jsx`: Next-in-queue empty notice, coaching empty branch,
+  recent-calls empty state
+- `page-pipeline.jsx`: rep-with-zero-leads hero CTA (the most visible
+  new component — primary "New lead" button gets the full teal +
+  glow treatment)
+- `mobile-screens.jsx`: 4 empty-state screens (queue / leaderboard /
+  lead / commissions)
+- `mobile-extra-screens.jsx`: coaching + vault empty states
+
+Out of scope (NOT overhauled, per Ian "don't stress about overhauling"):
+- Existing OS panels (`panel`, `panel-h`, `kpi-row`, `list`, `row`,
+  `chip-*`) keep their amber-leaning oklch tokens. A full OS DS swap
+  is a separate branch.
+- No new CSS, no new utility classes. All koino.capital styling lives
+  inline on the elements I introduced — reversible and scoped.
+
+Mobile-first surface (`mobile.html` shell): every screen now renders
 without crashing on an empty agency (the REPS[0] crashes were the
 dominant failure mode for fresh accounts).
 
