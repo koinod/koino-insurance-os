@@ -597,15 +597,21 @@ function TodayRep({ aep }) {
           <div className="panel-h">
             <Icons.Phone size={14} style={{ color: "var(--accent-money)" }}/>
             <h3>Next in queue</h3>
-            <span className="meta">47 leads · sorted by speed-to-lead</span>
+            <span className="meta">{(QUEUE || []).length} lead{(QUEUE || []).length === 1 ? "" : "s"} · sorted by speed-to-lead</span>
           </div>
           <div className="list">
             <div className="list-h" style={{ gridTemplateColumns: "1.2fr 60px 1fr 80px 90px 30px" }}>
               <div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{ textAlign: "right" }}>SLA clock</div><div></div>
             </div>
-            {QUEUE.slice(0, 6).map(l => {
+            {(QUEUE || []).length === 0 && (
+              <div style={{ padding: 22, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                Queue is empty. Open <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11.5 }} onClick={() => window.gotoPage && window.gotoPage("queue")}>Dial Queue</button> to pull a list.
+              </div>
+            )}
+            {(QUEUE || []).slice(0, 6).map(l => {
               const heat = l.elapsed < 30 ? "fresh" : l.elapsed < 90 ? "warm" : "late";
               const heatColor = heat === "fresh" ? "var(--accent-money)" : heat === "warm" ? "var(--state-warning)" : "var(--state-danger)";
+              const hasPhone = !!l.phone;
               return (
                 <div key={l.id} className="row" style={{ gridTemplateColumns: "1.2fr 60px 1fr 80px 90px 30px" }}>
                   <div className="cell-truncate" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -616,7 +622,15 @@ function TodayRep({ aep }) {
                   <div className="cell-truncate" style={{ color: "var(--text-secondary)" }}>{l.source}</div>
                   <div><span className="chip">{l.product}</span></div>
                   <div className="tabular" style={{ textAlign: "right", color: heatColor, fontWeight: 500 }}>{l.elapsed}s</div>
-                  <button className="icon-btn"><Icons.Phone size={13}/></button>
+                  <button
+                    className="icon-btn"
+                    disabled={!hasPhone}
+                    title={hasPhone ? `Call ${l.phone}` : "No phone on file — add one in lead detail"}
+                    onClick={() => {
+                      if (!hasPhone) { window.toast && window.toast(`No phone on file for ${l.lead}`, "warn"); return; }
+                      window.repflowCall && window.repflowCall(l.phone, l.lead);
+                    }}
+                  ><Icons.Phone size={13}/></button>
                 </div>
               );
             })}
@@ -624,41 +638,64 @@ function TodayRep({ aep }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h">
-              <Icons.Activity size={14} style={{ color: "var(--accent-status)" }}/>
-              <h3>This week's coaching</h3>
-              <span className="meta">from Tuesday's call review</span>
-            </div>
-            <div style={{ padding: "14px 16px" }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Ask 3 more open-ended questions per hour.</div>
-              <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55 }}>
-                On Cheryl Hampton's call, you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.
+          {(() => {
+            // Coaching card: real entry from AppData.COACHING_NOTES for me when present,
+            // else demo-only illustrative copy (gated by isDemoAgency so real reps
+            // don't see "Cheryl Hampton" placeholder names bleed in).
+            const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+            const myNote = (AppData.COACHING_NOTES || [])
+              .filter(n => n.repId === myRow?.id || n.rep_id === myRow?.id)
+              .sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0))[0];
+            const focusLine = myNote?.focus || myNote?.title || (isDemo ? "Ask 3 more open-ended questions per hour." : null);
+            const evidenceLine = myNote?.body || myNote?.summary || (isDemo
+              ? `On a recent Plan G call you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.`
+              : null);
+            return (
+              <div className="panel">
+                <div className="panel-h">
+                  <Icons.Activity size={14} style={{ color: "var(--accent-status)" }}/>
+                  <h3>This week's coaching</h3>
+                  <span className="meta">{myNote ? "from your last review" : "no notes yet"}</span>
+                </div>
+                <div style={{ padding: "14px 16px" }}>
+                  {focusLine ? (
+                    <>
+                      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{focusLine}</div>
+                      {evidenceLine && (
+                        <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55 }}>{evidenceLine}</div>
+                      )}
+                      <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => {
+                            if (window.gotoPage) window.gotoPage("calls");
+                            window.toast && window.toast("Coaching surface opened — find the moment in your call history", "info");
+                          }}
+                        ><Icons.Play size={11}/> Replay moment</button>
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            try {
+                              const k = "repflow.coaching_practiced";
+                              const today = new Date().toISOString().slice(0, 10);
+                              const log = JSON.parse(localStorage.getItem(k) || "[]");
+                              log.unshift({ topic: myNote?.id || "open-ended-questions", at: today });
+                              localStorage.setItem(k, JSON.stringify(log.slice(0, 90)));
+                            } catch {}
+                            window.toast && window.toast("Marked practiced · streak +1", "success");
+                          }}
+                        >Mark practiced</button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+                      No coaching notes yet. After your next AI-scored call, your upline can drop a focus card here.
+                    </div>
+                  )}
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    if (window.gotoPage) window.gotoPage("calls");
-                    window.toast && window.toast("Coaching surface opened — find the moment in your call history", "info");
-                  }}
-                ><Icons.Play size={11}/> Replay moment</button>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    try {
-                      const k = "repflow.coaching_practiced";
-                      const today = new Date().toISOString().slice(0, 10);
-                      const log = JSON.parse(localStorage.getItem(k) || "[]");
-                      log.unshift({ topic: "open-ended-questions", at: today });
-                      localStorage.setItem(k, JSON.stringify(log.slice(0, 90)));
-                    } catch {}
-                    window.toast && window.toast("Marked practiced · streak +1", "success");
-                  }}
-                >Mark practiced</button>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {(() => {
             // GAP — replace hardcoded $42,310 / 82% / 3 days with live computed values.
@@ -719,21 +756,33 @@ function TodayRep({ aep }) {
             <span className="meta">AI-scored</span>
           </div>
           <div className="list">
-            {RECORDINGS.map(r => (
-              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 70px 80px 80px 1fr", height: 44 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Icons.Volume size={13} style={{ color: "var(--text-tertiary)" }}/>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{r.lead}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.date}</div>
+            {(() => {
+              const myRecs = (RECORDINGS || []).filter(r =>
+                !myRow?.id || r.repId === myRow.id || r.rep_id === myRow.id
+              ).slice(0, 6);
+              if (myRecs.length === 0) {
+                return (
+                  <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                    No calls recorded yet. Start a power hour and your scored calls will land here.
                   </div>
+                );
+              }
+              return myRecs.map(r => (
+                <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 70px 80px 80px 1fr", height: 44 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Icons.Volume size={13} style={{ color: "var(--text-tertiary)" }}/>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{r.lead}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.date}</div>
+                    </div>
+                  </div>
+                  <div className="tabular" style={{ color: "var(--text-secondary)" }}>{Math.floor((r.durSec||0)/60)}:{String((r.durSec||0)%60).padStart(2,"0")}</div>
+                  <div className="tabular" style={{ color: r.talkRatio > 50 ? "var(--state-danger)" : "var(--text-secondary)" }}>{r.talkRatio}% talk</div>
+                  <div><span className={`chip ${r.score >= 80 ? "chip-money" : r.score >= 70 ? "chip-status" : "chip-danger"}`}>{r.score}</span></div>
+                  <div className="cell-truncate" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.ai}</div>
                 </div>
-                <div className="tabular" style={{ color: "var(--text-secondary)" }}>{Math.floor(r.durSec/60)}:{String(r.durSec%60).padStart(2,"0")}</div>
-                <div className="tabular" style={{ color: r.talkRatio > 50 ? "var(--state-danger)" : "var(--text-secondary)" }}>{r.talkRatio}% talk</div>
-                <div><span className={`chip ${r.score >= 80 ? "chip-money" : r.score >= 70 ? "chip-status" : "chip-danger"}`}>{r.score}</span></div>
-                <div className="cell-truncate" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.ai}</div>
-              </div>
-            ))}
+              ));
+            })()}
           </div>
         </div>
 
@@ -744,22 +793,34 @@ function TodayRep({ aep }) {
             <span className="meta">{aep ? "AEP cadence" : "regular"}</span>
           </div>
           <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-            {[
-              { t: "9:00a",  n: "Lead Drop",          s: "47 fresh leads in queue",        d: "done" },
-              { t: "12:00p", n: "Mid-day check-in",   s: "Talk-ratio review w/ AI",         d: "done" },
-              { t: "4:00p",  n: "Power Hour",         s: "Group dial · Discord war-room",   d: "now"  },
-              { t: "7:00p",  n: "Today's Closes",     s: "Leaderboard freeze · post wins",  d: "next" },
-            ].map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: r.d === "now" ? "color-mix(in oklch, var(--accent-heat) 12%, transparent)" : "var(--bg-raised)" }}>
-                <span className="tabular mono" style={{ width: 50, fontSize: 11, color: r.d === "now" ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.t}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.n}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{r.s}</div>
-                </div>
-                {r.d === "done" && <Icons.Check size={13} style={{ color: "var(--accent-money)" }}/>}
-                {r.d === "now"  && <span className="chip chip-heat">LIVE</span>}
-              </div>
-            ))}
+            {(() => {
+              // Ritual derives from clock-of-day; rows tint based on the rep's
+              // actual current local time rather than baked "now=4pm" demo state.
+              const now = new Date();
+              const hr  = now.getHours();
+              const queueDepth = (QUEUE || []).length;
+              const ritual = [
+                { hr: 9,  t: "9:00a",  n: "Lead Drop",        s: queueDepth > 0 ? `${queueDepth} lead${queueDepth === 1 ? "" : "s"} in queue` : "No leads in queue yet" },
+                { hr: 12, t: "12:00p", n: "Mid-day check-in", s: "Talk-ratio review w/ AI" },
+                { hr: 16, t: "4:00p",  n: "Power Hour",        s: "Group dial · war-room" },
+                { hr: 19, t: "7:00p",  n: "Today's Closes",    s: "Leaderboard freeze · post wins" },
+              ];
+              return ritual.map((r, i) => {
+                const nextHr = ritual[i + 1]?.hr ?? 24;
+                const state = hr < r.hr ? "next" : (hr < nextHr ? "now" : "done");
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: state === "now" ? "color-mix(in oklch, var(--accent-heat) 12%, transparent)" : "var(--bg-raised)" }}>
+                    <span className="tabular mono" style={{ width: 50, fontSize: 11, color: state === "now" ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.t}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.n}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{r.s}</div>
+                    </div>
+                    {state === "done" && <Icons.Check size={13} style={{ color: "var(--accent-money)" }}/>}
+                    {state === "now"  && <span className="chip chip-heat">LIVE</span>}
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
