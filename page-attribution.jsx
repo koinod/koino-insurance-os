@@ -1,13 +1,21 @@
 /* page-attribution.jsx — Lead Vendors page + ROI loop
 
-   Wires Lead Vendors → Pipeline (cost per lead) → Commissions (realized AP
-   per lead) into a single ROI table per vendor / state / product / month.
-   Owner sees the full org view; manager sees their downline (in real wiring
-   would scope by upline). */
+   Wires Lead Vendors → Pipeline (cost per lead) → Policies (issued AP per
+   source) into a single ROI table per vendor / state / product / month.
+   Owner sees the full org view; manager scopes via window.scopeRepIds().
+
+   Live data flow:
+     AppData.LEAD_SOURCES  → vendor catalog (id, name, vendor, kind)
+     AppData.EXPENSES      → lead_spend rows tagged to lead_source_id
+     AppData.PIPELINE      → leads (count + state + product + owner)
+     AppData.POLICIES      → issued AP per lead (joined back to source)
+     AppData.ATTRIBUTIONS  → first-touch / last-touch credit per lead
+
+   Demo arrays only render for demo agencies (was: every viewer). */
 
 (function () {
 
-const VENDORS = [
+const VENDORS_DEMO = [
   { id: "v1", name: "Facebook · T65 v3 creative",  category: "Paid social", spend: 4820, leads: 142, cpl: 33.94, contacts: 124, quotes: 41, issued: 14, ap: 26840, persistency: 92, status: "ok"  },
   { id: "v2", name: "Facebook · FE 2026 lookalike", category: "Paid social", spend: 3140, leads: 96,  cpl: 32.71, contacts: 78,  quotes: 22, issued: 8,  ap: 12480, persistency: 84, status: "ok"  },
   { id: "v3", name: "Inbound calls · Convoso",       category: "Inbound",     spend: 1280, leads: 38,  cpl: 33.68, contacts: 38,  quotes: 24, issued: 14, ap: 28110, persistency: 96, status: "ok"  },
@@ -17,7 +25,7 @@ const VENDORS = [
   { id: "v7", name: "Google · 'medicare supplement'", category: "Paid search", spend: 6240, leads: 88,  cpl: 70.91, contacts: 52,  quotes: 31, issued: 12, ap: 24400, persistency: 93, status: "ok"  },
 ];
 
-const BY_STATE = [
+const BY_STATE_DEMO = [
   { state: "TX", spend: 4820, ap: 18420, lift: 3.82 },
   { state: "FL", spend: 3140, ap: 12480, lift: 3.97 },
   { state: "GA", spend: 1280, ap:  9340, lift: 7.30 },
@@ -27,16 +35,156 @@ const BY_STATE = [
   { state: "PA", spend:  920, ap:  6480, lift: 7.04 },
 ];
 
-const BY_PRODUCT = [
+const BY_PRODUCT_DEMO = [
   { p: "Med Supp Plan G", spend: 6840, ap: 28840, lift: 4.22 },
   { p: "Med Supp Plan N", spend: 1240, ap:  4820, lift: 3.89 },
   { p: "Final Expense",    spend: 4820, ap: 18420, lift: 3.82 },
   { p: "Annuity",          spend: 2140, ap: 12420, lift: 5.81 },
 ];
 
+// Roll up live data into the prototype's expected vendor / state / product
+// shapes. Returns { vendors, byState, byProduct, isLive }. When the tenant
+// has no lead spend or sources, callers fall back to the demo arrays for
+// demo agencies and render an empty state for real agencies.
+function _liveAttribution() {
+  const sources    = (window.AppData && window.AppData.LEAD_SOURCES) || [];
+  const expenses   = (window.AppData && window.AppData.EXPENSES) || [];
+  const pipeline   = (window.AppData && window.AppData.PIPELINE) || [];
+  const policies   = (window.AppData && window.AppData.POLICIES) || [];
+  const attributions = (window.AppData && window.AppData.ATTRIBUTIONS) || [];
+
+  // Apply manager scope. Owner / fleet roles get null → see everything.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const scopedPipeline = scopeIds ? pipeline.filter(l => !l.owner || scopeIds.includes(l.owner)) : pipeline;
+  const scopedPolicies = scopeIds ? policies.filter(p => !p.owner || scopeIds.includes(p.owner)) : policies;
+
+  // 1. Spend per source (cents). Lead-spend expenses tagged to a
+  // lead_source_id are authoritative; untagged spend gets bucketed under
+  // an "_untagged" key so the operator sees the gap.
+  const spendBySource = {};
+  for (const e of expenses) {
+    if (e.kind !== "lead_spend") continue;
+    const k = e.lead_source_id || "_untagged";
+    spendBySource[k] = (spendBySource[k] || 0) + (e.amount_cents || 0);
+  }
+  if (Object.keys(spendBySource).length === 0) {
+    return { vendors: [], byState: [], byProduct: [], isLive: false };
+  }
+
+  // 2. Lead → source map. Prefer attributions.last_touch_at picked source;
+  // fall back to pipeline.source string match against source.name.
+  const sourceByName = new Map(sources.map(s => [String(s.name || "").toLowerCase(), s.id]));
+  const sourceIdByLead = new Map();
+  for (const a of attributions) {
+    if (a.leadId && a.sourceId) sourceIdByLead.set(a.leadId, a.sourceId);
+  }
+  for (const l of scopedPipeline) {
+    if (sourceIdByLead.has(l.id)) continue;
+    const sid = sourceByName.get(String(l.source || "").toLowerCase());
+    if (sid) sourceIdByLead.set(l.id, sid);
+  }
+
+  // 3. Per-source counters: leads, contacts, quotes, issued, AP.
+  const counter = () => ({ leads: 0, contacts: 0, quotes: 0, issued: 0, ap: 0 });
+  const bySource = {};
+  for (const sid of Object.keys(spendBySource)) bySource[sid] = counter();
+  const stageHasContact = new Set(["Contacted", "Quoted", "App In", "Issued"]);
+  const stageHasQuote   = new Set(["Quoted", "App In", "Issued"]);
+  for (const l of scopedPipeline) {
+    const sid = sourceIdByLead.get(l.id) || "_untagged";
+    if (!bySource[sid]) bySource[sid] = counter();
+    bySource[sid].leads++;
+    if (stageHasContact.has(l.stage)) bySource[sid].contacts++;
+    if (stageHasQuote.has(l.stage))   bySource[sid].quotes++;
+    if (l.stage === "Issued")           bySource[sid].issued++;
+  }
+  const policyByLead = new Map();
+  for (const p of scopedPolicies) if (p.leadId) policyByLead.set(p.leadId, p);
+  for (const l of scopedPipeline) {
+    const sid = sourceIdByLead.get(l.id) || "_untagged";
+    const pol = policyByLead.get(l.id);
+    if (!bySource[sid]) bySource[sid] = counter();
+    if (pol) bySource[sid].ap += pol.ap || 0;
+  }
+
+  const sourceById = Object.fromEntries(sources.map(s => [s.id, s]));
+  const vendors = Object.entries(spendBySource).map(([sid, spendCents]) => {
+    const src = sourceById[sid];
+    const c   = bySource[sid] || counter();
+    const spend = spendCents / 100;
+    return {
+      id: sid,
+      name: src ? src.name : (sid === "_untagged" ? "Untagged spend" : sid),
+      category: src ? (src.kind || src.vendor || "Other") : "Untagged",
+      spend, leads: c.leads,
+      cpl: c.leads ? spend / c.leads : 0,
+      contacts: c.contacts, quotes: c.quotes, issued: c.issued,
+      ap: c.ap,
+      persistency: null, status: spend > 0 && c.ap === 0 ? "warn" : "ok",
+    };
+  }).filter(v => v.spend > 0 || v.leads > 0);
+
+  // By state — sum across leads, attribute spend by lead-share per source.
+  const stateAgg = {};
+  for (const l of scopedPipeline) {
+    if (!l.state) continue;
+    const sid = sourceIdByLead.get(l.id) || "_untagged";
+    const sourceSpend = spendBySource[sid] || 0;
+    const sourceLeads = (bySource[sid] || counter()).leads || 1;
+    const sharePerLead = sourceSpend / sourceLeads / 100;
+    stateAgg[l.state] = stateAgg[l.state] || { spend: 0, ap: 0 };
+    stateAgg[l.state].spend += sharePerLead;
+    const pol = policyByLead.get(l.id);
+    if (pol) stateAgg[l.state].ap += pol.ap || 0;
+  }
+  const byState = Object.entries(stateAgg).map(([state, v]) => ({
+    state, spend: Math.round(v.spend), ap: Math.round(v.ap),
+    lift: v.spend > 0 ? +(v.ap / v.spend).toFixed(2) : 0,
+  }));
+
+  // By product — issued policies grouped by product_text.
+  const productAgg = {};
+  for (const l of scopedPipeline) {
+    const sid = sourceIdByLead.get(l.id) || "_untagged";
+    const sourceSpend = spendBySource[sid] || 0;
+    const sourceLeads = (bySource[sid] || counter()).leads || 1;
+    const sharePerLead = sourceSpend / sourceLeads / 100;
+    const pol = policyByLead.get(l.id);
+    const key = pol?.product || l.product || "Unspecified";
+    productAgg[key] = productAgg[key] || { spend: 0, ap: 0 };
+    productAgg[key].spend += sharePerLead;
+    if (pol) productAgg[key].ap += pol.ap || 0;
+  }
+  const byProduct = Object.entries(productAgg).map(([p, v]) => ({
+    p, spend: Math.round(v.spend), ap: Math.round(v.ap),
+    lift: v.spend > 0 ? +(v.ap / v.spend).toFixed(2) : 0,
+  }));
+
+  return { vendors, byState, byProduct, isLive: true };
+}
+
 function PageAttribution({ role = "owner" }) {
+  // Re-render on hydrate / mutate ticks so realtime expense + policy inserts
+  // move the numbers without the operator refreshing the page.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+    };
+  }, []);
+
   const [tab, setTab] = React.useState("vendors");
   const [sort, setSort] = React.useState({ key: "roas", dir: "desc" });
+
+  const live = _liveAttribution();
+  const isDemoAgency = !!(window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency());
+  const VENDORS    = live.isLive ? live.vendors    : (isDemoAgency ? VENDORS_DEMO    : []);
+  const BY_STATE   = live.isLive ? live.byState    : (isDemoAgency ? BY_STATE_DEMO   : []);
+  const BY_PRODUCT = live.isLive ? live.byProduct  : (isDemoAgency ? BY_PRODUCT_DEMO : []);
 
   const enriched = VENDORS.map(v => ({
     ...v,
@@ -91,6 +239,22 @@ function PageAttribution({ role = "owner" }) {
         value={tab}
         onChange={setTab}
       />
+
+      {VENDORS.length === 0 && (
+        <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+          <Icons.TrendingUp size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No lead spend tracked yet</div>
+          <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.55, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
+            Log lead-spend expenses with a <span className="mono">lead_source_id</span> tag in <strong>Expenses</strong>, and ROAS / CPA / CPL populate here automatically as policies issue against those leads.
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: 12 }}
+            onClick={() => window.gotoPage && window.gotoPage("expenses")}
+          ><Icons.ArrowUpRight size={11}/> Open Expenses</button>
+        </div>
+      )}
+      {VENDORS.length > 0 && <></>}
 
       {tab === "vendors" && (
         <div className="panel">
