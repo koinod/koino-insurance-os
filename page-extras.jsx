@@ -3556,6 +3556,8 @@ function SettingsPersonalConnectors() {
   const [form,    setForm]      = React.useState({ telegram_chat_id: "", telegram_handle: "", slack_member_id: "", phone_for_alerts: "" });
   const [dirty,   setDirty]     = React.useState({});
   const [saving,  setSaving]    = React.useState(false);
+  const [saveMsg, setSaveMsg]   = React.useState("");
+  const [testing, setTesting]   = React.useState(false);
   const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
 
   React.useEffect(() => {
@@ -3579,14 +3581,16 @@ function SettingsPersonalConnectors() {
 
   const save = async () => {
     if (!sb || Object.keys(dirty).length === 0) return;
-    setSaving(true);
+    setSaving(true); setSaveMsg("");
     try {
       const patch = {};
       Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
       const r = await sb.rpc("save_profile", { p: patch });
       if (r.error) throw r.error;
       setDirty({});
+      setSaveMsg("Saved.");
       window.toast && window.toast("Personal connectors saved", "success");
+      setTimeout(() => setSaveMsg(""), 1500);
     } catch (e) {
       window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
     } finally { setSaving(false); }
@@ -3594,17 +3598,19 @@ function SettingsPersonalConnectors() {
 
   const testTelegram = async () => {
     if (!form.telegram_chat_id) { window.toast && window.toast("Set chat id first", "warn"); return; }
+    if (Object.keys(dirty).length > 0) { window.toast && window.toast("Save first — test pings the saved chat id", "warn"); return; }
+    setTesting(true);
     try {
       const r = await fetch("/api/connector/test", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ connector_key: "telegram_personal", target: form.telegram_chat_id }),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok && (j.ok || j.status === "ok")) window.toast && window.toast("Telegram test message sent", "success");
-      else window.toast && window.toast(`Test failed: ${j?.error || "endpoint unreachable"}`, "warn");
-    } catch (_e) {
-      window.toast && window.toast("Test endpoint unreachable", "warn");
-    }
+      if (r.ok && (j.ok || j.status === "ok")) window.toast && window.toast("Telegram test message sent — check your DMs", "success");
+      else window.toast && window.toast(`Test failed: ${j?.error || `HTTP ${r.status}`}`, "warn");
+    } catch (e) {
+      window.toast && window.toast(`Test endpoint unreachable: ${e?.message || e}`, "warn");
+    } finally { setTesting(false); }
   };
 
   if (loading) return <div className="ks-empty">Loading personal connectors…</div>;
@@ -3622,8 +3628,9 @@ function SettingsPersonalConnectors() {
           <Shared.Field label="Chat id"><input className="text-input" value={form.telegram_chat_id} onChange={(e) => update("telegram_chat_id", e.target.value.replace(/[^\d-]/g, ""))} placeholder="123456789"/></Shared.Field>
           <Shared.Field label="Handle (optional)"><input className="text-input" value={form.telegram_handle} onChange={(e) => update("telegram_handle", e.target.value)} placeholder="@yourhandle"/></Shared.Field>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="btn" onClick={testTelegram} disabled={!form.telegram_chat_id}><Icons.Send size={12}/> Send test ping</button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button className="btn" onClick={testTelegram} disabled={!form.telegram_chat_id || testing}><Icons.Send size={12}/> {testing ? "Sending…" : "Send test ping"}</button>
+          {Object.keys(dirty).includes("telegram_chat_id") && <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>save first to test</span>}
         </div>
       </div>
 
@@ -3643,6 +3650,7 @@ function SettingsPersonalConnectors() {
         <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
           <Icons.Check size={12}/> {saving ? "Saving…" : "Save connectors"}
         </button>
+        {saveMsg  && <span style={{ color: "var(--accent-money)", fontSize: 12 }}>{saveMsg}</span>}
         {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length === 1 ? "" : "s"}</span>}
       </div>
     </div>
@@ -3660,35 +3668,45 @@ function SettingsResources({ role = "rep" }) {
   const [docs,    setDocs]    = React.useState([]);
   const [links,   setLinks]   = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  // Per-source errors so the manager sees "videos table missing" but the
+  // other three sections still render. Silent catch was hiding real issues.
+  const [errs,    setErrs]    = React.useState({});
 
-  React.useEffect(() => {
+  const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    (async () => {
+    setLoading(true);
+    const newErrs = {};
+    const safeFetch = async (table, columns, order) => {
       try {
-        const [s, v, d, l] = await Promise.all([
-          sb.from("agency_scripts").select("id, title, kind, updated_at").order("updated_at", { ascending: false }).limit(30),
-          sb.from("agency_videos").select("id, title, url, updated_at").order("updated_at", { ascending: false }).limit(20),
-          sb.from("agency_docs").select("id, title, url, updated_at").order("updated_at", { ascending: false }).limit(20),
-          sb.from("agency_quick_links").select("id, label, url").order("label").limit(30),
-        ]);
-        if (Array.isArray(s.data)) setScripts(s.data);
-        if (Array.isArray(v.data)) setVideos(v.data);
-        if (Array.isArray(d.data)) setDocs(d.data);
-        if (Array.isArray(l.data)) setLinks(l.data);
-      } catch (_e) {}
-      finally { setLoading(false); }
-    })();
+        let q = sb.from(table).select(columns).limit(40);
+        if (order) q = q.order(order, { ascending: false });
+        const { data, error } = await q;
+        if (error) { newErrs[table] = error.message || String(error); return []; }
+        return Array.isArray(data) ? data : [];
+      } catch (e) { newErrs[table] = String(e?.message || e); return []; }
+    };
+    const [s, v, d, l] = await Promise.all([
+      safeFetch("agency_scripts",      "id, title, kind, updated_at",  "updated_at"),
+      safeFetch("agency_videos",       "id, title, url, updated_at",   "updated_at"),
+      safeFetch("agency_docs",         "id, title, url, updated_at",   "updated_at"),
+      safeFetch("agency_quick_links",  "id, label, url",                null),
+    ]);
+    setScripts(s); setVideos(v); setDocs(d); setLinks(l); setErrs(newErrs);
+    setLoading(false);
   }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
 
   if (loading) return <div className="ks-empty">Loading resources…</div>;
 
   const total = scripts.length + videos.length + docs.length + links.length;
-  if (total === 0) {
+  const errEntries = Object.entries(errs);
+
+  if (total === 0 && errEntries.length === 0) {
     return (
       <div className="ks-empty">
         <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No resources yet</div>
         <div style={{ marginTop: 4 }}>Your manager / owner can add scripts, videos and docs from the main Resources page. They'll appear here once published.</div>
-        <button className="btn" style={{ marginTop: 10 }} onClick={() => window.gotoPage && window.gotoPage("resources")}>Open Resources page</button>
+        <button className="btn" style={{ marginTop: 10 }} onClick={() => window.gotoPage && window.gotoPage("resources")}><Icons.ArrowUpRight size={11}/> Open Resources page</button>
       </div>
     );
   }
@@ -3708,6 +3726,18 @@ function SettingsResources({ role = "rep" }) {
           {role === "rep" && " Ask your manager to publish new material; you can't edit from here."}
         </div>
       </div>
+      {errEntries.length > 0 && (
+        <div className="ks-denied">
+          <Icons.AlertTriangle size={16} style={{ color: "var(--state-warning)" }}/>
+          <div>
+            <strong>Some sources couldn't load</strong>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+              {errEntries.map(([t, e]) => <div key={t} className="mono" style={{ fontSize: 10.5 }}>{t}: {e}</div>)}
+            </div>
+            <button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button>
+          </div>
+        </div>
+      )}
       {scripts.length > 0 && (
         <div>
           <div className="ks-section-label">Scripts</div>
