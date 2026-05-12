@@ -1347,8 +1347,23 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   background: var(--bg-elevated);
 }
 
-/* Mobile — stack tabs above content */
+/* Mobile — stack tabs above content + let dense tables scroll-x inside
+   their panel without overflowing the page. */
 @media (max-width: 760px) {
   .koino-settings-ds .ks-tabs { flex-direction: row; overflow-x: auto; position: static; }
   .koino-settings-ds .ks-tab { white-space: nowrap; }
+  .koino-settings-ds .page-h { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .koino-settings-ds .ks-pin-row { margin-left: 0; }
+  /* Allow table-style panels to scroll horizontally on phones. The list
+     rows use absolute pixel widths that don't compress gracefully. */
+  .koino-settings-ds .panel > .list,
+  .koino-settings-ds .panel > .panel-h + .list {
+    overflow-x: auto;
+  }
+  .koino-settings-ds .panel > .list > .list-h,
+  .koino-settings-ds .panel > .list > .row {
+    min-width: 640px;
+  }
+  /* Filter rows wrap onto multiple lines */
+  .koino-settings-ds .ks-section-label { padding: 4px 0; }
 }

@@ -3714,7 +3714,7 @@ function SettingsPersonalConnectors() {
           <span className="ks-tile-tag">{form.telegram_chat_id ? "configured" : "not set"}</span>
         </div>
         <div className="ks-tile-sub">Get personal pages for hot leads, NIGOs and morning briefs straight to Telegram. Open <span className="mono">@RepFlowBot</span>, send <span className="mono">/start</span>, paste the chat id it replies with.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <Shared.Field label="Chat id"><input className="text-input" value={form.telegram_chat_id} onChange={(e) => update("telegram_chat_id", e.target.value.replace(/[^\d-]/g, ""))} placeholder="123456789"/></Shared.Field>
           <Shared.Field label="Handle (optional)"><input className="text-input" value={form.telegram_handle} onChange={(e) => update("telegram_handle", e.target.value)} placeholder="@yourhandle"/></Shared.Field>
         </div>
@@ -4424,7 +4424,7 @@ function SettingsProvisionSubAgency() {
       <div className="ks-tile">
         <div className="ks-tile-h"><Icons.Plus size={14}/> Provision a sub-agency</div>
         <div className="ks-tile-sub">Creates a child agency under your IMO. The owner email gets a magic-link invite to claim the agency on first sign-in.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <Shared.Field label="Agency name"><input className="text-input" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Atlas SE Region"/></Shared.Field>
           <Shared.Field label="Owner email"><input className="text-input" type="email" value={form.owner_email} onChange={(e) => update("owner_email", e.target.value)} placeholder="owner@subagency.com"/></Shared.Field>
           <Shared.Field label="Kind">
