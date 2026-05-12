@@ -36,6 +36,45 @@ Top-right tweaks panel switches between Rep, Manager, Owner views and toggles
 mobile, AEP surge mode, AI co-pilot rail, density. Use `⌘K` for the command
 palette.
 
+## Configuration & Environment
+
+There is no build step. Browser code can't read `process.env` at runtime, so
+config flows through two surfaces:
+
+| Surface                | Reads from                                                                 | Defined in                  |
+|------------------------|----------------------------------------------------------------------------|-----------------------------|
+| Browser (index/mobile) | `window.__ENV.<KEY>` → fallback literal in `lib/supabase-config.js`        | `lib/supabase-config.js`    |
+| Edge / Node (`api/*`)  | `process.env.NEXT_PUBLIC_<KEY>` → `process.env.<KEY>` → fallback literal   | Each `api/*.js` directly    |
+
+`lib/supabase-config.js` is the single place to change the Supabase
+URL / anon key for the browser. It runs as the first project script in both
+`index.html` and `mobile.html`, so every page sees `window.SUPABASE_URL` and
+`window.SUPABASE_ANON` populated before `data.jsx` evaluates.
+
+To env-inject browser values at deploy time without adding a build step, prepend
+an inline `<script>` before `lib/supabase-config.js` in the HTML:
+
+```html
+<script>window.__ENV = { SUPABASE_URL: "https://...", SUPABASE_ANON: "sb_publishable_..." };</script>
+<script src="lib/supabase-config.js?v=..."></script>
+```
+
+The Supabase anon key is **public-tier** by design — every browser already has
+it, RLS in `supabase/migrations/` is what protects tenant data. The literal in
+`lib/supabase-config.js` is a safe fallback, not a secret.
+
+Server-side secrets (`STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`CRON_SECRET`, AI provider keys) live in the Vercel dashboard and are read by
+`api/*` Edge functions via `process.env`. See `.env.example` for the full list.
+
+### Adding a new config value
+
+- **Browser-readable**: add a `window.__ENV.<KEY>` lookup in
+  `lib/supabase-config.js` (or its own `lib/<thing>-config.js` if it has its own
+  domain), give it a safe default, set `window.<KEY>`.
+- **Server-only**: read `process.env.<KEY>` in the `api/*` route that needs it,
+  document it in `.env.example`, add it to the Vercel project env.
+
 ## Backup
 
 The pre-V2 KOINO Agency Next.js app (8 wired pages + 3 Gemini AI endpoints)

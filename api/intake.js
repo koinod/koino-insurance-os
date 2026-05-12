@@ -1,8 +1,8 @@
 // /api/intake — handles leads from the landing page.
 // Persists to the demo_submissions table (separated from main pipeline).
 
-const SUPABASE_URL  = "https://jfphwmzwteermalzwojp.supabase.co";
-const SUPABASE_ANON = "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL      || "https://jfphwmzwteermalzwojp.supabase.co";
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
 export const config = { runtime: "edge" };
 
