@@ -3250,61 +3250,141 @@ function SettingsAgents({ role = "owner" }) {
   );
 }
 
+/* API keys — agency-scoped keys persisted to public.api_keys (migration
+ * 0019). Plaintext returned exactly once by api_key_issue() RPC; we hold it
+ * in a one-shot reveal block then drop it from memory.
+ *
+ * The webhooks panel underneath stays demo-only for now — no webhooks table
+ * exists yet. We're honest about that with an inline note. */
 function SettingsApi() {
-  const [revealed, setRevealed] = React.useState(false);
-  // Generate a deterministic-looking but session-local key. Real key issuance
-  // would call /api/keys/* — we surface a clear message when that endpoint
-  // doesn't exist rather than silently failing.
-  const [key, setKey] = React.useState(() => {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows,    setRows]    = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
+  const [creating, setCreating] = React.useState(false);
+  const [newLabel, setNewLabel] = React.useState("");
+  const [justIssued, setJustIssued] = React.useState(null); // { plaintext, prefix, label }
+  const [busy, setBusy] = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true); setErr(null);
     try {
-      const stash = sessionStorage.getItem("repflow.api_key");
-      if (stash) return stash;
-    } catch {}
-    return "rfk_live_eyJhbGciOiJIUzI1NiJ9...QzfBn4xT2";
-  });
-  const newKey = () => {
-    const fresh = "rfk_live_" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
-    setKey(fresh);
-    setRevealed(true);
-    try { sessionStorage.setItem("repflow.api_key", fresh); } catch {}
-    window.toast && window.toast("New API key generated · save it now, you won't see it again", "success");
+      const { data, error } = await sb.from("api_keys")
+        .select("id, label, prefix, scopes, created_at, last_used_at, expires_at, revoked_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const issue = async () => {
+    if (!sb) return;
+    if (!newLabel.trim()) { window.toast && window.toast("Label required", "warn"); return; }
+    setBusy(true);
+    try {
+      const r = await sb.rpc("api_key_issue", { p_label: newLabel.trim() });
+      if (r.error) throw r.error;
+      // RPC returns table-set — supabase-js gives us an array, take row 0.
+      const row = Array.isArray(r.data) ? r.data[0] : r.data;
+      if (!row || !row.plaintext) throw new Error("RPC returned no plaintext");
+      setJustIssued({ plaintext: row.plaintext, prefix: row.prefix, label: newLabel.trim() });
+      setCreating(false); setNewLabel("");
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Issue failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
   };
-  const rotate = () => {
-    if (!confirm("Rotate the API key? Existing integrations will stop working until updated with the new value.")) return;
-    newKey();
+
+  const revoke = async (row) => {
+    if (!sb) return;
+    if (!confirm(`Revoke "${row.label}" (prefix ${row.prefix}…)? Integrations using it will start failing.`)) return;
+    const r = await sb.rpc("api_key_revoke", { p_id: row.id });
+    if (r.error) { window.toast && window.toast(`Revoke failed: ${r.error.message}`, "error"); return; }
+    window.toast && window.toast(`${row.label} revoked`, "success");
+    await refresh();
   };
+
+  if (loading) return <div className="ks-empty">Loading API keys…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load API keys: <span className="mono">{err}</span></div></div>;
+
+  const active = rows.filter(r => !r.revoked_at);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>API keys</h3>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginBottom: 12 }}>Use this key to push leads or pull pipeline state via REST. Never commit keys to source control.</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>
-          <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? key : key.slice(0, 12) + "•••••••••••••••••••"}</span>
-          <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)}>{revealed ? "Hide" : "Reveal"}</button>
-          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(key).then(() => window.toast && window.toast("API key copied to clipboard", "success"))}><Icons.Copy size={12}/> Copy</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {justIssued && (
+        <div className="ks-tile" style={{ borderColor: "var(--accent-money)" }}>
+          <div className="ks-tile-h">
+            <Icons.Sparkles size={14}/> {justIssued.label}
+            <span className="ks-tile-tag">save now — you won't see this again</span>
+          </div>
+          <div className="ks-tile-sub">Copy this key into your integration's config. Once you close this banner the plaintext is gone — only the prefix and the SHA-256 hash remain in our database.</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-base)", borderRadius: 8 }}>
+            <span className="mono" style={{ flex: 1, fontSize: 12, color: "var(--text-primary)", wordBreak: "break-all" }}>{justIssued.plaintext}</span>
+            <button className="btn" onClick={() => navigator.clipboard.writeText(justIssued.plaintext).then(() => window.toast && window.toast("Copied", "success"))}><Icons.Copy size={12}/> Copy</button>
+            <button className="btn btn-ghost" onClick={() => setJustIssued(null)}><Icons.X size={12}/></button>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="btn btn-primary" onClick={newKey}><Icons.Plus size={12}/> Create new key</button>
-          <button className="btn" onClick={rotate}>Rotate</button>
-        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="ks-section-label" style={{ padding: 0 }}>API keys</div>
+        <span className="chip">{active.length} active · {rows.length - active.length} revoked</span>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setCreating(true)}>
+          <Icons.Plus size={12}/> New key
+        </button>
       </div>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Webhooks</h3>
-        <div className="list" style={{ marginTop: 8 }}>
-          {[
-            { url: "https://atlas.zapier.com/leads",      events: "lead.new · lead.assigned",        last: "2m ago" },
-            { url: "https://atlas.n8n.io/issued",         events: "deal.issued",                       last: "14m ago" },
-            { url: "https://atlas.app.n8n.cloud/nigo",    events: "deal.nigo",                          last: "yesterday" },
-          ].map((w, i) => (
-            <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px" }}>
-              <div className="cell-truncate mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{w.url}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.events}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.last}</div>
-              <button className="btn btn-ghost">Edit</button>
+
+      {rows.length === 0 ? (
+        <div className="ks-empty">
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No API keys issued yet</div>
+          <div style={{ marginTop: 4 }}>Click New key to mint one. We hash and store only the prefix and SHA-256 — the plaintext is shown to you once and never again.</div>
+        </div>
+      ) : (
+        <div className="panel"><div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 120px 130px 90px" }}>
+            <div>Label</div><div>Prefix</div><div>Last used</div><div>Issued</div><div></div>
+          </div>
+          {rows.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 120px 130px 90px", opacity: r.revoked_at ? 0.5 : 1 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{r.label}</div>
+                {r.revoked_at && <div style={{ fontSize: 10.5, color: "var(--state-danger)" }}>revoked {new Date(r.revoked_at).toLocaleDateString()}</div>}
+              </div>
+              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{r.prefix}…</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleString() : "never"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                {!r.revoked_at && <button className="btn btn-ghost" onClick={() => revoke(r)} style={{ fontSize: 10.5 }}>Revoke</button>}
+              </div>
             </div>
           ))}
-        </div>
+        </div></div>
+      )}
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Send size={14}/> Webhooks<span className="ks-tile-tag">coming soon</span></div>
+        <div className="ks-tile-sub">Outbound webhooks (lead.new, deal.issued, deal.nigo) aren't persisted yet — needs the <span className="mono">webhooks</span> table. Until then, push from your side via the REST API and an API key above.</div>
       </div>
+
+      {creating && (
+        <Shared.Modal title="Issue API key" width={460} onClose={() => { setCreating(false); setNewLabel(""); }} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => { setCreating(false); setNewLabel(""); }}>Cancel</button>
+            <button className="btn btn-primary" onClick={issue} disabled={busy || !newLabel.trim()}><Icons.Check size={11}/> {busy ? "Minting…" : "Issue key"}</button>
+          </>
+        }>
+          <Shared.Field label="Label" hint="What's this key for? Shows up in the list above.">
+            <input className="text-input" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Zapier prod, Salesforce sync, internal cron…" autoFocus/>
+          </Shared.Field>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8, lineHeight: 1.5 }}>
+            Default scopes: <span className="mono">leads:read, leads:write, pipeline:read</span>. Per-key scopes will arrive in a follow-up.
+          </div>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
