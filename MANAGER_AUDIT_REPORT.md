@@ -5,6 +5,7 @@ Window: ~3-hour sovereign pass against the manager surfaces — Floor, Leaderboa
 Push: **NOT** pushed to remote.
 
 ```
+9658fbb style(ds): adopt koino.capital website palette + tighten manager cards
 73039ad fix(settings): SettingsNotifications loads + saves under real user id
 17852fb fix(ops): wire dead chevron on workflow row to AI drill-down
 6d1ef17 fix(pipeline): manager view scopes to downline via scopeRepIds()
@@ -12,7 +13,7 @@ c0455a2 fix(leaderboard): scope to downline + dead handlers + drop demo bleed
 66525df fix(data): notificationCreate routes focus alerts to a specific rep
 ```
 
-5 commits. Zero `main` touches. Zero remote pushes. All changed `.jsx` files compile under `@babel/standalone`.
+6 commits. Zero `main` touches. Zero remote pushes. All changed `.jsx` files compile under `@babel/standalone`.
 
 ---
 
@@ -109,6 +110,39 @@ Re-renders on `me:loaded` + `data:hydrated` so a manager landing on `/pipeline` 
 ### 4. `17852fb` — `fix(ops): wire dead chevron on workflow row to AI drill-down`
 
 - `page-ops.jsx:317` — the `ChevronRight` icon button at the end of each workflow row had no `onClick`. Now dispatches `ai:ask` with a workflow-specific prompt.
+
+### 6. `9658fbb` — `style(ds): adopt koino.capital website palette + tighten manager cards`
+
+Ian's correction mid-pass: drop the OS amber-leaning oklch DS, align with
+`KOINO/ventures/products/storefront-static/index.html` :root.
+
+**`styles.css` :root** — token NAMES preserved; every existing call site
+inherits automatically without editing the JSX:
+
+- bg ladder → `#050505` / `#0d0d0d` / `#151515` / `#1a1a1a` (pure black; was warm oklch ~0.18-0.30 / hue 260).
+- borders → `#1a1a1a` / `#2a2a2a`.
+- text → `#e8e8e8` / `#888` / `#555` / `#3a3a3a`.
+- `--accent-money` → **`#00d4aa`** (koino teal; was warm green oklch 0.78 0.18 152). Headline DS shift — every primary button + bar + chip + accent renders teal-on-black.
+- `--accent-status` → `#7c3aed` (purple; was yellow). `--accent-heat / --state-warning` retain warm channels.
+- `--state-danger / --warning / --info` → flat hex matching website's color system.
+- Radii → 6 / 8 / 12 / 14 (was 4 / 6 / 10 / 14) — softer.
+- `--row-h` → 32 (was 36) — denser default rows.
+- `--shadow-floating` → tinted with `--accent-money` glow.
+
+**Components** (`styles.css`):
+- `.panel` — added subtle hover-border transition.
+- `.panel-h` — padding `11px 14px` → `9px 12px`; titles 12.5px; meta 11px.
+- `.btn-primary` — color `#001a14` (contrast on teal); hover `#00ebbe` with teal box-shadow.
+
+**Manager-audit surfaces tightened** (per "smaller + cooler + tighter packing"):
+
+- `page-leaderboard.jsx:109` — podium gap 14→10, card padding 18→14/12, leader rank → `--accent-money`, numbers in `--font-mono`.
+- `page-leaderboard.jsx:146` — standings row height 44→36, avatar 22→20, rank column 40→32.
+- `page-leaderboard.jsx:172` — badges panel padding 14→8/10, item padding 10→6/8, icons 14→12, gap 10→8. Tier + $50K badges → `--accent-money` for consistent green accent.
+- `page-leaderboard.jsx:227` — live-floor panel padding 14→8/12, status banner in mono uppercase ("3 ON CALLS NOW") matching website's `.tag` style.
+- `page-extras.jsx:3252` — `SettingsNotifications` row padding 10→8, on-state shows mono uppercase "On" / "Off" in `--accent-money` (was the wordy "Email + push" text). Checkbox uses `accent-color: var(--accent-money)`.
+
+Cache busters: `styles.css?v=78`, `page-extras.jsx?v=84`, `page-leaderboard.jsx?v=78`.
 
 ### 5. `73039ad` — `fix(settings): SettingsNotifications loads + saves under real user id`
 
