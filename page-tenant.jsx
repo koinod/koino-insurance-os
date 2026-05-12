@@ -33,10 +33,22 @@ async function loadTenant() {
   const email  = session.user.email;
   let members = null;
   let memberError = null;
+  // Try the rich select first (includes onboarding_complete + joined_at);
+  // fall back to the original shape if the deployed schema is older.
+  // This is the same tolerant pattern data.jsx uses for the pipeline
+  // phone/email columns — a single missing column shouldn't strand the
+  // user on a "couldn't load your agency" recovery screen.
+  const RICH = "agency_id, role, rep_id, joined_at, agencies (id, slug, name, plan, state, onboarding_complete)";
+  const FALLBACK = "agency_id, role, rep_id, agencies (id, slug, name, plan, state)";
   try {
-    const r = await sb.from("agency_members")
-      .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
+    let r = await sb.from("agency_members")
+      .select(RICH)
       .eq("user_id", userId).eq("active", true);
+    if (r.error && /column .* does not exist/i.test(r.error.message || "")) {
+      r = await sb.from("agency_members")
+        .select(FALLBACK)
+        .eq("user_id", userId).eq("active", true);
+    }
     members = r.data;
     memberError = r.error;
   } catch (e) {
@@ -50,12 +62,27 @@ async function loadTenant() {
   if (!members || members.length === 0) {
     return { authed: true, userId, email, member: null, agency: null };
   }
-  const m = members[0];
+  // Rank by role (matches current_agency_id RPC + index.html role-sync):
+  //   super_admin > owner > imo_owner > admin > manager > rep
+  //   tie-broken on joined_at ASC (oldest membership wins on tie).
+  // This makes "your primary agency" deterministic for users with
+  // multiple memberships, instead of relying on Postgres row order.
+  const ROLE_RANK = { super_admin: 6, owner: 5, imo_owner: 4, admin: 3, manager: 2, rep: 1 };
+  const sorted = [...members].sort((a, b) => {
+    const r = (ROLE_RANK[b.role] || 0) - (ROLE_RANK[a.role] || 0);
+    if (r !== 0) return r;
+    return new Date(a.joined_at || 0) - new Date(b.joined_at || 0);
+  });
+  const m = sorted[0];
+  // If onboarding_complete is undefined (older schema) we leave it
+  // undefined — AuthGate treats that as "complete enough" and routes to
+  // the main app, which preserves the pre-2026-05-11 behaviour for
+  // older agencies that pre-date the onboarding system.
   return {
     authed: true,
     userId,
     email,
-    member: { agency_id: m.agency_id, role: m.role, rep_id: m.rep_id },
+    member: { agency_id: m.agency_id, role: m.role, rep_id: m.rep_id, joined_at: m.joined_at },
     agency: m.agencies,
   };
 }

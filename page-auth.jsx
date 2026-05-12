@@ -357,17 +357,29 @@ function AuthGate({ children }) {
 
   // No agency_members row at all → user-type picker (Start / Join / Solo).
   // FirstRun handles the agency creation, invite redemption, or solo flow,
-  // then refreshes tenant when done.
+  // then refreshes tenant when done. This is the primary entry point for
+  // anyone who's just signed up or clicked a magic link without a prior
+  // membership — they always hit the StartPicker before seeing the app.
   if (session && tenant && !tenant.member && window.PageFirstRun) {
     const F = window.PageFirstRun;
     return <F session={session} onDone={() => refreshTenant()}/>;
   }
   // Member exists, but their agency hasn't completed onboarding AND they're
-  // the owner → resume the agency wizard. Producers (rep/manager) skip this
-  // because they don't own the agency setup.
+  // an agency owner (or platform/super admin acting as one) → resume the
+  // agency wizard. Producers (rep/manager) skip this — they don't own the
+  // agency setup.
+  //
+  // Owning roles per the 2026-05-11 ranking: owner, imo_owner, super_admin.
+  // (super_admin is broad enough to act as setup-runner for any agency.)
+  //
+  // Treat `onboarding_complete === false` as the canonical signal. When
+  // the column is undefined (older schema where the field doesn't exist
+  // yet), we fall through to the main app — preserves pre-onboarding
+  // behaviour for legacy agencies.
+  const OWNING_ROLES = new Set(["owner", "imo_owner", "super_admin"]);
   if (session && tenant && tenant.member && tenant.agency
       && tenant.agency.onboarding_complete === false
-      && tenant.member.role === "owner"
+      && OWNING_ROLES.has(tenant.member.role)
       && window.PageFirstRun) {
     const F = window.PageFirstRun;
     return <F session={session} resumeAgency={tenant.agency} onDone={() => refreshTenant()}/>;
