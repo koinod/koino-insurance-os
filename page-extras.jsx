@@ -723,8 +723,9 @@ function CommissionsOwner() {
    4. Training — rep / mgr / owner
    ───────────────────────────────────────────────────────────────────────── */
 /* ─── ProductTraining store ───────────────────────────────────────────────
-   Persists three things to localStorage and broadcasts a "training:changed"
-   event so every Training pane stays in sync after edits:
+   Persists three things to Supabase (migration 0019) with localStorage as a
+   pre-hydrate fallback. Broadcasts a "training:changed" event after every
+   mutation so every Training pane stays in sync after edits:
      • courses        — owner-authored library (sections + lessons)
      • progress       — per-rep, per-course completedLessons + completedAt
      • assignments    — manager assigns courseId → repIds with optional dueDate
@@ -734,10 +735,13 @@ const ProductTraining = (() => {
   const K_PROGRESS    = "repflow:product_training_progress";
   const K_ASSIGNMENTS = "repflow:product_training_assignments";
 
-  function seedCourses() {
+  function isLive() {
+    return Boolean(window.AppData && Array.isArray(window.AppData.TRAINING_COURSES) && window.AppData.TRAINING_COURSES.length > 0);
+  }
+  function legacySeedCourses() {
     return (AppData.COURSES || []).map((c) => ({
       ...c,
-      required: c.required ?? false,  // owners explicitly flag required after authoring lessons
+      required: c.required ?? false,
       description: c.description || "",
       sections: c.sections || [],
     }));
@@ -752,9 +756,86 @@ const ProductTraining = (() => {
   function broadcast() {
     window.dispatchEvent(new CustomEvent("training:changed"));
   }
-  function loadCourses()     { return loadJSON(K_COURSES, seedCourses()); }
-  function loadProgress()    { return loadJSON(K_PROGRESS, {}); }
-  function loadAssignments() { return loadJSON(K_ASSIGNMENTS, []); }
+  function loadCourses() {
+    if (isLive()) return window.AppData.TRAINING_COURSES;
+    return loadJSON(K_COURSES, legacySeedCourses());
+  }
+  function loadProgress() {
+    if (isLive() && window.AppData.TRAINING_PROGRESS && typeof window.AppData.TRAINING_PROGRESS === "object") {
+      return window.AppData.TRAINING_PROGRESS;
+    }
+    return loadJSON(K_PROGRESS, {});
+  }
+  function loadAssignments() {
+    if (isLive() && Array.isArray(window.AppData.TRAINING_ASSIGNMENTS)) {
+      return window.AppData.TRAINING_ASSIGNMENTS;
+    }
+    return loadJSON(K_ASSIGNMENTS, []);
+  }
+
+  // Supabase writes (fire-and-forget — UI is mutated optimistically first).
+  function sbClient() { return (window.getSupabase && window.getSupabase()) || null; }
+  function activeAgencyId() { return (window.getActiveAgencyId && window.getActiveAgencyId()) || null; }
+  function pgCourseRow(c) {
+    return {
+      id: c.id, agency_id: activeAgencyId(),
+      slug: c.slug || null, title: c.title, track: c.track || null,
+      description: c.description || null, dur_min: c.durMin || null,
+      required: !!c.required, sections: c.sections || [],
+      target_roles: c.targetRoles || ["owner","manager","rep"],
+      display_order: c.displayOrder || 100,
+      is_published: c.isPublished !== false,
+    };
+  }
+  async function upsertCourse(course) {
+    const client = sbClient(); if (!client) return;
+    const row = pgCourseRow(course);
+    if (!row.agency_id) { console.warn("[training] no active agency_id; course not saved"); return; }
+    const { error } = await client.from("training_courses").upsert(row, { onConflict: "id" });
+    if (error) console.warn("[training] upsertCourse failed:", error.message);
+  }
+  async function deleteCourseRow(id) {
+    const client = sbClient(); if (!client) return;
+    const { error } = await client.from("training_courses").delete().eq("id", id);
+    if (error) console.warn("[training] deleteCourse failed:", error.message);
+  }
+  async function replaceAssignmentsForCourse(courseId, repIds, dueDate) {
+    const client = sbClient(); if (!client) return;
+    const agency_id = activeAgencyId();
+    if (!agency_id) { console.warn("[training] no active agency_id; assignments not saved"); return; }
+    await client.from("training_assignments").delete().eq("course_id", courseId);
+    if (!repIds || repIds.length === 0) return;
+    const rows = repIds.map(rep_id => ({ agency_id, course_id: courseId, rep_id, due_at: dueDate || null }));
+    const { error } = await client.from("training_assignments").insert(rows);
+    if (error) console.warn("[training] insertAssignments failed:", error.message);
+  }
+  async function writeProgress(repId, courseId, lessonKey, completed) {
+    const client = sbClient(); if (!client) return;
+    if (completed) {
+      const { error } = await client.from("training_progress")
+        .upsert({ rep_id: repId, course_id: courseId, lesson_key: lessonKey },
+                { onConflict: "rep_id,course_id,lesson_key" });
+      if (error) console.warn("[training] writeProgress upsert failed:", error.message);
+    } else {
+      const { error } = await client.from("training_progress").delete()
+        .eq("rep_id", repId).eq("course_id", courseId).eq("lesson_key", lessonKey);
+      if (error) console.warn("[training] writeProgress delete failed:", error.message);
+    }
+  }
+  function diffProgress(prev, next) {
+    const keys = new Set([...Object.keys(prev || {}), ...Object.keys(next || {})]);
+    for (const repId of keys) {
+      const p = (prev && prev[repId]) || {};
+      const n = (next && next[repId]) || {};
+      const courseKeys = new Set([...Object.keys(p), ...Object.keys(n)]);
+      for (const courseId of courseKeys) {
+        const pLessons = new Set((p[courseId]?.completedLessons) || []);
+        const nLessons = new Set((n[courseId]?.completedLessons) || []);
+        for (const k of nLessons) if (!pLessons.has(k)) writeProgress(repId, courseId, k, true);
+        for (const k of pLessons) if (!nLessons.has(k)) writeProgress(repId, courseId, k, false);
+      }
+    }
+  }
 
   function totalLessons(course) {
     return (course.sections || []).reduce((a, s) => a + (s.lessons?.length || 0), 0);
@@ -768,9 +849,6 @@ const ProductTraining = (() => {
     return (progress[repId] && progress[repId][courseId]) || { completedLessons: [], completedAt: null };
   }
   function deriveStatus(course, prog, assignment) {
-    // Pure derivation from lessons + assignments. Ignore the legacy
-    // course.status field — seed data sets it but it conflicts with the
-    // progress-driven model (e.g. status:"complete" + zero lessons).
     const total = totalLessons(course);
     const done  = prog.completedLessons.length;
     if (total > 0 && done >= total) return "complete";
@@ -780,7 +858,7 @@ const ProductTraining = (() => {
       if (assignment.dueDate < today) return "overdue";
     }
     if (assignment) return "assigned";
-    if (course.required) return "due";  // required courses are implicitly assigned
+    if (course.required) return "due";
     return "assigned";
   }
   function statusFor(repId, course, progress, assignments) {
@@ -789,9 +867,6 @@ const ProductTraining = (() => {
     return deriveStatus(course, prog, a);
   }
   function percentFor(repId, course, progress) {
-    // Progress is derived from lessons completed, period. Seed courses with
-    // a legacy `status: "complete"` field but zero lessons must NOT report
-    // 100% — that creates a "fully filled bar but status: due" mismatch.
     const total = totalLessons(course);
     if (total === 0) return 0;
     return Math.round((getProgress(progress, repId, course.id).completedLessons.length / total) * 100);
@@ -800,29 +875,74 @@ const ProductTraining = (() => {
     return statusFor(repId, course, progress, []) === "complete";
   }
 
-  // React hooks — every Training pane subscribes via these and re-renders on change.
   function useStore() {
     const [, force] = React.useState(0);
     React.useEffect(() => {
       const onChange = () => force(n => n + 1);
       window.addEventListener("training:changed", onChange);
-      return () => window.removeEventListener("training:changed", onChange);
+      window.addEventListener("data:hydrated",   onChange);
+      window.addEventListener("data:realtime",   onChange);
+      return () => {
+        window.removeEventListener("training:changed", onChange);
+        window.removeEventListener("data:hydrated",   onChange);
+        window.removeEventListener("data:realtime",   onChange);
+      };
     }, []);
     return {
       courses: loadCourses(),
       progress: loadProgress(),
       assignments: loadAssignments(),
       saveCourses: (next) => {
-        const v = typeof next === "function" ? next(loadCourses()) : next;
-        saveJSON(K_COURSES, v); broadcast();
+        const prev = loadCourses();
+        const v = typeof next === "function" ? next(prev) : next;
+        if (isLive()) {
+          window.AppData.TRAINING_COURSES = v;
+          const prevById = new Map(prev.map(c => [c.id, c]));
+          const nextById = new Map(v.map(c => [c.id, c]));
+          for (const [id, c] of nextById) {
+            const p = prevById.get(id);
+            if (!p || JSON.stringify(p) !== JSON.stringify(c)) upsertCourse(c);
+          }
+          for (const id of prevById.keys()) if (!nextById.has(id)) deleteCourseRow(id);
+        } else {
+          saveJSON(K_COURSES, v);
+        }
+        broadcast();
       },
       saveProgress: (next) => {
-        const v = typeof next === "function" ? next(loadProgress()) : next;
-        saveJSON(K_PROGRESS, v); broadcast();
+        const prev = loadProgress();
+        const v = typeof next === "function" ? next(prev) : next;
+        if (isLive()) {
+          window.AppData.TRAINING_PROGRESS = v;
+          // Diff prev vs next and emit per-lesson writeProgress() — bulk
+          // replacements hit the DB just like mark/unmark.
+          diffProgress(prev, v);
+        } else {
+          saveJSON(K_PROGRESS, v);
+        }
+        broadcast();
       },
       saveAssignments: (next) => {
-        const v = typeof next === "function" ? next(loadAssignments()) : next;
-        saveJSON(K_ASSIGNMENTS, v); broadcast();
+        const prev = loadAssignments();
+        const v = typeof next === "function" ? next(prev) : next;
+        if (isLive()) {
+          window.AppData.TRAINING_ASSIGNMENTS = v;
+          const prevByCourse = new Map(prev.map(a => [a.courseId, a]));
+          const nextByCourse = new Map(v.map(a => [a.courseId, a]));
+          for (const [cid, a] of nextByCourse) {
+            const p = prevByCourse.get(cid);
+            const same = p &&
+              JSON.stringify((p.repIds || []).slice().sort()) === JSON.stringify((a.repIds || []).slice().sort()) &&
+              (p.dueDate || null) === (a.dueDate || null);
+            if (!same) replaceAssignmentsForCourse(cid, a.repIds || [], a.dueDate);
+          }
+          for (const cid of prevByCourse.keys()) {
+            if (!nextByCourse.has(cid)) replaceAssignmentsForCourse(cid, [], null);
+          }
+        } else {
+          saveJSON(K_ASSIGNMENTS, v);
+        }
+        broadcast();
       },
     };
   }
@@ -837,7 +957,6 @@ const ProductTraining = (() => {
     repProg[courseId] = cur;
     all[repId] = repProg;
 
-    // Auto-flag completedAt when all lessons done.
     const courses = loadCourses();
     const course = courses.find(c => c.id === courseId);
     if (course) {
@@ -847,7 +966,13 @@ const ProductTraining = (() => {
         all[repId][courseId] = cur;
       }
     }
-    saveJSON(K_PROGRESS, all); broadcast();
+    if (isLive()) {
+      window.AppData.TRAINING_PROGRESS = all;
+      writeProgress(repId, courseId, lessonId, true);
+    } else {
+      saveJSON(K_PROGRESS, all);
+    }
+    broadcast();
   }
 
   function unmarkLessonComplete(repId, courseId, lessonId) {
@@ -857,10 +982,15 @@ const ProductTraining = (() => {
     cur.completedLessons = cur.completedLessons.filter(x => x !== lessonId);
     cur.completedAt = null;
     all[repId][courseId] = cur;
-    saveJSON(K_PROGRESS, all); broadcast();
+    if (isLive()) {
+      window.AppData.TRAINING_PROGRESS = all;
+      writeProgress(repId, courseId, lessonId, false);
+    } else {
+      saveJSON(K_PROGRESS, all);
+    }
+    broadcast();
   }
 
-  // Required course = required flag OR explicit assignment. Open = not yet complete.
   function requiredCoursesFor(repId, courses, progress, assignments) {
     return courses.filter(c => {
       if (c.required) return true;
@@ -869,7 +999,7 @@ const ProductTraining = (() => {
   }
   function openRequiredCount(repId, courses, progress, assignments) {
     return requiredCoursesFor(repId, courses, progress, assignments)
-      .filter(c => totalLessons(c) > 0)  // ignore empty courses still being authored
+      .filter(c => totalLessons(c) > 0)
       .filter(c => statusFor(repId, c, progress, assignments) !== "complete")
       .length;
   }
@@ -1063,9 +1193,30 @@ function CallLibraryPane({ role }) {
 }
 
 function ProductTrainingPane({ role, store, meId, requiredOpen }) {
-  if (role === "owner")   return <ProductTrainingOwner store={store}/>;
-  if (role === "manager") return <ProductTrainingManager store={store}/>;
+  // Management track (own, can author): owner / imo_owner / super_admin → author UI
+  // Manager track (assign + track downline progress): manager / admin → manager UI
+  // Everyone else (rep, viewer, anyone with no explicit role): take courses
+  if (role === "owner" || role === "imo_owner" || role === "super_admin") {
+    return <ProductTrainingOwner store={store}/>;
+  }
+  if (role === "manager" || role === "admin") {
+    return <ProductTrainingManager store={store}/>;
+  }
   return <ProductTrainingRep store={store} meId={meId} requiredOpen={requiredOpen}/>;
+}
+
+/* ─── ProductTrainingEmbedded ─────────────────────────────────────────────
+   Self-contained mount used by PageLibrary's "Courses" tab. Wraps the same
+   ProductTraining pane the PageTraining route renders, but pulls the store
+   + meId + requiredOpen counter internally so the embedder only passes role.
+   Exposed on window so any page can drop it in without duplicating wiring. */
+function ProductTrainingEmbedded({ role = "rep" }) {
+  const store = ProductTraining.useStore();
+  const meId = (window.me && window.me()?.rep_id) || AppData.REPS[0]?.id || null;
+  const requiredOpen = meId
+    ? ProductTraining.openRequiredCount(meId, store.courses, store.progress, store.assignments)
+    : 0;
+  return <ProductTrainingPane role={role} store={store} meId={meId} requiredOpen={requiredOpen}/>;
 }
 
 /* ─── Default video library + scripts library ─────────────────────────────
@@ -3186,6 +3337,7 @@ window.PageVault          = PageVault;
 window.PageTiering        = PageTiering;
 window.PageCommissions    = PageCommissions;
 window.PageTraining       = PageTraining;
+window.ProductTrainingEmbedded = ProductTrainingEmbedded;
 /* PageRecruiting moved to page-recruiting.jsx */
 window.PageCalls          = PageCalls;
 window.PageBook           = PageBook;

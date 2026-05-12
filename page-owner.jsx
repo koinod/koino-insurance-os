@@ -84,7 +84,11 @@ function _computeAnomalies() {
   const anomalies = [];
   const policies = AppData.POLICIES || [];
   const nigos = AppData.NIGOS || [];
-  const courses = AppData.COURSES || [];
+  // Training courses + completion now live in TRAINING_* (migration 0019);
+  // legacy AppData.COURSES is being retired. Read both, prefer TRAINING_*.
+  const trainingCourses     = AppData.TRAINING_COURSES || [];
+  const trainingProgress    = AppData.TRAINING_PROGRESS || {};
+  const trainingAssignments = AppData.TRAINING_ASSIGNMENTS || [];
   const expenses = AppData.EXPENSES || [];
   const carriers = AppData.CARRIERS || [];
   const carrierById = Object.fromEntries(carriers.map(c => [c.id, c]));
@@ -131,13 +135,28 @@ function _computeAnomalies() {
     }
   }
 
-  // 3) AEP / compliance cert gaps — courses on AEP/Compliance not complete by AEP cutoff
-  const aepCourses = courses.filter(c => /AEP|Compliance|TPMO/i.test(c.track) && c.status !== "complete");
-  if (aepCourses.length > 0) {
+  // 3) AEP / compliance cert gaps — count AEP/Compliance courses that have
+  //    at least one assigned rep who hasn't completed all lessons. Replaces
+  //    the legacy AppData.COURSES.status === "complete" check.
+  const certCourses = trainingCourses.filter(c => /AEP|Compliance|TPMO/i.test(c.track || ""));
+  const incompleteCerts = certCourses.filter(c => {
+    const totalLessons = (c.sections || []).reduce((a, s) => a + (s.lessons?.length || 0), 0);
+    if (totalLessons === 0) return false;
+    const assignment = trainingAssignments.find(a => a.courseId === c.id);
+    const requiredReps = c.required
+      ? Object.keys(trainingProgress) // any rep on the floor is on the hook
+      : (assignment?.repIds || []);
+    if (requiredReps.length === 0) return false;
+    return requiredReps.some(repId => {
+      const done = trainingProgress[repId]?.[c.id]?.completedLessons?.length || 0;
+      return done < totalLessons;
+    });
+  });
+  if (incompleteCerts.length > 0) {
     anomalies.push({
       sev: "warn",
       t: "Cert gap",
-      b: `${aepCourses.length} cert${aepCourses.length === 1 ? "" : "s"} not complete (TPMO/AEP)`,
+      b: `${incompleteCerts.length} cert${incompleteCerts.length === 1 ? "" : "s"} not complete (TPMO/AEP)`,
       a: "Notify", target: "training"
     });
   }

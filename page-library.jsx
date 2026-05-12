@@ -13,6 +13,7 @@
 
 const TABS = [
   { k: "all",       l: "All",        icon: "Search" },
+  { k: "courses",   l: "Courses",    icon: "Book" },
   { k: "scripts",   l: "Scripts",    icon: "FileText" },
   { k: "videos",    l: "Videos",     icon: "Video" },
   { k: "docs",      l: "Documents",  icon: "Folder" },
@@ -39,6 +40,7 @@ function useResources() {
     docs:     (window.AppData && window.AppData.DOCS)        || [],
     links:    (window.AppData && window.AppData.QUICK_LINKS) || [],
     carriers: (window.AppData && window.AppData.CARRIERS)    || [],
+    courses:  (window.AppData && window.AppData.TRAINING_COURSES) || [],
   };
 }
 
@@ -67,10 +69,11 @@ function PageLibrary({ role = "rep" }) {
   const fDocs     = data.docs.filter(d => match(d.title) || match(d.cat) || (d.text && match(d.text)));
   const fLinks    = data.links.filter(l => match(l.label) || match(l.cat));
   const fCarriers = data.carriers.filter(c => match(c.name) || match(c.category || ""));
+  const fCourses  = data.courses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
 
-  const totalAcrossSearch = fScripts.length + fVideos.length + fDocs.length + fLinks.length + fCarriers.length;
+  const totalAcrossSearch = fScripts.length + fVideos.length + fDocs.length + fLinks.length + fCarriers.length + fCourses.length;
 
-  const counts = { all: totalAcrossSearch, scripts: fScripts.length, videos: fVideos.length, docs: fDocs.length, carriers: fCarriers.length, links: fLinks.length };
+  const counts = { all: totalAcrossSearch, courses: fCourses.length, scripts: fScripts.length, videos: fVideos.length, docs: fDocs.length, carriers: fCarriers.length, links: fLinks.length };
 
   // Live-call context for token substitution in scripts (matches InCallScripts)
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
@@ -123,6 +126,16 @@ function PageLibrary({ role = "rep" }) {
           {fLinks.length    > 0 && <LinksBlock    links={fLinks}/>}
         </div>
       )}
+      {tab === "courses"  && (() => {
+        // Universal courses surface — every role gets it. Embed renders the
+        // role-appropriate ProductTraining view (owner/imo_owner/super_admin
+        // = authoring, manager/admin = assign + at-risk, everyone else =
+        // take courses). Falls back to a stub if page-extras hasn't loaded.
+        const T = window.ProductTrainingEmbedded;
+        return T
+          ? <T role={role}/>
+          : <div className="panel" style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>Loading courses…</div>;
+      })()}
       {tab === "scripts"  && <ScriptsBlock  scripts={fScripts}  openId={openScript} setOpenId={setOpenScript} subCtx={subCtx}/>}
       {tab === "videos"   && <VideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
       {tab === "docs"     && <DocsBlock     docs={fDocs}/>}
