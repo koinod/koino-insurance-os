@@ -749,6 +749,32 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] expenses hydrate skipped:", expErr?.message ?? expErr);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // org_settings hydrate — without this, Settings -> Organization saves
+    // (name/legal/domain/npn/operating_states) write to the table but never
+    // reload, so operator sees the default 13-state list + empty name on
+    // every refresh. Reads via the org_settings key/value table that
+    // orgSettingsSave already upserts to.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const r = await scope(sb.from("org_settings").select("key, value"));
+      if (Array.isArray(r?.data)) {
+        const orgSettings = {};
+        for (const row of r.data) {
+          // value is jsonb in pg; supabase-js may return it as a parsed
+          // object or a string depending on column type. Handle both.
+          let v = row.value;
+          if (typeof v === "string") {
+            try { v = JSON.parse(v); } catch (_e) { /* leave as string */ }
+          }
+          orgSettings[row.key] = v;
+        }
+        window.AppData.ORG_SETTINGS = orgSettings;
+      }
+    } catch (orgErr) {
+      console.warn("[supabase] org_settings hydrate skipped:", orgErr?.message ?? orgErr);
+    }
+
     window.AppData.LIVE = true;
 
     // Demo-agency fallback: if the active agency carries is_demo=true but
