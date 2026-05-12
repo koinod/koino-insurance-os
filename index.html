@@ -33,7 +33,7 @@
 <script type="text/babel" src="tweaks-panel.jsx?v=76"></script>
 <script type="text/babel" src="data.jsx?v=78"></script>
 <script type="text/babel" src="icons.jsx?v=75"></script>
-<script type="text/babel" src="shared.jsx?v=76"></script>
+<script type="text/babel" src="shared.jsx?v=77"></script>
 <script type="text/babel" src="page-today.jsx?v=77"></script>
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=76"></script>
 <script type="text/babel" src="page-pipeline.jsx?v=76"></script>
@@ -75,12 +75,19 @@
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
 
+// P8 (2026-05-11) — AEP/Surge feature archived per Ian. The aepMode key
+// stays in the tweaks shape for backwards-compat (existing localStorage
+// entries don't need migration), but it now defaults to false, the
+// Tweaks toggle has been removed below, and the topbar "AEP SURGE" pill
+// no longer renders. Backend tables (aep_periods / aep_assignments) are
+// preserved — re-enable by re-adding the TweakToggle + setting default
+// back to true. See OVERNIGHT_HANDOFF_2026-05-11.md (P8 section).
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "role": "owner",
   "page": "pnl",
   "density": "comfortable",
   "aiRail": false,
-  "aepMode": true,
+  "aepMode": false,
   "mobile": false
 }/*EDITMODE-END*/;
 
@@ -343,7 +350,9 @@ function App() {
         <TweakSection label="Density & UI"/>
         <TweakRadio label="Density" value={density} options={[{value:"comfortable",label:"Comfy"},{value:"compact",label:"Compact"}]} onChange={(v) => setTweak("density", v)}/>
         <TweakToggle label="AI co-pilot rail" value={aiRail} onChange={(v) => setTweak("aiRail", v)}/>
-        <TweakToggle label="AEP surge mode" value={aepMode} onChange={(v) => setTweak("aepMode", v)}/>
+        {/* AEP surge toggle removed 2026-05-11 (P8). Feature archived;
+            tables preserved. Re-add this line + flip aepMode default
+            in TWEAK_DEFAULTS to restore. */}
         <TweakSection label="Try"/>
         <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
         <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>

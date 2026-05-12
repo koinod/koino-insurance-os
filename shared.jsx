@@ -377,9 +377,9 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
     <AccountChip/>
     {window.AgencySwitcher && (() => { const A = window.AgencySwitcher; return <A/>; })()}
     <div className="topbar-spacer"/>
-    {aep && (
-      <div className="aep-pill"><span className="dot"></span>AEP SURGE · Day 14 / 54</div>
-    )}
+    {/* AEP SURGE pill removed 2026-05-11 (P8) — feature archived. The
+        `aep` prop continues to be plumbed through (always false now) so
+        re-enabling is one line: restore the original conditional. */}
     <button className="cmdk-trigger" onClick={openCmdK}>
       <Icons.Search size={13}/>
       <span>Search or run a command</span>

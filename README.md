@@ -33,8 +33,11 @@ root as static.
 ## Roles
 
 Top-right tweaks panel switches between Rep, Manager, Owner views and toggles
-mobile, AEP surge mode, AI co-pilot rail, density. Use `⌘K` for the command
-palette.
+mobile, AI co-pilot rail, density. Use `⌘K` for the command palette.
+
+> Note: The "AEP surge mode" toggle was archived on 2026-05-11 (see
+> `OVERNIGHT_HANDOFF_2026-05-11.md`, P8). Backend tables stay; the UI
+> surface — toggle, topbar pill, and conditional chips — was stripped.
 
 ## Backup
 
