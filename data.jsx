@@ -651,6 +651,61 @@ window.hydrateFromSupabase = async function () {
       window.AppData.LEAD_SPEND_TOTALS = window.AppData.LEAD_SPEND_TOTALS || { mtd: 0, qtd: 0, ytd: 0 };
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Training hydrate — migration 0019. Loads training_courses + nested
+    // sections, assignments folded by course, and per-rep lesson progress.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const [tcR, taR, tpR] = await Promise.all([
+        scope(sb.from("training_courses").select("*")
+          .eq("archived", false)
+          .order("display_order", { ascending: true })
+          .order("created_at", { ascending: true })),
+        scope(sb.from("training_assignments").select("*")),
+        scope(sb.from("training_progress").select("*")),
+      ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
+
+      const mapRowsT = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+
+      window.AppData.TRAINING_COURSES = mapRowsT(tcR, r => ({
+        id: r.id, slug: r.slug, title: r.title, track: r.track,
+        description: r.description, durMin: r.dur_min, required: r.required,
+        sections: Array.isArray(r.sections) ? r.sections : [],
+        targetRoles: r.target_roles || ["owner","manager","rep"],
+        displayOrder: r.display_order, isPublished: r.is_published,
+        createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+      }));
+
+      const byCourse = new Map();
+      for (const r of (Array.isArray(taR?.data) ? taR.data : [])) {
+        const k = r.course_id;
+        if (!byCourse.has(k)) byCourse.set(k, {
+          id: `course:${r.course_id}`, courseId: r.course_id, repIds: [],
+          dueDate: r.due_at || null, assignedBy: r.assigned_by, assignedAt: r.assigned_at,
+        });
+        byCourse.get(k).repIds.push(r.rep_id);
+        if (r.due_at && r.due_at > (byCourse.get(k).dueDate || "0000-00-00")) {
+          byCourse.get(k).dueDate = r.due_at;
+        }
+      }
+      window.AppData.TRAINING_ASSIGNMENTS = Array.from(byCourse.values());
+
+      const progByRep = {};
+      for (const r of (Array.isArray(tpR?.data) ? tpR.data : [])) {
+        const repBucket = progByRep[r.rep_id] || (progByRep[r.rep_id] = {});
+        const courseBucket = repBucket[r.course_id] || (repBucket[r.course_id] = {
+          completedLessons: [], completedAt: null,
+        });
+        courseBucket.completedLessons.push(r.lesson_key);
+        if (r.completed_at && r.completed_at > (courseBucket.completedAt || "")) {
+          courseBucket.completedAt = r.completed_at;
+        }
+      }
+      window.AppData.TRAINING_PROGRESS = progByRep;
+    } catch (trainErr) {
+      console.warn("[supabase] training hydrate skipped:", trainErr?.message ?? trainErr);
+    }
+
     window.AppData.LIVE = true;
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
@@ -707,6 +762,9 @@ window.subscribeRealtime = function () {
     // GAP-X5 — notifications + commissions stream so badges and PnL update without refresh
     notifications:      "NOTIFICATIONS",
     commissions:        "COMMISSIONS",
+    // 0019 — training_courses streams as a flat array. Assignments + progress
+    // need shape folding so they get dedicated handlers below.
+    training_courses:   "TRAINING_COURSES",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -726,6 +784,14 @@ window.subscribeRealtime = function () {
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
     if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
+    if (table === "training_courses") return {
+      id: r.id, slug: r.slug, title: r.title, track: r.track,
+      description: r.description, durMin: r.dur_min, required: r.required,
+      sections: Array.isArray(r.sections) ? r.sections : [],
+      targetRoles: r.target_roles || ["owner","manager","rep"],
+      displayOrder: r.display_order, isPublished: r.is_published,
+      createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+    };
     return r;
   };
 
@@ -750,9 +816,68 @@ window.subscribeRealtime = function () {
       window.dispatchEvent(new CustomEvent("data:hydrated"));
     });
   });
+  // ── Training assignments — folded by course_id into AppData.TRAINING_ASSIGNMENTS
+  channel.on("postgres_changes", { event: "*", schema: "public", table: "training_assignments" }, (payload) => {
+    const arr = window.AppData.TRAINING_ASSIGNMENTS = window.AppData.TRAINING_ASSIGNMENTS || [];
+    const { eventType, new: newRow, old: oldRow } = payload;
+    const upsertRep = (courseId, repId, dueAt, assignedBy, assignedAt) => {
+      let bucket = arr.find(a => a.courseId === courseId);
+      if (!bucket) {
+        bucket = { id: `course:${courseId}`, courseId, repIds: [], dueDate: dueAt || null, assignedBy, assignedAt };
+        arr.push(bucket);
+      }
+      if (!bucket.repIds.includes(repId)) bucket.repIds.push(repId);
+      if (dueAt && dueAt > (bucket.dueDate || "0000-00-00")) bucket.dueDate = dueAt;
+    };
+    const removeRep = (courseId, repId) => {
+      const i = arr.findIndex(a => a.courseId === courseId);
+      if (i < 0) return;
+      arr[i].repIds = arr[i].repIds.filter(x => x !== repId);
+      if (arr[i].repIds.length === 0) arr.splice(i, 1);
+    };
+    if (eventType === "INSERT" && newRow) {
+      upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at);
+    } else if (eventType === "UPDATE" && newRow) {
+      if (oldRow && (oldRow.course_id !== newRow.course_id || oldRow.rep_id !== newRow.rep_id)) {
+        removeRep(oldRow.course_id, oldRow.rep_id);
+      }
+      upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at);
+    } else if (eventType === "DELETE" && oldRow) {
+      removeRep(oldRow.course_id, oldRow.rep_id);
+    }
+    window.dispatchEvent(new CustomEvent("data:realtime", { detail: { table: "training_assignments", eventType } }));
+    window.dispatchEvent(new CustomEvent("data:hydrated"));
+  });
+
+  // ── Training progress — folded into AppData.TRAINING_PROGRESS[repId][courseId]
+  channel.on("postgres_changes", { event: "*", schema: "public", table: "training_progress" }, (payload) => {
+    const prog = window.AppData.TRAINING_PROGRESS = window.AppData.TRAINING_PROGRESS || {};
+    const { eventType, new: newRow, old: oldRow } = payload;
+    const row = newRow || oldRow;
+    if (!row) return;
+    const repBucket = prog[row.rep_id] || (prog[row.rep_id] = {});
+    const courseBucket = repBucket[row.course_id] || (repBucket[row.course_id] = { completedLessons: [], completedAt: null });
+    if (eventType === "INSERT" || eventType === "UPDATE") {
+      if (!courseBucket.completedLessons.includes(row.lesson_key)) {
+        courseBucket.completedLessons.push(row.lesson_key);
+      }
+      if (row.completed_at && row.completed_at > (courseBucket.completedAt || "")) {
+        courseBucket.completedAt = row.completed_at;
+      }
+    } else if (eventType === "DELETE") {
+      courseBucket.completedLessons = courseBucket.completedLessons.filter(k => k !== row.lesson_key);
+      if (courseBucket.completedLessons.length === 0) {
+        delete repBucket[row.course_id];
+        if (Object.keys(repBucket).length === 0) delete prog[row.rep_id];
+      }
+    }
+    window.dispatchEvent(new CustomEvent("data:realtime", { detail: { table: "training_progress", eventType } }));
+    window.dispatchEvent(new CustomEvent("data:hydrated"));
+  });
+
   channel.subscribe(status => {
     if (status === "SUBSCRIBED") {
-      console.info("[repflow] realtime channel live across", Object.keys(TABLE_TO_KEY).length, "tables");
+      console.info("[repflow] realtime channel live across", Object.keys(TABLE_TO_KEY).length + 2, "tables");
     }
   });
   return channel;
