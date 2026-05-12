@@ -119,8 +119,8 @@ const NAV = {
     { id: "users",       label: "All users",       icon: "Users" },
     { id: "billing",     label: "Repflow MRR",     icon: "Wallet" },
     { id: "audit",       label: "Global audit",    icon: "Activity" },
+    { id: "flags",       label: "Feature flags",   icon: "Bolt" },
     { id: "system",      label: "Env + health",    icon: "Bolt" },
-    { id: "platform-imo",label: "All IMOs",        icon: "Building" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
