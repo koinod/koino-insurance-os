@@ -691,6 +691,64 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] resources hydrate skipped:", resErr?.message ?? resErr);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Owner expenses hydrate — migration 0017. Without this AppData.EXPENSES
+    // is undefined and page-owner.jsx waterfall drill + anomaly engine and
+    // page-today.jsx leadSpendCents always render 0, even though Expenses page
+    // (page-expenses.jsx) is showing real rows by hitting agency_expenses
+    // directly. This fan-out makes the owner P&L numbers actually move.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const [expensesR, sourcesR] = await Promise.all([
+        scope(sb.from("agency_expenses").select("*").order("paid_at", { ascending: false }).limit(500)),
+        scope(sb.from("agency_lead_sources").select("*").order("name")),
+      ]);
+      const mapRowsE = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+      window.AppData.EXPENSES = mapRowsE(expensesR, e => ({
+        id: e.id,
+        kind: e.kind,
+        amount_cents: Number(e.amount_cents) || 0,
+        description: e.description,
+        vendor: e.vendor,
+        paid_at: e.paid_at,
+        paid_by: e.paid_by,
+        paid_by_rep_id: e.paid_by_rep_id,
+        reimbursable: !!e.reimbursable,
+        reimbursed_at: e.reimbursed_at,
+        lead_source_id: e.lead_source_id,
+        notes: e.notes,
+      }));
+      window.AppData.LEAD_SOURCES = mapRowsE(sourcesR, s => ({
+        id: s.id, name: s.name, vendor: s.vendor, kind: s.kind,
+        costPerLead: s.cost_per_lead_cents ? Math.round(s.cost_per_lead_cents / 100) : 0,
+        active: s.active !== false,
+      }));
+      // Period-bucketed lead-spend totals (cents) — consumed by the P&L
+      // waterfall + page-today rep cost line. Recompute each hydrate so
+      // realtime expense inserts move the numbers without a full refresh.
+      const expenses = window.AppData.EXPENSES;
+      const now = new Date();
+      const startMtd = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startYtd = new Date(now.getFullYear(), 0, 1);
+      const startT12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      const sumIn = (cutoff) => expenses
+        .filter(e => e.kind === "lead_spend" && e.paid_at && new Date(e.paid_at) >= cutoff)
+        .reduce((a, e) => a + (e.amount_cents || 0), 0);
+      window.AppData.LEAD_SPEND_TOTALS = {
+        mtd: sumIn(startMtd),
+        ytd: sumIn(startYtd),
+        t12: sumIn(startT12),
+      };
+      // Fixed costs (everything that isn't lead_spend or commissions) for the
+      // current month — feeds the "− SaaS / payroll / other" line on the P&L.
+      window.AppData.AGENCY_FIXED_COSTS_CENTS = expenses
+        .filter(e => !["lead_spend", "commissions"].includes(e.kind)
+                  && e.paid_at && new Date(e.paid_at) >= startMtd)
+        .reduce((a, e) => a + (e.amount_cents || 0), 0);
+    } catch (expErr) {
+      console.warn("[supabase] expenses hydrate skipped:", expErr?.message ?? expErr);
+    }
+
     window.AppData.LIVE = true;
 
     // Demo-agency fallback: if the active agency carries is_demo=true but
