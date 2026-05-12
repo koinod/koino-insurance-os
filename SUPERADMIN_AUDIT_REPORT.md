@@ -371,11 +371,121 @@ Did the new platform-admin surface leak anything to non-super_admin?
 
 - `SUPERADMIN_AUDIT_REPORT.md` (this file)
 - `supabase/migrations/0019_super_admin_platform.sql` (new)
+- `supabase/migrations/0020_super_admin_section_drill.sql` (new — appended in
+  the section drill pass: blocker_resolve RPC, agent_heartbeats fleet view,
+  audit_export RPC)
 - `api/me.js` — emit `is_super_admin`
+- `api/stripe/admin.js` (new — cross-agency Stripe roll-up endpoint)
 - `lib/me.js` — `window.isSuperAdmin()` recognises new flag, hot-path
   cache invalidation when act-as toggles
-- `page-platform-admin.jsx` (new, ~700 lines)
-- `index.html` — script tag was already present; just cache-bust to v=77
+- `lib/agency-config.js` — adds `featureFlag(name, default)` consumer
+- `lib/feature-flags.js` (new — minimal flag-read helper, loaded early)
+- `page-platform-admin.jsx` — section-drill rewrite, ~1000 lines
+- `index.html` — script tag was already present + new flag-helper load
+
+---
+
+## (F) Section drill — every button, every fetch (2026-05-12 second pass)
+
+Per Ian's drill instruction: tab-by-tab audit of what's actually wired vs.
+what's a display stub. Format below: WIRED / STUB / HARDCODED for each
+element, with the fix applied.
+
+### F1 Fleet health strip (HQ — top hero)
+
+| Element        | Before               | After                                      |
+|----------------|----------------------|--------------------------------------------|
+| 6 KPI tiles    | WIRED to `platform_hq_kpis` | WIRED + clickable — each tile routes to the drill |
+| Tile click     | STUB (no onClick)    | WIRED — Agencies → /agencies, Active 24h → /audit (filtered to 24h non-system), Audit 24h → /audit, MRR → /billing, NIGOs → opens cross-agency NIGO modal, Blockers → /audit?kind=blocker_on_operator |
+| MRR sparkline  | HARDCODED (no spark) | WIRED — `platform_hq_mrr_trend(p_days int)` RPC returns daily MRR for last 7d |
+| Hover context  | none                 | tooltip: "click to drill" + sub-stat       |
+| Re-sync btn    | WIRED                | WIRED                                      |
+
+### F2 Top agencies by MRR panel (HQ left column)
+
+| Element       | Before              | After                                                 |
+|---------------|---------------------|-------------------------------------------------------|
+| Rows          | WIRED               | WIRED + row click → drills to /audit filtered to agency_id |
+| Act-as button | WIRED (RPC + flag)  | WIRED + post-act, auto-routes to /pipeline for that agency |
+| MRR column    | WIRED (via subs)    | WIRED — now reads from new Stripe admin endpoint when key present, falls back to local subs table |
+| Plan chip     | WIRED               | WIRED                                                 |
+
+### F3 BLOCKERS card (HQ right column)
+
+| Element     | Before                            | After                                                |
+|-------------|-----------------------------------|------------------------------------------------------|
+| List        | WIRED filter on audit kind        | WIRED — same                                          |
+| Source      | NO WRITER (filter showed nothing) | wired writer: `flag_blocker_on_operator(agency, kind, target, metadata)` RPC, callable from cron / agent code |
+| Resolve btn | STUB (not present)                | WIRED — `resolve_blocker(id, note)` RPC. Writes resolution row + marks original `metadata.resolved=true`. Audit-trailed. |
+| Drill-in    | STUB                              | WIRED — row click → act-as that agency + route to relevant page from `metadata.deep_link` if present |
+
+### F4 Agent / OMNI / OCI / SailorsBot1 status
+
+| Element       | Before                          | After                                              |
+|---------------|---------------------------------|----------------------------------------------------|
+| Whole panel   | MISSING (only capability probe) | NEW `<AgentFleetPanel/>` on HQ + dedicated subpage |
+| Hardware list | n/a                             | WIRED — reads `public.hardware` (kind/status/uptime/load/last_heartbeat) |
+| Agent list    | n/a                             | WIRED — reads `public.ai_agents` + `public.agent_deployments` joined to hardware |
+| Heartbeat age | n/a                             | WIRED — computed client-side from `last_heartbeat`. Stale chip when >5min, dead when >1h |
+| Cross-project | DEFERRED                        | DEFERRED (still — OMNI/OCI/SailorsBot1 telemetry lives on the koino-os Supabase project; bridging is a separate task) |
+
+### F5 Act-as agency
+
+| Element              | Before                 | After                                                |
+|----------------------|------------------------|------------------------------------------------------|
+| start/stop RPCs      | WIRED                  | WIRED — same                                         |
+| localStorage flag    | WIRED                  | WIRED — same                                         |
+| data.jsx scope read  | WIRED via getActiveAgencyId() | WIRED + verified by tracing scope() through one query |
+| Banner on platform   | WIRED                  | WIRED — same                                         |
+| Banner on other pages| MISSING                | WIRED — `<ImpersonationBanner/>` now mounts above topbar in `<main>` for every page (not just platform-admin), so super-admin sees the warning when they navigate to /pipeline or /floor while acting-as |
+| Topbar agency chip   | shows me().agency_name | WIRED — now overrides to the acting-as agency name in topbar `AgencyChip` when impersonating, with amber styling |
+| Stop button          | WIRED                  | WIRED                                                |
+
+### F6 Global agency_audit_log viewer
+
+| Element       | Before                 | After                                                                 |
+|---------------|------------------------|-----------------------------------------------------------------------|
+| RPC fetch     | WIRED                  | WIRED                                                                 |
+| Time filter   | WIRED (1h/6h/24h/3d/7d)| WIRED                                                                 |
+| Kind filter   | WIRED                  | WIRED + agency filter dropdown (NEW)                                  |
+| Row click     | STUB                   | WIRED — click → AuditRowDetail modal showing full JSON metadata + "Act as this agency" + "Filter to agency" buttons |
+| CSV export    | STUB                   | WIRED — downloads filtered set as CSV via `platform_audit_export` RPC |
+| Severity dot  | WIRED                  | WIRED                                                                 |
+
+### F7 Demo toggle
+
+| Element       | Before                            | After                                       |
+|---------------|-----------------------------------|---------------------------------------------|
+| HQ checkbox   | WIRED                             | WIRED                                       |
+| Agencies tab  | WIRED                             | WIRED                                       |
+| Billing tab   | WIRED                             | WIRED                                       |
+| Flags tab     | always included demo              | WIRED — now reads the same toggle           |
+| Persistence   | WIRED (localStorage)              | WIRED                                       |
+| Demo chip on row | WIRED                          | WIRED                                       |
+
+### F8 Feature flags
+
+| Element              | Before                                   | After                                                                                                                |
+|----------------------|------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| Storage              | WIRED (org_settings + agencies.config)   | WIRED                                                                                                                |
+| Editor UI            | WIRED                                    | WIRED                                                                                                                |
+| **Consumer**         | **NONE — flags had ZERO effect**          | WIRED — `lib/feature-flags.js` adds `window.featureFlag(name, default)` reading agency override → global → default; loaded BEFORE every page-*.jsx |
+| Per-agency overrides | WIRED storage                            | WIRED storage + consumer                                                                                              |
+| Hot-reload           | needed page refresh                      | WIRED — `feature-flags:changed` event fires on save; consumers can subscribe                                          |
+| Seeded examples      | none                                     | Three seed flags written by 0020: `predictive_cards` (default true), `repflow_desktop_install` (false), `stripe_billing_admin` (false). Each has a comment naming the consuming file. |
+
+### F9 Stripe billing oversight
+
+| Element              | Before                                       | After                                                                                       |
+|----------------------|----------------------------------------------|---------------------------------------------------------------------------------------------|
+| Local subs sum       | WIRED (with undefined_table fallback)        | WIRED — kept as fallback                                                                    |
+| Cross-customer Stripe| STUB ("tracked separately")                  | WIRED — `/api/stripe/admin` edge function lists Stripe subscriptions, groups by `customer.metadata.agency_id`, returns per-agency MRR + status counts |
+| Status counts        | none                                         | WIRED — active / trialing / past_due / canceled                                              |
+| Refresh hint         | none                                         | WIRED — page calls /api/stripe/admin when feature flag `stripe_billing_admin = true` AND STRIPE_SECRET_KEY env is present |
+| Failed-payment count | none                                         | WIRED — same endpoint, `past_due` count surfaces in HQ as a new "Past due" chip on the Billing tab |
+
+Endpoint refuses non-super (verifies via `/api/me`-equivalent JWT check
+against `koino_super_admins` allowlist).
 
 No `data.jsx` changes — the existing `scope()` is correct for act-as
 mode and shouldn't be lifted for super_admin.
