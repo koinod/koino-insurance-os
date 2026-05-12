@@ -2773,32 +2773,55 @@ function SettingsOrg() {
   // seed I should overwrite". Demo agency keeps the seed for the sandbox.
   const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const [name, setName]     = React.useState(window.AppData?.ORG_SETTINGS?.name || (isDemo ? "Atlas Insurance Group" : (meIdent?.agency_name || "")));
-  const [legal, setLegal]   = React.useState(window.AppData?.ORG_SETTINGS?.legal || (isDemo ? "Atlas IMO LLC" : ""));
-  const [domain, setDomain] = React.useState(window.AppData?.ORG_SETTINGS?.domain || (isDemo ? "atlasimo.com" : ""));
-  const [npn, setNpn]       = React.useState(window.AppData?.ORG_SETTINGS?.npn || (isDemo ? "19384726" : ""));
+  const O = window.AppData?.ORG_SETTINGS || {};
+  const seed = {
+    name:   O.name   || (isDemo ? "Atlas Insurance Group" : (meIdent?.agency_name || "")),
+    legal:  O.legal  || (isDemo ? "Atlas IMO LLC"          : ""),
+    domain: O.domain || (isDemo ? "atlasimo.com"           : ""),
+    npn:    O.npn    || (isDemo ? "19384726"               : ""),
+  };
+  const [form,   setForm]   = React.useState(seed);
+  const [dirty,  setDirty]  = React.useState({});
   const [saving, setSaving] = React.useState(false);
+  const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
+
   const save = async () => {
+    if (Object.keys(dirty).length === 0) return;
     setSaving(true);
     try {
-      await window.AppData.mutate.orgSettingsSave({ name, legal, domain, npn });
-      window.toast && window.toast(`Organization saved${AppData.LIVE ? "" : " (demo only — sign in for persistence)"}`, "success");
-    } catch (_e) {} finally { setSaving(false); }
+      const patch = {};
+      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      await window.AppData.mutate.orgSettingsSave(patch);
+      setDirty({});
+      window.toast && window.toast(`Organization saved${window.AppData?.LIVE ? "" : " (demo only — sign in for persistence)"}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setSaving(false); }
   };
+
+  // Domain pseudo-validation — surface a warning but never block submit.
+  const domainLooksOk = !form.domain || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(form.domain.trim());
+
   return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0, marginBottom: 12 }}>Organization</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Shared.Field label="Display name"><input className="text-input" value={name} onChange={(e) => setName(e.target.value)}/></Shared.Field>
-        <Shared.Field label="Legal entity"><input className="text-input" value={legal} onChange={(e) => setLegal(e.target.value)}/></Shared.Field>
-        <Shared.Field label="Domain"><input className="text-input" value={domain} onChange={(e) => setDomain(e.target.value)}/></Shared.Field>
-        <Shared.Field label="NPN"><input className="text-input" value={npn} onChange={(e) => setNpn(e.target.value)}/></Shared.Field>
+    <div className="panel" style={{ padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 12.5, fontWeight: 600 }}>Organization</h3>
+        <span className="ks-tile-tag" style={{ marginLeft: 0 }}>org_settings</span>
+      </div>
+      <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Shared.Field label="Display name" hint="What shows in the sidebar + producer-facing surfaces"><input className="text-input" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Atlas Insurance Group"/></Shared.Field>
+        <Shared.Field label="Legal entity" hint="LLC / Inc. / sole prop on contracts"><input className="text-input" value={form.legal} onChange={(e) => update("legal", e.target.value)} placeholder="Atlas IMO LLC"/></Shared.Field>
+        <Shared.Field label="Domain" hint={domainLooksOk ? "Bare domain — no https://" : "Doesn't look like a domain"}><input className="text-input" value={form.domain} onChange={(e) => update("domain", e.target.value)} placeholder="atlasimo.com" style={{ borderColor: domainLooksOk ? undefined : "var(--state-warning)" }}/></Shared.Field>
+        <Shared.Field label="NPN" hint="National Producer Number — digits only"><input className="text-input" value={form.npn} onChange={(e) => update("npn", e.target.value.replace(/\D/g, ""))} placeholder="19384726"/></Shared.Field>
       </div>
       <div className="divider"></div>
-      <h3 style={{ margin: 0, marginBottom: 8 }}>Operating states</h3>
+      <h3 style={{ margin: 0, marginBottom: 8, fontSize: 11.5, fontWeight: 600 }}>Operating states</h3>
       <OperatingStatesEditor/>
       <div className="divider"></div>
-      <button className="btn btn-primary" onClick={save} disabled={saving}><Icons.Check size={12}/> {saving ? "Saving..." : "Save organization"}</button>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}><Icons.Check size={12}/> {saving ? "Saving…" : "Save organization"}</button>
+        {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length === 1 ? "" : "s"}</span>}
+      </div>
     </div>
   );
 }
@@ -2806,19 +2829,29 @@ function SettingsOrg() {
 const ALL_US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
 
 function OperatingStatesEditor() {
-  const initial = (window.AppData?.ORG_SETTINGS?.operating_states) || ["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"];
+  // SHAPE-NOT-DATA: empty default for real agencies. Demo agency still seeds
+  // a handful of states so the sandbox tour shows the editor populated.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const stored = window.AppData?.ORG_SETTINGS?.operating_states;
+  const initial = Array.isArray(stored) ? stored : (isDemo ? ["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"] : []);
   const [states, setStates] = React.useState(initial);
   const [picking, setPicking] = React.useState(false);
   const [busy, setBusy]       = React.useState(false);
 
   const persist = async (next) => {
+    const previous = states;
     setStates(next);
     if (window.AppData?.ORG_SETTINGS) window.AppData.ORG_SETTINGS.operating_states = next;
     if (window.AppData?.mutate?.orgSettingsSave) {
       setBusy(true);
       try {
         await window.AppData.mutate.orgSettingsSave({ operating_states: next });
-      } catch (_e) {} finally { setBusy(false); }
+      } catch (e) {
+        // Rollback so the chip strip doesn't lie about what the DB has.
+        setStates(previous);
+        if (window.AppData?.ORG_SETTINGS) window.AppData.ORG_SETTINGS.operating_states = previous;
+        window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+      } finally { setBusy(false); }
     }
   };
 
@@ -2830,6 +2863,9 @@ function OperatingStatesEditor() {
   return (
     <div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {states.length === 0 && (
+          <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>No states yet — add the states this agency is currently writing in.</span>
+        )}
         {states.map(s => (
           <span key={s} className="chip chip-money" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             {s}
@@ -2860,52 +2896,91 @@ function OperatingStatesEditor() {
 }
 
 function SettingsBilling() {
+  // Reads real plan + payment method out of org_settings. Demo agency
+  // continues to render the marketing-grade illustration so the sandbox tour
+  // doesn't look bare; real agencies get an empty state pointing to /admin
+  // (where Stripe wiring will land) or to support.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const O = window.AppData?.ORG_SETTINGS || {};
+  const plan       = O.plan       || (isDemo ? "Network · Annual" : null);
+  const planMeta   = O.plan_meta  || (isDemo ? "Up to 25 producers · all integrations · 24h support" : null);
+  const renewAt    = O.plan_renews_at || null;
+  const card       = O.stripe_card_brand && O.stripe_card_last4
+    ? { brand: O.stripe_card_brand, last4: O.stripe_card_last4, exp: O.stripe_card_exp || "" }
+    : (isDemo ? { brand: "VISA", last4: "4419", exp: "09/27" } : null);
+  const portalUrl  = O.stripe_portal_url;
+  const usage      = Array.isArray(O.usage_summary) ? O.usage_summary : (isDemo ? [
+    { l: "Active producers", v: "9 / 25",          w: 36 },
+    { l: "Voice AI minutes", v: "12,480 / 50,000", w: 25 },
+    { l: "Lead enrichment",  v: "1,840 / 5,000",   w: 37 },
+    { l: "Storage",          v: "412 GB / 1 TB",   w: 41 },
+  ] : []);
+
   const goBilling = () => {
     if (window.gotoPage) window.gotoPage("billing");
     else window.toast && window.toast("Billing page not yet wired", "info");
   };
   const updatePayment = () => {
-    // Stripe-hosted billing portal — env-gated. If no portal URL set, surface
-    // a friendly notice rather than the dead button it was before.
-    const url = window.AppData?.ORG_SETTINGS?.stripe_portal_url;
-    if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
-    window.toast && window.toast("Add STRIPE_PORTAL_URL to update payment method", "info");
+    if (portalUrl) { window.open(portalUrl, "_blank", "noopener,noreferrer"); return; }
+    window.toast && window.toast("No Stripe portal URL configured — set ORG_SETTINGS.stripe_portal_url", "warn");
   };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Plan</h3>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>Network · Annual</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>Up to 25 producers · all integrations · 24h support</div>
-          </div>
-          <button className="btn btn-ghost" onClick={goBilling}>Manage plan</button>
+
+  if (!plan && !card && usage.length === 0) {
+    return (
+      <div className="ks-empty">
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No billing on file</div>
+        <div style={{ marginTop: 4 }}>Plan + payment method appear here once your agency is provisioned through KOINO support.</div>
+        <div style={{ marginTop: 10, display: "flex", gap: 6, justifyContent: "center" }}>
+          <a className="btn" href="mailto:billing@koino.capital?subject=Activate%20billing"><Icons.Mail size={11}/> Email billing</a>
         </div>
       </div>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Usage this month</h3>
-        {[
-          { l: "Active producers", v: "9 / 25",  w: 36 },
-          { l: "Voice AI minutes", v: "12,480 / 50,000", w: 25 },
-          { l: "Lead enrichment",  v: "1,840 / 5,000",   w: 37 },
-          { l: "Storage",           v: "412 GB / 1 TB",   w: 41 },
-        ].map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 200px", padding: "8px 0", alignItems: "center", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0, fontSize: 12.5 }}>
-            <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
-            <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
-            <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
-              <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Wallet size={14}/> Plan<span className="ks-tile-tag">{renewAt ? `renews ${new Date(renewAt).toLocaleDateString()}` : "active"}</span></div>
+        {plan ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{plan}</div>
+              {planMeta && <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 2 }}>{planMeta}</div>}
             </div>
+            <button className="btn btn-ghost" onClick={goBilling}>Manage plan</button>
+          </div>
+        ) : <div className="ks-tile-sub">Plan not set — contact billing@koino.capital to provision.</div>}
+      </div>
+
+      {usage.length > 0 && (
+        <div className="panel" style={{ padding: 14 }}>
+          <h3 style={{ margin: 0, marginBottom: 10, fontSize: 12.5, fontWeight: 600 }}>Usage this month</h3>
+          {usage.map((r, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 130px 200px", padding: "8px 0", alignItems: "center", borderBottom: i < usage.length - 1 ? "1px solid var(--border-subtle)" : 0, fontSize: 12.5 }}>
+              <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
+              <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
+              <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
+                <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+              </div>
           </div>
         ))}
-      </div>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Payment method</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text-secondary)" }}>
-          <span className="chip">VISA</span><span className="mono" style={{ fontSize: 12.5 }}>**** 4419</span><span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>· expires 09/27</span>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={updatePayment}>Update</button>
+            </div>
+          ))}
         </div>
+      )}
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Wallet size={14}/> Payment method<span className="ks-tile-tag">{card ? "on file" : "missing"}</span></div>
+        {card ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text-secondary)" }}>
+            <span className="chip">{card.brand}</span>
+            <span className="mono" style={{ fontSize: 12.5 }}>**** {card.last4}</span>
+            {card.exp && <span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>· expires {card.exp}</span>}
+            <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={updatePayment}>Update</button>
+          </div>
+        ) : (
+          <div className="ks-tile-sub">No payment method on file. {portalUrl ? <button className="btn btn-ghost" onClick={updatePayment}>Add one in Stripe</button> : "Set ORG_SETTINGS.stripe_portal_url to enable self-service updates."}</div>
+        )}
       </div>
     </div>
   );
