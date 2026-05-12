@@ -4621,6 +4621,11 @@ function SettingsProfile({ role }) {
   const [saveMsg,  setSaveMsg]  = React.useState("");
   const [bundle,   setBundle]   = React.useState(null); // { profile, memberships, current_agency_id, is_platform_admin }
   const [metrics,  setMetrics]  = React.useState(null);
+  // avatarOk MUST live at the top with the other hooks — calling useState
+  // after a conditional `if (loading) return` would violate the Rules of
+  // Hooks the moment loading flips false (different hook count between
+  // renders → React tears down state).
+  const [avatarOk, setAvatarOk] = React.useState(true);
 
   // Form state shadows the bundle.profile fields. We track ONLY user-touched
   // fields in `dirty` so save_profile sends a minimal patch and the backend
@@ -4632,6 +4637,9 @@ function SettingsProfile({ role }) {
     setForm(f => ({ ...f, notification_prefs: { ...(f.notification_prefs || {}), [k]: v } }));
     setDirty(d => ({ ...d, notification_prefs: true }));
   };
+  // Reset avatarOk when the URL changes — declared here so all hooks fire
+  // unconditionally on every render (Rules of Hooks).
+  React.useEffect(() => { setAvatarOk(true); }, [form.avatar_url]);
 
   const load = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
@@ -4684,8 +4692,10 @@ function SettingsProfile({ role }) {
     setSaving(true); setSaveMsg("");
     try {
       // Build minimal patch — only dirty keys + their current value.
+      // Email is auth-managed; never include it in a save_profile patch even
+      // if some stale dirty flag survives (defense-in-depth).
       const patch = {};
-      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      Object.keys(dirty).forEach(k => { if (k !== "email") patch[k] = form[k]; });
       if (Object.keys(patch).length === 0) {
         setSaveMsg("Nothing to save."); setSaving(false);
         setTimeout(() => setSaveMsg(""), 1500);
@@ -4719,15 +4729,20 @@ function SettingsProfile({ role }) {
   };
 
   if (loading) {
-    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading profile…</div>;
+    return <div className="ks-empty">Loading profile…</div>;
   }
   if (loadErr) {
     return (
-      <div className="panel" style={{ padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load your profile</div>
-        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{loadErr}</div>
-        <button className="btn" onClick={load}>Try again</button>
-        <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
+      <div className="ks-denied" style={{ alignItems: "flex-start", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Icons.AlertTriangle size={18} style={{ color: "var(--state-danger)" }}/>
+          <strong>Couldn't load your profile</strong>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)" }} className="mono">{loadErr}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={load}><Icons.RefreshCw size={12}/> Try again</button>
+          <button className="btn btn-ghost" onClick={() => window.signOut && window.signOut()}>Sign out</button>
+        </div>
       </div>
     );
   }
@@ -4747,8 +4762,7 @@ function SettingsProfile({ role }) {
 
   // Live avatar — if avatar_url is present and loads, render the image;
   // on error fall through to Shared.Avatar's initials block.
-  const [avatarOk, setAvatarOk] = React.useState(true);
-  React.useEffect(() => { setAvatarOk(true); }, [form.avatar_url]);
+  // (useState + useEffect both live at the top of the component — see above.)
   const previewName = form.display_name || form.full_name || form.email || "—";
   const previewHandle = form.display_name ? "@" + form.display_name.split(/\s+/)[0].toLowerCase() : "";
   const avatarBlock = (form.avatar_url && avatarOk) ? (
@@ -4800,7 +4814,7 @@ function SettingsProfile({ role }) {
         <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Shared.Field label="Display name"><input className="text-input" value={form.display_name} onChange={(e) => update("display_name", e.target.value)} placeholder="What teammates call you"/></Shared.Field>
           <Shared.Field label="Legal full name"><input className="text-input" value={form.full_name} onChange={(e) => update("full_name", e.target.value)} placeholder="On your producer license"/></Shared.Field>
-          <Shared.Field label="Email"><input className="text-input" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@agency.com"/></Shared.Field>
+          <Shared.Field label="Email" hint="Auth-managed — change via Sign out → magic-link with new address."><input className="text-input" value={form.email} readOnly disabled style={{ opacity: 0.7, cursor: "not-allowed" }} placeholder="you@agency.com"/></Shared.Field>
           <Shared.Field label="Phone"><input className="text-input" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="+1 (404) 555-0142"/></Shared.Field>
           <Shared.Field label="Title"><input className="text-input" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Senior producer"/></Shared.Field>
           <Shared.Field label="Pronouns"><input className="text-input" value={form.pronouns} onChange={(e) => update("pronouns", e.target.value)} placeholder="they/them"/></Shared.Field>
