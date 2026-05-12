@@ -3922,17 +3922,20 @@ function SettingsProducts({ role = "owner" }) {
   const PRODUCT_CATEGORIES = ["Med Supp", "Med Adv", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital"];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+    <div className="koino-ds">
+      <div className="koino-card" style={{ padding: 18 }}>
+        <div className="koino-card-h">
           <div>
-            <h3 style={{ margin: 0 }}>Products</h3>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
-              Master list of products you sell. Drives the deal-write product picker, comp grid on Carriers, and ROAS per-product attribution.
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="koino-tag">Catalog</span>
+              <h3>Products</h3>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--k-t2)", marginTop: 4, lineHeight: 1.55 }}>
+              Master list of products you sell. Drives the deal-write product picker, comp grid on Carriers, and per-product attribution.
             </div>
           </div>
           {canEdit && (
-            <button className="btn btn-primary" onClick={() => setEditing({ is_active: true })}>
+            <button className="koino-btn koino-btn-primary" onClick={() => setEditing({ is_active: true })}>
               <Icons.Plus size={11}/> Add product
             </button>
           )}
@@ -4084,10 +4087,16 @@ function SettingsCompliance({ role = "owner" }) {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 4 }}>Compliance policy</h3>
-        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 6 }}>
+    <div className="koino-ds">
+      <div className="koino-card" style={{ padding: 18 }}>
+        <div className="koino-card-h">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="koino-tag">Policy</span>
+            <h3>Compliance</h3>
+          </div>
+          <span className="koino-pill koino-pill-muted">enforced fleet-wide</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--k-t2)", marginBottom: 6, lineHeight: 1.55 }}>
           Hard rules the platform enforces on every call + every issued app. Owner-only edits.
         </div>
         <div style={{ marginTop: 8 }}>
@@ -4111,25 +4120,25 @@ function SettingsCompliance({ role = "owner" }) {
         </div>
 
         {canEdit && (
-          <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
+          <button className="koino-btn koino-btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
             <Icons.Check size={12}/> {saving ? "Saving…" : "Save compliance policy"}
           </button>
         )}
       </div>
 
-      {/* Pre-call scrubber tool — embed the existing PageScrubbers from
-          page-ops-depth so the operator can test DNC / age / license / appt
-          without leaving Settings. */}
-      <div className="panel">
-        <div className="panel-h">
-          <Icons.Shield size={13}/>
-          <h3>Pre-call scrubber</h3>
-          <span className="meta">test a phone / age / zip against your scrub rules</span>
+      {/* Pre-call scrubber — embed PageScrubbers from page-ops-depth so the
+          operator can test DNC / age / license / appt without leaving
+          Settings. */}
+      <div className="koino-card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="koino-card-h" style={{ padding: "14px 16px", marginBottom: 0, borderBottom: "1px solid var(--k-b)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Icons.Shield size={13} style={{ color: "var(--k-a)" }}/>
+            <h3>Pre-call scrubber</h3>
+          </div>
+          <span className="koino-pill koino-pill-muted">test phone / age / zip</span>
         </div>
-        <div style={{ padding: 0 }}>
-          {window.PageScrubbers ? (() => { const P = window.PageScrubbers; return <P embedded/>; })()
-            : <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12 }}>Scrubber not loaded — refresh page.</div>}
-        </div>
+        {window.PageScrubbers ? (() => { const P = window.PageScrubbers; return <P embedded/>; })()
+          : <div style={{ padding: 18, color: "var(--k-t2)", fontSize: 12 }}>Scrubber not loaded — refresh page.</div>}
       </div>
     </div>
   );
@@ -4210,10 +4219,16 @@ function SettingsBranding({ role = "owner" }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 4 }}>Brand identity</h3>
-        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 10 }}>
+    <div className="koino-ds">
+      <div className="koino-card" style={{ padding: 18 }}>
+        <div className="koino-card-h">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="koino-tag">Brand</span>
+            <h3>Identity</h3>
+          </div>
+          <span className="koino-pill koino-pill-muted">org_settings</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--k-t2)", marginBottom: 10, lineHeight: 1.55 }}>
           Display name + logo + accent color shown to producers + on outbound emails. Stored in <span className="mono">org_settings</span> until a brand-columns migration lands.
         </div>
 
@@ -4226,53 +4241,53 @@ function SettingsBranding({ role = "owner" }) {
           </Shared.Field>
         </div>
 
-        <div className="divider"></div>
+        <div className="koino-divider"></div>
 
         <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 16, alignItems: "flex-start" }}>
           <div>
-            <div className="field-l">Logo</div>
+            <div className="field-l" style={{ color: "var(--k-t2)" }}>Logo</div>
             <div style={{
               marginTop: 6, width: 160, height: 160, borderRadius: 12,
-              background: form.brand_logo_url ? `url(${form.brand_logo_url}) center/contain no-repeat var(--bg-raised)` : "var(--bg-raised)",
-              border: "1px solid var(--border-subtle)",
-              display: "grid", placeItems: "center", color: "var(--text-tertiary)", fontSize: 11,
+              background: form.brand_logo_url ? `url(${form.brand_logo_url}) center/contain no-repeat var(--k-s2)` : "var(--k-s2)",
+              border: "1px solid var(--k-b)",
+              display: "grid", placeItems: "center", color: "var(--k-t3)", fontSize: 11,
             }}>
               {!form.brand_logo_url && <span>Drop a PNG · &lt; 2MB</span>}
             </div>
           </div>
           <div>
             {canEdit && (
-              <label className="btn" style={{ marginTop: 6 }}>
+              <label className="koino-btn" style={{ marginTop: 6 }}>
                 <Icons.Plus size={12}/> {uploading ? "Uploading…" : (form.brand_logo_url ? "Replace logo" : "Upload logo")}
                 <input type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={onLogoChange} style={{ display: "none" }}/>
               </label>
             )}
             {form.brand_logo_url && (
-              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)" }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--k-t2)" }}>
                 <span className="mono">{form.brand_logo_url}</span>
-                <button className="btn btn-ghost" style={{ marginLeft: 6, padding: "2px 8px", fontSize: 11 }} onClick={() => canEdit && setForm({ ...form, brand_logo_url: "" })} disabled={!canEdit}>Clear</button>
+                <button className="koino-btn koino-btn-ghost" style={{ marginLeft: 6 }} onClick={() => canEdit && setForm({ ...form, brand_logo_url: "" })} disabled={!canEdit}>Clear</button>
               </div>
             )}
 
-            <div className="divider"></div>
+            <div className="koino-divider"></div>
 
             <Shared.Field label="Accent color" hint="Used for primary buttons, highlights, and pill chips">
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input type="color" value={form.brand_color} onChange={(e) => canEdit && setForm({ ...form, brand_color: e.target.value })} disabled={!canEdit} style={{ width: 44, height: 32, border: "1px solid var(--border-subtle)", borderRadius: 6, background: "var(--bg-raised)" }}/>
+                <input type="color" value={form.brand_color} onChange={(e) => canEdit && setForm({ ...form, brand_color: e.target.value })} disabled={!canEdit} style={{ width: 44, height: 32, border: "1px solid var(--k-b)", borderRadius: 8, background: "var(--k-s2)" }}/>
                 <input className="text-input mono" style={{ width: 120 }} value={form.brand_color} onChange={(e) => canEdit && setForm({ ...form, brand_color: e.target.value })} disabled={!canEdit}/>
-                <div style={{ padding: "6px 14px", borderRadius: 8, background: form.brand_color, color: "#000", fontWeight: 600, fontSize: 12 }}>Preview</div>
+                <div style={{ padding: "6px 14px", borderRadius: 8, background: form.brand_color, color: "#000", fontWeight: 700, fontSize: 12 }}>Preview</div>
               </div>
             </Shared.Field>
           </div>
         </div>
 
         {canEdit && (
-          <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
+          <button className="koino-btn koino-btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
             <Icons.Check size={12}/> {saving ? "Saving…" : "Save branding"}
           </button>
         )}
         {!canEdit && (
-          <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>Read-only — owners can edit.</div>
+          <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--k-t2)" }}>Read-only — owners can edit.</div>
         )}
       </div>
     </div>
