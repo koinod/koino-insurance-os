@@ -1,8 +1,28 @@
 /* Page: Pipeline — Attio-style dense list + kanban drag-drop + lead detail.
-   Role-aware: rep view scopes to my deals; mgr/owner see the full org. */
+   Role-aware: rep view scopes to my deals; manager scopes to their downline
+   via window.scopeRepIds(); owner sees the full agency. */
 function PagePipeline({ role = "owner" }) {
+  // Re-render on me:loaded so manager scope picks up downline_ids on first
+  // paint without a manual refresh.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("me:loaded", fn);
+    window.addEventListener("data:hydrated", fn);
+    return () => {
+      window.removeEventListener("me:loaded", fn);
+      window.removeEventListener("data:hydrated", fn);
+    };
+  }, []);
+
   const { PIPELINE, REPS } = AppData;
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  // Owner = null scope (all reps); manager = downline ids; rep = self only.
+  // scopedRepIds === null means "no filter" so the list shows everything.
+  const scopedRepIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const ownerOptionReps = role === "manager" && scopedRepIds && scopedRepIds.length > 0
+    ? REPS.filter(r => scopedRepIds.includes(r.id))
+    : REPS;
   const [view, setView] = React.useState("list");
   const [sel, setSel] = React.useState(new Set());
   const [filterOpen, setFilterOpen] = React.useState(false);
@@ -38,7 +58,19 @@ function PagePipeline({ role = "owner" }) {
   const meIdent = window.me && window.me();
   const meId = meIdent?.rep_id || (REPS && REPS[0]?.id) || "viewer";
   const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
-  const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
+  // role-scoped:
+  //   rep     → my own deals
+  //   manager → downline (scopeRepIds) + unowned rows
+  //   owner   → all rows
+  let scoped;
+  if (role === "rep") {
+    scoped = all.filter(p => p.owner === meId);
+  } else if (role === "manager" && scopedRepIds && scopedRepIds.length > 0) {
+    const set = new Set(scopedRepIds);
+    scoped = all.filter(p => !p.owner || set.has(p.owner));
+  } else {
+    scoped = all;
+  }
   const filtered = scoped.filter(p =>
     (filters.stage  === "all" || p.stage  === filters.stage) &&
     (filters.heat   === "all" || p.heat   === filters.heat) &&
@@ -279,7 +311,7 @@ function PagePipeline({ role = "owner" }) {
         }>
           <Shared.Field label="Stage"><Shared.Select value={filters.stage} onChange={(v) => setFilters({ ...filters, stage: v })} options={[{ v: "all", l: "All stages" }, ...stages.map(s => ({ v: s, l: s }))]}/></Shared.Field>
           <Shared.Field label="Heat"><Shared.Select value={filters.heat} onChange={(v) => setFilters({ ...filters, heat: v })} options={[{ v: "all", l: "Any heat" }, ...heats.map(h => ({ v: h, l: h }))]}/></Shared.Field>
-          {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={filters.owner} onChange={(v) => setFilters({ ...filters, owner: v })} options={[{ v: "all", l: "Any rep" }, ...REPS.map(r => ({ v: r.id, l: r.name }))]}/></Shared.Field>}
+          {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={filters.owner} onChange={(v) => setFilters({ ...filters, owner: v })} options={[{ v: "all", l: "Any rep" }, ...ownerOptionReps.map(r => ({ v: r.id, l: r.name }))]}/></Shared.Field>}
           <Shared.Field label="State"><Shared.Select value={filters.state} onChange={(v) => setFilters({ ...filters, state: v })} options={[{ v: "all", l: "Any state" }, ...states.map(s => ({ v: s, l: s }))]}/></Shared.Field>
           <Shared.Field label="Source"><Shared.Select value={filters.source} onChange={(v) => setFilters({ ...filters, source: v })} options={[{ v: "all", l: "Any source" }, ...sources.map(s => ({ v: s, l: s }))]}/></Shared.Field>
           <Shared.Field label={`Max age in stage · ${filters.maxDays}d`}>
@@ -306,14 +338,14 @@ function PagePipeline({ role = "owner" }) {
           </div>
           <Shared.Field label="Product"><Shared.Select value={newRow.product} onChange={(v) => setNewRow({ ...newRow, product: v })} options={["Med Supp Plan G","Med Supp Plan N","Final Expense $10K","Final Expense $15K","Final Expense $20K","Final Expense $25K","Annuity $50K"].map(s => ({ v: s, l: s }))}/></Shared.Field>
           <Shared.Field label="Source"><Shared.Select value={newRow.source} onChange={(v) => setNewRow({ ...newRow, source: v })} options={["FB Lead Form","Inbound call","T65 list","Referral","Cross-sell"].map(s => ({ v: s, l: s }))}/></Shared.Field>
-          {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={newRow.owner} onChange={(v) => setNewRow({ ...newRow, owner: v })} options={REPS.map(r => ({ v: r.id, l: r.name }))}/></Shared.Field>}
+          {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={newRow.owner} onChange={(v) => setNewRow({ ...newRow, owner: v })} options={ownerOptionReps.map(r => ({ v: r.id, l: r.name }))}/></Shared.Field>}
           <div style={{ marginTop: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
             Phone is optional but required to dial / SMS this lead. You can add it later from the lead detail drawer.
           </div>
         </Shared.Modal>
       )}
 
-      {openLead && <LeadDetail lead={openLead} role={role} onClose={() => setOpenLead(null)} onMove={(stage) => moveTo(openLead.id, stage)} onReassign={(o) => reassign(openLead.id, o)}/>}
+      {openLead && <LeadDetail lead={openLead} role={role} ownerOptionReps={ownerOptionReps} onClose={() => setOpenLead(null)} onMove={(stage) => moveTo(openLead.id, stage)} onReassign={(o) => reassign(openLead.id, o)}/>}
 
       {csvOpen && (() => { const C = window.CSVImport; return C ? <C onClose={() => setCsvOpen(false)}/> : null; })()}
 
@@ -325,10 +357,10 @@ function PagePipeline({ role = "owner" }) {
           </>
         }>
           <Shared.Field label="Action">
-            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : (REPS[0]?.id || "")); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
+            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : (ownerOptionReps[0]?.id || "")); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
           </Shared.Field>
           <Shared.Field label="Value">
-            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : REPS.map(r => ({ v: r.id, l: r.name }))}/>
+            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : ownerOptionReps.map(r => ({ v: r.id, l: r.name }))}/>
           </Shared.Field>
         </Shared.Modal>
       )}
@@ -336,9 +368,12 @@ function PagePipeline({ role = "owner" }) {
   );
 }
 
-function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
+function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }) {
   const { REPS } = AppData;
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  // Owner-reassign options: managers can only reassign within their downline
+  // (passed in from PagePipeline). Fall back to full REPS if not provided.
+  const assignableReps = ownerOptionReps || REPS;
   const owner = repById[lead.owner];
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heatColor = lead.heat === "hot" ? "var(--accent-heat)" : lead.heat === "warm" ? "var(--state-warning)" : lead.heat === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
@@ -455,7 +490,7 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
 
           {role !== "rep" && (
             <Shared.Field label="Owner">
-              <Shared.Select value={lead.owner} onChange={onReassign} options={REPS.map(r => ({ v: r.id, l: r.name }))}/>
+              <Shared.Select value={lead.owner} onChange={onReassign} options={assignableReps.map(r => ({ v: r.id, l: r.name }))}/>
             </Shared.Field>
           )}
 
