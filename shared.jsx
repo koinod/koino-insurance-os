@@ -363,6 +363,52 @@ const AccountChip = () => {
   );
 };
 
+/* Act-as pill — permanent topbar indicator when a super_admin is
+   impersonating an agency. Subscribes to admin:impersonate so it
+   appears/disappears reactively. Distinct from the sticky banner above
+   <main> so the operator sees the state even if they've scrolled the
+   banner out of view, or in case the banner mount races the navigation. */
+const ActingAsTopbarPill = () => {
+  const [actingAs, setActingAs] = useState(() => {
+    try {
+      const id = localStorage.getItem("repflow.super_admin_acting_as");
+      if (!id) return null;
+      const name = localStorage.getItem("repflow.super_admin_acting_as_name") || id.slice(0, 8);
+      return { agency_id: id, agency_name: name };
+    } catch { return null; }
+  });
+  useEffect(() => {
+    const onImp = (e) => {
+      const d = e.detail;
+      if (!d || !d.agency_id) setActingAs(null);
+      else setActingAs({ agency_id: d.agency_id, agency_name: d.agency_name || d.agency_id.slice(0, 8) });
+    };
+    window.addEventListener("admin:impersonate", onImp);
+    return () => window.removeEventListener("admin:impersonate", onImp);
+  }, []);
+  if (!actingAs) return null;
+  const stop = (e) => { e.stopPropagation(); window.stopSuperAdminActAs && window.stopSuperAdminActAs(); };
+  return (
+    <button
+      className="lb-pill"
+      onClick={stop}
+      title="Acting as another agency — click to stop"
+      style={{
+        background: "rgba(245,158,11,0.12)",
+        borderColor: "rgba(245,158,11,0.45)",
+        color: "#f59e0b",
+        fontWeight: 600,
+        gap: 6,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: "#f59e0b", boxShadow: "0 0 8px rgba(245,158,11,0.6)" }}/>
+      <span style={{ fontSize: 10.5, letterSpacing: 0.4 }}>ACTING AS</span>
+      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{actingAs.agency_name}</span>
+      <Icons.X size={11} style={{ marginLeft: 2, opacity: 0.7 }}/>
+    </button>
+  );
+};
+
 const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNotifications, openSettings, notifCount }) => (
   <div className="topbar">
     <div className="crumbs">
@@ -375,6 +421,7 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
     </div>
     <LiveBadge/>
     <AccountChip/>
+    <ActingAsTopbarPill/>
     {window.AgencySwitcher && (() => { const A = window.AgencySwitcher; return <A/>; })()}
     <div className="topbar-spacer"/>
     {/* AEP SURGE pill removed 2026-05-11 (P8) — feature archived. The
