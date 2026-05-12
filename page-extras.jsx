@@ -2499,9 +2499,18 @@ function PageBook() {
       sections, rep sees only their profile.
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
-  const TABS = role === "owner"
+  // ROLE_ADMIN_ENABLED gate: when the admin/imo_owner UI surface is off
+  // (shared.jsx), users with those roles should still get the full
+  // owner-style settings (org, billing, integrations, etc.) instead of the
+  // rep-only fallback set — otherwise they lose access to the agency-level
+  // settings their role normally outranks.
+  const effectiveRole =
+    (window.ROLE_ADMIN_ENABLED === false && (role === "admin" || role === "imo_owner"))
+      ? "owner"
+      : role;
+  const TABS = effectiveRole === "owner"
     ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-    : role === "manager"
+    : effectiveRole === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
       : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
   // Allow other pages to deeplink into a specific tab via sessionStorage

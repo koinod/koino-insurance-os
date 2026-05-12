@@ -1,6 +1,16 @@
 /* Shared atomic components for Repflow */
 const { useState, useEffect, useRef, useMemo } = React;
 
+// ─── Role surface gate ──────────────────────────────────────────────────────
+// Set true to re-enable the admin / imo_owner UI surface (page-imo.jsx and
+// its 6 subpages: platform / agencies / users / billing / audit / system).
+// Disabled 2026-05-11 per Ian — focus on rep / manager / owner roles first.
+// To re-enable: flip this single constant to true and bump styles.css?v=N.
+// DB state is unchanged either way — agency_members rows with role=imo_owner
+// stay on Supabase; this is a UI-only gate.
+const ROLE_ADMIN_ENABLED = false;
+window.ROLE_ADMIN_ENABLED = ROLE_ADMIN_ENABLED;
+
 const TierChip = ({ tier, compact }) => (
   <span className={`tier tier-${tier}`}>
     <span className="gem"></span>
@@ -142,6 +152,15 @@ const NAV = {
     { id: "connections", label: "Connections",  icon: "Plug" },
   ],
 };
+
+// ROLE_ADMIN_ENABLED gate — when the admin/imo_owner UI surface is off,
+// users with those roles get the owner sidebar instead of dead links into
+// the gated page-imo.jsx subroutes. super_admin (internal team) is NOT
+// affected and keeps the IMO surface so internal ops can still operate.
+if (!ROLE_ADMIN_ENABLED) {
+  NAV.admin     = NAV.owner;
+  NAV.imo_owner = NAV.owner;
+}
 
 const SidebarBrand = () => {
   const [, force] = useState(0);

@@ -33,7 +33,7 @@
 <script type="text/babel" src="tweaks-panel.jsx?v=76"></script>
 <script type="text/babel" src="data.jsx?v=78"></script>
 <script type="text/babel" src="icons.jsx?v=75"></script>
-<script type="text/babel" src="shared.jsx?v=77"></script>
+<script type="text/babel" src="shared.jsx?v=78"></script>
 <script type="text/babel" src="page-today.jsx?v=77"></script>
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=76"></script>
 <script type="text/babel" src="page-pipeline.jsx?v=76"></script>
@@ -41,7 +41,7 @@
 <script type="text/babel" src="page-manager.jsx?v=76"></script>
 <script type="text/babel" src="page-owner.jsx?v=77"></script>
 <script type="text/babel" src="page-ops.jsx?v=76"></script>
-<script type="text/babel" src="page-extras.jsx?v=82"></script>
+<script type="text/babel" src="page-extras.jsx?v=83"></script>
 <script type="text/babel" src="page-expenses.jsx?v=76"></script>
 <script type="text/babel" src="page-invite-team.jsx?v=76"></script>
 <script type="text/babel" src="page-recruiting.jsx?v=76"></script>
@@ -177,7 +177,12 @@ function App() {
         if (top.role && top.role !== role) {
           window.__authRole = top.role;
           setTweak("role", top.role);
-          if (top.role === "admin" || top.role === "super_admin" || top.role === "imo_owner") {
+          // super_admin always lands on platform. admin / imo_owner land
+          // on platform only when ROLE_ADMIN_ENABLED is true; otherwise
+          // they fall through to whatever page the auto-correct picks
+          // from the owner NAV (first entry = "admin").
+          if (top.role === "super_admin"
+              || ((top.role === "admin" || top.role === "imo_owner") && window.ROLE_ADMIN_ENABLED)) {
             setTweak("page", "platform");
             try { localStorage.setItem("repflow.tour.dismissed", "1"); } catch {}
           }
@@ -212,6 +217,27 @@ function App() {
     window.addEventListener("ai:ask", onAsk);
     return () => { window.removeEventListener("nav:goto", onNav); window.removeEventListener("ai:ask", onAsk); };
   }, [aiRail]);
+
+  // imoSubpage — wraps the 6 IMO subpages (platform/agencies/users/billing/
+  // audit/system) behind the ROLE_ADMIN_ENABLED gate. super_admin keeps the
+  // surface so internal team can still operate; everyone else lands on a
+  // clear stub when the flag is off.
+  const imoSubpage = (sub, r) => {
+    if (window.ROLE_ADMIN_ENABLED === false && r !== "super_admin") {
+      return (
+        <div className="page-pad" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+          <div style={{ maxWidth: 460, textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Admin surface coming soon</div>
+            <div style={{ fontSize: 13, color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+              The IMO / multi-agency dashboard is temporarily disabled while we focus on the rep, manager, and owner experiences. Your <span className="mono">imo_owner</span> membership rows are preserved — flip <span className="mono">ROLE_ADMIN_ENABLED</span> in shared.jsx to re-enable.
+            </div>
+          </div>
+        </div>
+      );
+    }
+    const P = window.PageImo || window.PagePlatformAdmin;
+    return P ? <P subpage={sub}/> : null;
+  };
 
   const pageEl = useMemo(() => {
     // GAP-M1: mobile reps land on Floor (the actual workspace) instead of
@@ -250,6 +276,12 @@ function App() {
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
       case "admin":       return (() => {
+        // ROLE_ADMIN_ENABLED gate (shared.jsx): when false, admin + imo_owner
+        // fall back to the single-agency PageAdmin (owner experience) instead
+        // of the gated IMO HQ. super_admin is unaffected.
+        if (window.ROLE_ADMIN_ENABLED === false && (role === "admin" || role === "imo_owner")) {
+          const P = window.PageAdmin; return P ? <P role="owner"/> : null;
+        }
         // admin / imo_owner / super_admin → cross-agency IMO dashboard.
         // owner / manager → single-agency admin view (page-admin.jsx).
         if (role === "admin" || role === "imo_owner" || role === "super_admin") {
@@ -258,13 +290,15 @@ function App() {
         }
         const P = window.PageAdmin; return P ? <P role={role}/> : null;
       })();
-      // Admin-only sub-pages (only reachable from NAV.admin)
-      case "platform":    return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="platform"/> : null; })();
-      case "agencies":    return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="agencies"/> : null; })();
-      case "users":       return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="users"/>    : null; })();
-      case "billing":     return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="billing"/>  : null; })();
-      case "audit":       return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="audit"/>    : null; })();
-      case "system":      return (() => { const P = (window.PageImo || window.PagePlatformAdmin); return P ? <P subpage="system"/>   : null; })();
+      // Admin-only sub-pages. Gated when ROLE_ADMIN_ENABLED is false — only
+      // super_admin (internal team) gets through to PageImo; everyone else
+      // sees a clear "surface disabled" stub instead of a blank render.
+      case "platform":    return imoSubpage("platform", role);
+      case "agencies":    return imoSubpage("agencies", role);
+      case "users":       return imoSubpage("users",    role);
+      case "billing":     return imoSubpage("billing",  role);
+      case "audit":       return imoSubpage("audit",    role);
+      case "system":      return imoSubpage("system",   role);
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
 
