@@ -68,6 +68,7 @@
 <script type="text/babel" src="page-quote-card.jsx?v=74"></script>
 <script type="text/babel" src="page-quote.jsx?v=74"></script>
 <script type="text/babel" src="page-auto-quoter.jsx?v=74"></script>
+<script type="text/babel" src="page-vault.jsx?v=75"></script>
 <script type="text/babel" src="polish.jsx?v=78"></script>
 <script type="text/babel" src="page-auth.jsx?v=78"></script>
 <script type="text/babel" src="page-mobile.jsx?v=75"></script>
@@ -227,6 +228,7 @@ function App() {
       case "messages":    return (() => { const P = window.PageMessages;    return P ? <P role={role}/> : null; })();
       case "quote":       return (() => { const P = window.PageQuote;       return P ? <P role={role}/> : null; })();
       case "auto-quoter": return (() => { const P = window.PageAutoQuoter;  return P ? <P role={role}/> : null; })();
+      case "vault-files": return (() => { const P = window.PageVaultFiles;  return P ? <P role={role}/> : null; })();
       case "book":        return <PageBook/>;
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
