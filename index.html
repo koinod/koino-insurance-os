@@ -231,13 +231,14 @@ function App() {
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
       case "admin":       return (() => {
-        // Platform-admin gets the cross-agency super-admin dashboard;
-        // anyone else (owner, manager) gets the single-agency admin view.
-        if (role === "admin") {
+        // Only platform-admin (and super_admin via NAV.super_admin) gets an
+        // admin surface. The single-agency PageAdmin is disabled across the
+        // agency hierarchy (owner/manager) and the demo hierarchy.
+        if (role === "admin" || role === "super_admin") {
           const P = window.PagePlatformAdmin;
           return P ? <P subpage="platform"/> : null;
         }
-        const P = window.PageAdmin; return P ? <P role={role}/> : null;
+        return <PageStub title="Page" sub=""/>;
       })();
       // Admin-only sub-pages (only reachable from NAV.admin)
       case "platform":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="platform"/> : null; })();
