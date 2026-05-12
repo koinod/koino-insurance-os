@@ -2498,66 +2498,271 @@ function PageBook() {
       notifications). Owner sees everything, mgr sees team-relevant
       sections, rep sees only their profile.
    ───────────────────────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────────
+   PageSettings — role-aware tabs per the 2026-05-11 audit spec:
+
+   rep         : Profile, Notifications, Personal connectors, Resources
+   manager     : Profile, Notifications, Personal connectors, Team scripts,
+                 Resources
+   owner       : Profile, Notifications, Connectors (all), Agents, Team
+                 management, Carriers, Products, Billing, Compliance,
+                 Branding, Organization, Routing rules, API keys
+   admin       : everything owner has + Cross-agency, Audit log,
+                 Provision sub-agency
+   imo_owner   : same as admin (IMO operator)
+   super_admin : everything + Feature flags, Demo controls, Global
+                 integrations
+
+   Every save is wired through either:
+     - sb.rpc("save_profile", {p}) for the signed-in user, OR
+     - AppData.mutate.orgSettingsSave({...}) → public.org_settings, OR
+     - the table-specific RPC documented inline.
+
+   Permission gates:
+     - If the viewer's role rank is below the section's minimum role, render
+       a "ks-denied" banner instead of the editable form. This prevents a
+       leaky tab in case a stale tab key survives a role downgrade.
+
+   Design system: scoped via .koino-settings-ds — green-on-black + soft
+   rounded cards. See styles.css.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Tab catalogue. Each tab knows: its label, the section header it sits under,
+// and the minimum role rank required to render. Tabs assemble into a per-role
+// ordered list via SETTINGS_TAB_ORDER below.
+const SETTINGS_TAB_DEFS = {
+  profile:            { label: "Profile",             section: "personal", icon: "Users",         min: "rep" },
+  notifications:      { label: "Notifications",       section: "personal", icon: "Bell",          min: "rep" },
+  personal_connectors:{ label: "Personal connectors", section: "personal", icon: "Plug",          min: "rep" },
+  resources:          { label: "Resources",           section: "personal", icon: "FileText",      min: "rep" },
+  team_scripts:       { label: "Team scripts",        section: "team",     icon: "MessageSquare", min: "manager" },
+  team:               { label: "Team management",     section: "team",     icon: "Users",         min: "owner" },
+  agents:             { label: "Agents",              section: "agency",   icon: "Sparkles",      min: "owner" },
+  integrations:       { label: "Connectors",          section: "agency",   icon: "Plug",          min: "owner" },
+  carriers:           { label: "Carriers",            section: "agency",   icon: "Shield",        min: "owner" },
+  products:           { label: "Products",            section: "agency",   icon: "Cpu",           min: "owner" },
+  routing:            { label: "Routing rules",       section: "agency",   icon: "Workflow",      min: "owner" },
+  api:                { label: "API keys",            section: "agency",   icon: "Bolt",          min: "owner" },
+  org:                { label: "Organization",        section: "agency",   icon: "Building",      min: "owner" },
+  branding:           { label: "Branding",            section: "agency",   icon: "Sparkles",      min: "owner" },
+  compliance:         { label: "Compliance",          section: "agency",   icon: "Shield",        min: "owner" },
+  billing:            { label: "Billing",             section: "agency",   icon: "Wallet",        min: "owner" },
+  cross_agency:       { label: "Cross-agency",        section: "platform", icon: "Server",        min: "admin" },
+  audit_log:          { label: "Audit log",           section: "platform", icon: "Activity",      min: "admin" },
+  provision:          { label: "Provision sub-agency",section: "platform", icon: "Plus",          min: "admin" },
+  feature_flags:      { label: "Feature flags",       section: "global",   icon: "Bookmark",      min: "super_admin" },
+  demo_controls:      { label: "Demo controls",       section: "global",   icon: "Brain",         min: "super_admin" },
+  global_integrations:{ label: "Global integrations", section: "global",   icon: "Workflow",      min: "super_admin" },
+};
+
+const SETTINGS_ROLE_RANK = { super_admin: 6, owner: 5, imo_owner: 4, admin: 3, manager: 2, rep: 1 };
+
+// Per-role ordered tab list. Higher roles get all lower-role tabs as well,
+// in the standard "personal → team → agency → platform → global" flow.
+const SETTINGS_TAB_ORDER = {
+  rep: [
+    "profile", "notifications", "personal_connectors", "resources",
+  ],
+  manager: [
+    "profile", "notifications", "personal_connectors",
+    "team_scripts", "resources",
+  ],
+  owner: [
+    "profile", "notifications", "personal_connectors",
+    "team", "team_scripts",
+    "org", "branding", "carriers", "products", "agents",
+    "integrations", "compliance", "routing", "api", "billing",
+  ],
+  // imo_owner manages an IMO with multiple sub-agencies (admin tier).
+  imo_owner: [
+    "profile", "notifications", "personal_connectors",
+    "team", "team_scripts",
+    "org", "branding", "carriers", "products", "agents",
+    "integrations", "compliance", "routing", "api", "billing",
+    "cross_agency", "provision", "audit_log",
+  ],
+  admin: [
+    "profile", "notifications", "personal_connectors",
+    "team", "team_scripts",
+    "org", "branding", "carriers", "products", "agents",
+    "integrations", "compliance", "routing", "api", "billing",
+    "cross_agency", "provision", "audit_log",
+  ],
+  super_admin: [
+    "profile", "notifications", "personal_connectors",
+    "team", "team_scripts",
+    "org", "branding", "carriers", "products", "agents",
+    "integrations", "compliance", "routing", "api", "billing",
+    "cross_agency", "provision", "audit_log",
+    "feature_flags", "demo_controls", "global_integrations",
+  ],
+};
+
+const SETTINGS_SECTION_LABELS = {
+  personal: "You",
+  team:     "Team",
+  agency:   "Agency",
+  platform: "Cross-agency",
+  global:   "Platform",
+};
+
 function PageSettings({ role = "owner" }) {
-  const TABS = role === "owner"
-    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-    : role === "manager"
-      ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-      : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
-  // Allow other pages to deeplink into a specific tab via sessionStorage
-  // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
+  // Normalize role — anything we don't recognize falls to rep (least privileged).
+  const normRole = SETTINGS_TAB_ORDER[role] ? role : "rep";
+  const viewerRank = SETTINGS_ROLE_RANK[normRole] || 1;
+  const tabs = SETTINGS_TAB_ORDER[normRole];
+
+  // Allow other pages to deeplink into a specific tab via sessionStorage.
   const initialTab = (() => {
     try {
       const stash = sessionStorage.getItem("repflow.settings.tab");
       if (stash) {
         sessionStorage.removeItem("repflow.settings.tab");
-        if (TABS.some(([k]) => k === stash)) return stash;
+        // Normalize a few legacy keys.
+        const normalized = stash === "integrations" ? "integrations"
+                          : stash === "telegram"   ? "personal_connectors"
+                          : stash;
+        if (tabs.includes(normalized)) return normalized;
       }
     } catch {}
-    return TABS[0][0];
+    return tabs[0];
   })();
   const [tab, setTab] = React.useState(initialTab);
 
+  // Group tabs by section for the rail header.
+  const grouped = React.useMemo(() => {
+    const groups = {};
+    tabs.forEach(k => {
+      const def = SETTINGS_TAB_DEFS[k];
+      if (!def) return;
+      (groups[def.section] = groups[def.section] || []).push([k, def]);
+    });
+    return groups;
+  }, [tabs]);
+
+  // Permission gate per tab — fail-closed.
+  const canRender = (tabKey) => {
+    const def = SETTINGS_TAB_DEFS[tabKey];
+    if (!def) return false;
+    const need = SETTINGS_ROLE_RANK[def.min] || 99;
+    return viewerRank >= need;
+  };
+
+  const renderTab = () => {
+    if (!canRender(tab)) {
+      return <SettingsDenied tabKey={tab} viewerRole={normRole}/>;
+    }
+    switch (tab) {
+      case "profile":             return <SettingsProfile role={normRole}/>;
+      case "notifications":       return <SettingsNotifications/>;
+      case "personal_connectors": return <SettingsPersonalConnectors/>;
+      case "resources":           return <SettingsResources role={normRole}/>;
+      case "team_scripts":        return <SettingsTeamScripts canEdit={viewerRank >= 2}/>;
+      case "team":                { const T = window.SettingsTeam;  return T ? <T/> : <SettingsBackendMissing label="Team management"/>; }
+      case "org":                 return <SettingsOrg/>;
+      case "branding":            return <SettingsBranding/>;
+      case "carriers":            { const C = window.SettingsCarriers; return C ? <C canEdit={viewerRank >= 5}/> : <SettingsBackendMissing label="Carriers"/>; }
+      case "products":            return <SettingsProducts canEdit={viewerRank >= 5}/>;
+      case "agents":              return <SettingsAgents role={normRole}/>;
+      case "integrations":        return <SettingsIntegrations/>;
+      case "compliance":          return <SettingsCompliance/>;
+      case "routing":             return <SettingsRouting/>;
+      case "api":                 return <SettingsApi/>;
+      case "billing":             return <SettingsBilling/>;
+      case "cross_agency":        return <SettingsCrossAgency/>;
+      case "provision":           return <SettingsProvisionSubAgency/>;
+      case "audit_log":           return <SettingsAuditLog/>;
+      case "feature_flags":       return <SettingsFeatureFlags/>;
+      case "demo_controls":       return <SettingsDemoControls/>;
+      case "global_integrations": return <SettingsGlobalIntegrations/>;
+      default:                    return null;
+    }
+  };
+
+  const tabIcon = (key) => {
+    const ic = SETTINGS_TAB_DEFS[key]?.icon;
+    const Cmp = ic && Icons[ic];
+    return Cmp ? <Cmp size={13}/> : <span style={{ width: 13, display: "inline-block" }}/>;
+  };
+
+  const subForRole = {
+    rep:         "Your profile, notifications, personal connectors, resources",
+    manager:     "Your profile + team scripts + agency resources",
+    owner:       "Run the agency — team, carriers, billing, compliance, branding, agents",
+    imo_owner:   "Run the IMO — every agency setting + cross-agency + sub-agency provisioning",
+    admin:       "Cross-agency oversight — audit log, provisioning, every agency tab",
+    super_admin: "Platform — feature flags, demo controls, global integrations",
+  }[normRole] || "Settings";
+
   return (
-    <div className="page-pad">
+    <div className="page-pad koino-settings-ds">
       <div className="page-h">
         <div>
           <div className="page-title">Settings</div>
-          <div className="page-sub">{role === "owner" ? "Organization, team, carriers, billing, integrations, API, routing" : role === "manager" ? "Team, carriers, routing rules and notifications" : "Your profile and notifications"}</div>
+          <div className="page-sub">{subForRole}</div>
         </div>
-        {/* P7: prominent Edit Profile entry point. Works for every role
-            (owner / manager / rep / imo_owner). Highlights when active so
-            users can find their way back to other tabs after clicking. */}
-        <button
-          className={"btn " + (tab === "profile" ? "btn-primary" : "")}
-          style={{ marginLeft: "auto" }}
-          onClick={() => setTab("profile")}
-        >
-          <Icons.User size={13}/> Edit Profile
-        </button>
+        <div className="ks-pin-row">
+          <button
+            className={"btn " + (tab === "profile" ? "btn-primary" : "")}
+            onClick={() => setTab("profile")}
+          >
+            <Icons.Users size={13}/> Edit profile
+          </button>
+        </div>
       </div>
 
-      <div className="settings-grid settings-grid-responsive" style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14 }}>
-        <div className="panel" style={{ padding: 6 }}>
-          {TABS.map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k)} className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "8px 10px", background: tab === k ? "var(--bg-raised)" : "transparent", color: tab === k ? "var(--text-primary)" : "var(--text-secondary)", fontWeight: tab === k ? 500 : 400 }}>{l}</button>
+      <div className="settings-grid settings-grid-responsive" style={{ display: "grid", gridTemplateColumns: "210px 1fr", gap: 14 }}>
+        <nav className="ks-tabs" aria-label="Settings sections">
+          {Object.entries(grouped).map(([sec, items], si) => (
+            <React.Fragment key={sec}>
+              {si > 0 && <div style={{ height: 1, background: "var(--border-subtle)", margin: "4px 6px" }}/>}
+              <div className="ks-section-label">{SETTINGS_SECTION_LABELS[sec] || sec}</div>
+              {items.map(([k, def]) => (
+                <button
+                  key={k}
+                  className={"ks-tab" + (tab === k ? " is-active" : "")}
+                  onClick={() => setTab(k)}
+                  type="button"
+                >
+                  <span className="ks-tab-dot"/>
+                  {tabIcon(k)}
+                  <span>{def.label}</span>
+                </button>
+              ))}
+            </React.Fragment>
           ))}
-        </div>
+        </nav>
 
         <div>
-          {tab === "org"          && <SettingsOrg/>}
-          {tab === "billing"      && <SettingsBilling/>}
-          {tab === "integrations" && <SettingsIntegrations/>}
-          {tab === "api"          && <SettingsApi/>}
-          {tab === "routing"      && <SettingsRouting/>}
-          {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
-          {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
-          {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner"}/> : null; })()}
-          {tab === "agents"        && <SettingsAgents role={role}/>}
-          {tab === "notifications"&& <SettingsNotifications/>}
-          {tab === "profile"      && <SettingsProfile role={role}/>}
+          {renderTab()}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Permission-denied banner — rendered when a role can see a tab in
+ * sessionStorage / URL deeplink but lacks the role rank to load it. */
+function SettingsDenied({ tabKey, viewerRole }) {
+  const def = SETTINGS_TAB_DEFS[tabKey] || {};
+  return (
+    <div className="ks-denied">
+      <Icons.Shield size={18} style={{ color: "var(--state-danger)" }}/>
+      <div>
+        <div><strong>{def.label || tabKey}</strong> requires the <span className="mono">{def.min || "owner"}</span> role.</div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>You're signed in as <span className="mono">{viewerRole}</span>. Ask an owner / IMO admin to grant access.</div>
+      </div>
+    </div>
+  );
+}
+
+/* Stub for window-injected panels we couldn't find at runtime (SettingsTeam,
+ * SettingsCarriers etc). Surfaces what's missing instead of rendering blank. */
+function SettingsBackendMissing({ label }) {
+  return (
+    <div className="ks-empty">
+      <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{label} panel is not loaded</div>
+      <div style={{ marginTop: 4 }}>Refresh the page; if it still doesn't appear, the bundling step missed its file.</div>
     </div>
   );
 }
@@ -3180,6 +3385,980 @@ function SettingsRouting() {
           <Shared.Field label={`Priority weight · ${editing.weight}`}>
             <input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%" }}/>
           </Shared.Field>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   New settings tabs introduced by the 2026-05-11 role-audit pass.
+   Each component is honest about its backend: it either reads from a known
+   table/RPC, or renders a clear "needs wiring" empty state instead of
+   pretending to save.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Personal connectors — Telegram chat id + handle + alert opt-ins.
+ * Stored on public.profiles via save_profile({p: {telegram_chat_id, ...}}).
+ * Coexists with org-wide Connectors (Integrations tab) — that one is
+ * agency-shared, this one is the signed-in user's own. */
+function SettingsPersonalConnectors() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [loading, setLoading]   = React.useState(true);
+  const [err,     setErr]       = React.useState(null);
+  const [form,    setForm]      = React.useState({ telegram_chat_id: "", telegram_handle: "", slack_member_id: "", phone_for_alerts: "" });
+  const [dirty,   setDirty]     = React.useState({});
+  const [saving,  setSaving]    = React.useState(false);
+  const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
+
+  React.useEffect(() => {
+    if (!sb) { setLoading(false); return; }
+    (async () => {
+      try {
+        const r = await sb.rpc("get_my_profile");
+        if (r.error) throw r.error;
+        const p = (typeof r.data === "string" ? JSON.parse(r.data) : (r.data || {})).profile || {};
+        setForm({
+          telegram_chat_id: p.telegram_chat_id || "",
+          telegram_handle:  p.telegram_handle || "",
+          slack_member_id:  p.slack_member_id || "",
+          phone_for_alerts: p.phone_for_alerts || p.phone || "",
+        });
+        setDirty({});
+      } catch (e) { setErr(String(e?.message || e)); }
+      finally    { setLoading(false); }
+    })();
+  }, [sb]);
+
+  const save = async () => {
+    if (!sb || Object.keys(dirty).length === 0) return;
+    setSaving(true);
+    try {
+      const patch = {};
+      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      const r = await sb.rpc("save_profile", { p: patch });
+      if (r.error) throw r.error;
+      setDirty({});
+      window.toast && window.toast("Personal connectors saved", "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setSaving(false); }
+  };
+
+  const testTelegram = async () => {
+    if (!form.telegram_chat_id) { window.toast && window.toast("Set chat id first", "warn"); return; }
+    try {
+      const r = await fetch("/api/connector/test", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connector_key: "telegram_personal", target: form.telegram_chat_id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && (j.ok || j.status === "ok")) window.toast && window.toast("Telegram test message sent", "success");
+      else window.toast && window.toast(`Test failed: ${j?.error || "endpoint unreachable"}`, "warn");
+    } catch (_e) {
+      window.toast && window.toast("Test endpoint unreachable", "warn");
+    }
+  };
+
+  if (loading) return <div className="ks-empty">Loading personal connectors…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load profile: <span className="mono">{err}</span></div></div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="ks-tile">
+        <div className="ks-tile-h">
+          <Icons.Send size={14}/> Telegram
+          <span className="ks-tile-tag">{form.telegram_chat_id ? "configured" : "not set"}</span>
+        </div>
+        <div className="ks-tile-sub">Get personal pages for hot leads, NIGOs and morning briefs straight to Telegram. Open <span className="mono">@RepFlowBot</span>, send <span className="mono">/start</span>, paste the chat id it replies with.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <Shared.Field label="Chat id"><input className="text-input" value={form.telegram_chat_id} onChange={(e) => update("telegram_chat_id", e.target.value.replace(/[^\d-]/g, ""))} placeholder="123456789"/></Shared.Field>
+          <Shared.Field label="Handle (optional)"><input className="text-input" value={form.telegram_handle} onChange={(e) => update("telegram_handle", e.target.value)} placeholder="@yourhandle"/></Shared.Field>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn" onClick={testTelegram} disabled={!form.telegram_chat_id}><Icons.Send size={12}/> Send test ping</button>
+        </div>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.MessageSquare size={14}/> Slack DMs<span className="ks-tile-tag">{form.slack_member_id ? "configured" : "off"}</span></div>
+        <div className="ks-tile-sub">Routes commission paid / NIGO assignments to your Slack DMs. Find your <span className="mono">U…</span> member id under Profile → Copy member id in Slack.</div>
+        <Shared.Field label="Slack member id"><input className="text-input" value={form.slack_member_id} onChange={(e) => update("slack_member_id", e.target.value)} placeholder="U01ABCD2EF"/></Shared.Field>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Phone size={14}/> Alerts phone<span className="ks-tile-tag">SMS</span></div>
+        <div className="ks-tile-sub">SMS pings for new lead in queue + NIGO returns. Defaults to your profile phone.</div>
+        <Shared.Field label="Phone (E.164)"><input className="text-input" value={form.phone_for_alerts} onChange={(e) => update("phone_for_alerts", e.target.value)} placeholder="+14045550142"/></Shared.Field>
+      </div>
+
+      <div className="panel" style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
+          <Icons.Check size={12}/> {saving ? "Saving…" : "Save connectors"}
+        </button>
+        {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length === 1 ? "" : "s"}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* Resources tab — read-only catalogue of agency scripts / videos / docs /
+ * quick-links. Pulls from public.agency_{scripts,videos,docs,quick_links}.
+ * Reps and managers see these; managers additionally see the Team scripts
+ * editor on its own tab. */
+function SettingsResources({ role = "rep" }) {
+  const sb = window.getSupabase && window.getSupabase();
+  const [scripts, setScripts] = React.useState([]);
+  const [videos,  setVideos]  = React.useState([]);
+  const [docs,    setDocs]    = React.useState([]);
+  const [links,   setLinks]   = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!sb) { setLoading(false); return; }
+    (async () => {
+      try {
+        const [s, v, d, l] = await Promise.all([
+          sb.from("agency_scripts").select("id, title, kind, updated_at").order("updated_at", { ascending: false }).limit(30),
+          sb.from("agency_videos").select("id, title, url, updated_at").order("updated_at", { ascending: false }).limit(20),
+          sb.from("agency_docs").select("id, title, url, updated_at").order("updated_at", { ascending: false }).limit(20),
+          sb.from("agency_quick_links").select("id, label, url").order("label").limit(30),
+        ]);
+        if (Array.isArray(s.data)) setScripts(s.data);
+        if (Array.isArray(v.data)) setVideos(v.data);
+        if (Array.isArray(d.data)) setDocs(d.data);
+        if (Array.isArray(l.data)) setLinks(l.data);
+      } catch (_e) {}
+      finally { setLoading(false); }
+    })();
+  }, [sb]);
+
+  if (loading) return <div className="ks-empty">Loading resources…</div>;
+
+  const total = scripts.length + videos.length + docs.length + links.length;
+  if (total === 0) {
+    return (
+      <div className="ks-empty">
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No resources yet</div>
+        <div style={{ marginTop: 4 }}>Your manager / owner can add scripts, videos and docs from the main Resources page. They'll appear here once published.</div>
+        <button className="btn" style={{ marginTop: 10 }} onClick={() => window.gotoPage && window.gotoPage("resources")}>Open Resources page</button>
+      </div>
+    );
+  }
+
+  const tile = (item, label) => (
+    <a key={item.id} href={item.url || "#"} target={item.url ? "_blank" : undefined} rel="noopener noreferrer"
+       className="ks-tile" style={{ textDecoration: "none", color: "inherit", cursor: item.url ? "pointer" : "default" }}>
+      <div className="ks-tile-h"><span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{item.title || item.label}</span><span className="ks-tile-tag">{label}</span></div>
+      {item.kind && <div className="ks-tile-sub">{item.kind}</div>}
+    </a>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="ks-tile" style={{ background: "transparent", border: 0, padding: 0 }}>
+        <div className="ks-tile-sub">Read-only view of everything your agency has published — scripts, training videos, docs, quick links.
+          {role === "rep" && " Ask your manager to publish new material; you can't edit from here."}
+        </div>
+      </div>
+      {scripts.length > 0 && (
+        <div>
+          <div className="ks-section-label">Scripts</div>
+          <div className="ks-grid">{scripts.map(s => tile(s, s.kind || "script"))}</div>
+        </div>
+      )}
+      {videos.length > 0 && (
+        <div>
+          <div className="ks-section-label">Videos</div>
+          <div className="ks-grid">{videos.map(v => tile(v, "video"))}</div>
+        </div>
+      )}
+      {docs.length > 0 && (
+        <div>
+          <div className="ks-section-label">Docs</div>
+          <div className="ks-grid">{docs.map(d => tile(d, "doc"))}</div>
+        </div>
+      )}
+      {links.length > 0 && (
+        <div>
+          <div className="ks-section-label">Quick links</div>
+          <div className="ks-grid">{links.map(l => tile(l, "link"))}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Team scripts — manager+ can publish / archive scripts that show up in the
+ * rep's Resources tab. Reads + writes public.agency_scripts. */
+function SettingsTeamScripts({ canEdit }) {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows]     = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState(null); // null | {id?, title, kind, body, status}
+  const [busy, setBusy] = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb.from("agency_scripts")
+        .select("id, title, kind, body, status, updated_at")
+        .order("updated_at", { ascending: false }).limit(50);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (_e) {}
+    finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const save = async () => {
+    if (!sb || !editing) return;
+    if (!editing.title.trim()) { window.toast && window.toast("Title required", "warn"); return; }
+    setBusy(true);
+    try {
+      const payload = { title: editing.title.trim(), kind: editing.kind || "opener", body: editing.body || "", status: editing.status || "published" };
+      let r;
+      if (editing.id) r = await sb.from("agency_scripts").update(payload).eq("id", editing.id);
+      else            r = await sb.from("agency_scripts").insert(payload);
+      if (r.error) throw r.error;
+      window.toast && window.toast(editing.id ? "Script updated" : "Script published", "success");
+      setEditing(null);
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  const archive = async (row) => {
+    if (!sb) return;
+    if (!confirm(`Archive "${row.title}"? Reps will stop seeing it in Resources.`)) return;
+    const { error } = await sb.from("agency_scripts").update({ status: "archived" }).eq("id", row.id);
+    if (error) { window.toast && window.toast(`Archive failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast("Script archived", "success");
+    await refresh();
+  };
+
+  if (loading) return <div className="ks-empty">Loading team scripts…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="ks-section-label" style={{ padding: 0 }}>Team scripts</div>
+        <span className="chip">{rows.filter(r => r.status !== "archived").length} live</span>
+        {canEdit && <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setEditing({ title: "", kind: "opener", body: "", status: "published" })}><Icons.Plus size={12}/> New script</button>}
+      </div>
+      {rows.length === 0 ? (
+        <div className="ks-empty">No team scripts yet. {canEdit ? "Click New script to publish your first." : "Ask your manager to publish one."}</div>
+      ) : (
+        <div className="ks-grid-wide">
+          {rows.map(r => (
+            <div key={r.id} className="ks-tile">
+              <div className="ks-tile-h">
+                <span style={{ fontSize: 12.5 }}>{r.title}</span>
+                <span className="ks-tile-tag">{r.kind || "script"}</span>
+              </div>
+              {r.body && <div className="ks-tile-sub" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "hidden" }}>{r.body.slice(0, 240)}{r.body.length > 240 ? "…" : ""}</div>}
+              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                {r.status === "archived" && <span className="chip chip-danger" style={{ fontSize: 10 }}>archived</span>}
+                {canEdit && (
+                  <>
+                    <button className="btn btn-ghost" onClick={() => setEditing({ ...r })}><Icons.Edit size={11}/> Edit</button>
+                    {r.status !== "archived" && <button className="btn btn-ghost" onClick={() => archive(r)} title="Archive"><Icons.X size={11}/></button>}
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <Shared.Modal title={editing.id ? "Edit script" : "New team script"} width={520} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy}><Icons.Check size={11}/> {busy ? "Saving…" : "Save"}</button>
+          </>
+        }>
+          <Shared.Field label="Title"><input className="text-input" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} autoFocus/></Shared.Field>
+          <Shared.Field label="Kind">
+            <Shared.Select value={editing.kind || "opener"} onChange={(v) => setEditing({ ...editing, kind: v })} options={[
+              { v: "opener",    l: "Opener" },
+              { v: "rebuttal",  l: "Rebuttal" },
+              { v: "discovery", l: "Discovery" },
+              { v: "close",     l: "Close" },
+              { v: "voicemail", l: "Voicemail" },
+            ]}/>
+          </Shared.Field>
+          <Shared.Field label="Body" hint="Plain text or markdown — what reps see when they open the script">
+            <textarea className="text-input" rows={8} value={editing.body || ""} onChange={(e) => setEditing({ ...editing, body: e.target.value })}/>
+          </Shared.Field>
+          <Shared.Field label="Status">
+            <Shared.Select value={editing.status || "published"} onChange={(v) => setEditing({ ...editing, status: v })} options={[
+              { v: "published", l: "Published — visible to reps" },
+              { v: "draft",     l: "Draft — owner / manager only" },
+              { v: "archived",  l: "Archived" },
+            ]}/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+/* Compliance — DNC / Jornaya / TrustedForm account ids + agency-wide opt-out
+ * uploads. Persisted under public.org_settings via AppData.mutate.orgSettingsSave. */
+function SettingsCompliance() {
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const O = (window.AppData?.ORG_SETTINGS) || {};
+  const [form, setForm] = React.useState({
+    dnc_list_url:        O.dnc_list_url || "",
+    jornaya_account_id:  O.jornaya_account_id || "",
+    jornaya_site_id:     O.jornaya_site_id || "",
+    trustedform_account: O.trustedform_account || "",
+    quiet_hours_start:   O.quiet_hours_start || "21:00",
+    quiet_hours_end:     O.quiet_hours_end || "08:00",
+    record_all_calls:    O.record_all_calls ?? true,
+    soa_required:        O.soa_required ?? true,
+  });
+  const [dirty, setDirty]   = React.useState({});
+  const [saving, setSaving] = React.useState(false);
+  const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
+
+  const save = async () => {
+    if (Object.keys(dirty).length === 0) return;
+    setSaving(true);
+    try {
+      const patch = {};
+      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      await window.AppData.mutate.orgSettingsSave(patch);
+      setDirty({});
+      window.toast && window.toast(`Compliance saved${window.AppData?.LIVE ? "" : " (demo only)"}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Shield size={14}/> DNC list<span className="ks-tile-tag">{form.dnc_list_url ? "set" : "missing"}</span></div>
+        <div className="ks-tile-sub">URL or storage path to your federal/state DNC scrub list. Your dialer should reject any number that appears here.</div>
+        <Shared.Field label="DNC source URL"><input className="text-input" value={form.dnc_list_url} onChange={(e) => update("dnc_list_url", e.target.value)} placeholder="https://… or s3://agency-bucket/dnc.csv"/></Shared.Field>
+        <Shared.Field label="Quiet hours">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <input className="text-input" type="time" value={form.quiet_hours_start} onChange={(e) => update("quiet_hours_start", e.target.value)}/>
+            <input className="text-input" type="time" value={form.quiet_hours_end} onChange={(e) => update("quiet_hours_end", e.target.value)}/>
+          </div>
+        </Shared.Field>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Activity size={14}/> Jornaya LeadiD<span className="ks-tile-tag">{form.jornaya_account_id ? "configured" : "off"}</span></div>
+        <div className="ks-tile-sub">Tracks every web lead's TCPA consent. Account + site id from your Jornaya dashboard.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <Shared.Field label="Account id"><input className="text-input" value={form.jornaya_account_id} onChange={(e) => update("jornaya_account_id", e.target.value)} placeholder="JV-XXXXX"/></Shared.Field>
+          <Shared.Field label="Site id"><input className="text-input" value={form.jornaya_site_id} onChange={(e) => update("jornaya_site_id", e.target.value)} placeholder="ST-XXXXX"/></Shared.Field>
+        </div>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Activity size={14}/> TrustedForm<span className="ks-tile-tag">{form.trustedform_account ? "configured" : "off"}</span></div>
+        <div className="ks-tile-sub">ActiveProspect TrustedForm cert proves consent timestamp. Account id from app.trustedform.com.</div>
+        <Shared.Field label="Account id"><input className="text-input" value={form.trustedform_account} onChange={(e) => update("trustedform_account", e.target.value)} placeholder="AP-XXXXX"/></Shared.Field>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Mic size={14}/> Call recording<span className="ks-tile-tag">{form.record_all_calls ? "on" : "off"}</span></div>
+        <div className="ks-tile-sub">Record every dialer call. Required by most carriers for SOA and post-issue verification.</div>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", fontSize: 12.5 }}>
+          <input type="checkbox" checked={form.record_all_calls} onChange={(e) => update("record_all_calls", e.target.checked)}/>
+          Record all outbound + inbound calls
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", fontSize: 12.5 }}>
+          <input type="checkbox" checked={form.soa_required} onChange={(e) => update("soa_required", e.target.checked)}/>
+          Require SOA on Medicare appointments
+        </label>
+      </div>
+
+      <div className="panel" style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
+          <Icons.Check size={12}/> {saving ? "Saving…" : "Save compliance"}
+        </button>
+        {isDemo && <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>demo agency · changes won't persist</span>}
+        {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved</span>}
+      </div>
+    </div>
+  );
+}
+
+/* Branding — agency logo URL, primary brand color, dark/light mode default.
+ * Persisted to public.org_settings. Live preview swatches on the right. */
+function SettingsBranding() {
+  const O = (window.AppData?.ORG_SETTINGS) || {};
+  const [form, setForm] = React.useState({
+    brand_logo_url:   O.brand_logo_url || "",
+    brand_color:      O.brand_color || "#00d4aa",
+    brand_color_dark: O.brand_color_dark || "#0d0d0d",
+    public_name:      O.public_name || O.name || "",
+    tagline:          O.tagline || "",
+    default_theme:    O.default_theme || "dark",
+  });
+  const [dirty, setDirty]   = React.useState({});
+  const [saving, setSaving] = React.useState(false);
+  const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
+
+  const save = async () => {
+    if (Object.keys(dirty).length === 0) return;
+    setSaving(true);
+    try {
+      const patch = {};
+      Object.keys(dirty).forEach(k => { patch[k] = form[k]; });
+      await window.AppData.mutate.orgSettingsSave(patch);
+      setDirty({});
+      window.toast && window.toast("Branding saved", "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="ks-grid-wide">
+        <div className="ks-tile">
+          <div className="ks-tile-h"><Icons.Building size={14}/> Public identity</div>
+          <Shared.Field label="Public agency name"><input className="text-input" value={form.public_name} onChange={(e) => update("public_name", e.target.value)} placeholder="Atlas Insurance Group"/></Shared.Field>
+          <Shared.Field label="Tagline"><input className="text-input" value={form.tagline} onChange={(e) => update("tagline", e.target.value)} placeholder="Senior life & Medicare specialists"/></Shared.Field>
+          <Shared.Field label="Logo URL"><input className="text-input" value={form.brand_logo_url} onChange={(e) => update("brand_logo_url", e.target.value)} placeholder="https://cdn.../logo.svg"/></Shared.Field>
+        </div>
+        <div className="ks-tile">
+          <div className="ks-tile-h"><Icons.Sparkles size={14}/> Brand colors</div>
+          <Shared.Field label="Primary"><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="color" value={form.brand_color} onChange={(e) => update("brand_color", e.target.value)} style={{ width: 32, height: 32, border: 0, background: "transparent", padding: 0 }}/>
+            <input className="text-input" value={form.brand_color} onChange={(e) => update("brand_color", e.target.value)} style={{ flex: 1 }}/>
+          </div></Shared.Field>
+          <Shared.Field label="Dark surface"><div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="color" value={form.brand_color_dark} onChange={(e) => update("brand_color_dark", e.target.value)} style={{ width: 32, height: 32, border: 0, background: "transparent", padding: 0 }}/>
+            <input className="text-input" value={form.brand_color_dark} onChange={(e) => update("brand_color_dark", e.target.value)} style={{ flex: 1 }}/>
+          </div></Shared.Field>
+          <Shared.Field label="Default theme">
+            <Shared.Select value={form.default_theme} onChange={(v) => update("default_theme", v)} options={[
+              { v: "dark",  l: "Dark (recommended)" },
+              { v: "light", l: "Light" },
+              { v: "auto",  l: "Match user" },
+            ]}/>
+          </Shared.Field>
+        </div>
+      </div>
+
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Bookmark size={14}/> Preview</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", padding: 14, background: form.brand_color_dark, borderRadius: 10 }}>
+          {form.brand_logo_url
+            ? <img src={form.brand_logo_url} alt="logo" style={{ height: 36, borderRadius: 6 }} onError={(e) => { e.currentTarget.style.display = "none"; }}/>
+            : <div style={{ width: 36, height: 36, borderRadius: 8, background: form.brand_color, display: "grid", placeItems: "center", fontWeight: 700, color: "#0a0a0a" }}>{(form.public_name || "K")[0]}</div>
+          }
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#fff" }}>{form.public_name || "Your agency"}</div>
+            <div style={{ fontSize: 11, color: "#aaa" }}>{form.tagline || "Tagline shows up under your name in producer-facing surfaces"}</div>
+          </div>
+          <button style={{ marginLeft: "auto", padding: "8px 14px", borderRadius: 8, background: form.brand_color, color: "#0a0a0a", fontWeight: 600, border: 0, fontSize: 12 }}>Primary CTA</button>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
+          <Icons.Check size={12}/> {saving ? "Saving…" : "Save branding"}
+        </button>
+        {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved</span>}
+      </div>
+    </div>
+  );
+}
+
+/* Products — agency-managed products from public.products. Owner can toggle
+ * which ones reps see in the quote engine. Read-only for managers. */
+function SettingsProducts({ canEdit }) {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows]       = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busyId,  setBusyId]  = React.useState(null);
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb.from("products")
+        .select("id, carrier_id, line, name, status, commission_pct, updated_at")
+        .order("line").limit(200);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (_e) {}
+    finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const toggle = async (row) => {
+    if (!sb || !canEdit) return;
+    setBusyId(row.id);
+    try {
+      const next = row.status === "active" ? "paused" : "active";
+      const { error } = await sb.from("products").update({ status: next, updated_at: new Date().toISOString() }).eq("id", row.id);
+      if (error) throw error;
+      window.toast && window.toast(`${row.name}: ${next}`, "success");
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusyId(null); }
+  };
+
+  if (loading) return <div className="ks-empty">Loading products…</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="ks-empty">
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No products mapped to this agency yet</div>
+        <div style={{ marginTop: 4 }}>Add carrier appointments first (Carriers tab), then publish their product catalog.</div>
+        <button className="btn" style={{ marginTop: 10 }} onClick={() => { try { sessionStorage.setItem("repflow.settings.tab","carriers"); } catch{}; window.location.reload(); }}>Open Carriers</button>
+      </div>
+    );
+  }
+
+  const byLine = rows.reduce((m, r) => { (m[r.line || "Other"] = m[r.line || "Other"] || []).push(r); return m; }, {});
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {Object.entries(byLine).map(([line, items]) => (
+        <div className="panel" key={line}>
+          <div className="panel-h">
+            <h3>{line}</h3>
+            <span className="meta">{items.filter(r => r.status === "active").length}/{items.length} active</span>
+          </div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 120px" }}>
+              <div>Product</div><div>Commission %</div><div>Status</div><div></div>
+            </div>
+            {items.map(r => (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 1fr 1fr 120px" }}>
+                <div style={{ fontWeight: 500 }}>{r.name}</div>
+                <div className="tabular">{r.commission_pct != null ? `${Number(r.commission_pct).toFixed(2)}%` : "—"}</div>
+                <div><span className={`chip ${r.status === "active" ? "chip-money" : ""}`}>{r.status || "unknown"}</span></div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  {canEdit ? (
+                    <button className="btn btn-ghost" disabled={busyId === r.id} onClick={() => toggle(r)}>
+                      {busyId === r.id ? "…" : (r.status === "active" ? "Pause" : "Activate")}
+                    </button>
+                  ) : <span style={{ fontSize: 10.5, color: "var(--text-quaternary)" }}>read-only</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Cross-agency — admin / imo_owner sees every agency they have visibility
+ * into via viewer_agency_ids(). */
+function SettingsCrossAgency() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!sb) { setLoading(false); return; }
+    (async () => {
+      try {
+        const { data, error } = await sb.from("agencies")
+          .select("id, name, kind, parent_agency_id, created_at, is_demo")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        setRows(Array.isArray(data) ? data : []);
+      } catch (e) { setErr(String(e?.message || e)); }
+      finally    { setLoading(false); }
+    })();
+  }, [sb]);
+
+  if (loading) return <div className="ks-empty">Loading visible agencies…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load agencies: <span className="mono">{err}</span></div></div>;
+  if (rows.length === 0) return <div className="ks-empty">You only see one agency — yourself. Add child agencies in Provision sub-agency.</div>;
+
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>Visible agencies</h3><span className="meta">{rows.length} total</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 110px 130px 100px" }}>
+          <div>Agency</div><div>Kind</div><div>Demo?</div><div>Created</div><div></div>
+        </div>
+        {rows.map(r => (
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 110px 130px 100px" }}>
+            <div>
+              <div style={{ fontWeight: 500 }}>{r.name}</div>
+              <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.id.slice(0, 8)}…</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.kind || "agency"}</div>
+            <div>{r.is_demo ? <span className="chip">demo</span> : <span style={{ fontSize: 11, color: "var(--text-quaternary)" }}>live</span>}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => {
+                try { sessionStorage.setItem("repflow.impersonate.agency_id", r.id); } catch {}
+                window.toast && window.toast(`Switching to ${r.name}…`, "info");
+                window.location.reload();
+              }}>Open</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Provision sub-agency — calls public.create_child_agency() RPC if present.
+ * Falls back to a direct insert. */
+function SettingsProvisionSubAgency() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [form, setForm] = React.useState({ name: "", owner_email: "", kind: "agency", is_demo: false });
+  const [busy, setBusy] = React.useState(false);
+  const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    if (!sb) return;
+    if (!form.name.trim() || !form.owner_email.trim()) {
+      window.toast && window.toast("Name + owner email required", "warn"); return;
+    }
+    setBusy(true);
+    try {
+      let ok = false;
+      try {
+        const r = await sb.rpc("create_child_agency", { p_name: form.name.trim(), p_owner_email: form.owner_email.trim(), p_kind: form.kind, p_is_demo: form.is_demo });
+        if (!r.error) ok = true;
+      } catch (_e) {}
+      if (!ok) {
+        const { error } = await sb.from("agencies").insert({ name: form.name.trim(), kind: form.kind, is_demo: form.is_demo });
+        if (error) throw error;
+        // Best-effort email invite — owner_email saved as a comment if the
+        // invites table exists. We don't fail if it's missing.
+        try { await sb.from("agency_invites").insert({ email: form.owner_email.trim(), role: "owner" }); } catch (_e2) {}
+      }
+      window.toast && window.toast(`Provisioned ${form.name}`, "success");
+      setForm({ name: "", owner_email: "", kind: "agency", is_demo: false });
+    } catch (e) {
+      window.toast && window.toast(`Provision failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Plus size={14}/> Provision a sub-agency</div>
+        <div className="ks-tile-sub">Creates a child agency under your IMO. The owner email gets a magic-link invite to claim the agency on first sign-in.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <Shared.Field label="Agency name"><input className="text-input" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Atlas SE Region"/></Shared.Field>
+          <Shared.Field label="Owner email"><input className="text-input" type="email" value={form.owner_email} onChange={(e) => update("owner_email", e.target.value)} placeholder="owner@subagency.com"/></Shared.Field>
+          <Shared.Field label="Kind">
+            <Shared.Select value={form.kind} onChange={(v) => update("kind", v)} options={[
+              { v: "agency", l: "Single agency" },
+              { v: "imo",    l: "IMO (can have its own children)" },
+            ]}/>
+          </Shared.Field>
+          <Shared.Field label="Demo data">
+            <label style={{ display: "flex", gap: 6, alignItems: "center", padding: 7, fontSize: 12 }}>
+              <input type="checkbox" checked={form.is_demo} onChange={(e) => update("is_demo", e.target.checked)}/>
+              Seed with demo pipeline / reps
+            </label>
+          </Shared.Field>
+        </div>
+        <div>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+            <Icons.Check size={12}/> {busy ? "Provisioning…" : "Create sub-agency"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Audit log — read-only feed of audit events. Queries public.audit_log if
+ * present, otherwise notifications fallback. */
+function SettingsAuditLog() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [source, setSource] = React.useState("audit_log");
+  const [filter, setFilter] = React.useState("");
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      let r = await sb.from("audit_log").select("id, action, actor_id, target_table, target_id, created_at, payload").order("created_at", { ascending: false }).limit(100);
+      if (r.error) {
+        // Fall back to notifications
+        const r2 = await sb.from("notifications").select("id, kind, created_at, body, payload").order("created_at", { ascending: false }).limit(100);
+        if (!r2.error) { setRows(Array.isArray(r2.data) ? r2.data : []); setSource("notifications"); }
+        else { setRows([]); }
+      } else {
+        setRows(Array.isArray(r.data) ? r.data : []);
+        setSource("audit_log");
+      }
+    } catch (_e) {}
+    finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  if (loading) return <div className="ks-empty">Loading audit log…</div>;
+  if (rows.length === 0) return <div className="ks-empty">No audit events recorded yet.</div>;
+
+  const filtered = filter.trim()
+    ? rows.filter(r => JSON.stringify(r).toLowerCase().includes(filter.toLowerCase()))
+    : rows;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter actions / actors / targets…" style={{ maxWidth: 320 }}/>
+        <span className="chip">{filtered.length} of {rows.length}</span>
+        <span className="mono" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-tertiary)" }}>source: {source}</span>
+        <button className="btn btn-ghost" onClick={refresh}><Icons.RefreshCw size={12}/> Refresh</button>
+      </div>
+      <div className="panel">
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "140px 1fr 1fr 100px" }}>
+            <div>When</div><div>Action</div><div>Target</div><div>Actor</div>
+          </div>
+          {filtered.slice(0, 100).map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "140px 1fr 1fr 100px" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} title={r.created_at}>{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</div>
+              <div style={{ fontWeight: 500 }}>{r.action || r.kind || "—"}</div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{r.target_table ? `${r.target_table}/${(r.target_id || "").toString().slice(0, 8)}` : (r.body || "—")}</div>
+              <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(r.actor_id || "").toString().slice(0, 8) || "—"}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Feature flags — super-admin only. Reads public.feature_flags. */
+function SettingsFeatureFlags() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busyKey, setBusyKey] = React.useState(null);
+  const [creating, setCreating] = React.useState(false);
+  const [newRow, setNewRow] = React.useState({ key: "", enabled: false, scope: "global", description: "" });
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb.from("feature_flags").select("*").order("key");
+      setRows(Array.isArray(data) ? data : []);
+    } catch (_e) {}
+    finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const toggle = async (row) => {
+    setBusyKey(row.key);
+    try {
+      const { error } = await sb.from("feature_flags").update({ enabled: !row.enabled, updated_at: new Date().toISOString() }).eq("key", row.key);
+      if (error) throw error;
+      window.toast && window.toast(`${row.key}: ${!row.enabled ? "ON" : "OFF"}`, "success");
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Toggle failed: ${e?.message || e}`, "error");
+    } finally { setBusyKey(null); }
+  };
+
+  const create = async () => {
+    if (!newRow.key.trim()) { window.toast && window.toast("Key required", "warn"); return; }
+    try {
+      const { error } = await sb.from("feature_flags").insert({ key: newRow.key.trim(), enabled: newRow.enabled, scope: newRow.scope, description: newRow.description });
+      if (error) throw error;
+      window.toast && window.toast(`Flag ${newRow.key} created`, "success");
+      setCreating(false); setNewRow({ key: "", enabled: false, scope: "global", description: "" });
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Create failed: ${e?.message || e}`, "error");
+    }
+  };
+
+  if (loading) return <div className="ks-empty">Loading feature flags…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="ks-section-label" style={{ padding: 0 }}>Feature flags</div>
+        <span className="chip">{rows.filter(r => r.enabled).length}/{rows.length} on</span>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setCreating(true)}><Icons.Plus size={12}/> New flag</button>
+      </div>
+      {rows.length === 0
+        ? <div className="ks-empty">No flags defined yet.</div>
+        : <div className="panel"><div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
+              <div>Key</div><div>Scope</div><div>Description</div><div></div>
+            </div>
+            {rows.map(r => (
+              <div key={r.key} className="row" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
+                <div className="mono" style={{ fontWeight: 500 }}>{r.key}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.scope || "global"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description || "—"}</div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" disabled={busyKey === r.key} onClick={() => toggle(r)}>
+                    {busyKey === r.key ? "…" : (r.enabled ? <span style={{ color: "var(--accent-money)" }}>ON</span> : <span>OFF</span>)}
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div></div>
+      }
+      {creating && (
+        <Shared.Modal title="New feature flag" width={460} onClose={() => setCreating(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={create}><Icons.Check size={11}/> Create</button>
+          </>
+        }>
+          <Shared.Field label="Key"><input className="text-input mono" value={newRow.key} onChange={(e) => setNewRow({ ...newRow, key: e.target.value.replace(/[^a-z0-9_]/gi, "_") })} placeholder="auto_quoter_v2" autoFocus/></Shared.Field>
+          <Shared.Field label="Scope">
+            <Shared.Select value={newRow.scope} onChange={(v) => setNewRow({ ...newRow, scope: v })} options={[
+              { v: "global", l: "Global — every agency" },
+              { v: "agency", l: "Per-agency override" },
+              { v: "user",   l: "Per-user override" },
+            ]}/>
+          </Shared.Field>
+          <Shared.Field label="Description"><textarea className="text-input" rows={3} value={newRow.description} onChange={(e) => setNewRow({ ...newRow, description: e.target.value })}/></Shared.Field>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+            <input type="checkbox" checked={newRow.enabled} onChange={(e) => setNewRow({ ...newRow, enabled: e.target.checked })}/>
+            Enable immediately
+          </label>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+/* Demo controls — reset / reseed the demo agency for super-admin testing. */
+function SettingsDemoControls() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [busy, setBusy] = React.useState(null);
+
+  const call = async (rpc, label, confirmMsg) => {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    setBusy(rpc);
+    try {
+      const r = await sb.rpc(rpc);
+      if (r.error) throw r.error;
+      window.toast && window.toast(`${label}: done`, "success");
+    } catch (e) {
+      window.toast && window.toast(`${label} failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.Brain size={14}/> Demo agency<span className="ks-tile-tag">read</span></div>
+        <div className="ks-tile-sub">The Atlas demo agency is the seed shown to anon visitors. These actions reset its pipeline, reps, and recorded calls back to factory defaults.</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="btn" disabled={busy === "reseed_demo"}     onClick={() => call("reseed_demo",     "Reseed demo",  "Reseed the demo agency (overwrites Atlas data)?")}>{busy === "reseed_demo" ? "…" : "Reseed demo"}</button>
+          <button className="btn" disabled={busy === "wipe_demo_calls"} onClick={() => call("wipe_demo_calls", "Wipe calls",   "Wipe the demo agency's call recordings?")}>{busy === "wipe_demo_calls" ? "…" : "Wipe demo calls"}</button>
+          <button className="btn" disabled={busy === "reset_demo_pipeline"} onClick={() => call("reset_demo_pipeline", "Reset pipeline", "Reset the demo pipeline (kanban + queue) only?")}>{busy === "reset_demo_pipeline" ? "…" : "Reset pipeline"}</button>
+        </div>
+      </div>
+      <div className="ks-tile">
+        <div className="ks-tile-h"><Icons.AlertTriangle size={14}/> Notes</div>
+        <div className="ks-tile-sub">These call public RPCs (<span className="mono">reseed_demo / wipe_demo_calls / reset_demo_pipeline</span>). If the RPC isn't defined yet, you'll see a "function does not exist" toast — fine, that means nothing was changed.</div>
+      </div>
+    </div>
+  );
+}
+
+/* Global integrations — super-admin manages the connector_catalog itself
+ * (not per-agency connections). */
+function SettingsGlobalIntegrations() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb.from("connector_catalog").select("*").order("category").order("label");
+      setRows(Array.isArray(data) ? data : []);
+    } catch (_e) {}
+    finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const save = async () => {
+    if (!editing?.connector_key?.trim()) { window.toast && window.toast("Key required", "warn"); return; }
+    setBusy(true);
+    try {
+      const payload = {
+        connector_key: editing.connector_key.trim(),
+        label:         editing.label || editing.connector_key,
+        category:      editing.category || "Other",
+        description:   editing.description || "",
+        is_enabled:    editing.is_enabled !== false,
+      };
+      const { error } = await sb.from("connector_catalog").upsert(payload, { onConflict: "connector_key" });
+      if (error) throw error;
+      window.toast && window.toast(`Catalog ${payload.connector_key} saved`, "success");
+      setEditing(null);
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  if (loading) return <div className="ks-empty">Loading global connector catalog…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="ks-section-label" style={{ padding: 0 }}>Connector catalog</div>
+        <span className="chip">{rows.filter(r => r.is_enabled !== false).length}/{rows.length} enabled</span>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setEditing({ connector_key: "", label: "", category: "Other", description: "", is_enabled: true })}>
+          <Icons.Plus size={12}/> New connector
+        </button>
+      </div>
+      {rows.length === 0
+        ? <div className="ks-empty">Catalog is empty. Add the first connector to make it visible to every agency.</div>
+        : <div className="panel"><div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
+              <div>Connector</div><div>Category</div><div>Description</div><div>Status</div><div></div>
+            </div>
+            {rows.map(r => (
+              <div key={r.connector_key} className="row" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
+                <div><div style={{ fontWeight: 500 }}>{r.label || r.connector_key}</div><div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.connector_key}</div></div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.category}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description}</div>
+                <div><span className={`chip ${r.is_enabled === false ? "" : "chip-money"}`}>{r.is_enabled === false ? "off" : "on"}</span></div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}><button className="btn btn-ghost" onClick={() => setEditing({ ...r })}><Icons.Edit size={11}/></button></div>
+              </div>
+            ))}
+          </div></div>
+      }
+      {editing && (
+        <Shared.Modal title={editing.connector_key && rows.some(r => r.connector_key === editing.connector_key) ? "Edit connector" : "New connector"} width={520} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy}><Icons.Check size={11}/> {busy ? "Saving…" : "Save"}</button>
+          </>
+        }>
+          <Shared.Field label="Key (snake_case)"><input className="text-input mono" value={editing.connector_key} onChange={(e) => setEditing({ ...editing, connector_key: e.target.value.replace(/[^a-z0-9_]/gi, "_") })} placeholder="twilio / stripe / gmail"/></Shared.Field>
+          <Shared.Field label="Label"><input className="text-input" value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder="Twilio"/></Shared.Field>
+          <Shared.Field label="Category"><input className="text-input" value={editing.category || ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} placeholder="Voice / CRM / Billing / Compliance"/></Shared.Field>
+          <Shared.Field label="Description"><textarea className="text-input" rows={2} value={editing.description || ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })}/></Shared.Field>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+            <input type="checkbox" checked={editing.is_enabled !== false} onChange={(e) => setEditing({ ...editing, is_enabled: e.target.checked })}/>
+            Visible to every agency
+          </label>
         </Shared.Modal>
       )}
     </div>
