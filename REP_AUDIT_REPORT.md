@@ -1,16 +1,25 @@
-# Rep-role audit — 2026-05-12
+# Rep-role audit — 2026-05-12 (deep-drill pass)
 
 Branch: `feat/role-audit-rep-2026-05-11` (off `feat/onboarding-frontend-2026-05-11`)
 Time box: 3 hours, sovereign execution. NOT pushed to remote.
 
-Scope: every surface a `role="rep"` viewer actually touches —
+Scope: every surface a `role="rep"` viewer actually touches — drilled
+**every button, every handler, every number** across:
 `page-today`, `page-pipeline` (rep scope), `page-queue`, `page-mobile`,
-`mobile-screens`, `mobile-extra-screens`, `Settings → Profile`.
+`mobile-screens`, `mobile-extra-screens`, and the four `Settings` tabs
+the rep sees (Profile / Notifications / Calling / Agents).
 
-8 commits (7 fixes + 1 DS-realignment + 1 report), on top of `1f94472`
-(P7/P8 onboarding tip).
+**16 commits** on top of `1f94472` (P7/P8 onboarding tip):
 
 ```
+f4d2087 style(settings/rep): koino teal primaries on Save / Install / Edit Profile / Fire test
+858ecb8 feat(mobile-extra/rep): scope Pipeline to me + smart default stage + koino chips
+5a6f90a feat(mobile-screens/rep): wire every stub button + functional filter + leaderboard tabs
+634e80e feat(mobile/rep): empty-state CTA + Me tab Edit Profile + Leaderboard YOU highlight
+aed743f feat(queue/rep): row-click deep-link + koino empty state + button isolation
+1230981 feat(pipeline/rep): bulk gates + state scope + touchpoint timeline + deep-link
+90f71c1 feat(today/rep): drill every button + wire Tasks/Recent calls clicks
+2ef0dc3 docs(rep-audit): note koino.capital DS correction + bumped cache busters
 ddec527 style(rep): refit new empty-state CTAs to koino.capital DS
 6592736 docs: REP_AUDIT_REPORT.md — 7-commit summary, file:line cites
 7481aed fix(settings/rep): profile as default tab + load existing notif prefs
@@ -19,15 +28,16 @@ afa6fdf fix(mobile-screens/rep): derive everything from AppData + me()
 0eba900 fix(mobile/rep): kill fake phone dials + hardcoded rank + Marcus leak
 80facb1 fix(queue/rep): live SLA buckets + dead-handler dial fix + me() scope
 7a2cc1d fix(pipeline/rep): scope to me + empty state + force rep owner
-faf55bd fix(today/rep): kill demo bleed + dead Phone handler + hardcoded queue
+faf55bd fix(today/rep): kill demo bleed + dead Phone handler + hardcoded queue count
 ```
 
-Cache busters bumped: `page-today.jsx?v=79`, `page-pipeline.jsx?v=79`,
-`page-queue.jsx?v=78`, `page-mobile.jsx?v=76`, `page-extras.jsx?v=83`,
-`mobile-screens.jsx?v=16`, `mobile-extra-screens.jsx?v=16`.
+Cache busters bumped: `page-today.jsx?v=80`, `page-pipeline.jsx?v=80`,
+`page-queue.jsx?v=79`, `page-mobile.jsx?v=77`, `page-extras.jsx?v=84`,
+`page-platform.jsx?v=77`, `mobile-screens.jsx?v=17`,
+`mobile-extra-screens.jsx?v=17`.
 
-All seven changed `.jsx` files compile cleanly under
-`@babel/standalone@7.29.0` (the same version `index.html` loads).
+All eight changed `.jsx` files compile cleanly under
+`@babel/standalone@7.29.0` (same version `index.html` loads).
 Local smoke test is Ian's next step — see "Verify" at the bottom.
 
 ---
@@ -241,3 +251,209 @@ Push when ready:
 git push origin feat/role-audit-rep-2026-05-11
 ```
 (Per the brief: **NOT pushed by this run.**)
+
+---
+
+## Deep-drill coverage — second pass (2026-05-12 evening)
+
+Ian asked for a tab-by-tab, button-by-button drill rather than spot
+fixes. Below is the exhaustive inventory: every interactive element in
+every rep-visible surface, with status `Wired ✓` / `Wired now` /
+`Hardcoded → derived` / `Out of scope`.
+
+### page-today.jsx · `TodayRep`
+
+| Element | File:line | Status | Note |
+|---|---|---|---|
+| Page-title quarter chip | page-today:524 | Hardcoded → derived | `currentQuarter()` helper from current month |
+| Schedule btn (header) | page-today:472 | Wired ✓ | dispatches `appointment:open` (listener in page-floor-actions:351) |
+| Power Hour btn (header) | page-today:475 | Wired ✓ | `goFloor` → gotoPage("floor") |
+| Day-is-blank banner CTA | page-today:543 | Wired ✓ + DS | teal #00d4aa; routes to /floor or /queue based on queueDepth |
+| Onboarding 5 tiles | page-today:548-591 | Wired now | each tile routes to the page that completes its step (was display-only) |
+| GoalRow today/week/month | page-today:546-548 | Wired ✓ | derived from `myRow.mtd` / tier threshold |
+| ActionTile Power Hour | page-today:556 | Wired ✓ | goFloor |
+| ActionTile Log activity | page-today:557 | Wired ✓ | gotoPage("crm") + dispatchEvent("crm:addLead") (listener page-crm:117) |
+| ActionTile DM Manager | page-today:558-559 | Wired ✓ | `dmManager` ensures thread + nav to Messages |
+| ActionTile Pull a script | page-today:560 | Wired ✓ | gotoPage("library") |
+| SpendStrip Cost/issued | page-today:579 | Hardcoded → derived | live from LEAD_SPEND_TOTALS / POLICIES |
+| SpendStrip NIGO drag | page-today:582 | Hardcoded → derived | sum NIGOS scoped to my rep, this month |
+| Hero KPI sparkline | page-today:588 | Hardcoded → derived | `_bucketLastNDays(COMMISSIONS, "earnedAt")` for the viewer |
+| Apps KPI sparkline | page-today:589 | Hardcoded → derived | bucket POLICIES.issuedAt |
+| Dials KPI sparkline | page-today:590 | Removed | RECORDINGS lacks ISO date through hydrate; spark suppressed |
+| TasksPanel row click | page-today:301-318 | Wired now | routes to /pipeline+openLead for relatedLeadId, /commissions for relatedPolicyId |
+| TasksPanel Check button | page-today:309-319 | Wired now | `sb.from("tasks").update({status:"completed"})` |
+| Next-in-queue meta | page-today:600 | Hardcoded → derived | `(QUEUE || []).length` |
+| Next-in-queue per-row Phone | page-today:642-660 | Wired now | gates on l.phone, routes window.repflowCall |
+| Empty-queue CTA | page-today:606-635 | Wired now | "Open dial queue" → teal CTA |
+| Coaching panel Replay btn | page-today:692-696 | Wired ✓ | gotoPage("calls") + toast |
+| Coaching panel Mark practiced btn | page-today:699-708 | Wired ✓ | writes to localStorage "repflow.coaching_practiced" |
+| Coaching empty state | page-today:716-722 | Wired now | mono `// no notes yet` tag |
+| Tier progress (next tier remaining) | page-today:733-755 | Wired ✓ | derived from TIER_TARGETS + myRow.mtd |
+| Recent calls per-row | page-today:818-841 | Wired now | row click → gotoPage("calls") + dispatch `calls:openRecording` |
+| Recent calls empty state | page-today:809-816 | Wired now | mono `// no calls yet` |
+| Daily ritual rows | page-today:856-878 | Hardcoded → derived | row state (next/now/done) derived from local clock hour |
+
+### page-pipeline.jsx · `PagePipeline` + `LeadDetail`
+
+| Element | File:line | Status | Note |
+|---|---|---|---|
+| View toggle (List/Kanban/Sequences) | page-pipeline:170-174 | Wired ✓ | setView |
+| Filter button | page-pipeline:177-180 | Wired ✓ | opens filter modal |
+| Import CSV button | page-pipeline:181 | Wired ✓ | mounts window.CSVImport |
+| Export button | page-pipeline:182-186 | Wired ✓ | window.exportCSV(filtered) |
+| New lead button | page-pipeline:188 | Wired ✓ | opens new-lead modal |
+| Saved-view chips | page-pipeline:194-200 | Wired ✓ | loadView/deleteView/saveView with localStorage persistence |
+| Bulk action button | page-pipeline:204 | Wired ✓ | opens bulk modal |
+| pipeline:openLead listener | page-pipeline:28-37 | Wired now | new — accepts deep-link from Today's tasks |
+| List row click | page-pipeline:226-232 | Wired ✓ | shift/cmd toggles selection, else opens LeadDetail |
+| List row Dots (selection) | page-pipeline:253 | Wired ✓ | toggles selection |
+| Kanban drop | page-pipeline:269 | Wired ✓ | `moveTo` with override + Supabase persist |
+| Kanban card drag | page-pipeline:276-279 | Wired ✓ | sets drag id, opens detail on click |
+| New-lead State dropdown | page-pipeline:386-401 | Hardcoded → derived | for rep, scoped to me().licensed_states (with "(N licensed)" hint) |
+| New-lead Source dropdown | page-pipeline:404-415 | Hardcoded → derived | reads LEAD_SOURCES catalog, falls back to legacy 5 |
+| New-lead Owner field (manager+) | page-pipeline:418 | Wired ✓ | hidden for rep |
+| submit() rep owner enforce | page-pipeline:74-78 | Wired now | `effectiveOwner = role === "rep" ? meId : newRow.owner` |
+| Bulk modal "Reassign producer" | page-pipeline:434-445 | Wired now | option hidden for rep; on switch, defaults to meId (not REPS[0]) |
+| Bulk Apply CTA | page-pipeline:420-432 | Wired ✓ + DS | teal koino primary |
+| LeadDetail X close | page-pipeline:484 | Wired ✓ | onClose |
+| LeadDetail phone inline edit | page-pipeline:493-497 | Wired ✓ | onBlur → AppData.mutate.pipelineContact |
+| LeadDetail email inline edit | page-pipeline:498-502 | Wired ✓ | onBlur → pipelineContact |
+| LeadDetail stage buttons | page-pipeline:556-558 | Wired ✓ | onMove (which calls moveTo with realtime override) |
+| LeadDetail sequence Enroll | page-pipeline:579-584 | Wired ✓ | AppData.mutate.sequenceEnroll |
+| LeadDetail Owner reassign | page-pipeline:596-598 | Wired ✓ | hidden for rep, onReassign for manager+ |
+| LeadDetail Activity timeline | page-pipeline:628-680 | Hardcoded → derived | reads TOUCHPOINTS scoped to lead; legacy 2-row fallback; empty-state mono tag |
+| LeadDetail Email footer | page-pipeline:707-711 | Wired ✓ | mailto: with lead.product subject |
+| LeadDetail SMS footer | page-pipeline:712-716 | Wired ✓ | window.smsCompose |
+| LeadDetail SOA footer | page-pipeline:717-721 | Wired ✓ | window.generateSOAPdf with me().agency_name |
+| LeadDetail Call now footer | page-pipeline:723-738 | Wired ✓ + DS | teal #00d4aa primary, neutral when no phone |
+| Rep-empty-pipeline hero CTAs | page-pipeline:259-307 | Wired now | "Open dial queue" + teal "New lead" buttons |
+
+### page-queue.jsx · `DialQueueView` (rep)
+
+| Element | File:line | Status | Note |
+|---|---|---|---|
+| Tab pill (mine/inbound) | page-queue:73-80 | Wired ✓ | SectionPill setTab |
+| SpendStrip values | page-queue:48-71 | Hardcoded → derived | RECORDINGS dial count + COMMISSIONS comp/dial |
+| Row click → open lead detail | page-queue:107-114 | Wired now | gotoPage("pipeline") + dispatch pipeline:openLead, strips "p-" prefix |
+| Per-row Phone | page-queue:118-128 | Wired now | gates on l.phone, isolates from row-click |
+| Per-row SMS | page-queue:129-134 | Wired ✓ | window.smsCompose |
+| Per-row SOA | page-queue:135-139 | Wired ✓ | window.scheduleSOA |
+| Queue health buckets | page-queue:158-179 | Hardcoded → derived | from visible[].elapsed thresholds |
+| Compliance state-licenses chip | page-queue:194-205 | Hardcoded → derived | me().licensed_states.length, clickable → /settings |
+| Empty-state CTA "Open inbound" | page-queue:101-126 | Wired now | teal koino primary |
+
+### page-mobile.jsx · `MobileRep` (live mobile)
+
+| Tab | Element | Status | Note |
+|---|---|---|---|
+| status bar | clock | Hardcoded → derived | rep's local time |
+| dial | leaderboard pill (#3 +2) | Hardcoded → derived | real rank from REPS sort; suppress if not on board |
+| dial | swipe-card phone synth | Removed | dead variable was `"+1512555" + c.id` |
+| dial | swipe-right tint | DS | teal rgba(0,212,170,0.25) on DIAL overlay |
+| dial | empty-state Pull 6 leads | Wired now | only renders when QUEUE has rows; otherwise guidance text |
+| pipe | onLead handler | Wired now | gates on l.phone, never synthesizes |
+| lb | agency subline | Hardcoded → derived | me().agency_name |
+| lb | tail rows (no me-highlight) | Wired now | tinted bg + 2px border + "YOU" mono label for viewer's row |
+| me | tier bar magic /600 | Hardcoded → derived | scales against tier threshold + remaining-to-next caption |
+| me | (no Edit Profile control) | Wired now | new teal CTA above Sign out |
+
+### mobile-screens.jsx · `MScreenToday / Queue / Call / Lead / Leaderboard / Comm`
+
+| Screen | Element | File:line | Status |
+|---|---|---|---|
+| Today | header avatar/welcome | mobile-screens:62-69 | Wired ✓ (display) |
+| Today | "Dial" hot-lead CTA | mobile-screens:89 | Wired ✓ |
+| Today | KPI 4-row | mobile-screens:96-100 | Derived from me + POLICIES |
+| Today | target $3800 literal | mobile-screens:54 | Hardcoded → derived from tier/22 |
+| Today | upNext rows | mobile-screens:107-119 | Filtered to my pipeline |
+| Queue | "Filter" pill | mobile-screens:165-170 | Wired now | toggles all↔hot |
+| Queue | 5 filter chips | mobile-screens:172-198 | Wired now | each is a button, active = teal |
+| Queue | per-row Call | mobile-screens:212-235 | Wired now | gates on l.phone, teal primary |
+| Queue | row click → onLead | mobile-screens:204 | Wired ✓ |
+| Queue | hardcoded "47 leads" | mobile-screens:152 | Hardcoded → derived |
+| Call | Mute toggle | mobile-screens:289 | Wired ✓ |
+| Call | Keypad btn | mobile-screens:293 | Wired now | toasts hint (DTMF needs real call) |
+| Call | Rebut btn | mobile-screens:296 | Wired now | dispatches ai:ask |
+| Call | "Show script" chip | mobile-screens:269-274 | Wired now | gotoPage("library") |
+| Call | "Send SOA" chip | mobile-screens:275-285 | Wired now | window.generateSOAPdf |
+| Call | "Quote $145/mo" chip | mobile-screens:286-294 | Wired now | gotoPage("quote") + relabeled "Open quote" |
+| Call | End call btn | mobile-screens:302 | Wired ✓ |
+| Lead | Back ← Queue | mobile-screens:407 | Wired ✓ |
+| Lead | ••• kebab | mobile-screens:412 | Wired now | onNote |
+| Lead | avatar gradient | mobile-screens:402-405 | Hardcoded → derived | hash-of-name → hsl pair |
+| Lead | Call action | mobile-screens:431 | Wired now | gates on hasPhone |
+| Lead | SMS action | mobile-screens:432 | Wired now | window.smsCompose |
+| Lead | SOA action | mobile-screens:433 | Wired now | window.generateSOAPdf |
+| Lead | Note action | mobile-screens:434 | Wired now | toast (mobile note capture not built) |
+| Lead | Compliance rows | mobile-screens:443-470 | Hardcoded → derived | from lead.consent + product hint |
+| Lead | Activity timeline | mobile-screens:476-516 | Hardcoded → derived | reads TOUCHPOINTS for this lead |
+| Lead | "Call now" bottom CTA | mobile-screens:518-533 | Wired ✓ + DS | teal #00d4aa, disabled→neutral |
+| LB | tabs (Agency/All teams/Personal) | mobile-screens:562-595 | Wired now | scopes ranked list, teal active |
+| LB | tail rows me-highlight | mobile-screens:629-666 | Wired now | bg/border/YOU label + true rank |
+| LB | podium / flat-list gate | mobile-screens:603-604 | Wired ✓ | ≥3 reps |
+| Comm | Statement btn | mobile-screens:768-778 | Wired now | gotoPage("commissions") |
+| Comm | Expected this month | mobile-screens:737-754 | Derived from my COMMISSIONS |
+| Comm | bars 6mo | mobile-screens:744-755 | Derived from COMMISSIONS.earnedAt |
+| Comm | Recent issues list | mobile-screens:794-808 | Derived from POLICIES (status=issued) |
+
+### mobile-extra-screens.jsx · Pipeline / Coaching / Vault / Settings
+
+| Screen | Element | Status | Note |
+|---|---|---|---|
+| Pipeline | rep scope | Wired now | filters PIPELINE to owner === me().rep_id |
+| Pipeline | default stage | Hardcoded → derived | highest-volume stage from rep's rows |
+| Pipeline | stage chips | Wired now | real `<button>`s, teal active treatment |
+| Pipeline | per-card AP color | DS | swapped to teal |
+| Pipeline | "no phone" inline chip | Wired now | new warning chip |
+| Pipeline | empty state | Wired now | mono tag + conditional "Pull from queue" CTA |
+| Coaching | demo names leak | Fixed earlier | scoped to COACHING_NOTES for me + isDemoAgency fallback |
+| Coaching | Replay/Drill dead buttons | Removed | no destination existed |
+| Vault | demo names + 14,820 literal | Fixed earlier | reads VAULT_FILES scoped to repId |
+| Settings | REPS[0] crash on empty | Fixed earlier | resolves via me() |
+| Settings | 6 rows with no onClick | Fixed earlier | every row routes to /settings |
+| Settings | hardcoded license count | Fixed earlier | reads me().licensed_states.length |
+| Settings | hardcoded "Atlas IMO" | Fixed earlier | me().agency_name |
+
+### Settings tabs visible to rep · profile / notifications / calling / agents
+
+| Tab | Element | Status | Note |
+|---|---|---|---|
+| Profile | get_my_profile load | Wired ✓ (P6) | one RPC roundtrip with `{profile, memberships, current_agency_id, is_platform_admin}` |
+| Profile | 18 form fields | Wired ✓ (P6) | controlled inputs + dirty tracking |
+| Profile | Save profile CTA | Wired ✓ + DS | teal koino primary, neutral disabled |
+| Profile | Sign out (Session panel) | Wired ✓ | window.signOut |
+| Profile | Avatar live preview | Wired ✓ (P7) | onError fallback to Shared.Avatar |
+| Profile | Licensed states grid | Wired ✓ (P6) | click-to-toggle 50 states + DC |
+| Profile | License expiration per state | Wired ✓ (P6) | date input per active state |
+| Profile | E&O carrier + expiry | Wired ✓ (P6) | save_profile minimal patch |
+| Profile | Background check status | Wired ✓ (P7) | 6-option select |
+| Profile | Notification prefs grid | Wired ✓ (P6) | 4 channels + digest frequency |
+| Profile | Tab default for rep | Fixed earlier | Profile (was Agents) |
+| Notifications | 7 toggle rows | Wired now (this branch) | loads existing prefs from get_my_profile before accepting toggles |
+| Notifications | save on toggle | Wired ✓ | save_profile minimal patch + AppData mutate fallback |
+| Calling | TwilioStatusPanel | Wired ✓ | platform.jsx |
+| Calling | TwilioConfigModal | Wired ✓ | platform.jsx |
+| Calling | OS install script | Wired ✓ | mac/win/linux variants |
+| Calling | Copy script btn | Wired ✓ | navigator.clipboard.writeText |
+| Calling | Fire test call CTA | Wired ✓ + DS | teal primary |
+| Agents | suggested_agents_for_role | Wired ✓ (P4) | RPC |
+| Agents | rba_installs read | Wired ✓ (P4) | scoped by current_agency_id |
+| Agents | Install row | Wired ✓ + DS | RPC + direct-insert fallback, teal primary, "installed" pill teal |
+| Agents | Uninstall row | Wired ✓ (P4) | disabled for required agents |
+| Agents | Loading + error recovery | Wired ✓ | Try-again button on RPC failure |
+
+### What's deliberately NOT touched (out of scope)
+
+- **page-floor.jsx** — rep uses it via Today's Power Hour button, but
+  the floor view itself was out of brief. Audited only the entry-point.
+- **page-messages.jsx** — DM Manager tile in Today routes here; not
+  drilled in this branch.
+- **page-library.jsx** — Pull a script tile routes here; not drilled.
+- **page-leaderboard.jsx** — separate from the mobile leaderboard; not
+  drilled.
+- **page-floor-actions.jsx** — the actual call-overlay where dials
+  happen. Not in brief.
+- **Existing OS panel/list/row/chip styling** — Ian's instruction
+  ("don't stress about overhauling") means the OS amber `--accent-money`
+  token persists on existing surfaces. Only the new components I
+  added or directly touched got the koino.capital teal treatment.
