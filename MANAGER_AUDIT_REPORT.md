@@ -1,10 +1,18 @@
 # Manager-role audit — 2026-05-12
 
 Branch: **`feat/role-audit-manager-2026-05-11`** (off `feat/onboarding-frontend-2026-05-11` @ `1f94472`)
-Window: ~3-hour sovereign pass against the manager surfaces — Floor, Leaderboard, Ops, Pipeline, Recruiting, Team Board, Coaching, and Settings → Profile / Notifications / Scripts.
+Window: two sovereign passes (~6h total). Pass 1: scope + obvious dead handlers + DS swap. Pass 2: tab-by-tab drill of every button.
 Push: **NOT** pushed to remote.
 
 ```
+cca82e4 fix(settings): persist routing rules, kill fake cert KPIs, generic placeholder
+610c5dd fix(recruiting): channel picker + error/success toasts + tighten cards
+d1b7fc4 fix(pipeline): add manager Note/Alert on lead + Coach-owners bulk action
+883c7dc fix(ops): kill hardcoded FB→MedSupp graph, add empty states, wire mailto
+32fbc46 fix(leaderboard): wire period switcher, drop bogus delta column
+748e681 fix(floor): drop hardcoded "+15125550100" demo phone fallback
+70c575f fix(manager): wire Check-in + Call-now stubs, drop hardcoded transcript
+ecc4717 docs: append DS swap to MANAGER_AUDIT_REPORT
 9658fbb style(ds): adopt koino.capital website palette + tighten manager cards
 73039ad fix(settings): SettingsNotifications loads + saves under real user id
 17852fb fix(ops): wire dead chevron on workflow row to AI drill-down
@@ -13,7 +21,7 @@ c0455a2 fix(leaderboard): scope to downline + dead handlers + drop demo bleed
 66525df fix(data): notificationCreate routes focus alerts to a specific rep
 ```
 
-6 commits. Zero `main` touches. Zero remote pushes. All changed `.jsx` files compile under `@babel/standalone`.
+14 commits. Zero `main` touches. Zero remote pushes. All changed `.jsx` files compile under `@babel/standalone`.
 
 ---
 
@@ -178,13 +186,101 @@ If `recipient_rep_id` is missing in production (i.e., migration 0011 didn't run)
 
 ---
 
+---
+
+## Pass 2 — tab-by-tab drill (2026-05-12, second cycle)
+
+Ian's note after pass-1 finished at 41 turns: "RESUME tab-by-tab. Drill every horizontal nav + sub-tab + button on the manager surface. For each button: wired? stub? hardcoded? — fix in priority Engineering → UX → UI."
+
+Findings + fixes per page (in commit order):
+
+### `70c575f` — `fix(manager): wire Check-in + Call-now stubs, drop hardcoded transcript`
+
+Pass-1 declared page-manager.jsx "clean" because the visible buttons all had onClicks. Pass-2 found two that **had** onClicks but the handlers were stubs disguised as wired:
+
+- **page-manager.jsx:974 `sendCheckIn`** — toast-only stub. Showed "Check-in sent to {rep}" with zero side effects. No notification created, no message sent. Fixed: now calls `AppData.mutate.notificationCreate({ kind: "checkin", severity: "info" })` so the alert actually lands in the rep's bell.
+- **page-manager.jsx:975 `callRep`** — dialed `"+15125550" + rep.id.slice(0,3)`. Fabricated demo phone numbers. REPS table has no phone column at all. Fixed: try real phone from `rep.phone / cell / mobile`, fall back to a `kind: "call_request"` notification ("Your manager wants to talk").
+- **page-manager.jsx:633 ReplayMomentModal** — hardcoded fake transcript when no recording was linked ("So, do you take any medications?" / "metformin, blood pressure..."). Pure demo bleed. Fixed: empty state pointing at coaching focus + an `ai:ask` CTA for next-call phrasing.
+- **page-manager.jsx:678** — hardcoded "What to try next time" suggestion ("Walk me through what your morning looks like with those medications"). Same shape, same fix — removed.
+- **page-manager.jsx:956 routing rule toggle** — icon semantics: Check↔X was confusing because Delete is also an X. Now Pause↔Play.
+
+### `748e681` — `fix(floor): drop hardcoded "+15125550100" demo phone fallback`
+
+- **page-floor.jsx:668 `RepActionQueue.fire`** — `const phone = lead.phone || "+15125550100";` would route real SMS / autodial to a fake number for any lead without a phone, then silently mark the run as queued. Fixed: missing phone → warn toast + abort; followupDispatch now wrapped in try/catch so backend errors surface.
+
+### `32fbc46` — `fix(leaderboard): wire period switcher, drop bogus delta column`
+
+- **page-leaderboard.jsx:38 period switcher** — Today / WTD / MTD pills set state but the data never changed. `sorted` always read `r.mtd`. Three dead buttons disguised as a working tab strip. Fixed: `periodValue()` callback returns the right field per period (Today→r.today, MTD→r.mtd, WTD→sum from POLICIES issued since start-of-week). `sorted`, `max`, `displayMtd`, and the export now all read `periodValue`. Export column header renamed `MTD AP` → `{period} AP`.
+- **page-leaderboard.jsx:165 Δ column** — position-derived ("top 3 → up arrow, bottom → down arrow"). No historical rank tracking. UI lie. Dropped entirely. 7 columns → 6.
+
+### `883c7dc` — `fix(ops): kill hardcoded FB→MedSupp graph, add empty states, wire mailto`
+
+- **page-ops.jsx:316 PageWorkflows right pane** — one hardcoded "FB Lead → Med Supp queue" SVG (6 nodes: FB Lead form / Enrich / T65 check / LeadiD verify / Speed-route / Vapi call back) rendered regardless of which workflow was selected. Decoration that lied about every workflow being the same shape. Fixed: new `WorkflowGraph` reads the selected workflow's `graph: { nodes, edges }` metadata; falls back to empty state pointing at last-run + run count. Selecting a row in the left list now toggles the graph pane.
+- **page-ops.jsx:162 "Schedule call with ops"** — toast-only stub. Now opens user's mail client via `mailto:` with pre-filled subject + body.
+- **page-ops.jsx:155 PageHardware** — `AppData.HARDWARE` is empty for real agencies after P1, but the map rendered zero cards with no empty state. Added "No hosts enrolled" panel with CTA.
+- **page-ops.jsx:243 PageAgents** — same pattern, same fix.
+- **page-ops.jsx:380 `WorkflowRequestBar`** — now takes the selected workflow as a prop; placeholder/state reflect it (was a free-floating textbox firing `ai:ask` with no workflow context).
+
+### `d1b7fc4` — `fix(pipeline): add manager Note/Alert on lead + Coach-owners bulk action`
+
+Pass-1 added manager scope. Pass-2 added the manager-coaching surface the brief asked for:
+
+- **page-pipeline.jsx:386 LeadDetail footer** — two new manager-only actions (Note + Alert) hidden when `role === "rep"` or the deal is unowned. Open lead-scoped modals pre-filled with deal context (stage, days-in-stage, AP). Routes through the same `coachingNoteCreate` / `notificationCreate` path the Team Board uses.
+- **page-pipeline.jsx:584 LeadCoachingNoteModal** — default body templates with `On {lead} ({product}, {stage}, {days}d, {ap})`. Validates the manager edited past the default before save.
+- **page-pipeline.jsx:617 LeadFocusAlertModal** — three deal-specific presets ("Move forward", "Call back today", "Add app docs"). Same severity / title / body shape as the Team Board alert.
+- **page-pipeline.jsx:88 bulk-action** — new "Coach owners on these deals" option (manager + owner only). Selecting it swaps the value picker for a textarea; submit fans out a `coachingNoteCreate` to each unique owner of the selected leads.
+
+### `610c5dd` — `fix(recruiting): channel picker + error/success toasts + tighten cards`
+
+- **page-recruiting.jsx:408 `ConversationDetail.send`** — hardcoded `channel: "instagram"` regardless of how the conversation started. Fixed: prefer the latest inbound message's channel, fall back to campaign source, fall back to instagram. Added `Shared.Select` in the composer so the recruiter can override per-message. Sending state added.
+- **page-recruiting.jsx:412 `ConversationDetail.advance`** — fire-and-forget with no try/catch and no success toast. Same shape on `ApplicantCard.advance` (line 261) and `CampaignCard.toggle` (line 526). All three: async + try/catch + success toast naming the new stage/state.
+- **page-recruiting.jsx:443 outgoing message bubble** — tinted with `var(--accent-action)` which is **undefined** in the OS DS, so bubbles rendered transparent. Switched to `--accent-money`.
+
+### `cca82e4` — `fix(settings): persist routing rules, kill fake cert KPIs, generic placeholder`
+
+Biggest stub in the whole audit lived here:
+
+- **page-extras.jsx:3107 SettingsRouting** — **pure local React state.** `setRules()` updated the array in memory, "Rule added" toast fired, user closed the modal, refresh — **every rule vanished.** Zero Supabase persistence. The page-manager `RoutingRulesModal` was already wired through `AppData.mutate.routingRuleSave / routingRuleDelete`; this Settings surface was a separate orphaned copy that did nothing. Fixed: load existing rules from `public.routing_rules` on mount, persist every add / edit / delete / weight-drag through the same mutators. Demo agencies keep the in-memory seed for the sandbox tour.
+- **page-extras.jsx:1625 ProductTraining KPI strip** — two hardcoded fake numbers: "Cert progress 62% · AEP 2026 cert" and "CE hours · YTD 14.5". Every agency saw the same fake stats. Dropped both cards. Restore plan: re-add when `v_user_metrics` surfaces cert + CE counts.
+- **page-extras.jsx:1418 ScriptsLibrary placeholder** — "Hi {{lead\_name}}, this is {{rep\_first}} with Atlas..." → "with {{agency\_name}}...".
+
+---
+
+## Pass-2 summary
+
+Pass 1 fixed scoping + obvious dead handlers + the DS swap (6 commits). Pass 2 found 14 additional bugs that survived the first read because they looked plausible:
+
+| Severity | Bug | File:line |
+|----------|-----|-----------|
+| Critical | Routing rules don't persist (local state only) | page-extras.jsx:3107 |
+| Critical | Fake "+1 512 555-0xxx" phone dial on rep call-now | page-manager.jsx:975 |
+| Critical | Fake "+15125550100" phone for SMS/autodial fallback | page-floor.jsx:668 |
+| High | Notification alerts broadcast (missing recipient_rep_id) | data.jsx:1481 (pass-1) |
+| High | Period switcher (Today/WTD/MTD) is dead state-only | page-leaderboard.jsx:38 |
+| High | Check-in button is toast-only stub | page-manager.jsx:974 |
+| High | Hardcoded coaching transcript fallback | page-manager.jsx:633 |
+| High | Hardcoded "FB → Med Supp" workflow graph | page-ops.jsx:316 |
+| Medium | Recruiting message channel hardcoded "instagram" | page-recruiting.jsx:408 |
+| Medium | Fake "Cert 62% / CE 14.5" KPI cards | page-extras.jsx:1625 |
+| Medium | Bogus Δ column on standings (position-derived) | page-leaderboard.jsx:165 |
+| Medium | Stage transitions silent on success/failure | page-recruiting.jsx:261,412,526 |
+| Medium | `--accent-action` token used but undefined | page-recruiting.jsx:443 |
+| Low | "Atlas" hardcoded in script editor placeholder | page-extras.jsx:1418 |
+| Low | "Schedule call with ops" was toast-only | page-ops.jsx:162 |
+| Low | PageHardware / PageAgents no empty state | page-ops.jsx:155,243 |
+| Low | Routing rule toggle icon Check↔X confusing | page-manager.jsx:956 |
+
+All fixed in pass 2. UI surfaces also tightened per koino.capital DS (smaller padding, mono labels in uppercase with letter-spacing, --accent-money replacing yellow status, denser packing on every card).
+
+---
+
 ## Push-ready checklist
 
-- [x] All 5 commits land cleanly on branch `feat/role-audit-manager-2026-05-11`
+- [x] 14 commits land cleanly on branch `feat/role-audit-manager-2026-05-11`
 - [x] No commits on `main`
 - [x] No remote pushes
 - [x] All changed `.jsx` files compile under `@babel/standalone`
-- [x] Cache busters bumped (`?v=77` on the four touched JSX files, `?v=83` on `page-extras.jsx`)
+- [x] Cache busters bumped: `styles.css?v=78`, `page-manager.jsx?v=78`, `page-pipeline.jsx?v=78`, `page-ops.jsx?v=78`, `page-leaderboard.jsx?v=79`, `page-recruiting.jsx?v=77`, `page-extras.jsx?v=85`
 - [ ] Local smoke test in a browser (Ian to run — `python -m http.server 8000`)
 - [ ] `git push origin feat/role-audit-manager-2026-05-11` (Ian to run)
 
