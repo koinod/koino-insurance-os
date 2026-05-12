@@ -1151,3 +1151,9 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 @media (prefers-reduced-motion: reduce) {
   @keyframes shimmer { 0%, 100% { background-position: 0 0; } }
 }
+
+/* CRM nested embed — when PageRecruiting renders inside the CRM
+   Recruiting sub-tab, drop its outer page-h + page-pad so we don't
+   stack two headers. Same shape as .training-embed above. */
+.crm-nested-recruiting > .page-pad { padding: 0; }
+.crm-nested-recruiting > .page-pad > .page-h:first-child { display: none; }

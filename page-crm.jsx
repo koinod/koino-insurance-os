@@ -97,7 +97,20 @@ function deriveSources(useSample) {
 
 function PageCrm({ role = "owner" }) {
   useAppDataTick();
-  const [tab, setTab]             = React.useState("inbox");
+  // Default sub-tab from sessionStorage so a deep-link can land on "recruiting"
+  // or "leads" — wired to support the manager-nav restructure that folds the
+  // standalone Recruiting page in here.
+  const initialTab = (() => {
+    try {
+      const stash = sessionStorage.getItem("repflow.crm.tab");
+      if (stash) {
+        sessionStorage.removeItem("repflow.crm.tab");
+        if (["inbox", "leads", "pipeline", "sources", "recruiting", "lifecycle"].includes(stash)) return stash;
+      }
+    } catch {}
+    return "inbox";
+  })();
+  const [tab, setTab]             = React.useState(initialTab);
   // Default sample mode ON only for the demo agency. Real tenants start
   // empty so they're not confronted with Atlas IMO / Lead Heroes seed rows.
   const [useSample, setUseSample] = React.useState(() => !!(window.isDemoAgency && window.isDemoAgency()));
@@ -203,11 +216,19 @@ function PageCrm({ role = "owner" }) {
     window.toast && window.toast(`Exported ${filteredLeads.length} leads`, "success");
   };
 
+  // Recruiting tab folds in the PageRecruiting workspace (was a separate
+  // sidebar item). Restructure 2026-05-12: keep CRM as the single lifecycle
+  // hub for "people we're trying to onboard" — leads (consumers) + recruits
+  // (producers). Badge count = active recruiting applicants when loaded.
+  const recruitingApplicants = (window.AppData && window.AppData.RECRUITING_APPLICANTS) || [];
+  const activeApplicants = recruitingApplicants.filter(a => a.status !== "dropped" && a.status !== "producing").length;
+
   const TABS = [
-    { k: "inbox",     l: "Inbox",     icon: "Bell",     badge: filteredLeads.length },
-    { k: "sources",   l: "Sources",   icon: "Plug",     badge: sources.length },
-    { k: "pipeline",  l: "Pipeline",  icon: "Pipeline" },
-    { k: "lifecycle", l: "Lifecycle", icon: "Activity" },
+    { k: "inbox",       l: "Inbox",       icon: "Bell",     badge: filteredLeads.length },
+    { k: "pipeline",    l: "Pipeline",    icon: "Pipeline" },
+    { k: "sources",     l: "Sources",     icon: "Plug",     badge: sources.length },
+    { k: "recruiting",  l: "Recruiting",  icon: "ArrowUpRight", badge: activeApplicants },
+    { k: "lifecycle",   l: "Lifecycle",   icon: "Activity" },
   ];
 
   return (
@@ -215,7 +236,7 @@ function PageCrm({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">CRM</div>
-          <div className="page-sub">Lead inbox · sources · pipeline · lifecycle — one screen for the whole funnel</div>
+          <div className="page-sub">Leads · pipeline · sources · recruiting · lifecycle — one screen for everyone you're trying to onboard</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           {!realDataAvailable && <span className="chip" style={{ fontSize: 10.5, color: "var(--state-warning)" }}>sample mode</span>}
@@ -250,10 +271,19 @@ function PageCrm({ role = "owner" }) {
 
       <Shared.SectionPill items={TABS} value={tab} onChange={setTab}/>
 
-      {tab === "inbox"     && <InboxSection {...{ leads: filteredLeads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }}/>}
-      {tab === "sources"   && <SourcesSection {...{ sources, setConnectOpen }}/>}
-      {tab === "pipeline"  && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
-      {tab === "lifecycle" && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
+      {tab === "inbox"      && <InboxSection {...{ leads: filteredLeads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }}/>}
+      {tab === "sources"    && <SourcesSection {...{ sources, setConnectOpen }}/>}
+      {tab === "pipeline"   && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
+      {tab === "recruiting" && (() => {
+        // Embed PageRecruiting here. The component takes a role prop and
+        // self-scopes via window.scopeRepIds() so the manager view is already
+        // downline-restricted. Render in a "nested" mode by suppressing its
+        // own page-h via a wrapper class.
+        const PR = window.PageRecruiting;
+        if (!PR) return <div className="panel" style={{ padding: 22, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>Recruiting workspace not loaded — refresh the page.</div>;
+        return <div className="crm-nested-recruiting"><PR role={role}/></div>;
+      })()}
+      {tab === "lifecycle"  && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
       {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}
