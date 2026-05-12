@@ -224,18 +224,18 @@
             </div>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(200px, 1fr))`, gap: 10, overflowX: "auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(180px, 1fr))`, gap: 8, overflowX: "auto" }}>
             {STAGES.map(stage => {
               const cards = applicants.filter(a => a.status === stage.id);
               return (
-                <div key={stage.id} className="panel" style={{ minHeight: 280, padding: 0 }}>
-                  <div className="panel-h" style={{ padding: "10px 12px" }}>
-                    <h3 style={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</h3>
+                <div key={stage.id} className="panel" style={{ minHeight: 240, padding: 0 }}>
+                  <div className="panel-h">
+                    <h3 style={{ fontSize: 11.5, fontWeight: 600 }}>{stage.label}</h3>
                     <span className="meta">{cards.length}</span>
                   </div>
-                  <div style={{ padding: "4px 8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ padding: "4px 6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
                     {cards.length === 0
-                      ? <div style={{ fontSize: 11, color: "var(--text-quaternary)", padding: 8 }}>{stage.hint}</div>
+                      ? <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", padding: 6 }}>{stage.hint}</div>
                       : cards.map(a => (
                           <ApplicantCard key={a.id} a={a} campaigns={campaigns} messages={messages} onOpen={() => onOpen(a)} />
                         ))
@@ -258,11 +258,15 @@
     const stages = STAGES.map(s => s.id);
     const idx = stages.indexOf(a.status);
 
-    const advance = (e) => {
+    const advance = async (e) => {
       e.stopPropagation();
       const next = stages[Math.min(idx + 1, stages.length - 2)]; // never auto-jump to "dropped"
       if (!next || next === a.status) return;
-      window.AppData.mutate.recruitingApplicantSetStatus(a.id, next);
+      try {
+        await window.AppData.mutate.recruitingApplicantSetStatus(a.id, next);
+        const lbl = STAGES.find(s => s.id === next)?.label || next;
+        window.toast && window.toast(`${a.name.split(" ")[0]} → ${lbl}`, "success");
+      } catch (_e) { /* data layer toasts on error */ }
     };
 
     // GAP-MR2 — send a real onboarding invite (mint_invite RPC) so the
@@ -299,35 +303,39 @@
 
     return (
       <div onClick={onOpen} style={{
-        background: "var(--bg-raised)", borderRadius: 6, padding: "10px 12px",
+        background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", padding: "8px 10px",
         cursor: "pointer", border: "1px solid var(--border-subtle)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        transition: "border-color 120ms var(--ease-out)",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-strong)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)" }}>{a.name}</div>
-            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>{a.name}</div>
+            <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 1 }}>
               {a.handle} · {a.state}
             </div>
           </div>
-          {recruiter && <Shared.Avatar rep={recruiter} size={18}/>}
+          {recruiter && <Shared.Avatar rep={recruiter} size={16}/>}
         </div>
-        {cmp && <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginTop: 4 }}>{cmp.name}</div>}
+        {cmp && <div style={{ fontSize: 10, color: "var(--text-quaternary)", marginTop: 3 }}>{cmp.name}</div>}
         {lastMsg && (
-          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
-            <Icons.MessageSquare size={10}/> {ago(lastMsg.sentAt)}
+          <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
+            <Icons.MessageSquare size={9}/> {ago(lastMsg.sentAt)}
           </div>
         )}
-        <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ marginTop: 5, display: "flex", gap: 3, flexWrap: "wrap" }}>
           {idx >= 0 && idx < STAGES.length - 2 && (
             <button className="btn btn-ghost" onClick={advance}
-              style={{ padding: "3px 8px", fontSize: 10.5 }}>
-              advance → {STAGES[idx + 1].label}
+              style={{ padding: "2px 6px", fontSize: 10 }}>
+              → {STAGES[idx + 1].label}
             </button>
           )}
           {(a.status === "applied" || a.status === "in_review") && (
             <button className="btn btn-ghost" onClick={sendInvite}
-              style={{ padding: "3px 8px", fontSize: 10.5 }} title="Mint an onboarding magic-link invite">
-              <Icons.Send size={9}/> send invite
+              style={{ padding: "2px 6px", fontSize: 10 }} title="Mint an onboarding magic-link invite">
+              <Icons.Send size={9}/> invite
             </button>
           )}
         </div>
@@ -398,22 +406,37 @@
 
   function ConversationDetail({ applicant, thread, campaigns }) {
     const [draft, setDraft] = useState("");
+    const [sending, setSending] = useState(false);
     const cmp = campaigns.find(c => c.id === applicant.campaignId);
     const recruiter = repById(applicant.recruiterId);
+    // Channel selection (was hardcoded "instagram"): prefer the channel of
+    // the latest inbound from the applicant, else the campaign source, else
+    // instagram as a final fallback.
+    const lastInbound = [...thread].reverse().find(m => m.direction === "in");
+    const defaultChannel = lastInbound?.channel || cmp?.source || "instagram";
+    const [channel, setChannel] = useState(defaultChannel);
+    React.useEffect(() => { setChannel(defaultChannel); }, [applicant.id, defaultChannel]);
 
     const send = async () => {
       const body = draft.trim();
       if (!body) return;
-      setDraft("");
-      try { await window.AppData.mutate.recruitingMessageSend(applicant.id, body, "instagram", false); }
-      catch {}
+      setSending(true);
+      try {
+        await window.AppData.mutate.recruitingMessageSend(applicant.id, body, channel, false);
+        setDraft("");
+      } catch (e) {
+        window.toast && window.toast(`Send failed: ${e?.message || e}`, "error");
+      } finally { setSending(false); }
     };
 
-    const advance = () => {
+    const advance = async () => {
       const idx = STAGES.findIndex(s => s.id === applicant.status);
       const next = STAGES[Math.min(idx + 1, STAGES.length - 2)];
       if (next && next.id !== applicant.status) {
-        window.AppData.mutate.recruitingApplicantSetStatus(applicant.id, next.id);
+        try {
+          await window.AppData.mutate.recruitingApplicantSetStatus(applicant.id, next.id);
+          window.toast && window.toast(`${applicant.name.split(" ")[0]} → ${next.label}`, "success");
+        } catch (_e) {}
       }
     };
 
@@ -440,9 +463,9 @@
               <div key={m.id} style={{
                 alignSelf: out ? "flex-end" : "flex-start",
                 maxWidth: "70%",
-                background: out ? "color-mix(in oklch, var(--accent-action) 12%, transparent)" : "var(--bg-raised)",
-                border: out ? "1px solid color-mix(in oklch, var(--accent-action) 30%, transparent)" : "1px solid var(--border-subtle)",
-                padding: "8px 12px", borderRadius: 8,
+                background: out ? "color-mix(in srgb, var(--accent-money) 12%, transparent)" : "var(--bg-raised)",
+                border: out ? "1px solid color-mix(in srgb, var(--accent-money) 30%, transparent)" : "1px solid var(--border-subtle)",
+                padding: "7px 10px", borderRadius: "var(--radius-md)",
               }}>
                 <div style={{ fontSize: 12.5, lineHeight: 1.4 }}>{m.body}</div>
                 <div style={{ fontSize: 10, color: "var(--text-quaternary)", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
@@ -455,17 +478,29 @@
           })}
         </div>
 
-        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: 10, display: "flex", gap: 8 }}>
+        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: 8, display: "flex", gap: 6, alignItems: "center" }}>
+          <Shared.Select
+            value={channel}
+            onChange={setChannel}
+            options={[
+              { v: "instagram", l: "IG" },
+              { v: "linkedin",  l: "LI" },
+              { v: "sms",       l: "SMS" },
+              { v: "email",     l: "Email" },
+              { v: "phone",     l: "Phone log" },
+            ]}
+          />
           <input
             className="text-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Type a message…"
+            placeholder={`Type a message via ${channel}…`}
+            disabled={sending}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
             style={{ flex: 1 }}
           />
-          <button className="btn btn-primary" onClick={send} disabled={!draft.trim()}>
-            <Icons.Send size={12}/> Send
+          <button className="btn btn-primary" onClick={send} disabled={!draft.trim() || sending}>
+            <Icons.Send size={12}/> {sending ? "Sending…" : "Send"}
           </button>
         </div>
       </>
@@ -475,7 +510,7 @@
   // ─── Programs (campaigns) ───────────────────────────────────────────────
   function ProgramsTab({ campaigns, applicants, isManager, myRepIds }) {
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
         {campaigns.length === 0 && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>No campaigns yet.</div>}
         {campaigns.map(c => (
           <CampaignCard key={c.id} c={c} applicants={applicants} isManager={isManager} myRepIds={myRepIds}/>
@@ -492,36 +527,39 @@
     const contracted = ownApplicants.filter(a => ["contracted","first_app","producing"].includes(a.status))?.length;
     const conv = inFunnel ? Math.round((contracted / inFunnel) * 100) : 0;
 
-    const toggle = () => {
+    const toggle = async () => {
       const next = c.status === "live" ? "paused" : "live";
-      window.AppData.mutate.recruitingCampaignToggle(c.id, next);
+      try {
+        await window.AppData.mutate.recruitingCampaignToggle(c.id, next);
+        window.toast && window.toast(`${c.name} → ${next}`, "success");
+      } catch (_e) {}
     };
     // Managers can only toggle campaigns they own (in their downline scope).
     const canEdit = !isManager || visibleToMe;
 
     return (
-      <div className="panel" style={{ padding: 14 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 3 }}>
+      <div className="panel" style={{ padding: 12 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</div>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>
               {SOURCE_LABEL[c.source] || c.source} · budget {fmt$(c.budget)}
             </div>
           </div>
           <span style={{
-            fontSize: 10.5, padding: "3px 8px", borderRadius: 4,
+            fontSize: 9.5, padding: "2px 6px", borderRadius: "var(--radius-sm)",
             color: c.status === "live" ? "var(--accent-money)"
                  : c.status === "paused" ? "var(--state-warning)"
                  : "var(--text-tertiary)",
-            background: c.status === "live" ? "color-mix(in oklch, var(--accent-money) 12%, transparent)"
-                      : c.status === "paused" ? "color-mix(in oklch, var(--state-warning) 12%, transparent)"
+            background: c.status === "live" ? "color-mix(in srgb, var(--accent-money) 12%, transparent)"
+                      : c.status === "paused" ? "color-mix(in srgb, var(--state-warning) 12%, transparent)"
                       : "var(--bg-raised)",
-            border: `1px solid color-mix(in oklch, ${c.status === "live" ? "var(--accent-money)" : c.status === "paused" ? "var(--state-warning)" : "var(--text-tertiary)"} 30%, transparent)`,
-            textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5,
+            border: `1px solid color-mix(in srgb, ${c.status === "live" ? "var(--accent-money)" : c.status === "paused" ? "var(--state-warning)" : "var(--text-tertiary)"} 30%, transparent)`,
+            textTransform: "uppercase", fontWeight: 600, letterSpacing: "0.05em", fontFamily: "var(--font-mono)",
           }}>{c.status}</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
           <Stat label="In funnel"   value={inFunnel}/>
           <Stat label="Contracted"  value={contracted}/>
           <Stat label="Producing"   value={c.producing}/>
@@ -550,8 +588,8 @@
   function Stat({ label, value }) {
     return (
       <div>
-        <div style={{ fontSize: 16, fontWeight: 600, fontFamily: "var(--font-tabular)" }}>{value}</div>
-        <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{value}</div>
+        <div style={{ fontSize: 9.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "var(--font-mono)" }}>{label}</div>
       </div>
     );
   }
