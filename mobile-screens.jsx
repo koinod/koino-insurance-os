@@ -44,18 +44,28 @@ function MBottomNav({ active = "home", onNav = () => {} }) {
 // ── Screen 1: Today ─────────────────────────────────────────────────────
 function MScreenToday({ onNav }) {
   // Hydrate everything from demo / live AppData so the screen is honest.
-  const me   = AppData.REPS && AppData.REPS[0];
+  // Resolve the signed-in rep via me(); fall back to REPS[0] ONLY when in
+  // demo mode so a real producer doesn't see Marcus as their identity.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const me = (meIdent?.rep_id && (AppData.REPS || []).find(r => r.id === meIdent.rep_id))
+          || (isDemo ? (AppData.REPS || [])[0] : null)
+          || (meIdent ? { id: meIdent.rep_id || "viewer", name: meIdent.full_name || "You", tier: meIdent.tier || "bronze", today: 0, mtd: 0, dials: 0, appts: 0, streak: 0 } : null);
   const hot  = (AppData.QUEUE || []).filter(q => q.elapsed < 60).slice(0, 3);
   const upNext = (AppData.PIPELINE || [])
     .filter(p => p.next && p.stage !== "Issued" && p.stage !== "Lost")
+    .filter(p => !meIdent?.rep_id || p.owner === meIdent.rep_id || isDemo)
     .slice(0, 4)
     .map((p, i) => ({ time: ["11:30","1:00","2:30","4:00"][i], who: p.lead, what: p.next, chip: p.product?.split(" ").slice(0, 2).join(" ") }));
   const todayBooked = me?.today || 0;
-  const target = 3800;
-  const pct = Math.min(100, Math.round((todayBooked / target) * 100));
+  // Daily target derives from tier threshold / 22 workdays (matches the
+  // desktop GAP-P3 math). Was a hardcoded $3,800 borrowed from Atlas seed.
+  const TIER_THRESH = { bronze: 12000, silver: 20000, gold: 35000, platinum: 50000, diamond: 60000 };
+  const target = Math.round(((TIER_THRESH[(me?.tier || "bronze").toLowerCase()] || 12000)) / 22);
+  const pct = Math.min(100, Math.round((todayBooked / Math.max(1, target)) * 100));
   const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const monthDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const initials = me?.name?.split(" ").map(s => s[0]).join("") || "MA";
+  const initials = me?.name?.split(" ").map(s => s[0]).join("") || "";
   const issuedToday = (AppData.PIPELINE || []).filter(p => p.stage === "Issued").length;
 
   return (
@@ -126,30 +136,42 @@ function MScreenToday({ onNav }) {
 
 // ── Screen 2: Dial Queue ────────────────────────────────────────────────
 function MScreenQueue({ onNav, onCall, onLead }) {
-  const { QUEUE } = AppData;
+  const QUEUE = AppData.QUEUE || [];
+  const counts = {
+    all: QUEUE.length,
+    hot: QUEUE.filter(q => q.elapsed < 30).length,
+    mid: QUEUE.filter(q => q.elapsed >= 30 && q.elapsed < 60).length,
+    medSupp: QUEUE.filter(q => /med\s*supp/i.test(q.product || "")).length,
+    fe: QUEUE.filter(q => /\bfe\b|final expense/i.test(q.product || "")).length,
+  };
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Dial Queue</div>
-          <div className="m-sub">47 leads · sorted by SLA</div>
+          <div className="m-sub">{counts.all} lead{counts.all === 1 ? "" : "s"} · sorted by SLA</div>
         </div>
         <button className="m-btn m-btn-pill" style={{ height: 32 }}>Filter</button>
       </div>
 
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6, overflowX: "auto" }}>
         {[
-          { l: "All", n: 47, a: true },
-          { l: "Hot · <30s", n: 23, c: "money" },
-          { l: "30–60s", n: 12 },
-          { l: "Med Supp", n: 28 },
-          { l: "FE", n: 19 },
+          { l: "All",          n: counts.all,     a: true },
+          { l: "Hot · <30s",  n: counts.hot,     c: "money" },
+          { l: "30–60s",       n: counts.mid },
+          { l: "Med Supp",     n: counts.medSupp },
+          { l: "FE",            n: counts.fe },
         ].map((t, i) => (
           <span key={i} className={`m-chip ${t.c || ""}`} style={{ height: 28, padding: "0 12px", fontSize: 12, fontWeight: t.a ? 600 : 500, background: t.a ? "var(--text-primary)" : undefined, color: t.a ? "var(--bg-base)" : undefined, borderColor: t.a ? "var(--text-primary)" : undefined }}>{t.l} <span style={{ opacity: 0.6, marginLeft: 4 }}>{t.n}</span></span>
         ))}
       </div>
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
+        {QUEUE.length === 0 && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            Queue is empty.
+          </div>
+        )}
         {QUEUE.map((l, i) => {
           const heatColor = l.elapsed < 30 ? "var(--accent-money)" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
           return (
@@ -193,8 +215,11 @@ function MScreenCall({ lead, onEnd }) {
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
   const tpmoFired = sec >= 8;
-  const name = lead?.lead || "Cheryl Hampton";
-  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : "67 · Travis County, TX · T65 list";
+  // Default lead label was a literal "Cheryl Hampton" — that's the demo
+  // story name and leaks into the call screen if the call view ever
+  // mounts before a lead is bound. Now: dash-placeholder until bound.
+  const name = lead?.lead || "—";
+  const meta = lead ? `${lead.age} · ${lead.state} · ${lead.source}` : "no lead bound";
 
   return (
     <div className="m-call">
@@ -251,7 +276,21 @@ function MScreenCall({ lead, onEnd }) {
 
 // ── Screen 4: Lead Detail ───────────────────────────────────────────────
 function MScreenLead({ lead, onBack, onCall }) {
-  const l = lead || { lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", score: 92, elapsed: 14 };
+  // Was defaulting to a Cheryl Hampton seed when navigation landed here
+  // without a lead bound. That leaked demo identity into a real rep view.
+  if (!lead) {
+    return (
+      <div className="m-screen">
+        <div className="m-header">
+          <button className="m-btn m-btn-pill" style={{ height: 32 }} onClick={onBack}>← Queue</button>
+        </div>
+        <div className="m-scroll" style={{ display: "grid", placeItems: "center", padding: 36, color: "var(--text-tertiary)", fontSize: 12.5 }}>
+          No lead selected.
+        </div>
+      </div>
+    );
+  }
+  const l = lead;
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -301,64 +340,104 @@ function MScreenLead({ lead, onBack, onCall }) {
 
 // ── Screen 5: Leaderboard ───────────────────────────────────────────────
 function MScreenLeaderboard({ onNav }) {
-  const ranked = [...AppData.REPS].sort((a, b) => b.mtd - a.mtd);
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const ranked = [...(AppData.REPS || [])].sort((a, b) => (b.mtd || 0) - (a.mtd || 0));
+  const monthLabel = new Date().toLocaleDateString("en-US", { month: "short" });
+  const agencyName = meIdent?.agency_name || "Agency";
+  // Podium requires 3 reps; otherwise list everyone as a flat list.
+  const podium = ranked.length >= 3 ? [ranked[1], ranked[0], ranked[2]] : null;
+  const tail   = ranked.length >= 3 ? ranked.slice(3) : ranked;
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Leaderboard</div>
-          <div className="m-sub">MTD premium · Atlanta office</div>
+          <div className="m-sub">MTD premium · {agencyName}</div>
         </div>
-        <span className="m-chip">Oct</span>
+        <span className="m-chip">{monthLabel}</span>
       </div>
 
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6 }}>
-        {["Office", "All teams", "Personal"].map((t, i) => (
+        {["Agency", "All teams", "Personal"].map((t, i) => (
           <span key={i} className="m-chip" style={{ height: 28, padding: "0 12px", fontSize: 12, fontWeight: i === 0 ? 600 : 500, background: i === 0 ? "var(--text-primary)" : undefined, color: i === 0 ? "var(--bg-base)" : undefined, borderColor: i === 0 ? "var(--text-primary)" : undefined }}>{t}</span>
         ))}
       </div>
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
-        {/* Top 3 podium */}
+        {ranked.length === 0 && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No producers on the board yet.
+          </div>
+        )}
+        {/* Top 3 podium (only when 3+ reps) */}
+        {podium && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr 1fr", gap: 8, alignItems: "end", padding: "16px 0 10px" }}>
-          {[ranked[1], ranked[0], ranked[2]].map((r, i) => {
+          {podium.map((r, i) => {
             const place = i === 0 ? 2 : i === 1 ? 1 : 3;
             const h = place === 1 ? 96 : place === 2 ? 76 : 60;
             return (
               <div key={r.id} style={{ textAlign: "center" }}>
                 <div className="m-rank-av" style={{ background: r.color, width: place === 1 ? 56 : 44, height: place === 1 ? 56 : 44, margin: "0 auto 8px", fontSize: place === 1 ? 16 : 13 }}>{r.name.split(" ").map(n => n[0]).join("")}</div>
                 <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name.split(" ")[0]}</div>
-                <div className="mono" style={{ fontSize: 11.5, color: "var(--accent-money)", fontWeight: 600 }}>${(r.mtd / 1000).toFixed(1)}k</div>
+                <div className="mono" style={{ fontSize: 11.5, color: "var(--accent-money)", fontWeight: 600 }}>${((r.mtd || 0) / 1000).toFixed(1)}k</div>
                 <div style={{ height: h, borderRadius: "8px 8px 0 0", marginTop: 8, background: place === 1 ? "linear-gradient(180deg, var(--accent-money), color-mix(in oklch, var(--accent-money) 40%, transparent))" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderBottom: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 10, fontWeight: 700, fontFamily: "var(--font-display)", fontSize: 18, color: place === 1 ? "oklch(0.18 0.005 260)" : "var(--text-primary)" }}>{place}</div>
               </div>
             );
           })}
         </div>
+        )}
 
-        {ranked.slice(3).map((r, i) => {
-          const tierColor = { gold: "#D9A441", silver: "#C0C0C8", bronze: "#A97142", platinum: "#E5E4E2", diamond: "#B9F2FF" }[r.tier];
+        {(() => {
+          const startRank = podium ? 4 : 1;
+          return tail.map((r, i) => {
+            const tierColor = { gold: "#D9A441", silver: "#C0C0C8", bronze: "#A97142", platinum: "#E5E4E2", diamond: "#B9F2FF" }[r.tier];
+            return (
+              <div key={r.id} className="m-rank">
+                <div className="m-rank-n">{i + startRank}</div>
+                <div className="m-rank-av" style={{ background: r.color }}>{r.name.split(" ").map(n => n[0]).join("")}</div>
+                <div className="m-rank-b">
+                  <div className="m-rank-name">{r.name}</div>
+                  <div className="m-rank-meta">{r.dials || 0} dials · {r.appts || 0} appts · 🔥 {r.streak || 0}d</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="m-rank-v">${((r.mtd || 0) / 1000).toFixed(1)}k</div>
+                  <span className="m-tier" style={{ background: `color-mix(in oklch, ${tierColor} 30%, transparent)`, color: tierColor }}>{(r.tier || "").toUpperCase()}</span>
+                </div>
+              </div>
+            );
+          });
+        })()}
+
+        {(() => {
+          // Tier progression block was hardcoded "Platinum → Diamond · $42.3k / $60k · 70%".
+          // Derive from the viewer's actual tier + MTD.
+          const TIER_THRESH = { bronze: 12000, silver: 20000, gold: 35000, platinum: 50000, diamond: 60000 };
+          const TIER_NEXT   = { bronze: "silver", silver: "gold", gold: "platinum", platinum: "diamond", diamond: null };
+          const myIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+          const myRow = (AppData.REPS || []).find(r => r.id === myIdent?.rep_id) || ranked[0];
+          if (!myRow) return null;
+          const tier = (myRow.tier || "bronze").toLowerCase();
+          const next = TIER_NEXT[tier];
+          const nextThr = next ? TIER_THRESH[next] : null;
+          const mtd = myRow.mtd || 0;
+          const pct = nextThr ? Math.min(100, (mtd / Math.max(1, nextThr)) * 100) : 100;
+          const remaining = nextThr ? Math.max(0, nextThr - mtd) : 0;
           return (
-            <div key={r.id} className="m-rank">
-              <div className="m-rank-n">{i + 4}</div>
-              <div className="m-rank-av" style={{ background: r.color }}>{r.name.split(" ").map(n => n[0]).join("")}</div>
-              <div className="m-rank-b">
-                <div className="m-rank-name">{r.name}</div>
-                <div className="m-rank-meta">{r.dials} dials · {r.appts} appts · 🔥 {r.streak}d</div>
+            <>
+              <div className="m-section-h"><span>Tier progression</span></div>
+              <div className="m-card">
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}>
+                  <span>{tier.charAt(0).toUpperCase() + tier.slice(1)} {next ? "→" : ""} {next && <b>{next.charAt(0).toUpperCase() + next.slice(1)}</b>}</span>
+                  {nextThr && <span className="mono" style={{ color: "var(--text-tertiary)" }}>${(mtd/1000).toFixed(1)}k / ${(nextThr/1000).toFixed(0)}k</span>}
+                </div>
+                <div className="m-bar"><div className="m-bar-fill" style={{ width: pct + "%" }}></div></div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8 }}>
+                  {next ? `$${remaining.toLocaleString()} to ${next} · resets monthly` : "Top tier — keep stacking"}
+                </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="m-rank-v">${(r.mtd / 1000).toFixed(1)}k</div>
-                <span className="m-tier" style={{ background: `color-mix(in oklch, ${tierColor} 30%, transparent)`, color: tierColor }}>{r.tier.toUpperCase()}</span>
-              </div>
-            </div>
+            </>
           );
-        })}
-
-        <div className="m-section-h"><span>Tier progression</span></div>
-        <div className="m-card">
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}><span>Platinum → <b>Diamond</b></span><span className="mono" style={{ color: "var(--text-tertiary)" }}>$42.3k / $60k</span></div>
-          <div className="m-bar"><div className="m-bar-fill" style={{ width: "70%" }}></div></div>
-          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8 }}>$17,690 to Diamond · resets monthly · unlocks +5pt override</div>
-        </div>
+        })()}
       </div>
       <MBottomNav active="lb" onNav={onNav}/>
     </div>
@@ -367,13 +446,67 @@ function MScreenLeaderboard({ onNav }) {
 
 // ── Screen 6: Commissions ───────────────────────────────────────────────
 function MScreenComm({ onNav }) {
-  const months = [{ l: "May", v: 38 }, { l: "Jun", v: 44 }, { l: "Jul", v: 52 }, { l: "Aug", v: 48 }, { l: "Sep", v: 61 }, { l: "Oct", v: 42, cur: true }];
+  // Derive everything from AppData.COMMISSIONS for the signed-in rep
+  // when present; demo agencies fall back to the hardcoded illustrative
+  // rows so the sandbox tour still looks alive.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const myId    = meIdent?.rep_id || (isDemo ? AppData.REPS?.[0]?.id : null);
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthLabel = new Date().toLocaleDateString("en-US", { month: "long" });
+
+  const myCommissions = (AppData.COMMISSIONS || []).filter(c => c.repId === myId);
+  const expectedThisMonth = myCommissions
+    .filter(c => (c.earnedAt || c.paidAt || "").startsWith(monthKey))
+    .reduce((s, c) => s + (c.amount || 0), 0);
+  const advance = myCommissions.filter(c => c.kind === "advance" && (c.earnedAt || "").startsWith(monthKey)).reduce((s, c) => s + (c.amount || 0), 0);
+  const earned  = myCommissions.filter(c => c.kind === "earned"  && (c.earnedAt || "").startsWith(monthKey)).reduce((s, c) => s + (c.amount || 0), 0);
+  const nigoCount = (AppData.NIGOS || []).filter(n => n.repId === myId && (n.status === "open" || n.status === "in_review")).length;
+
+  // Trailing 6-month bars derived from COMMISSIONS earnedAt totals.
+  const months = (() => {
+    const out = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const k = d.toISOString().slice(0, 7);
+      const total = myCommissions.filter(c => (c.earnedAt || "").startsWith(k)).reduce((s, c) => s + (c.amount || 0), 0);
+      out.push({ k, l: d.toLocaleDateString("en-US", { month: "short" }), v: total, cur: i === 0 });
+    }
+    const max = Math.max(1, ...out.map(o => o.v));
+    return out.map(o => ({ ...o, v: Math.round((o.v / max) * 100) }));
+  })();
+
+  // Recent issued policies (use POLICIES + matching commission row).
+  const myRecentIssues = (AppData.POLICIES || [])
+    .filter(p => p.owner === myId && p.status === "issued")
+    .sort((a, b) => new Date(b.issuedAt || 0) - new Date(a.issuedAt || 0))
+    .slice(0, 5)
+    .map(p => {
+      const c = myCommissions.find(c => c.policyId === p.id);
+      return {
+        who: p.lead || p.policyNumber || "Policy",
+        p: p.product || "—",
+        ap: p.ap || 0,
+        com: c?.amount || 0,
+        st: c?.kind || "expected",
+        c: c?.kind === "advance" ? "money" : c?.kind === "earned" ? "info" : "warn",
+      };
+    });
+
+  const demoIssues = isDemo && myRecentIssues.length === 0 ? [
+    { who: "Cheryl Hampton", p: "Plan G",   ap: 1840, com: 920, st: "advance", c: "money" },
+    { who: "Robert Mendez", p: "FE $15K",  ap: 1320, com: 660, st: "advance", c: "money" },
+    { who: "Henry Akins",   p: "Annuity",  ap: 4250, com: 425, st: "as-earned", c: "info" },
+  ] : null;
+  const rowsToShow = demoIssues || myRecentIssues;
+
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Commissions</div>
-          <div className="m-sub">October · paid weekly</div>
+          <div className="m-sub">{monthLabel} · paid weekly</div>
         </div>
         <button className="m-btn m-btn-pill" style={{ height: 32 }}>Statement</button>
       </div>
@@ -381,27 +514,26 @@ function MScreenComm({ onNav }) {
       <div className="m-scroll">
         <div className="m-card" style={{ padding: 18 }}>
           <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500 }}>Expected this month</div>
-          <div className="m-kpi-v" style={{ fontSize: 36, marginTop: 4 }}>$12,840<span style={{ fontSize: 16, color: "var(--text-tertiary)", marginLeft: 6 }}>.00</span></div>
+          <div className="m-kpi-v" style={{ fontSize: 36, marginTop: 4 }}>${expectedThisMonth.toLocaleString()}<span style={{ fontSize: 16, color: "var(--text-tertiary)", marginLeft: 6 }}>.00</span></div>
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            <span className="m-chip money">$8.2k advance</span>
-            <span className="m-chip">$4.6k as-earned</span>
-            <span className="m-chip warn">2 NIGO</span>
+            {advance > 0 && <span className="m-chip money">${(advance/1000).toFixed(1)}k advance</span>}
+            {earned > 0  && <span className="m-chip">${(earned/1000).toFixed(1)}k as-earned</span>}
+            {nigoCount > 0 && <span className="m-chip warn">{nigoCount} NIGO</span>}
           </div>
           <div style={{ marginTop: 16 }}>
-            <div className="m-bars">{months.map((m, i) => (<div key={i} className={m.cur ? "cur" : ""} style={{ height: `${m.v}%` }}></div>))}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginTop: 6, fontSize: 10.5, color: "var(--text-tertiary)", textAlign: "center" }}>{months.map((m, i) => <div key={i}>{m.l}</div>)}</div>
+            <div className="m-bars">{months.map((m) => (<div key={m.k} className={m.cur ? "cur" : ""} style={{ height: `${m.v}%` }}></div>))}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginTop: 6, fontSize: 10.5, color: "var(--text-tertiary)", textAlign: "center" }}>{months.map((m) => <div key={m.k}>{m.l}</div>)}</div>
           </div>
         </div>
 
         <div className="m-section-h"><span>Recent issues</span></div>
         <div className="m-card" style={{ padding: 0 }}>
-          {[
-            { who: "Cheryl Hampton", p: "Plan G", ap: 1840, com: 920, st: "advance", c: "money" },
-            { who: "Robert Mendez", p: "FE $15K", ap: 1320, com: 660, st: "advance", c: "money" },
-            { who: "Henry Akins", p: "Annuity", ap: 4250, com: 425, st: "as-earned", c: "info" },
-            { who: "Linda Cho", p: "Plan N", ap: 1490, com: 0, st: "NIGO · sigs missing", c: "warn" },
-            { who: "Don Phelps", p: "FE $10K", ap: 0, com: 0, st: "Chargeback risk", c: "warn" },
-          ].map((r, i, arr) => (
+          {rowsToShow.length === 0 && (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+              No issued policies yet this period.
+            </div>
+          )}
+          {rowsToShow.map((r, i, arr) => (
             <div key={i} style={{ display: "flex", alignItems: "center", padding: "12px 14px", borderBottom: i < arr.length - 1 ? "1px solid var(--border-subtle)" : 0, gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>{r.who}</div>
@@ -413,17 +545,6 @@ function MScreenComm({ onNav }) {
               </div>
             </div>
           ))}
-        </div>
-
-        <div className="m-section-h"><span>Tier override</span></div>
-        <div className="m-card">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13 }}>
-            <div>
-              <div style={{ fontWeight: 500 }}>Platinum override · 7%</div>
-              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 2 }}>Hit Diamond → +5pt on team production</div>
-            </div>
-            <MIcon.ChevR/>
-          </div>
         </div>
       </div>
 
