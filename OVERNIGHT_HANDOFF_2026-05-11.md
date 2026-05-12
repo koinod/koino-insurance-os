@@ -5,6 +5,8 @@ Window: ~4-hour sovereign pass against the backend that landed today.
 Push: **NOT** pushed to remote — Ian to review locally then push.
 
 ```
+c5e4943 feat(profile): wire save_profile + get_my_profile RPCs              (P6)
+daf77b9 docs: OVERNIGHT_HANDOFF_2026-05-11 — sovereign pass 6 summary
 7970fea fix(session): maybeSingle() sweep + role-rank sync for landing       (P5)
 68e6962 feat(agents): Settings → Agents panel sources suggested_agents_for_role (P4)
 6707f72 feat(connectors): Settings → Integrations reads connector_catalog    (P3)
@@ -12,7 +14,7 @@ Push: **NOT** pushed to remote — Ian to review locally then push.
 370b9c2 fix(data): empty AppData by default, hardcoded seed only on demo skip (P1)
 ```
 
-5 commits. Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
+7 commits. Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
 
 ---
 
@@ -178,6 +180,68 @@ in `page-extras.jsx`.
 
 ---
 
+### P6 — `c5e4943` — Profile RPC wiring (post-handoff add-on)
+
+**The bug Ian reported**: *"can't save my profile info"*.
+
+**Root cause** (`page-extras.jsx:3247`, `SettingsProfile`): every input
+was uncontrolled (`defaultValue=`, no `onChange`, no `value` binding),
+the Time-zone select had `onChange={() => {}}` (dead handler), Email
+was hardcoded to `marcus@atlasimo.com`, and the "Licenses + appointments"
+panel was a static chip row of `TX, FL, GA, NV, AZ` with no Supabase
+backing. There was no save button at all. **Nothing the user typed could
+ever persist.**
+
+**Fix** — rewrote `SettingsProfile` against the new 2026-05-11 RPCs:
+
+- `rpc get_my_profile()` returns `{ profile, memberships, current_agency_id,
+  is_platform_admin }` in one round-trip on mount.
+- All inputs are now controlled with React state; a `dirty` set tracks
+  user-touched fields so `save_profile(p jsonb)` is called with the
+  **minimal patch** (the backend preserves keys not sent, per the
+  documented contract).
+- New fields wired end-to-end:
+  - NPN
+  - `licensed_states` — click-to-toggle multi-select across all 50 states + DC
+  - `license_expirations` — date input per active state
+  - `eando_carrier` + `eando_expires_at`
+  - `notification_prefs` — `email / sms / telegram / in_app` toggles +
+    `digest_frequency` (off / realtime / daily / weekly)
+  - App preferences: `theme / density / default_landing / timezone`
+  - Identity: `display_name / full_name / email / phone / title / pronouns
+    / avatar_url / website_url / linkedin_url / bio`
+- `v_user_metrics` rendered as a 4-tile KPI strip (Commissions, Calls
+  recorded, Agency policies, Agency open pipe). Hidden cleanly if the
+  view isn't readable for the viewer.
+- `window.refreshMe()` is called after save so the sidebar greeting +
+  header AccountChip pick up the new `display_name` without a full reload.
+- Load failures surface to a recovery panel with **Try again** + **Sign
+  out** buttons instead of a permanent spinner.
+
+**Wizard fold-in** — `page-first-run.jsx` `submitStep` now also calls
+`save_profile` when the operator finishes the wizard's `profile` step,
+mapping the overlapping fields (`full_name` from `legal_name`, `email`,
+`phone`, `npn`). Non-blocking — the agency `complete_onboarding_step`
+call still runs even if the user-profile upsert fails. Result: a fresh
+operator who walks the wizard already has a populated `public.profiles`
+row when they first open Settings → Profile, instead of needing to
+retype everything.
+
+**Verify**:
+1. Sign in. Open Settings → Profile.
+2. Fields render with whatever `get_my_profile` returns (likely empty
+   for a brand-new user).
+3. Type into Display name, toggle a few licensed states, set an E&O
+   date, flip the SMS notification preference.
+4. Click **Save profile** → toast `Profile saved`, page reloads the
+   row, sidebar greeting updates with the new display name.
+5. Re-open Settings → Profile → values persist.
+
+**Files touched**: `page-extras.jsx` (SettingsProfile rewrite, ~285 lines),
+`page-first-run.jsx` (wizard fold-in, ~15 lines), `index.html` (cache bumps).
+
+---
+
 ### P5 — `7970fea` — Session error audit
 
 **Changes**:
@@ -289,15 +353,19 @@ will surface its error to the operator instead of silently failing:
 - `mint_invite(p_agency_id, p_role, p_email_hint)` (with `/api/invites/create` fallback)
 - `redeem_invite(p_token)` (pre-existing)
 - `install_agent(p_agent_key)` (with direct `rba_installs` fallback)
+- `get_my_profile()` — returns `{ profile, memberships, current_agency_id, is_platform_admin }`
+- `save_profile(p jsonb)` — minimal-patch upsert; missing keys preserved
 
 **Tables / views**:
 - `public.agency_onboarding_steps`
 - `public.connector_catalog`
 - `public.role_agent_defaults`
 - `public.rba_installs`
+- `public.profiles` (id PK = auth.users.id; auto-create on signup)
 - `public.connections` (pre-existing)
 - `public.v_agency_onboarding_status` (with `agency_onboarding_steps`
   direct-read fallback)
+- `public.v_user_metrics` (per-user production/input metrics; read-only)
 
 If a query against any of these returns `PGRST205` ("relation does not
 exist") the wizard step's error panel will show it verbatim — that's the
