@@ -3309,82 +3309,149 @@ function SettingsApi() {
   );
 }
 
+/* Routing rules — agency-scoped lead routing config persisted to
+ * public.routing_rules (migration 0019). Inline weight slider auto-saves on
+ * mouseup. Full edit / create goes through a modal. */
 function SettingsRouting() {
-  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
-  const [rules, setRules] = React.useState(isDemo ? [
-    { id: 1, src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60 },
-    { id: 2, src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90 },
-    { id: 3, src: "Annuity",             route: "Certified producer",    weight: 100 },
-    { id: 4, src: "Spanish",             route: "Bilingual round-robin", weight: 50 },
-  ] : []);
-  const [editing, setEditing] = React.useState(null); // null = closed, {} = new, {id...} = edit existing
-  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50 });
-  const editRule = (r) => setEditing({ ...r });
-  const deleteRule = (id) => {
-    setRules(rs => rs.filter(x => x.id !== id));
+  const sb = window.getSupabase && window.getSupabase();
+  const [rules,   setRules]   = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
+  const [editing, setEditing] = React.useState(null);  // null | {id?, source, route_to, weight, active}
+  const [busy,    setBusy]    = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true); setErr(null);
+    try {
+      const { data, error } = await sb.from("routing_rules")
+        .select("id, source, route_to, weight, active, notes, updated_at")
+        .order("weight", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      setRules(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setLoading(false); }
+  }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const persistWeight = async (id, weight) => {
+    if (!sb) return;
+    const { error } = await sb.from("routing_rules").update({ weight, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) window.toast && window.toast(`Save weight failed: ${error.message}`, "error");
+  };
+
+  const toggleActive = async (row) => {
+    if (!sb) return;
+    const next = !row.active;
+    const { error } = await sb.from("routing_rules").update({ active: next, updated_at: new Date().toISOString() }).eq("id", row.id);
+    if (error) { window.toast && window.toast(`Toggle failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast(`${row.source}: ${next ? "active" : "paused"}`, "success");
+    await refresh();
+  };
+
+  const deleteRule = async (row) => {
+    if (!sb) return;
+    if (!confirm(`Delete routing rule "${row.source} → ${row.route_to}"?`)) return;
+    const { error } = await sb.from("routing_rules").delete().eq("id", row.id);
+    if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); return; }
     window.toast && window.toast("Rule removed", "success");
+    await refresh();
   };
-  const saveRule = () => {
-    if (!editing.src.trim() || !editing.route.trim()) {
-      window.toast && window.toast("Source and route are required", "error");
-      return;
+
+  const save = async () => {
+    if (!sb || !editing) return;
+    if (!editing.source?.trim() || !editing.route_to?.trim()) {
+      window.toast && window.toast("Source and route are required", "warn"); return;
     }
-    if (editing.id == null) {
-      const nextId = rules.length === 0 ? 1 : Math.max(...rules.map(r => r.id || 0)) + 1;
-      setRules(rs => [...rs, { ...editing, id: nextId }]);
-      window.toast && window.toast("Rule added", "success");
-    } else {
-      setRules(rs => rs.map(x => x.id === editing.id ? editing : x));
-      window.toast && window.toast("Rule updated", "success");
-    }
-    setEditing(null);
+    setBusy(true);
+    try {
+      const payload = {
+        source:   editing.source.trim(),
+        route_to: editing.route_to.trim(),
+        weight:   Math.max(0, Math.min(100, +editing.weight || 50)),
+        active:   editing.active !== false,
+        notes:    editing.notes || null,
+      };
+      let r;
+      if (editing.id) r = await sb.from("routing_rules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      else            r = await sb.from("routing_rules").insert(payload);
+      if (r.error) throw r.error;
+      window.toast && window.toast(editing.id ? "Rule updated" : "Rule added", "success");
+      setEditing(null);
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
   };
+
+  if (loading) return <div className="ks-empty">Loading routing rules…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load routing rules: <span className="mono">{err}</span></div></div>;
+
   return (
-    <div className="panel" style={{ padding: 16 }}>
+    <div className="panel" style={{ padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h3 style={{ margin: 0 }}>Routing rules</h3>
-        <button className="btn btn-primary" onClick={addRule}><Icons.Plus size={12}/> New rule</button>
-      </div>
-      <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
-          <div>Source / trigger</div><div>Route to</div><div>Priority</div><div></div>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 12.5, fontWeight: 600 }}>Routing rules</h3>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{rules.filter(r => r.active).length} active · {rules.length} total · higher priority routes first</div>
         </div>
-        {rules.map(r => (
-          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
-            <div style={{ fontWeight: 500 }}>{r.src}</div>
-            <div style={{ color: "var(--text-secondary)" }}>{r.route}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="range" min={0} max={100} value={r.weight} onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))} style={{ flex: 1 }}/>
-              <span className="tabular" style={{ width: 30, fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.weight}</span>
-            </div>
-            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 8px" }} onClick={() => editRule(r)}>Edit</button>
-              <button className="btn btn-ghost" onClick={() => deleteRule(r.id)} title="Delete rule"><Icons.X size={11}/></button>
-            </div>
-          </div>
-        ))}
-        {rules.length === 0 && (
-          <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-            No routing rules yet. Add one to control which producer gets which lead source.
-          </div>
-        )}
+        <button className="btn btn-primary" onClick={() => setEditing({ source: "", route_to: "", weight: 50, active: true })}><Icons.Plus size={12}/> New rule</button>
       </div>
+
+      {rules.length === 0 ? (
+        <div className="ks-empty">No routing rules yet. Add one to control which producer gets which lead source. Without rules, leads fall to round-robin across active reps.</div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px 110px" }}>
+            <div>Source / trigger</div><div>Route to</div><div>Priority</div><div>Active</div><div></div>
+          </div>
+          {rules.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px 110px", opacity: r.active ? 1 : 0.55 }}>
+              <div style={{ fontWeight: 500 }}>{r.source}</div>
+              <div style={{ color: "var(--text-secondary)" }}>{r.route_to}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="range" min={0} max={100} value={r.weight}
+                       onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))}
+                       onMouseUp={(e) => persistWeight(r.id, +e.target.value)}
+                       onTouchEnd={(e) => persistWeight(r.id, +e.target.value)}
+                       style={{ flex: 1 }}/>
+                <span className="tabular" style={{ width: 30, fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.weight}</span>
+              </div>
+              <div><button className="btn btn-ghost" onClick={() => toggleActive(r)} style={{ fontSize: 10.5 }}>{r.active ? "ON" : "OFF"}</button></div>
+              <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" style={{ fontSize: 10.5 }} onClick={() => setEditing({ ...r })}><Icons.Edit size={11}/></button>
+                <button className="btn btn-ghost" onClick={() => deleteRule(r)} title="Delete rule"><Icons.X size={11}/></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {editing && (
-        <Shared.Modal title={editing.id == null ? "New routing rule" : "Edit routing rule"} width={460} onClose={() => setEditing(null)} actions={
+        <Shared.Modal title={editing.id ? "Edit routing rule" : "New routing rule"} width={460} onClose={() => setEditing(null)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveRule}><Icons.Check size={11}/> Save</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy}><Icons.Check size={11}/> {busy ? "Saving…" : "Save"}</button>
           </>
         }>
           <Shared.Field label="Source / trigger">
-            <input className="text-input" value={editing.src} onChange={(e) => setEditing({ ...editing, src: e.target.value })} placeholder="e.g. FB Lead Form · T65" autoFocus/>
+            <input className="text-input" value={editing.source || ""} onChange={(e) => setEditing({ ...editing, source: e.target.value })} placeholder="e.g. FB Lead Form · T65" autoFocus/>
           </Shared.Field>
           <Shared.Field label="Route to">
-            <input className="text-input" value={editing.route} onChange={(e) => setEditing({ ...editing, route: e.target.value })} placeholder="e.g. Med Supp specialists"/>
+            <input className="text-input" value={editing.route_to || ""} onChange={(e) => setEditing({ ...editing, route_to: e.target.value })} placeholder="e.g. Med Supp specialists / Bilingual round-robin"/>
           </Shared.Field>
-          <Shared.Field label={`Priority weight · ${editing.weight}`}>
-            <input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%" }}/>
+          <Shared.Field label={`Priority weight · ${editing.weight ?? 50}`}>
+            <input type="range" min={0} max={100} value={editing.weight ?? 50} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%" }}/>
           </Shared.Field>
+          <Shared.Field label="Notes (optional)">
+            <textarea className="text-input" rows={2} value={editing.notes || ""} onChange={(e) => setEditing({ ...editing, notes: e.target.value })}/>
+          </Shared.Field>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+            <input type="checkbox" checked={editing.active !== false} onChange={(e) => setEditing({ ...editing, active: e.target.checked })}/>
+            Active
+          </label>
         </Shared.Modal>
       )}
     </div>
