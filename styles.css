@@ -1140,3 +1140,215 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 @media (prefers-reduced-motion: reduce) {
   @keyframes shimmer { 0%, 100% { background-position: 0 0; } }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Settings page — koino.capital design system scope
+   Marketing-site palette (#00d4aa teal-green + near-black surfaces + soft
+   rounded cards). Local CSS-var override so we don't poison the rest of the
+   OS — applies only inside .koino-settings-ds.
+   ─────────────────────────────────────────────────────────────────────────── */
+.koino-settings-ds {
+  /* Black-first surfaces (matches koino.capital --bg #050505 / --s1 #0d0d0d / --s2 #151515) */
+  --bg-base:     oklch(0.13 0 0);
+  --bg-elevated: oklch(0.165 0 0);
+  --bg-raised:   oklch(0.195 0 0);
+  --bg-overlay:  oklch(0.225 0 0);
+  --border-subtle: oklch(0.25 0 0);
+  --border-strong: oklch(0.32 0 0);
+  --text-primary:    oklch(0.95 0 0);
+  --text-secondary:  oklch(0.74 0 0);
+  --text-tertiary:   oklch(0.56 0 0);
+  --text-quaternary: oklch(0.42 0 0);
+
+  /* Teal-green accent — sampled from koino.capital --a:#00d4aa */
+  --accent-money:     oklch(0.78 0.15 175);
+  --accent-money-dim: oklch(0.58 0.13 175);
+
+  /* Softer rounding — denser packing */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}
+
+/* Page background swap — settings page wears the marketing-site black */
+.koino-settings-ds .page-pad { background: var(--bg-base); padding-top: 14px; }
+.koino-settings-ds .page-h { padding-bottom: 8px; }
+.koino-settings-ds .page-title {
+  font-weight: 800; font-size: 24px; letter-spacing: -0.025em;
+  background: linear-gradient(135deg, var(--text-primary), var(--accent-money));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.koino-settings-ds .page-sub { font-size: 12px; color: var(--text-tertiary); }
+
+/* Panels — softer rounding, tighter padding, subtle ring on hover */
+.koino-settings-ds .panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+.koino-settings-ds .panel:hover { border-color: var(--border-strong); }
+.koino-settings-ds .panel-h {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.koino-settings-ds .panel-h h3 { font-size: 12.5px; font-weight: 600; letter-spacing: -0.005em; }
+.koino-settings-ds .panel-h .meta {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-tertiary);
+}
+
+/* Compact tile — denser variant of .panel, used for new settings cards */
+.koino-settings-ds .ks-tile {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: border-color 140ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.koino-settings-ds .ks-tile:hover { border-color: var(--border-strong); }
+.koino-settings-ds .ks-tile-h {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 12.5px; letter-spacing: -0.005em;
+}
+.koino-settings-ds .ks-tile-h .ks-tile-tag {
+  margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+  color: var(--accent-money); letter-spacing: 0.05em; text-transform: uppercase;
+}
+.koino-settings-ds .ks-tile-sub { font-size: 11.5px; color: var(--text-tertiary); line-height: 1.5; }
+
+/* Dense card grid — replaces wide gappy grids */
+.koino-settings-ds .ks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.koino-settings-ds .ks-grid-wide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+/* Buttons — koino primary is solid green-on-black with subtle shadow */
+.koino-settings-ds .btn {
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.koino-settings-ds .btn-primary {
+  background: var(--accent-money);
+  color: #042118;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 6px 20px -10px color-mix(in oklch, var(--accent-money) 60%, transparent);
+}
+.koino-settings-ds .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 10px 28px -10px color-mix(in oklch, var(--accent-money) 70%, transparent);
+}
+.koino-settings-ds .btn-ghost { color: var(--text-secondary); }
+
+/* Inputs — rounded, tighter */
+.koino-settings-ds .text-input {
+  border-radius: 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+.koino-settings-ds .text-input:focus { border-color: var(--accent-money); }
+
+/* Chips — softer rounding + green-tinted by default */
+.koino-settings-ds .chip {
+  border-radius: 999px;
+  font-size: 10.5px;
+  padding: 2px 9px;
+  letter-spacing: 0.01em;
+}
+.koino-settings-ds .chip-money {
+  background: color-mix(in oklch, var(--accent-money) 14%, transparent);
+  color: var(--accent-money);
+  border: 1px solid color-mix(in oklch, var(--accent-money) 26%, transparent);
+}
+
+/* Sidebar tab strip — denser, softer pills */
+.koino-settings-ds .ks-tabs {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 5px;
+  display: flex; flex-direction: column; gap: 1px;
+  position: sticky; top: 14px;
+}
+.koino-settings-ds .ks-tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms var(--ease-out), color 100ms var(--ease-out);
+}
+.koino-settings-ds .ks-tab:hover { background: var(--bg-raised); color: var(--text-secondary); }
+.koino-settings-ds .ks-tab.is-active {
+  background: color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised));
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-money) 30%, transparent);
+}
+.koino-settings-ds .ks-tab .ks-tab-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent-money);
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+.koino-settings-ds .ks-tab.is-active .ks-tab-dot { opacity: 1; }
+
+/* Section header — uppercase mono label, denser */
+.koino-settings-ds .ks-section-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-money);
+  font-weight: 600;
+  padding: 8px 10px 4px;
+}
+
+/* Top-right pinned actions row */
+.koino-settings-ds .ks-pin-row { display: flex; gap: 6px; margin-left: auto; }
+
+/* Permission-denied banner */
+.koino-settings-ds .ks-denied {
+  background: var(--bg-elevated);
+  border: 1px dashed color-mix(in oklch, var(--state-danger) 35%, var(--border-strong));
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  display: flex; align-items: center; gap: 10px;
+}
+.koino-settings-ds .ks-denied strong { color: var(--text-primary); }
+
+/* Empty-state */
+.koino-settings-ds .ks-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 18px 16px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  background: var(--bg-elevated);
+}
+
+/* Mobile — stack tabs above content */
+@media (max-width: 760px) {
+  .koino-settings-ds .ks-tabs { flex-direction: row; overflow-x: auto; position: static; }
+  .koino-settings-ds .ks-tab { white-space: nowrap; }
+}
