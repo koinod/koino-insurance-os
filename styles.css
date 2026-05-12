@@ -926,6 +926,17 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   .spend-strip { gap: 6px; padding: 6px 8px; }
 }
 
+/* P7 (2026-05-11) — Settings → Profile responsive grids. The form uses
+   2 / 3 / 4 column layouts on desktop; collapse to single column below
+   720px so fields stay legible on phones + small split-screens. */
+@media (max-width: 720px) {
+  .profile-grid-2,
+  .profile-grid-3,
+  .profile-grid-4 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
    Recruiting workbench — tab strip + multi-pane layouts
    ────────────────────────────────────────────────────────────────────────── */

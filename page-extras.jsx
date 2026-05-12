@@ -2525,9 +2525,19 @@ function PageSettings({ role = "owner" }) {
           <div className="page-title">Settings</div>
           <div className="page-sub">{role === "owner" ? "Organization, team, carriers, billing, integrations, API, routing" : role === "manager" ? "Team, carriers, routing rules and notifications" : "Your profile and notifications"}</div>
         </div>
+        {/* P7: prominent Edit Profile entry point. Works for every role
+            (owner / manager / rep / imo_owner). Highlights when active so
+            users can find their way back to other tabs after clicking. */}
+        <button
+          className={"btn " + (tab === "profile" ? "btn-primary" : "")}
+          style={{ marginLeft: "auto" }}
+          onClick={() => setTab("profile")}
+        >
+          <Icons.User size={13}/> Edit Profile
+        </button>
       </div>
 
-      <div className="settings-grid" style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14 }}>
+      <div className="settings-grid settings-grid-responsive" style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14 }}>
         <div className="panel" style={{ padding: 6 }}>
           {TABS.map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "8px 10px", background: tab === k ? "var(--bg-raised)" : "transparent", color: tab === k ? "var(--text-primary)" : "var(--text-secondary)", fontWeight: tab === k ? 500 : 400 }}>{l}</button>
@@ -3326,6 +3336,7 @@ function SettingsProfile({ role }) {
         license_expirations: (p.license_expirations && typeof p.license_expirations === "object") ? p.license_expirations : {},
         eando_carrier:       p.eando_carrier || "",
         eando_expires_at:    p.eando_expires_at || "",
+        background_check_status: p.background_check_status || "",
         notification_prefs:  (p.notification_prefs && typeof p.notification_prefs === "object") ? p.notification_prefs : {
           email: true, sms: false, telegram: false, in_app: true, digest_frequency: "daily",
         },
@@ -3399,13 +3410,39 @@ function SettingsProfile({ role }) {
   const isPlatformAdmin = !!bundle?.is_platform_admin;
   const np = form.notification_prefs || {};
 
+  // P7: Licensing section is only relevant for producer-side roles
+  // (owner / manager / rep / admin). A user whose ONLY memberships are
+  // imo_owner has no producer license to manage from this surface — hide.
+  // Falls open if memberships isn't populated yet so we don't accidentally
+  // hide a section the user needs on a slow load.
+  const licensingRoles = new Set(["owner", "manager", "rep", "admin"]);
+  const showLicensing = memberships.length === 0
+    || memberships.some(m => licensingRoles.has(m.role));
+
+  // Live avatar — if avatar_url is present and loads, render the image;
+  // on error fall through to Shared.Avatar's initials block.
+  const [avatarOk, setAvatarOk] = React.useState(true);
+  React.useEffect(() => { setAvatarOk(true); }, [form.avatar_url]);
+  const previewName = form.display_name || form.full_name || form.email || "—";
+  const previewHandle = form.display_name ? "@" + form.display_name.split(/\s+/)[0].toLowerCase() : "";
+  const avatarBlock = (form.avatar_url && avatarOk) ? (
+    <img
+      src={form.avatar_url}
+      alt={previewName}
+      onError={() => setAvatarOk(false)}
+      style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", background: "var(--bg-raised)", flexShrink: 0 }}
+    />
+  ) : (
+    <Shared.Avatar rep={{ name: previewName, handle: previewHandle, color: "var(--text-tertiary)" }} size={48}/>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <Shared.Avatar rep={{ name: form.display_name || form.full_name || form.email || "—", handle: form.display_name ? "@" + form.display_name.split(/\s+/)[0].toLowerCase() : "", color: "var(--text-tertiary)" }} size={48}/>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{form.display_name || form.full_name || form.email || "Set your name"}</div>
+          {avatarBlock}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{previewName === "—" ? "Set your name" : previewName}</div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
               {form.title || role}
               {isPlatformAdmin && <span className="chip chip-status" style={{ marginLeft: 8, fontSize: 10 }}>platform admin</span>}
@@ -3434,7 +3471,7 @@ function SettingsProfile({ role }) {
         <div className="divider"></div>
 
         <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Identity</h4>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Shared.Field label="Display name"><input className="text-input" value={form.display_name} onChange={(e) => update("display_name", e.target.value)} placeholder="What teammates call you"/></Shared.Field>
           <Shared.Field label="Legal full name"><input className="text-input" value={form.full_name} onChange={(e) => update("full_name", e.target.value)} placeholder="On your producer license"/></Shared.Field>
           <Shared.Field label="Email"><input className="text-input" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@agency.com"/></Shared.Field>
@@ -3449,12 +3486,24 @@ function SettingsProfile({ role }) {
         <Shared.Field label="Bio"><textarea className="text-input" rows={3} value={form.bio} onChange={(e) => update("bio", e.target.value)} placeholder="Short bio — appears in your producer profile."/></Shared.Field>
       </div>
 
+      {showLicensing && (
       <div className="panel" style={{ padding: 16 }}>
         <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Licensing</h4>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Shared.Field label="NPN" hint="National Producer Number"><input className="text-input" value={form.npn} onChange={(e) => update("npn", e.target.value.replace(/\D/g, ""))} placeholder="19384726"/></Shared.Field>
           <Shared.Field label="E&O carrier"><input className="text-input" value={form.eando_carrier} onChange={(e) => update("eando_carrier", e.target.value)} placeholder="NAPA / E&amp;O Pro / Hiscox"/></Shared.Field>
           <Shared.Field label="E&O expiration"><input className="text-input" type="date" value={form.eando_expires_at || ""} onChange={(e) => update("eando_expires_at", e.target.value || null)}/></Shared.Field>
+          <Shared.Field label="Background check" hint="Status from your IMO / E&O carrier">
+            <Shared.Select value={form.background_check_status} onChange={(v) => update("background_check_status", v)} options={[
+              { v: "",          l: "—" },
+              { v: "pending",   l: "Pending" },
+              { v: "submitted", l: "Submitted" },
+              { v: "in_review", l: "In review" },
+              { v: "cleared",   l: "Cleared" },
+              { v: "flagged",   l: "Flagged" },
+              { v: "expired",   l: "Expired" },
+            ]}/>
+          </Shared.Field>
         </div>
         <Shared.Field label={`Licensed states (${(form.licensed_states || []).length})`} hint="Click a state to toggle. Set its expiration on the right when active.">
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: 8, background: "var(--bg-raised)", borderRadius: 6, maxHeight: 200, overflowY: "auto" }}>
@@ -3479,10 +3528,11 @@ function SettingsProfile({ role }) {
           </div>
         )}
       </div>
+      )}
 
       <div className="panel" style={{ padding: 16 }}>
         <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>Notification preferences</h4>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+        <div className="profile-grid-4" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
             ["email",    "Email"],
             ["sms",      "SMS"],
@@ -3505,7 +3555,7 @@ function SettingsProfile({ role }) {
 
       <div className="panel" style={{ padding: 16 }}>
         <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>App preferences</h4>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div className="profile-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           <Shared.Field label="Theme"><Shared.Select value={form.theme} onChange={(v) => update("theme", v)} options={[
             { v: "system", l: "Match system" }, { v: "light",  l: "Light" }, { v: "dark",   l: "Dark" },
           ]}/></Shared.Field>
