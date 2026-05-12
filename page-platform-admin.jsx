@@ -386,12 +386,47 @@ window.ImpersonationBanner = ImpersonationBanner;
 // ──────────────────────────────────────────────────────────────────────────
 // Reusable atoms (all use scoped tokens — only render inside .koino-platform)
 // ──────────────────────────────────────────────────────────────────────────
-function KoMetric({ label, value, tone }) {
+function KoMetric({ label, value, tone, onClick, sub, spark, title }) {
+  const clickable = typeof onClick === "function";
   return (
-    <div className="ko-metric">
+    <div
+      className="ko-metric"
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      title={title || (clickable ? "Click to drill" : undefined)}
+      style={clickable ? { cursor: "pointer" } : undefined}
+    >
       <div className="lbl">{label}</div>
       <div className="val" style={{ color: toneColor(tone) }}>{value}</div>
+      {(sub || spark) && (
+        <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, minHeight: 14 }}>
+          {sub && <span style={{ fontSize: 9.5, color: "#666", fontFamily: "var(--font-mono)" }}>{sub}</span>}
+          {spark && <KoSpark data={spark} tone={tone}/>}
+        </div>
+      )}
     </div>
+  );
+}
+
+// Tiny inline sparkline — pure SVG, no library. ~60×14 to fit under a
+// KoMetric value without making the tile taller.
+function KoSpark({ data, tone, width = 60, height = 14 }) {
+  const arr = Array.isArray(data) ? data.filter(n => Number.isFinite(n)) : [];
+  if (arr.length < 2) return null;
+  const max = Math.max(...arr), min = Math.min(...arr);
+  const range = Math.max(1, max - min);
+  const pts = arr.map((v, i) => {
+    const x = (i / (arr.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 2) - 1;
+    return [x, y];
+  });
+  const d = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const c = toneColor(tone);
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ marginLeft: "auto" }}>
+      <path d={d} stroke={c} strokeWidth="1" fill="none" strokeLinecap="round" opacity="0.85"/>
+    </svg>
   );
 }
 
@@ -494,8 +529,9 @@ function Row({ k, v }) {
 // ──────────────────────────────────────────────────────────────────────────
 // HQ subpage — Mission control
 // ──────────────────────────────────────────────────────────────────────────
-function SubpageHQ({ onActAs }) {
+function SubpageHQ({ onActAs, navigate }) {
   const [kpis, setKpis]         = React.useState(null);
+  const [trend, setTrend]       = React.useState([]);   // 7-day MRR sparkline
   const [agencies, setAgencies] = React.useState([]);
   const [audit, setAudit]       = React.useState([]);
   const [showDemo, setShowDemo] = React.useState(() => {
@@ -508,10 +544,14 @@ function SubpageHQ({ onActAs }) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) { setLoading(false); return; }
     setLoading(true);
-    const [k, a, l] = await Promise.all([
+    // Four parallel calls — kpis, top-N agencies, audit tail, MRR trend.
+    // Trend is best-effort; failure (missing subscriptions table on a
+    // fresh project) just leaves the sparkline empty.
+    const [k, a, l, t] = await Promise.all([
       safeRpc(sb, "platform_hq_kpis", {}),
       safeRpc(sb, "platform_agencies_summary", { p_include_demo: showDemo }),
-      safeRpc(sb, "platform_audit_recent", { p_limit: 10, p_hours: 24 }),
+      safeRpc(sb, "platform_audit_recent", { p_limit: 12, p_hours: 24 }),
+      safeRpc(sb, "platform_hq_mrr_trend", { p_days: 7 }),
     ]);
     if (k.error && /forbidden|does not exist/i.test(k.error.message || "")) {
       setErr(k.error.message);
@@ -521,6 +561,7 @@ function SubpageHQ({ onActAs }) {
     setKpis(k.data || null);
     setAgencies(Array.isArray(a.data) ? a.data : []);
     setAudit(Array.isArray(l.data) ? l.data : []);
+    setTrend(Array.isArray(t.data) ? t.data.map(r => Number(r.mrr_cents) || 0) : []);
     setLoading(false);
   }, [showDemo]);
   React.useEffect(() => { load(); }, [load]);
@@ -528,9 +569,22 @@ function SubpageHQ({ onActAs }) {
   if (err) return <ForbiddenCard error={err}/>;
 
   const topAgencies = [...agencies].sort((x, y) => (y.mrr_cents || 0) - (x.mrr_cents || 0)).slice(0, 6);
-  const blockers = audit.filter(a => a.kind === "blocker_on_operator" || a.severity === "danger").slice(0, 4);
+  // Open blockers = kind matches OR severity danger AND not yet resolved.
+  const blockers = audit.filter(a =>
+    (a.kind === "blocker_on_operator" || a.severity === "danger")
+    && !(a.metadata && a.metadata.resolved === true)
+  ).slice(0, 5);
   const liveAge = kpis?.generated_at ? Math.round((Date.now() - new Date(kpis.generated_at)) / 1000) : null;
   const isLive = liveAge != null && liveAge < 300;
+
+  // Tile click handlers. navigate("audit", {kind, hours}) routes to the Audit
+  // subpage with prefilters via sessionStorage stash (Audit reads on mount).
+  const go = (page, prefilter) => {
+    if (prefilter) {
+      try { sessionStorage.setItem("koino.platform.audit_prefilter", JSON.stringify(prefilter)); } catch {}
+    }
+    if (navigate) navigate(page);
+  };
 
   return (
     <div className="page-pad">
@@ -552,14 +606,40 @@ function SubpageHQ({ onActAs }) {
         </div>
       </div>
 
-      {/* HQ hero strip — six tabular counters, denser than amber DS */}
+      {/* HQ hero strip — every tile is clickable and drills to the
+          relevant subpage. Audit tiles use a sessionStorage prefilter
+          stash so the Audit subpage reads it on mount and applies. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 12 }}>
-        <KoMetric label="Agencies"   value={kpis?.agency_count ?? "—"} tone="status"/>
-        <KoMetric label="Active 24h" value={kpis?.active_24h ?? "—"}   tone="money"/>
-        <KoMetric label="Audit 24h"  value={kpis?.audit_24h ?? "—"}    tone="status"/>
-        <KoMetric label="MRR"        value={fmtMoney(kpis?.mrr_cents)} tone="money"/>
-        <KoMetric label="NIGOs"      value={kpis?.open_nigos ?? "—"}   tone={kpis?.open_nigos > 0 ? "warn" : "money"}/>
-        <KoMetric label="Blockers"   value={blockers.length}           tone={blockers.length ? "danger" : "money"}/>
+        <KoMetric
+          label="Agencies" value={kpis?.agency_count ?? "—"} tone="status"
+          onClick={() => go("agencies")} title="Drill: all agencies"
+        />
+        <KoMetric
+          label="Active 24h" value={kpis?.active_24h ?? "—"} tone="money"
+          sub="unique actors"
+          onClick={() => go("audit", { hours: 24 })} title="Drill: audit log last 24h"
+        />
+        <KoMetric
+          label="Audit 24h" value={kpis?.audit_24h ?? "—"} tone="status"
+          onClick={() => go("audit", { hours: 24 })} title="Drill: full audit log"
+        />
+        <KoMetric
+          label="MRR" value={fmtMoney(kpis?.mrr_cents)} tone="money"
+          spark={trend}
+          sub={trend.length >= 2 && trend[0] > 0 ? `${Math.round(((trend[trend.length-1] - trend[0]) / trend[0]) * 100)}% 7d` : "7d"}
+          onClick={() => go("billing")} title="Drill: per-agency MRR"
+        />
+        <KoMetric
+          label="NIGOs" value={kpis?.open_nigos ?? "—"}
+          tone={kpis?.open_nigos > 0 ? "warn" : "money"}
+          onClick={() => go("agencies")} title="Drill: agencies with open NIGOs"
+        />
+        <KoMetric
+          label="Blockers" value={blockers.length}
+          tone={blockers.length ? "danger" : "money"}
+          onClick={() => go("audit", { kind: "blocker_on_operator", hours: 168 })}
+          title="Drill: audit filtered to blocker_on_operator"
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12 }}>
@@ -612,35 +692,164 @@ function SubpageHQ({ onActAs }) {
 
         {/* RIGHT */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="panel">
-            <div className="panel-h">
-              <Icons.Shield size={12} style={{ color: blockers.length ? "#f59e0b" : "#888" }}/>
-              <h3>BLOCKERS on operator</h3>
-              <span className="meta">{blockers.length}</span>
-            </div>
-            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-              {blockers.length === 0 && (
-                <div style={{ padding: 8, color: "#888", fontSize: 11.5, lineHeight: 1.55 }}>
-                  Nothing flagged. Automation surfaces operator-dependent items here.
-                </div>
-              )}
-              {blockers.map(b => (
-                <div key={b.id} style={{ padding: 8, background: "var(--bg-base)", borderRadius: 8, borderLeft: "2px solid #f59e0b", fontSize: 11.5 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <strong style={{ fontFamily: "var(--font-mono)", color: "#f59e0b", fontSize: 11 }}>{b.kind || b.action}</strong>
-                    <span style={{ fontSize: 10, color: "#555" }}>{fmtAge(b.created_at)}</span>
-                  </div>
-                  <div style={{ marginTop: 3, color: "#b4b4b4", fontSize: 11 }}>
-                    {b.target || "—"}{b.agency_name ? ` · ${b.agency_name}` : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <BlockersPanel blockers={blockers} onResolve={async (b, note) => {
+            const sb = window.getSupabase();
+            const r = await safeRpc(sb, "resolve_blocker", { p_blocker_id: b.id, p_note: note || "" });
+            if (r.error) window.toast && window.toast(`Resolve failed: ${r.error.message}`, "error");
+            else { window.toast && window.toast(`Blocker resolved`, "success"); load(); }
+          }} onDrill={async (b) => {
+            if (b.agency_id) {
+              const reason = `BLOCKER · ${b.kind || b.action}`;
+              await window.startSuperAdminActAs(b.agency_id, b.agency_name || b.agency_id.slice(0, 8), reason);
+              const deep = b.metadata && b.metadata.deep_link;
+              if (deep && window.gotoPage) window.gotoPage(deep);
+              else window.toast && window.toast(`Acting as ${b.agency_name || b.agency_id.slice(0, 8)} — navigate from sidebar`, "warn");
+            }
+          }}/>
 
+          <AgentFleetPanel/>
           <CapabilityRail/>
           <ProjectInfoCard/>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// BlockersPanel — list + Resolve + Drill (act-as + deep link)
+// ──────────────────────────────────────────────────────────────────────────
+function BlockersPanel({ blockers, onResolve, onDrill }) {
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Shield size={12} style={{ color: blockers.length ? "#f59e0b" : "#888" }}/>
+        <h3>BLOCKERS on operator</h3>
+        <span className="meta">{blockers.length} open</span>
+      </div>
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+        {blockers.length === 0 && (
+          <div style={{ padding: 8, color: "#888", fontSize: 11.5, lineHeight: 1.55 }}>
+            Nothing flagged. Automation calls <code className="mono" style={{ fontSize: 10.5 }}>flag_blocker_on_operator(agency, kind, target, metadata)</code> to surface operator-dependent items here.
+          </div>
+        )}
+        {blockers.map(b => (
+          <BlockerCard key={b.id} blocker={b} onResolve={onResolve} onDrill={onDrill}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlockerCard({ blocker, onResolve, onDrill }) {
+  const b = blocker;
+  const [resolving, setResolving] = React.useState(false);
+  const doResolve = async (e) => {
+    e.stopPropagation();
+    const note = prompt(`Resolve blocker "${b.kind}"? Optional note (logged in audit):`);
+    if (note === null) return;
+    setResolving(true);
+    await onResolve(b, note);
+    setResolving(false);
+  };
+  const meta = b.metadata && typeof b.metadata === "object" ? b.metadata : {};
+  const hasDeepLink = !!meta.deep_link;
+  return (
+    <div style={{ padding: 8, background: "var(--bg-base)", borderRadius: 8, borderLeft: "2px solid #f59e0b", fontSize: 11.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+        <strong style={{ fontFamily: "var(--font-mono)", color: "#f59e0b", fontSize: 11 }}>{b.kind || b.action}</strong>
+        <span style={{ fontSize: 10, color: "#555" }}>{fmtAge(b.created_at)}</span>
+      </div>
+      <div style={{ marginTop: 3, color: "#b4b4b4", fontSize: 11 }}>
+        {b.target || "—"}{b.agency_name ? ` · ${b.agency_name}` : ""}
+      </div>
+      {meta.note && <div style={{ marginTop: 4, color: "#888", fontSize: 10.5, fontStyle: "italic" }}>{meta.note}</div>}
+      <div style={{ marginTop: 6, display: "flex", gap: 4 }}>
+        {b.agency_id && (
+          <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px", color: "#7c3aed" }} onClick={(e) => { e.stopPropagation(); onDrill(b); }}>
+            <Icons.ArrowUpRight size={9}/> {hasDeepLink ? "Open → " + meta.deep_link : "Act as agency"}
+          </button>
+        )}
+        <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px", color: "#00d4aa" }} disabled={resolving} onClick={doResolve}>
+          <Icons.Check size={9}/> {resolving ? "Resolving…" : "Resolve"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// AgentFleetPanel — hardware + ai_agents fleet for HQ right column.
+// Reads platform_fleet_status() RPC (mig 0020). Each row shows host + agents
+// + heartbeat age. Stale chip when >5min, dead when >1h.
+// ──────────────────────────────────────────────────────────────────────────
+function AgentFleetPanel() {
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState(null);
+  const load = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    const r = await safeRpc(sb, "platform_fleet_status", {});
+    if (r.error) setErr(r.error.message); else setErr(null);
+    setRows(Array.isArray(r.data) ? r.data : []);
+    setLoading(false);
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const hostStatus = (row) => {
+    const age = row.heartbeat_age_s || 0;
+    if (age > 3600) return { tone: "danger", label: "dead" };
+    if (age > 300)  return { tone: "warn",   label: "stale" };
+    return { tone: "money", label: "live" };
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Bolt size={12}/>
+        <h3>Agent fleet</h3>
+        <span className="meta">{loading ? "…" : `${rows.length} hosts`}</span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "1px 6px" }} onClick={load} title="Refresh">↻</button>
+      </div>
+      <div style={{ padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+        {loading && <div style={{ color: "#888", fontSize: 11.5 }}>Loading…</div>}
+        {!loading && err && /forbidden/i.test(err) && (
+          <div style={{ color: "#888", fontSize: 11, lineHeight: 1.55 }}>
+            Fleet RPC forbidden — applying migration 0020.
+          </div>
+        )}
+        {!loading && !err && rows.length === 0 && (
+          <div style={{ color: "#888", fontSize: 11.5, lineHeight: 1.55 }}>
+            No hosts enrolled. Use <code className="mono" style={{ fontSize: 10.5 }}>page-platform.jsx → Hardware → Enroll</code> to mint a token.
+          </div>
+        )}
+        {rows.map(h => {
+          const st = hostStatus(h);
+          const agents = Array.isArray(h.agents) ? h.agents : [];
+          return (
+            <div key={h.host_id} style={{ padding: 8, background: "var(--bg-base)", borderRadius: 8, borderLeft: `2px solid ${toneColor(st.tone)}`, fontSize: 11.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
+                <strong style={{ color: "#e8e8e8", fontFamily: "Inter, sans-serif" }}>{h.host_name}</strong>
+                <span style={{ fontSize: 10, color: toneColor(st.tone), fontFamily: "var(--font-mono)" }}>{st.label}</span>
+              </div>
+              <div style={{ marginTop: 3, color: "#888", fontSize: 10.5, fontFamily: "var(--font-mono)" }}>
+                {h.kind} · load {h.load_pct ?? 0}% · {agents.length} agents · hb {fmtAge(h.last_heartbeat)}
+              </div>
+              {agents.length > 0 && (
+                <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {agents.slice(0, 4).map(a => (
+                    <span key={a.id} className="chip" style={{ fontSize: 9.5 }}>
+                      {a.name}{typeof a.success_rate === "number" ? ` · ${Math.round(a.success_rate)}%` : ""}
+                    </span>
+                  ))}
+                  {agents.length > 4 && <span className="chip" style={{ fontSize: 9.5 }}>+{agents.length - 4}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -843,13 +1052,21 @@ function SubpageUsers() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Billing subpage
+// Billing subpage — local subs roll-up + live Stripe when feature flag on
 // ──────────────────────────────────────────────────────────────────────────
 function SubpageBilling() {
   const [agencies, setAgencies] = React.useState([]);
   const [err, setErr]           = React.useState(null);
   const [loading, setLoading]   = React.useState(true);
   const [includeDemo, setIncludeDemo] = React.useState(false);
+
+  // Stripe live data (only when feature flag enabled + endpoint configured).
+  // Shape: { source, rows: [{agency_id, mrr_cents, active, trialing, past_due, canceled, sub_count}], totals, unscoped }
+  const [stripe, setStripe]   = React.useState(null);
+  const [stripeStatus, setStripeStatus] = React.useState("idle"); // idle|loading|ready|unconfigured|error|disabled
+  const stripeEnabled = (typeof window !== "undefined" && window.featureFlagOn)
+    ? window.featureFlagOn("stripe_billing_admin", false)
+    : false;
 
   React.useEffect(() => {
     (async () => {
@@ -862,17 +1079,65 @@ function SubpageBilling() {
     })();
   }, [includeDemo]);
 
+  React.useEffect(() => {
+    if (!stripeEnabled) { setStripeStatus("disabled"); setStripe(null); return; }
+    (async () => {
+      setStripeStatus("loading");
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { setStripeStatus("error"); return; }
+      const { data: { session } } = await sb.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) { setStripeStatus("error"); return; }
+      try {
+        const r = await fetch("/api/stripe/admin", {
+          headers: { "authorization": `Bearer ${jwt}` },
+        });
+        if (r.status === 503) { setStripeStatus("unconfigured"); return; }
+        if (r.status === 403) { setStripeStatus("error"); return; }
+        if (!r.ok) { setStripeStatus("error"); return; }
+        const j = await r.json();
+        setStripe(j); setStripeStatus("ready");
+      } catch { setStripeStatus("error"); }
+    })();
+  }, [stripeEnabled]);
+
   if (err && /forbidden|does not exist/i.test(err)) return <ForbiddenCard error={err}/>;
 
-  const totalMrr = agencies.reduce((s, a) => s + (a.mrr_cents || 0), 0);
-  const byPlan = agencies.reduce((m, a) => { m[a.plan] = (m[a.plan] || 0) + (a.mrr_cents || 0); return m; }, {});
+  // If Stripe live data ready, prefer it for MRR (matching agency_id metadata
+  // → row.mrr_cents from /api/stripe/admin). Fall back to the local
+  // subscriptions sum from platform_agencies_summary.
+  const stripeByAgency = React.useMemo(() => {
+    const m = new Map();
+    if (stripe && Array.isArray(stripe.rows)) {
+      stripe.rows.forEach(r => m.set(r.agency_id, r));
+    }
+    return m;
+  }, [stripe]);
+  const enriched = agencies.map(a => {
+    const s = stripeByAgency.get(a.id);
+    return s ? { ...a, mrr_cents: s.mrr_cents, _stripe: s } : a;
+  });
+  const totalMrr = enriched.reduce((s, a) => s + (a.mrr_cents || 0), 0);
+  const byPlan = enriched.reduce((m, a) => { m[a.plan] = (m[a.plan] || 0) + (a.mrr_cents || 0); return m; }, {});
+  const stripeTotals = stripe?.totals || {};
+
+  const stripeBadge =
+    stripeStatus === "ready"        ? { tone: "money",  label: "stripe live" } :
+    stripeStatus === "loading"      ? { tone: "status", label: "stripe loading" } :
+    stripeStatus === "unconfigured" ? { tone: "warn",   label: "stripe key missing" } :
+    stripeStatus === "error"        ? { tone: "danger", label: "stripe error" } :
+    stripeStatus === "disabled"     ? { tone: "tertiary", label: "stripe flag off" } :
+    null;
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Repflow MRR</div>
-          <div className="page-sub">{loading ? "loading…" : `${agencies.length} agencies · ${fmtMoney(totalMrr)} MRR sum`}</div>
+          <div className="page-sub">
+            {loading ? "loading…" : `${enriched.length} agencies · ${fmtMoney(totalMrr)} MRR sum`}
+            {stripeBadge && <span className="chip" style={{ marginLeft: 8, color: toneColor(stripeBadge.tone), borderColor: `color-mix(in oklch, ${toneColor(stripeBadge.tone)} 35%, transparent)` }}>{stripeBadge.label}</span>}
+          </div>
         </div>
         <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888" }}>
           <input type="checkbox" checked={includeDemo} onChange={(e) => setIncludeDemo(e.target.checked)}/>
@@ -880,11 +1145,21 @@ function SubpageBilling() {
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+      {stripeStatus === "unconfigured" && (
+        <div className="panel" style={{ padding: 10, marginBottom: 10, borderLeft: "2px solid #f59e0b" }}>
+          <div style={{ fontSize: 11.5, color: "#b4b4b4", lineHeight: 1.55 }}>
+            <strong style={{ color: "#f59e0b" }}>Stripe live data disabled.</strong>{" "}
+            Set <code className="mono" style={{ fontSize: 10.5 }}>STRIPE_SECRET_KEY</code> in Vercel env to enable cross-customer aggregation. Falling back to local <code className="mono" style={{ fontSize: 10.5 }}>subscriptions</code> table.
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
         <KoMetric label="MRR" value={fmtMoney(totalMrr)} tone="money"/>
-        <KoMetric label="Billed" value={agencies.filter(a => (a.mrr_cents || 0) > 0).length} tone="status"/>
-        <KoMetric label="Trial" value={agencies.filter(a => a.plan === "trial").length} tone="warn"/>
-        <KoMetric label="Pro+" value={agencies.filter(a => /pro|growth|enterprise/i.test(a.plan || "")).length} tone="money"/>
+        <KoMetric label="Billed" value={enriched.filter(a => (a.mrr_cents || 0) > 0).length} tone="status"/>
+        <KoMetric label="Trial" value={enriched.filter(a => a.plan === "trial").length} tone="warn"/>
+        <KoMetric label="Past due" value={stripeTotals.past_due || 0} tone={stripeTotals.past_due > 0 ? "danger" : "money"}/>
+        <KoMetric label="Pro+" value={enriched.filter(a => /pro|growth|enterprise/i.test(a.plan || "")).length} tone="money"/>
       </div>
 
       <div className="panel" style={{ marginBottom: 12 }}>
@@ -901,59 +1176,133 @@ function SubpageBilling() {
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Activity size={12}/><h3>Per-agency</h3></div>
-        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px" }}>
-          <div>Agency</div><div>Plan</div><div>MRR</div><div>Members</div>
+        <div className="panel-h"><Icons.Activity size={12}/><h3>Per-agency</h3>
+          {stripe?.unscoped?.count > 0 && (
+            <span className="meta" style={{ color: "#f59e0b" }}>{stripe.unscoped.count} unscoped subs ({fmtMoney(stripe.unscoped.mrr_cents)})</span>
+          )}
         </div>
-        {agencies.map(a => (
-          <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px" }}>
+        <div className="list-h" style={{ gridTemplateColumns: stripeStatus === "ready" ? "1.4fr 70px 80px 60px 60px 60px 70px" : "1.6fr 80px 80px 80px" }}>
+          <div>Agency</div><div>Plan</div><div>MRR</div>
+          {stripeStatus === "ready" && (<><div>Active</div><div>Trial</div><div>Past due</div></>)}
+          <div>Members</div>
+        </div>
+        {enriched.map(a => (
+          <div key={a.id} className="row" style={{ gridTemplateColumns: stripeStatus === "ready" ? "1.4fr 70px 80px 60px 60px 60px 70px" : "1.6fr 80px 80px 80px" }}>
             <div style={{ fontWeight: 500 }}>{a.name}{a.is_demo && <span className="chip" style={{ marginLeft: 6, fontSize: 9 }}>demo</span>}</div>
             <div><span className="chip">{a.plan}</span></div>
             <div className="tabular" style={{ color: "#00d4aa" }}>{fmtMoney(a.mrr_cents)}</div>
+            {stripeStatus === "ready" && (
+              <>
+                <div className="tabular">{a._stripe?.active ?? 0}</div>
+                <div className="tabular" style={{ color: "#888" }}>{a._stripe?.trialing ?? 0}</div>
+                <div className="tabular" style={{ color: (a._stripe?.past_due ?? 0) > 0 ? "#f87171" : "#555" }}>{a._stripe?.past_due ?? 0}</div>
+              </>
+            )}
             <div className="tabular">{a.member_count}</div>
           </div>
         ))}
       </div>
       <div style={{ marginTop: 10, padding: 8, fontSize: 10.5, color: "#555", lineHeight: 1.55 }}>
-        MRR sums local <code className="mono" style={{ fontSize: 10 }}>subscriptions.amount_cents</code> where status ∈ active/trialing. Live Stripe cross-customer roll-up tracked separately.
+        {stripeStatus === "ready"
+          ? `Live Stripe data via /api/stripe/admin · ${stripe?.sub_count || 0} subs fetched · ${stripe?.fetched_at ? new Date(stripe.fetched_at).toLocaleString() : ""}`
+          : "MRR sums local subscriptions.amount_cents where status ∈ active/trialing. Enable feature flag 'stripe_billing_admin' + set STRIPE_SECRET_KEY for live data."}
       </div>
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Audit subpage
+// Audit subpage — full audit log with CSV export + row-click drill + agency filter
 // ──────────────────────────────────────────────────────────────────────────
 function SubpageAudit() {
+  // Prefilter stash from HQ tile clicks. Read once on mount, then clear.
+  const prefilter = React.useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem("koino.platform.audit_prefilter");
+      if (raw) {
+        sessionStorage.removeItem("koino.platform.audit_prefilter");
+        return JSON.parse(raw);
+      }
+    } catch {}
+    return {};
+  }, []);
+
   const [rows, setRows]   = React.useState([]);
-  const [hours, setHours] = React.useState(24);
-  const [kind, setKind]   = React.useState("");
+  const [hours, setHours] = React.useState(prefilter.hours || 24);
+  const [kind, setKind]   = React.useState(prefilter.kind || "");
+  const [agency, setAgency] = React.useState(prefilter.agency_id || "");
+  const [agencies, setAgencies] = React.useState([]);
   const [err, setErr]     = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [exporting, setExporting] = React.useState(false);
+  const [detail, setDetail] = React.useState(null);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) { setLoading(false); return; }
     setLoading(true);
+    // platform_audit_recent doesn't take an agency arg (kept the older
+    // signature for back-compat); we filter client-side instead. The CSV
+    // export uses the agency-aware platform_audit_export RPC.
     const r = await safeRpc(sb, "platform_audit_recent", { p_limit: 500, p_hours: hours, p_kind: kind || null });
     if (r.error) setErr(r.error.message); else setErr(null);
-    setRows(Array.isArray(r.data) ? r.data : []);
+    const all = Array.isArray(r.data) ? r.data : [];
+    setRows(agency ? all.filter(x => x.agency_id === agency) : all);
     setLoading(false);
-  }, [hours, kind]);
+  }, [hours, kind, agency]);
   React.useEffect(() => { load(); }, [load]);
+
+  // Pull agencies list once so the filter dropdown has names.
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    safeRpc(sb, "platform_agencies_summary", { p_include_demo: true }).then(r => {
+      setAgencies(Array.isArray(r.data) ? r.data : []);
+    });
+  }, []);
 
   if (err && /forbidden|does not exist/i.test(err)) return <ForbiddenCard error={err}/>;
 
   const kinds = [...new Set(rows.map(r => r.kind).filter(Boolean))].sort();
+
+  const exportCsv = async () => {
+    setExporting(true);
+    const sb = window.getSupabase();
+    const r = await safeRpc(sb, "platform_audit_export", {
+      p_hours: hours, p_kind: kind || null, p_agency: agency || null, p_limit: 5000,
+    });
+    setExporting(false);
+    if (r.error || !Array.isArray(r.data)) {
+      window.toast && window.toast(`Export failed: ${r.error?.message || "no rows"}`, "error");
+      return;
+    }
+    // Build CSV. Quote every field; escape internal quotes by doubling.
+    const cols = ["when_ts", "agency", "kind", "target", "actor_email", "actor_role", "severity", "metadata_json"];
+    const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const csv = [cols.join(",")].concat(r.data.map(row => cols.map(c => esc(row[c])).join(","))).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `koino-audit-${stamp}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    window.toast && window.toast(`Exported ${r.data.length} rows`, "success");
+  };
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Global audit</div>
-          <div className="page-sub">{loading ? "loading…" : `${rows.length} events · last ${hours}h${kind ? ` · kind=${kind}` : ""}`}</div>
+          <div className="page-sub">
+            {loading ? "loading…" : `${rows.length} events · last ${hours}h`}
+            {kind && ` · kind=${kind}`}
+            {agency && ` · agency=${(agencies.find(a => a.id === agency)?.name) || agency.slice(0, 8)}`}
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <select className="text-input" value={hours} onChange={(e) => setHours(Number(e.target.value))} style={{ padding: "6px 10px" }}>
             <option value={1}>Last 1h</option><option value={6}>Last 6h</option><option value={24}>Last 24h</option>
             <option value={72}>Last 3d</option><option value={168}>Last 7d</option>
@@ -962,7 +1311,14 @@ function SubpageAudit() {
             <option value="">All kinds</option>
             {kinds.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
+          <select className="text-input" value={agency} onChange={(e) => setAgency(e.target.value)} style={{ padding: "6px 10px", maxWidth: 180 }}>
+            <option value="">All agencies</option>
+            {agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
           <button className="btn" onClick={load}><Icons.Sparkles size={10}/> Refresh</button>
+          <button className="btn" onClick={exportCsv} disabled={exporting} title="Download filtered set as CSV">
+            <Icons.ArrowUpRight size={10}/> {exporting ? "Exporting…" : "Export CSV"}
+          </button>
         </div>
       </div>
 
@@ -973,7 +1329,13 @@ function SubpageAudit() {
         {loading && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>Loading…</div>}
         {!loading && rows.length === 0 && <div style={{ padding: 22, textAlign: "center", color: "#888", fontSize: 11.5 }}>No audit rows in this window.</div>}
         {rows.map(a => (
-          <div key={a.id} className="row" style={{ gridTemplateColumns: "120px 1.1fr 1fr 1fr 100px 50px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          <div
+            key={a.id}
+            className="row"
+            style={{ gridTemplateColumns: "120px 1.1fr 1fr 1fr 100px 50px", fontFamily: "var(--font-mono)", fontSize: 11, cursor: "pointer" }}
+            onClick={() => setDetail(a)}
+            title="Click to inspect"
+          >
             <div style={{ color: "#888" }}>{new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
             <div style={{ fontWeight: 500, color: "#00d4aa" }}>{a.kind || a.action}</div>
             <div style={{ color: "#b4b4b4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${a.target || ""} ${a.agency_name || ""}`}>
@@ -985,6 +1347,58 @@ function SubpageAudit() {
           </div>
         ))}
       </div>
+
+      {detail && <AuditDetailModal row={detail} agencies={agencies} onClose={() => setDetail(null)} onFilterAgency={(id) => { setAgency(id); setDetail(null); }}/>}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// AuditDetailModal — full row inspect + drill actions
+// ──────────────────────────────────────────────────────────────────────────
+function AuditDetailModal({ row, agencies, onClose, onFilterAgency }) {
+  const a = row;
+  const actAs = async () => {
+    if (!a.agency_id) return;
+    const ag = agencies.find(x => x.id === a.agency_id);
+    const name = a.agency_name || ag?.name || a.agency_id.slice(0, 8);
+    const reason = `Drilled from audit row · ${a.kind || a.action}`;
+    await window.startSuperAdminActAs(a.agency_id, name, reason);
+    onClose();
+    window.toast && window.toast(`Acting as ${name}`, "warn");
+  };
+  return (
+    <div className="koino-platform">
+      <Shared.Modal title={`Audit event · ${a.kind || a.action}`} width={680} onClose={onClose}>
+        <div style={{ fontSize: 11.5, lineHeight: 1.85, fontFamily: "var(--font-mono)" }}>
+          <Row k="when"     v={new Date(a.created_at).toLocaleString()}/>
+          <Row k="kind"     v={<span style={{ color: "#00d4aa" }}>{a.kind || a.action || "—"}</span>}/>
+          <Row k="severity" v={<span style={{ color: sevColor(a.severity), textTransform: "uppercase" }}>{a.severity || "info"}</span>}/>
+          <Row k="agency"   v={a.agency_name || (a.agency_id ? a.agency_id.slice(0, 8) : "—")}/>
+          <Row k="target"   v={a.target || "—"}/>
+          <Row k="actor"    v={`${a.actor_email || ""} ${a.actor_user_id ? "· " + a.actor_user_id.slice(0, 8) : ""}`}/>
+          <Row k="role"     v={a.actor_role || "system"}/>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10.5, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, fontFamily: "var(--font-mono)" }}>Metadata</div>
+          <pre style={{ padding: 10, background: "#050505", border: "1px solid #1a1a1a", borderRadius: 8, fontSize: 11, color: "#b4b4b4", maxHeight: 260, overflow: "auto", margin: 0, fontFamily: "var(--font-mono)" }}>
+{JSON.stringify(a.metadata || {}, null, 2)}
+          </pre>
+        </div>
+        <div style={{ marginTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {a.agency_id && (
+            <>
+              <button className="btn btn-primary" onClick={actAs}>
+                <Icons.ArrowUpRight size={11}/> Act as this agency
+              </button>
+              <button className="btn" onClick={() => onFilterAgency(a.agency_id)}>
+                <Icons.Folder size={11}/> Filter to agency
+              </button>
+            </>
+          )}
+          <button className="btn btn-ghost" onClick={onClose} style={{ marginLeft: "auto" }}>Close</button>
+        </div>
+      </Shared.Modal>
     </div>
   );
 }
@@ -1246,6 +1660,10 @@ function PagePlatformAdmin({ subpage = "platform" }) {
     );
   }
 
+  // Drill helper — HQ tiles + blocker drills route here. Uses the global
+  // gotoPage if present (index.html router), otherwise no-op.
+  const navigate = (page) => { if (window.gotoPage) window.gotoPage(page); };
+
   let body;
   switch (subpage) {
     case "agencies": body = <SubpageAgencies onActAs={onActAs}/>; break;
@@ -1255,7 +1673,7 @@ function PagePlatformAdmin({ subpage = "platform" }) {
     case "flags":    body = <SubpageFlags/>; break;
     case "system":   body = <SubpageSystem/>; break;
     case "platform":
-    default:         body = <SubpageHQ onActAs={onActAs}/>; break;
+    default:         body = <SubpageHQ onActAs={onActAs} navigate={navigate}/>; break;
   }
   return <div className="koino-platform">{body}</div>;
 }
