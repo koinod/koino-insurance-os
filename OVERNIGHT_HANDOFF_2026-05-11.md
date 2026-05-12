@@ -5,6 +5,10 @@ Window: ~4-hour sovereign pass against the backend that landed today.
 Push: **NOT** pushed to remote — Ian to review locally then push.
 
 ```
+b2e399d chore(aep): archive AEP/Surge UI surface (backend preserved)       (P8)
+3136e73 feat(profile): Edit Profile entry point + role-gated licensing +
+         avatar preview                                                     (P7)
+660fe1d docs: add P6 to OVERNIGHT_HANDOFF — profile RPC wiring
 c5e4943 feat(profile): wire save_profile + get_my_profile RPCs              (P6)
 daf77b9 docs: OVERNIGHT_HANDOFF_2026-05-11 — sovereign pass 6 summary
 7970fea fix(session): maybeSingle() sweep + role-rank sync for landing       (P5)
@@ -14,7 +18,7 @@ daf77b9 docs: OVERNIGHT_HANDOFF_2026-05-11 — sovereign pass 6 summary
 370b9c2 fix(data): empty AppData by default, hardcoded seed only on demo skip (P1)
 ```
 
-7 commits. Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
+10 commits. Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
 
 ---
 
@@ -177,6 +181,88 @@ in `page-extras.jsx`.
 - Empty `role_agent_defaults` seed → friendly empty state.
 
 **Files touched**: `page-extras.jsx`, `index.html` (cache bump).
+
+---
+
+### P8 — `b2e399d` — Archive AEP / Surge UI surface
+
+Ian's call: strip the surge tag and archive the feature. Backend stays
+intact (1 row in `aep_periods`, 0 rows in `aep_assignments`) — only the
+visible UI surface gets removed so it can be lit back up without a data
+migration.
+
+**Changes**:
+
+- `index.html`:
+  - `TWEAK_DEFAULTS.aepMode` flipped from `true` → `false`. The key
+    stays in the shape so existing `localStorage` blobs with the old
+    `true` value silently fall through to "off" instead of needing
+    migration.
+  - The `<TweakToggle label="AEP surge mode" …>` row was removed from
+    the panel; a placeholder comment marks where to restore it.
+- `shared.jsx`:
+  - Topbar **"AEP SURGE · Day 14 / 54"** pill conditional ripped out.
+    The `aep` prop is still threaded through `Topbar` so re-enabling is
+    one-line.
+- `page-today.jsx`:
+  - `useAepContext` / `AepTitleChip` left in place — they only fire on
+    `aep === true`, which it now never is. Symmetric restore path; no
+    dead-code prune in this commit.
+- `README.md`:
+  - "AEP surge mode" removed from the Roles paragraph. New Note line
+    points at this section for context.
+
+**What still hydrates** (data layer, untouched):
+- `AppData.AEP_PERIODS` from `aep_periods` (global reference table)
+- `AppData.AEP_ASSIGNMENTS` from `aep_assignments` (agency-scoped)
+- Supabase migration `0002_fill_missing_domains.sql` lines 544-590
+  (table defs + seed row) — preserved as-is.
+
+**Restore recipe** (when AEP comes back):
+1. `index.html`: flip `TWEAK_DEFAULTS.aepMode` back to `true`, re-add
+   the `<TweakToggle label="AEP surge mode" …>` row in the Tweaks panel
+   block (the removed-toggle comment marks the spot).
+2. `shared.jsx`: restore the `{aep && (<div className="aep-pill">…</div>)}`
+   conditional in `Topbar`.
+3. Bump `?v=` cache busters on both files. Done.
+
+**Cache busters**: `shared.jsx?v=77`.
+
+---
+
+### P7 — `3136e73` — Edit Profile polish (entry + gating + preview + mobile)
+
+Layered on top of P6 (`c5e4943`):
+
+- **Prominent "Edit Profile" button** at the top of `PageSettings`
+  header. Visible from every tab + every role; styled `btn-primary`
+  when the profile tab is active so users can find their way back.
+- **Licensing panel role-gated**: hidden when the viewer's only
+  `agency_members` rows have `role = 'imo_owner'` (no producer license
+  to manage from this surface). Falls open by default if memberships
+  haven't loaded yet, so we never accidentally hide a section the user
+  needs on a slow load.
+- **`background_check_status` field added** to the Licensing panel
+  (select: pending / submitted / in_review / cleared / flagged /
+  expired). Wired through the same `save_profile` dirty-patch path.
+- **Live avatar preview**: if `avatar_url` is set and the image loads,
+  render `<img>` directly; on `onError` fall back to the initials block
+  from `Shared.Avatar`. Re-runs on `avatar_url` change so paste/edit
+  updates the preview instantly.
+- **Mobile responsive**: tagged the Identity / Licensing / Notification
+  / App-prefs grids with `.profile-grid-{2,3,4}` class names and added
+  a `@media (max-width: 720px)` rule in `styles.css` that collapses
+  them to single column. Fields stay legible on phones + small split-
+  screens.
+
+**Cache busters**: `styles.css?v=77`, `page-extras.jsx?v=82`.
+
+**Verify**:
+1. `/settings` → "Edit Profile" button visible top-right on every tab.
+2. Click it → profile tab active, button switches to primary style.
+3. Paste an avatar URL → preview updates as you type.
+4. Resize browser narrow → grids collapse to single column at < 720px.
+5. A user whose only membership is `imo_owner` → Licensing panel hidden.
 
 ---
 
