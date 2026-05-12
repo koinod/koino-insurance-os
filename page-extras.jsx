@@ -2500,7 +2500,14 @@ function PageBook() {
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
   const TABS = role === "owner"
-    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+    ? [
+        ["org","Organization"],["team","Team & invites"],
+        ["carriers","Carriers"],["products","Products"],
+        ["billing","Billing"],["integrations","Integrations"],["agents","Agents"],
+        ["api","API keys"],["routing","Routing rules"],["calling","Calling"],
+        ["notifications","Notifications"],["profile","Profile"],
+        ["compliance","Compliance"],["branding","Branding"],
+      ]
     : role === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
       : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
@@ -2553,9 +2560,12 @@ function PageSettings({ role = "owner" }) {
           {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
           {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
           {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner"}/> : null; })()}
+          {tab === "products"      && <SettingsProducts role={role}/>}
           {tab === "agents"        && <SettingsAgents role={role}/>}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
+          {tab === "compliance"    && <SettingsCompliance role={role}/>}
+          {tab === "branding"      && <SettingsBranding role={role}/>}
         </div>
       </div>
     </div>
@@ -3216,94 +3226,177 @@ function SettingsAgents({ role = "owner" }) {
 }
 
 function SettingsApi() {
+  // Live tenants get a clear "issuance endpoint not implemented" notice
+  // (no /api/keys/* yet) instead of a session-local fake key that pretends
+  // to authenticate. Demo agencies can still play with the throwaway key.
+  const isLive = !!(window.AppData && window.AppData.LIVE);
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
   const [revealed, setRevealed] = React.useState(false);
-  // Generate a deterministic-looking but session-local key. Real key issuance
-  // would call /api/keys/* — we surface a clear message when that endpoint
-  // doesn't exist rather than silently failing.
   const [key, setKey] = React.useState(() => {
     try {
       const stash = sessionStorage.getItem("repflow.api_key");
       if (stash) return stash;
     } catch {}
-    return "rfk_live_eyJhbGciOiJIUzI1NiJ9...QzfBn4xT2";
+    return "rfk_demo_" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
   });
   const newKey = () => {
-    const fresh = "rfk_live_" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+    if (isLive && !isDemo) {
+      window.toast && window.toast("API key issuance endpoint not yet wired (POST /api/keys/* TODO). For now use the agent install token from Settings -> Agents.", "warn");
+      return;
+    }
+    const fresh = "rfk_demo_" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
     setKey(fresh);
     setRevealed(true);
     try { sessionStorage.setItem("repflow.api_key", fresh); } catch {}
-    window.toast && window.toast("New API key generated · save it now, you won't see it again", "success");
+    window.toast && window.toast("Demo key generated (session-only, not persisted)", "success");
   };
   const rotate = () => {
     if (!confirm("Rotate the API key? Existing integrations will stop working until updated with the new value.")) return;
     newKey();
   };
+
+  // Webhooks: load from the public.webhook_endpoints table if it exists,
+  // empty state otherwise. The seed list with Atlas zapier / n8n URLs was
+  // misleading -- those aren't real endpoints.
+  const [hooks, setHooks] = React.useState(undefined);
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !isLive) { setHooks([]); return; }
+    sb.from("webhook_endpoints").select("*").order("created_at", { ascending: false }).then(({ data, error }) => {
+      // Table may not exist yet; treat unknown errors as empty state.
+      setHooks(error ? [] : (data || []));
+    });
+  }, [isLive]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0, marginBottom: 8 }}>API keys</h3>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginBottom: 12 }}>Use this key to push leads or pull pipeline state via REST. Never commit keys to source control.</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5 }}>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginBottom: 12 }}>
+          {isLive && !isDemo
+            ? <>API key issuance is not yet implemented for live tenants. Until <span className="mono">/api/keys/*</span> ships, use the per-host install token from <strong>Settings → Agents</strong> for agent-to-OS auth.</>
+            : "Demo key — session-only, never persisted. Use this to test the REST shape; live agencies will issue real keys here."}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5, opacity: isLive && !isDemo ? 0.5 : 1 }}>
           <span className="mono" style={{ flex: 1, color: "var(--text-secondary)" }}>{revealed ? key : key.slice(0, 12) + "•••••••••••••••••••"}</span>
-          <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)}>{revealed ? "Hide" : "Reveal"}</button>
-          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(key).then(() => window.toast && window.toast("API key copied to clipboard", "success"))}><Icons.Copy size={12}/> Copy</button>
+          <button className="btn btn-ghost" onClick={() => setRevealed(r => !r)} disabled={isLive && !isDemo}>{revealed ? "Hide" : "Reveal"}</button>
+          <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(key).then(() => window.toast && window.toast("Copied", "success"))} disabled={isLive && !isDemo}><Icons.Copy size={12}/> Copy</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="btn btn-primary" onClick={newKey}><Icons.Plus size={12}/> Create new key</button>
-          <button className="btn" onClick={rotate}>Rotate</button>
+          <button className="btn btn-primary" onClick={newKey}><Icons.Plus size={12}/> {isLive && !isDemo ? "Endpoint TODO" : "Create demo key"}</button>
+          <button className="btn" onClick={rotate} disabled={isLive && !isDemo}>Rotate</button>
         </div>
       </div>
+
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0, marginBottom: 8 }}>Webhooks</h3>
-        <div className="list" style={{ marginTop: 8 }}>
-          {[
-            { url: "https://atlas.zapier.com/leads",      events: "lead.new · lead.assigned",        last: "2m ago" },
-            { url: "https://atlas.n8n.io/issued",         events: "deal.issued",                       last: "14m ago" },
-            { url: "https://atlas.app.n8n.cloud/nigo",    events: "deal.nigo",                          last: "yesterday" },
-          ].map((w, i) => (
-            <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px" }}>
-              <div className="cell-truncate mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{w.url}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.events}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.last}</div>
-              <button className="btn btn-ghost">Edit</button>
+        {hooks === undefined && <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
+        {hooks && hooks.length === 0 && (
+          <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12.5, lineHeight: 1.55 }}>
+            No webhook endpoints configured. {isLive ? "When the webhook_endpoints table is seeded, your subscribers (Zapier / n8n / make.com) will appear here with last-fire timestamps." : "Demo mode — wire one up after going live."}
+          </div>
+        )}
+        {hooks && hooks.length > 0 && (
+          <div className="list" style={{ marginTop: 8 }}>
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px" }}>
+              <div>URL</div><div>Events</div><div>Last fire</div><div></div>
             </div>
-          ))}
-        </div>
+            {hooks.map(w => (
+              <div key={w.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 100px" }}>
+                <div className="cell-truncate mono" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{w.url}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{(w.events || []).join(" · ") || "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{w.last_fired_at ? new Date(w.last_fired_at).toLocaleString() : "never"}</div>
+                <button className="btn btn-ghost" onClick={() => window.toast && window.toast("Webhook editor not yet wired", "info")}>Edit</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function SettingsRouting() {
+  // Now talks to public.routing_rules (the same table the manager-side
+  // RoutingRulesModal in page-manager.jsx writes to). Was: local-state-only
+  // CRUD that vanished on every refresh and never reached Supabase.
   const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
-  const [rules, setRules] = React.useState(isDemo ? [
-    { id: 1, src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60 },
-    { id: 2, src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90 },
-    { id: 3, src: "Annuity",             route: "Certified producer",    weight: 100 },
-    { id: 4, src: "Spanish",             route: "Bilingual round-robin", weight: 50 },
-  ] : []);
-  const [editing, setEditing] = React.useState(null); // null = closed, {} = new, {id...} = edit existing
-  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50 });
+  const [rules, setRules] = React.useState(undefined);  // undefined = loading
+  const [editing, setEditing] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) {
+      // Demo offline: still surface the prototype seed so the demo
+      // tour shows something. Real agencies see empty + create CTA.
+      setRules(isDemo ? [
+        { id: "demo-1", src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60, active: true },
+        { id: "demo-2", src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90, active: true },
+        { id: "demo-3", src: "Annuity",             route: "Certified producer",    weight: 100, active: true },
+        { id: "demo-4", src: "Spanish",             route: "Bilingual round-robin", weight: 50, active: true },
+      ] : []);
+      return;
+    }
+    const { data, error } = await sb.from("routing_rules").select("*").order("created_at", { ascending: false });
+    if (error || !Array.isArray(data)) { setRules([]); return; }
+    setRules(data.map(r => ({
+      id: r.id,
+      src: r.source,
+      route: r.route_to,
+      weight: r.weight ?? 50,
+      active: r.active ?? true,
+    })));
+  }, [isDemo]);
+  React.useEffect(() => { load(); }, [load]);
+
+  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50, active: true });
   const editRule = (r) => setEditing({ ...r });
-  const deleteRule = (id) => {
-    setRules(rs => rs.filter(x => x.id !== id));
-    window.toast && window.toast("Rule removed", "success");
+  const deleteRule = async (id) => {
+    if (!confirm("Remove this routing rule?")) return;
+    try {
+      await AppData.mutate.routingRuleDelete(id);
+      setRules(rs => (rs || []).filter(x => x.id !== id));
+      window.toast && window.toast("Rule removed", "success");
+    } catch (e) {
+      window.toast && window.toast(`Delete failed: ${e?.message || e}`, "error");
+    }
   };
-  const saveRule = () => {
+  const toggleActive = async (rule) => {
+    const next = !rule.active;
+    setRules(rs => (rs || []).map(x => x.id === rule.id ? { ...x, active: next } : x));
+    try {
+      await AppData.mutate.routingRuleSave({ id: rule.id, source: rule.src, route_to: rule.route, weight: rule.weight, active: next });
+    } catch (e) {
+      // revert on failure
+      setRules(rs => (rs || []).map(x => x.id === rule.id ? { ...x, active: !next } : x));
+      window.toast && window.toast(`Toggle failed: ${e?.message || e}`, "error");
+    }
+  };
+  const saveRule = async () => {
     if (!editing.src.trim() || !editing.route.trim()) {
       window.toast && window.toast("Source and route are required", "error");
       return;
     }
-    if (editing.id == null) {
-      const nextId = rules.length === 0 ? 1 : Math.max(...rules.map(r => r.id || 0)) + 1;
-      setRules(rs => [...rs, { ...editing, id: nextId }]);
-      window.toast && window.toast("Rule added", "success");
-    } else {
-      setRules(rs => rs.map(x => x.id === editing.id ? editing : x));
-      window.toast && window.toast("Rule updated", "success");
-    }
-    setEditing(null);
+    setBusy(true);
+    try {
+      const payload = {
+        id: editing.id || undefined,
+        source: editing.src.trim(),
+        route_to: editing.route.trim(),
+        weight: editing.weight,
+        active: editing.active ?? true,
+      };
+      await AppData.mutate.routingRuleSave(payload);
+      window.toast && window.toast(editing.id ? "Rule updated" : "Rule added", "success");
+      setEditing(null);
+      await load();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
   };
+
+  const rulesList = rules || [];
   return (
     <div className="panel" style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -3750,6 +3843,437 @@ function SettingsProfile({ role }) {
           <button className="btn" onClick={() => window.signOut && window.signOut()}><Icons.X size={12}/> Sign out</button>
           <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>Ends your Supabase session and clears local state.</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settings -> Products  (owner CRUD over public.products)
+   ───────────────────────────────────────────────────────────────────────── */
+function SettingsProducts({ role = "owner" }) {
+  const canEdit = role === "owner" || role === "admin";
+  const [products, setProducts]   = React.useState(undefined);
+  const [carriers, setCarriers]   = React.useState([]);
+  const [editing, setEditing]     = React.useState(null);
+  const [busy, setBusy]           = React.useState(false);
+  const [err, setErr]             = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setProducts([]); return; }
+    try {
+      const [{ data: prods, error: pe }, { data: cars }] = await Promise.all([
+        sb.from("products").select("*").order("name"),
+        sb.from("carriers").select("id, name").order("name"),
+      ]);
+      if (pe) throw pe;
+      setProducts(prods || []);
+      setCarriers(cars || []);
+    } catch (e) {
+      setErr(String(e?.message || e));
+      setProducts([]);
+    }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const carrierName = (id) => carriers.find(c => c.id === id)?.name || id || "—";
+
+  const save = async () => {
+    if (!editing?.name?.trim()) { window.toast && window.toast("Name required", "warn"); return; }
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setBusy(true);
+    try {
+      const row = {
+        name: editing.name.trim(),
+        category: editing.category || null,
+        carrier_id: editing.carrier_id || null,
+        comp_pct: editing.comp_pct ? parseFloat(editing.comp_pct) : null,
+        comp_per_app_cents: editing.comp_per_app != null && editing.comp_per_app !== ""
+          ? Math.round(parseFloat(editing.comp_per_app) * 100)
+          : null,
+        is_active: editing.is_active !== false,
+      };
+      const { error } = editing.id
+        ? await sb.from("products").update(row).eq("id", editing.id)
+        : await sb.from("products").insert(row);
+      if (error) throw error;
+      window.toast && window.toast(`${editing.id ? "Updated" : "Added"} ${row.name}`, "success");
+      setEditing(null);
+      await load();
+      if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (p) => {
+    if (!confirm(`Remove "${p.name}"? Existing policies keep referencing it; it just stops appearing in pickers.`)) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("products").delete().eq("id", p.id);
+    if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast(`Removed ${p.name}`, "success");
+    await load();
+    if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+  };
+
+  const PRODUCT_CATEGORIES = ["Med Supp", "Med Adv", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital"];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Products</h3>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+              Master list of products you sell. Drives the deal-write product picker, comp grid on Carriers, and ROAS per-product attribution.
+            </div>
+          </div>
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => setEditing({ is_active: true })}>
+              <Icons.Plus size={11}/> Add product
+            </button>
+          )}
+        </div>
+        {products === undefined && (
+          <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading products…</div>
+        )}
+        {err && (
+          <div style={{ padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>{err}</div>
+        )}
+        {products && products.length === 0 && !err && (
+          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)" }}>
+            <Icons.Folder size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No products yet</div>
+            <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
+              Add the products your agency actively writes — Plan G, Final Expense, FIA, etc. — so reps can pick them and comp rolls up correctly.
+            </div>
+            {canEdit && (
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setEditing({ is_active: true })}>
+                <Icons.Plus size={11}/> Add your first product
+              </button>
+            )}
+          </div>
+        )}
+        {products && products.length > 0 && (
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 1.2fr 110px 80px 80px 70px" }}>
+              <div>Product</div><div>Carrier</div><div>Category</div>
+              <div className="tabular" style={{ textAlign: "right" }}>Comp %</div>
+              <div className="tabular" style={{ textAlign: "right" }}>$/app</div>
+              <div></div>
+            </div>
+            {products.map(p => (
+              <div key={p.id} className="row" style={{ gridTemplateColumns: "1.6fr 1.2fr 110px 80px 80px 70px", opacity: p.is_active === false ? 0.55 : 1 }}>
+                <div style={{ fontWeight: 500 }}>{p.name}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{carrierName(p.carrier_id)}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{p.category || "—"}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{p.comp_pct != null ? `${parseFloat(p.comp_pct).toFixed(0)}%` : "—"}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>{p.comp_per_app_cents ? `$${(p.comp_per_app_cents / 100).toFixed(0)}` : "—"}</div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  {canEdit && (
+                    <>
+                      <button className="icon-btn" title="Edit" onClick={() => setEditing({
+                        ...p,
+                        comp_per_app: p.comp_per_app_cents ? (p.comp_per_app_cents / 100).toString() : "",
+                      })}><Icons.Edit size={11}/></button>
+                      <button className="icon-btn" title="Remove" onClick={() => remove(p)}><Icons.X size={11}/></button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <Shared.Modal title={editing.id ? `Edit · ${editing.name}` : "Add product"} width={560} onClose={() => setEditing(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy || !editing.name?.trim()}>
+              <Icons.Check size={11}/> {busy ? "Saving…" : "Save product"}
+            </button>
+          </>
+        }>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Name">
+              <input className="text-input" value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Med Supp Plan G" autoFocus/>
+            </Shared.Field>
+            <Shared.Field label="Category">
+              <Shared.Select value={editing.category || ""} onChange={(v) => setEditing({ ...editing, category: v })} options={[{ v: "", l: "— Pick category —" }, ...PRODUCT_CATEGORIES.map(c => ({ v: c, l: c }))]}/>
+            </Shared.Field>
+            <Shared.Field label="Carrier">
+              <Shared.Select value={editing.carrier_id || ""} onChange={(v) => setEditing({ ...editing, carrier_id: v })} options={[{ v: "", l: "— Pick carrier —" }, ...carriers.map(c => ({ v: c.id, l: c.name }))]}/>
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select value={editing.is_active === false ? "inactive" : "active"} onChange={(v) => setEditing({ ...editing, is_active: v === "active" })} options={[{ v: "active", l: "Active" }, { v: "inactive", l: "Inactive (hidden from pickers)" }]}/>
+            </Shared.Field>
+            <Shared.Field label="Comp percentage (optional)" hint="% of first-year AP earned as commission">
+              <input className="text-input" type="number" step="1" min="0" max="200" value={editing.comp_pct || ""} onChange={(e) => setEditing({ ...editing, comp_pct: e.target.value })} placeholder="50"/>
+            </Shared.Field>
+            <Shared.Field label="Comp per app (optional, $)" hint="Flat $/app — use this OR percentage, not both">
+              <input className="text-input" type="number" step="0.01" min="0" value={editing.comp_per_app || ""} onChange={(e) => setEditing({ ...editing, comp_per_app: e.target.value })} placeholder="120"/>
+            </Shared.Field>
+          </div>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settings -> Compliance  (TPMO / SOA / DNC policy + scrubber tool)
+   ───────────────────────────────────────────────────────────────────────── */
+function SettingsCompliance({ role = "owner" }) {
+  const canEdit = role === "owner" || role === "admin";
+  const [prefs, setPrefs] = React.useState(() => {
+    const live = window.AppData?.ORG_SETTINGS || {};
+    return {
+      tpmo_enabled:        live.tpmo_enabled  ?? true,
+      tpmo_grace_seconds:  live.tpmo_grace_seconds ?? 8,
+      soa_required:         live.soa_required   ?? true,
+      dnc_block:            live.dnc_block      ?? true,
+      recording_retention_days: live.recording_retention_days ?? 390,  // 13 months
+    };
+  });
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    // Refresh from ORG_SETTINGS once it hydrates (might be empty on first render).
+    const refresh = () => {
+      const live = window.AppData?.ORG_SETTINGS || {};
+      setPrefs(p => ({
+        ...p,
+        tpmo_enabled:            live.tpmo_enabled         ?? p.tpmo_enabled,
+        tpmo_grace_seconds:      live.tpmo_grace_seconds   ?? p.tpmo_grace_seconds,
+        soa_required:            live.soa_required         ?? p.soa_required,
+        dnc_block:               live.dnc_block            ?? p.dnc_block,
+        recording_retention_days: live.recording_retention_days ?? p.recording_retention_days,
+      }));
+    };
+    window.addEventListener("data:hydrated", refresh);
+    return () => window.removeEventListener("data:hydrated", refresh);
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await AppData.mutate.orgSettingsSave(prefs);
+      window.toast && window.toast(`Compliance settings saved${AppData.LIVE ? "" : " (demo)"}`, "success");
+    } catch (_e) {} finally { setSaving(false); }
+  };
+
+  const toggle = (k) => setPrefs(p => ({ ...p, [k]: !p[k] }));
+
+  const Row = ({ k, l, sub, isToggle = true }) => (
+    <label style={{ display: "grid", gridTemplateColumns: "32px 1fr 100px", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
+      <span>
+        {isToggle && <input type="checkbox" checked={!!prefs[k]} onChange={() => canEdit && toggle(k)} disabled={!canEdit}/>}
+      </span>
+      <div>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 2 }}>{sub}</div>
+      </div>
+      <span style={{ textAlign: "right", color: prefs[k] ? "var(--accent-money)" : "var(--text-tertiary)", fontSize: 11.5 }}>
+        {prefs[k] ? "enabled" : "off"}
+      </span>
+    </label>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 4 }}>Compliance policy</h3>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 6 }}>
+          Hard rules the platform enforces on every call + every issued app. Owner-only edits.
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <Row k="tpmo_enabled"  l="TPMO disclaimer required on Med Adv / Med Supp calls"
+              sub="Auto-fires the CMS TPMO disclaimer within the grace window. Recording flags if missing."/>
+          <Row k="soa_required"  l="Scope of Appointment captured before quote"
+              sub="Blocks deal-write until SOA artifact is on file for Medicare-eligible leads."/>
+          <Row k="dnc_block"     l="Block dial when lead's number hits DNC"
+              sub="Federal + state DNC scrubbed at dial time. Override requires manager + reason."/>
+        </div>
+
+        <div className="divider"></div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Shared.Field label="TPMO grace window (seconds)">
+            <input className="text-input" type="number" min="3" max="20" value={prefs.tpmo_grace_seconds} onChange={(e) => canEdit && setPrefs(p => ({ ...p, tpmo_grace_seconds: Math.max(3, Math.min(20, +e.target.value || 8)) }))} disabled={!canEdit}/>
+          </Shared.Field>
+          <Shared.Field label="Recording retention (days)" hint="CMS requires 10 years = 3650; default 13 months = 390">
+            <input className="text-input" type="number" min="90" max="3650" value={prefs.recording_retention_days} onChange={(e) => canEdit && setPrefs(p => ({ ...p, recording_retention_days: Math.max(90, +e.target.value || 390) }))} disabled={!canEdit}/>
+          </Shared.Field>
+        </div>
+
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
+            <Icons.Check size={12}/> {saving ? "Saving…" : "Save compliance policy"}
+          </button>
+        )}
+      </div>
+
+      {/* Pre-call scrubber tool — embed the existing PageScrubbers from
+          page-ops-depth so the operator can test DNC / age / license / appt
+          without leaving Settings. */}
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Shield size={13}/>
+          <h3>Pre-call scrubber</h3>
+          <span className="meta">test a phone / age / zip against your scrub rules</span>
+        </div>
+        <div style={{ padding: 0 }}>
+          {window.PageScrubbers ? (() => { const P = window.PageScrubbers; return <P embedded/>; })()
+            : <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12 }}>Scrubber not loaded — refresh page.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settings -> Branding  (agency name + logo + accent color)
+
+   No new migration: stored in org_settings (jsonb key/value) so this ships
+   without a schema change. A future migration can add proper
+   agencies.brand_logo_url / agencies.brand_color columns when the design
+   system migrates fully.
+   ───────────────────────────────────────────────────────────────────────── */
+function SettingsBranding({ role = "owner" }) {
+  const canEdit = role === "owner" || role === "admin";
+  const [form, setForm] = React.useState(() => {
+    const live = window.AppData?.ORG_SETTINGS || {};
+    return {
+      brand_display_name: live.brand_display_name || "",
+      brand_tagline:      live.brand_tagline || "",
+      brand_color:        live.brand_color || "#00d4aa",
+      brand_logo_url:     live.brand_logo_url || "",
+    };
+  });
+  const [saving, setSaving] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+
+  React.useEffect(() => {
+    const refresh = () => {
+      const live = window.AppData?.ORG_SETTINGS || {};
+      setForm(f => ({
+        brand_display_name: live.brand_display_name || f.brand_display_name,
+        brand_tagline:      live.brand_tagline || f.brand_tagline,
+        brand_color:        live.brand_color || f.brand_color,
+        brand_logo_url:     live.brand_logo_url || f.brand_logo_url,
+      }));
+    };
+    window.addEventListener("data:hydrated", refresh);
+    return () => window.removeEventListener("data:hydrated", refresh);
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await AppData.mutate.orgSettingsSave(form);
+      window.toast && window.toast("Branding saved", "success");
+    } catch (_e) {} finally { setSaving(false); }
+  };
+
+  // Logo upload: pushes to Supabase storage bucket "agency-brand". The
+  // bucket needs RLS allowing owners to write their own agency's prefix;
+  // file ends up at <agency_id>/logo.<ext>. Surface a friendly toast on
+  // missing-bucket so the operator knows to provision it.
+  const onLogoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      window.toast && window.toast("Logo must be < 2MB", "warn");
+      return;
+    }
+    setUploading(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const aid = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (!sb || !aid) throw new Error("Not signed in to an agency");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `${aid}/logo.${ext}`;
+      const { error: upErr } = await sb.storage.from("agency-brand").upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: pub } = sb.storage.from("agency-brand").getPublicUrl(path);
+      const url = pub?.publicUrl;
+      if (!url) throw new Error("No public URL");
+      setForm(f => ({ ...f, brand_logo_url: url }));
+      window.toast && window.toast("Logo uploaded · save to apply", "success");
+    } catch (err) {
+      window.toast && window.toast(`Upload failed: ${err?.message || err}. Create a public bucket named "agency-brand" in Supabase storage first.`, "error");
+    } finally { setUploading(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: 0, marginBottom: 4 }}>Brand identity</h3>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 10 }}>
+          Display name + logo + accent color shown to producers + on outbound emails. Stored in <span className="mono">org_settings</span> until a brand-columns migration lands.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Shared.Field label="Display name" hint="Shown in the sidebar + top bar">
+            <input className="text-input" value={form.brand_display_name} onChange={(e) => canEdit && setForm({ ...form, brand_display_name: e.target.value })} placeholder="Atlas Insurance Group" disabled={!canEdit}/>
+          </Shared.Field>
+          <Shared.Field label="Tagline" hint="One-liner under the brand mark">
+            <input className="text-input" value={form.brand_tagline} onChange={(e) => canEdit && setForm({ ...form, brand_tagline: e.target.value })} placeholder="Senior coverage, fairly priced" disabled={!canEdit}/>
+          </Shared.Field>
+        </div>
+
+        <div className="divider"></div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 16, alignItems: "flex-start" }}>
+          <div>
+            <div className="field-l">Logo</div>
+            <div style={{
+              marginTop: 6, width: 160, height: 160, borderRadius: 12,
+              background: form.brand_logo_url ? `url(${form.brand_logo_url}) center/contain no-repeat var(--bg-raised)` : "var(--bg-raised)",
+              border: "1px solid var(--border-subtle)",
+              display: "grid", placeItems: "center", color: "var(--text-tertiary)", fontSize: 11,
+            }}>
+              {!form.brand_logo_url && <span>Drop a PNG · &lt; 2MB</span>}
+            </div>
+          </div>
+          <div>
+            {canEdit && (
+              <label className="btn" style={{ marginTop: 6 }}>
+                <Icons.Plus size={12}/> {uploading ? "Uploading…" : (form.brand_logo_url ? "Replace logo" : "Upload logo")}
+                <input type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={onLogoChange} style={{ display: "none" }}/>
+              </label>
+            )}
+            {form.brand_logo_url && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)" }}>
+                <span className="mono">{form.brand_logo_url}</span>
+                <button className="btn btn-ghost" style={{ marginLeft: 6, padding: "2px 8px", fontSize: 11 }} onClick={() => canEdit && setForm({ ...form, brand_logo_url: "" })} disabled={!canEdit}>Clear</button>
+              </div>
+            )}
+
+            <div className="divider"></div>
+
+            <Shared.Field label="Accent color" hint="Used for primary buttons, highlights, and pill chips">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="color" value={form.brand_color} onChange={(e) => canEdit && setForm({ ...form, brand_color: e.target.value })} disabled={!canEdit} style={{ width: 44, height: 32, border: "1px solid var(--border-subtle)", borderRadius: 6, background: "var(--bg-raised)" }}/>
+                <input className="text-input mono" style={{ width: 120 }} value={form.brand_color} onChange={(e) => canEdit && setForm({ ...form, brand_color: e.target.value })} disabled={!canEdit}/>
+                <div style={{ padding: "6px 14px", borderRadius: 8, background: form.brand_color, color: "#000", fontWeight: 600, fontSize: 12 }}>Preview</div>
+              </div>
+            </Shared.Field>
+          </div>
+        </div>
+
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginTop: 14 }} onClick={save} disabled={saving}>
+            <Icons.Check size={12}/> {saving ? "Saving…" : "Save branding"}
+          </button>
+        )}
+        {!canEdit && (
+          <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>Read-only — owners can edit.</div>
+        )}
       </div>
     </div>
   );

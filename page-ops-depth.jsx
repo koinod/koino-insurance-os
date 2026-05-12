@@ -427,7 +427,7 @@ function PageCarriers() {
 /* ──────────────────────────────────────────────────────────────────────────
    3. Compliance scrubbers — DNC, age verification, license check
    ────────────────────────────────────────────────────────────────────────── */
-function PageScrubbers() {
+function PageScrubbers({ embedded = false }) {
   const [phone, setPhone] = React.useState("");
   const [age, setAge]     = React.useState("");
   const [zip, setZip]     = React.useState("");
@@ -455,15 +455,8 @@ function PageScrubbers() {
     setResults(r);
   };
 
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Compliance scrubbers</div>
-          <div className="page-sub">DNC · age · license · carrier appointment — gates dialing on Med Supp & FE</div>
-        </div>
-      </div>
-
+  const body = (
+    <>
       <div className="rec-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 }}>
         <div className="panel">
           <div className="panel-h"><Icons.Shield size={13}/><h3>Pre-call scrub</h3></div>
@@ -493,16 +486,31 @@ function PageScrubbers() {
         </div>
       </div>
 
-      <div className="panel" style={{ marginTop: 14 }}>
-        <div className="panel-h"><h3>Auto-scrub policy · Med Supp + FE</h3></div>
-        <div style={{ padding: 14, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          • Every inbound number is scrubbed against state + federal DNC + Atlas internal opt-out before routing<br/>
-          • Producers cannot dial leads where DNC fails — gated at the dialer<br/>
-          • Producer license + carrier appointment validated against the lead's state in real time<br/>
-          • TPMO disclaimer auto-fires within 8 seconds of connect on any Med Supp call<br/>
-          • All scrub results logged with timestamp + producer ID for audit
+      {!embedded && (
+        <div className="panel" style={{ marginTop: 14 }}>
+          <div className="panel-h"><h3>Auto-scrub policy · Med Supp + FE</h3></div>
+          <div style={{ padding: 14, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            • Every inbound number is scrubbed against state + federal DNC + agency internal opt-out before routing<br/>
+            • Producers cannot dial leads where DNC fails — gated at the dialer<br/>
+            • Producer license + carrier appointment validated against the lead's state in real time<br/>
+            • TPMO disclaimer auto-fires within the grace window on any Med Supp / Med Adv call<br/>
+            • All scrub results logged with timestamp + producer ID for audit
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  if (embedded) return <div style={{ padding: 14 }}>{body}</div>;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Compliance scrubbers</div>
+          <div className="page-sub">DNC · age · license · carrier appointment — gates dialing on Med Supp & FE</div>
         </div>
       </div>
+      {body}
     </div>
   );
 }
