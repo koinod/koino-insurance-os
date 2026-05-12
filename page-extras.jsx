@@ -3770,23 +3770,34 @@ function SettingsResources({ role = "rep" }) {
  * rep's Resources tab. Reads + writes public.agency_scripts. */
 function SettingsTeamScripts({ canEdit }) {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows]     = React.useState([]);
+  const [rows,    setRows]    = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
   const [editing, setEditing] = React.useState(null); // null | {id?, title, kind, body, status}
-  const [busy, setBusy] = React.useState(false);
+  const [busy,    setBusy]    = React.useState(false);
+  const [statusFilter, setStatusFilter] = React.useState("active"); // active | all | archived
+  const [kindFilter,   setKindFilter]   = React.useState("all");
 
   const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
-      const { data } = await sb.from("agency_scripts")
+      const { data, error } = await sb.from("agency_scripts")
         .select("id, title, kind, body, status, updated_at")
-        .order("updated_at", { ascending: false }).limit(50);
+        .order("updated_at", { ascending: false }).limit(100);
+      if (error) throw error;
       setRows(Array.isArray(data) ? data : []);
-    } catch (_e) {}
-    finally { setLoading(false); }
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
   }, [sb]);
   React.useEffect(() => { refresh(); }, [refresh]);
+
+  const filtered = React.useMemo(() => rows.filter(r => {
+    if (statusFilter === "active"   && r.status === "archived") return false;
+    if (statusFilter === "archived" && r.status !== "archived") return false;
+    if (kindFilter !== "all" && (r.kind || "opener") !== kindFilter) return false;
+    return true;
+  }), [rows, statusFilter, kindFilter]);
 
   const save = async () => {
     if (!sb || !editing) return;
@@ -3816,19 +3827,33 @@ function SettingsTeamScripts({ canEdit }) {
   };
 
   if (loading) return <div className="ks-empty">Loading team scripts…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load team scripts: <span className="mono">{err}</span><div style={{ marginTop: 6 }}><button className="btn btn-ghost" onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button></div></div></div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div className="ks-section-label" style={{ padding: 0 }}>Team scripts</div>
-        <span className="chip">{rows.filter(r => r.status !== "archived").length} live</span>
+        <span className="chip">{rows.filter(r => r.status !== "archived").length} live · {rows.length} total</span>
+        <Shared.Select value={statusFilter} onChange={setStatusFilter} options={[
+          { v: "active",   l: "Active only" },
+          { v: "all",      l: "All statuses" },
+          { v: "archived", l: "Archived" },
+        ]}/>
+        <Shared.Select value={kindFilter} onChange={setKindFilter} options={[
+          { v: "all",       l: "All kinds" },
+          { v: "opener",    l: "Opener" },
+          { v: "rebuttal",  l: "Rebuttal" },
+          { v: "discovery", l: "Discovery" },
+          { v: "close",     l: "Close" },
+          { v: "voicemail", l: "Voicemail" },
+        ]}/>
         {canEdit && <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setEditing({ title: "", kind: "opener", body: "", status: "published" })}><Icons.Plus size={12}/> New script</button>}
       </div>
-      {rows.length === 0 ? (
-        <div className="ks-empty">No team scripts yet. {canEdit ? "Click New script to publish your first." : "Ask your manager to publish one."}</div>
+      {filtered.length === 0 ? (
+        <div className="ks-empty">{rows.length === 0 ? (canEdit ? "No team scripts yet. Click New script to publish your first." : "Ask your manager to publish one.") : "No scripts match the current filters."}</div>
       ) : (
         <div className="ks-grid-wide">
-          {rows.map(r => (
+          {filtered.map(r => (
             <div key={r.id} className="ks-tile">
               <div className="ks-tile-h">
                 <span style={{ fontSize: 12.5 }}>{r.title}</span>

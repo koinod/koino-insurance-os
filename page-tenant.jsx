@@ -272,6 +272,7 @@ function SettingsTeam() {
   const [role, setRole]         = React.useState("rep");
   const [emailHint, setEmailHint] = React.useState("");
   const [lastUrl, setLastUrl]   = React.useState(null);
+  const [busyUserId, setBusyUserId] = React.useState(null);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -312,6 +313,58 @@ function SettingsTeam() {
     setInvites(i.data || []);
   }, []);
   React.useEffect(() => { load(); }, [load]);
+
+  const changeRole = async (member, nextRole) => {
+    if (!agency || !member?.user_id) return;
+    if (nextRole === member.role) return;
+    if (!confirm(`Change ${member.user_id.slice(0,8)}… from ${member.role} to ${nextRole}?`)) return;
+    setBusyUserId(member.user_id);
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("agency_members")
+        .update({ role: nextRole })
+        .eq("agency_id", agency.id).eq("user_id", member.user_id);
+      if (error) throw error;
+      window.toast && window.toast(`Role updated to ${nextRole}`, "success");
+      await load();
+    } catch (e) {
+      window.toast && window.toast(`Role change failed: ${e?.message || e}`, "error");
+    } finally { setBusyUserId(null); }
+  };
+
+  const toggleActive = async (member) => {
+    if (!agency || !member?.user_id) return;
+    const next = !member.active;
+    if (!confirm(next ? `Reactivate this member?` : `Deactivate this member? They'll lose access until reactivated.`)) return;
+    setBusyUserId(member.user_id);
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("agency_members")
+        .update({ active: next })
+        .eq("agency_id", agency.id).eq("user_id", member.user_id);
+      if (error) throw error;
+      window.toast && window.toast(next ? "Member reactivated" : "Member deactivated", "success");
+      await load();
+    } catch (e) {
+      window.toast && window.toast(`Update failed: ${e?.message || e}`, "error");
+    } finally { setBusyUserId(null); }
+  };
+
+  const revokeInvite = async (token) => {
+    if (!agency) return;
+    if (!confirm("Revoke this invite link? Anyone holding it can no longer redeem.")) return;
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("agency_invites")
+        .update({ expires_at: new Date().toISOString() })
+        .eq("agency_id", agency.id).eq("token", token);
+      if (error) throw error;
+      window.toast && window.toast("Invite revoked", "success");
+      await load();
+    } catch (e) {
+      window.toast && window.toast(`Revoke failed: ${e?.message || e}`, "error");
+    }
+  };
 
   const create = async () => {
     if (!agency) return;
@@ -365,48 +418,73 @@ function SettingsTeam() {
           <button className="btn btn-primary" onClick={() => setCreateOpen(true)}><Icons.Plus size={11}/> Invite producer</button>
         </div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
-            <div>User</div><div>Role</div><div>Joined</div>
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 140px 110px 90px 110px" }}>
+            <div>User</div><div>Role</div><div>Joined</div><div>Active</div><div></div>
           </div>
           {members.map(m => {
-            // Resolve a friendly name from the linked reps row when available;
-            // fall back to a short user_id when the row hasn't been provisioned yet.
             const repRow = m.rep_id && (window.AppData?.REPS || []).find(r => r.id === m.rep_id);
             const label = repRow?.name || (m.user_id ? `user-${String(m.user_id).slice(0, 8)}` : "—");
+            const isBusy = busyUserId === m.user_id;
             return (
-              <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
+              <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 140px 110px 90px 110px", opacity: m.active === false ? 0.55 : 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <span style={{ fontWeight: 500 }}>{label}</span>
                   {!m.rep_id && <span className="chip" style={{ fontSize: 9.5, color: "var(--state-warning)" }}>profile pending</span>}
                 </div>
-                <div><span className="chip">{m.role}</span></div>
+                <div>
+                  <select
+                    value={m.role}
+                    disabled={isBusy}
+                    onChange={(e) => changeRole(m, e.target.value)}
+                    className="text-input"
+                    style={{ padding: "4px 6px", fontSize: 11.5 }}
+                  >
+                    <option value="rep">rep</option>
+                    <option value="manager">manager</option>
+                    <option value="owner">owner</option>
+                    <option value="imo_owner">imo_owner</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
                 <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</div>
+                <div>
+                  <span className={`chip ${m.active === false ? "chip-danger" : "chip-money"}`} style={{ fontSize: 10 }}>{m.active === false ? "off" : "on"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" onClick={() => toggleActive(m)} disabled={isBusy} style={{ fontSize: 10.5 }}>
+                    {isBusy ? "…" : (m.active === false ? "Reactivate" : "Deactivate")}
+                  </button>
+                </div>
               </div>
             );
           })}
-          {members.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No team members yet — invite your first producer.</div>}
+          {members.length === 0 && <div className="ks-empty" style={{ margin: 8 }}>No team members yet — invite your first producer.</div>}
         </div>
       </div>
 
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0, marginBottom: 8 }}>Pending invites</h3>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px" }}>
-            <div>Token</div><div>Role</div><div>Email hint</div><div>Expires</div><div>Status</div>
+          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px 80px" }}>
+            <div>Token</div><div>Role</div><div>Email hint</div><div>Expires</div><div>Status</div><div></div>
           </div>
           {invites.map(i => {
             const expired = new Date(i.expires_at) < new Date();
+            const revocable = !i.used_at && !expired;
             return (
-              <div key={i.token} className="row" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px" }}>
+              <div key={i.token} className="row" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px 80px" }}>
                 <div className="mono" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{i.token.slice(0, 16)}…</div>
                 <div><span className="chip">{i.role}</span></div>
                 <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{i.email_hint || "—"}</div>
                 <div style={{ fontSize: 11.5, color: expired ? "var(--state-danger)" : "var(--text-tertiary)" }}>{new Date(i.expires_at).toLocaleDateString()}</div>
                 <div><span className={`chip ${i.used_at ? "chip-money" : expired ? "chip-danger" : "chip-status"}`}>{i.used_at ? "joined" : expired ? "expired" : "pending"}</span></div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  {revocable && <button className="btn btn-ghost" onClick={() => revokeInvite(i.token)} style={{ fontSize: 10.5 }}>Revoke</button>}
+                </div>
               </div>
             );
           })}
-          {invites.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No invites yet.</div>}
+          {invites.length === 0 && <div className="ks-empty" style={{ margin: 8 }}>No invites yet.</div>}
         </div>
       </div>
 
@@ -418,7 +496,13 @@ function SettingsTeam() {
           </>
         }>
           <Shared.Field label="Role">
-            <Shared.Select value={role} onChange={setRole} options={[{ v: "rep", l: "Producer (Rep)" }, { v: "manager", l: "Manager" }]}/>
+            <Shared.Select value={role} onChange={setRole} options={[
+              { v: "rep",       l: "Producer (Rep)" },
+              { v: "manager",   l: "Manager" },
+              { v: "owner",     l: "Owner — agency-level" },
+              { v: "imo_owner", l: "IMO Owner — multi-agency" },
+              { v: "admin",     l: "Admin — cross-agency" },
+            ]}/>
           </Shared.Field>
           <Shared.Field label="Email hint (optional)" hint="Just a label so you remember who this was for">
             <input className="text-input" value={emailHint} onChange={(e) => setEmailHint(e.target.value)} placeholder="alice@atlasimo.com"/>
