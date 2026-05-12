@@ -137,6 +137,8 @@ function MScreenToday({ onNav }) {
 // ── Screen 2: Dial Queue ────────────────────────────────────────────────
 function MScreenQueue({ onNav, onCall, onLead }) {
   const QUEUE = AppData.QUEUE || [];
+  // Local filter state — replaces the static "All" chip that did nothing.
+  const [activeFilter, setActiveFilter] = useState("all");
   const counts = {
     all: QUEUE.length,
     hot: QUEUE.filter(q => q.elapsed < 30).length,
@@ -144,55 +146,103 @@ function MScreenQueue({ onNav, onCall, onLead }) {
     medSupp: QUEUE.filter(q => /med\s*supp/i.test(q.product || "")).length,
     fe: QUEUE.filter(q => /\bfe\b|final expense/i.test(q.product || "")).length,
   };
+  const filterChips = [
+    { k: "all",     l: "All",          n: counts.all },
+    { k: "hot",     l: "Hot · <30s",  n: counts.hot, c: "money" },
+    { k: "mid",     l: "30–60s",       n: counts.mid },
+    { k: "medSupp", l: "Med Supp",     n: counts.medSupp },
+    { k: "fe",      l: "FE",            n: counts.fe },
+  ];
+  const visible = QUEUE.filter(q => {
+    if (activeFilter === "all") return true;
+    if (activeFilter === "hot") return q.elapsed < 30;
+    if (activeFilter === "mid") return q.elapsed >= 30 && q.elapsed < 60;
+    if (activeFilter === "medSupp") return /med\s*supp/i.test(q.product || "");
+    if (activeFilter === "fe") return /\bfe\b|final expense/i.test(q.product || "");
+    return true;
+  });
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Dial Queue</div>
-          <div className="m-sub">{counts.all} lead{counts.all === 1 ? "" : "s"} · sorted by SLA</div>
+          <div className="m-sub">{visible.length} lead{visible.length === 1 ? "" : "s"}{activeFilter !== "all" ? " · filtered" : ""} · sorted by SLA</div>
         </div>
-        <button className="m-btn m-btn-pill" style={{ height: 32 }}>Filter</button>
+        <button
+          className="m-btn m-btn-pill"
+          style={{ height: 32 }}
+          onClick={() => setActiveFilter(activeFilter === "all" ? "hot" : "all")}
+          title="Toggle hot-only filter"
+        >{activeFilter === "all" ? "Filter" : "All"}</button>
       </div>
 
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6, overflowX: "auto" }}>
-        {[
-          { l: "All",          n: counts.all,     a: true },
-          { l: "Hot · <30s",  n: counts.hot,     c: "money" },
-          { l: "30–60s",       n: counts.mid },
-          { l: "Med Supp",     n: counts.medSupp },
-          { l: "FE",            n: counts.fe },
-        ].map((t, i) => (
-          <span key={i} className={`m-chip ${t.c || ""}`} style={{ height: 28, padding: "0 12px", fontSize: 12, fontWeight: t.a ? 600 : 500, background: t.a ? "var(--text-primary)" : undefined, color: t.a ? "var(--bg-base)" : undefined, borderColor: t.a ? "var(--text-primary)" : undefined }}>{t.l} <span style={{ opacity: 0.6, marginLeft: 4 }}>{t.n}</span></span>
-        ))}
+        {filterChips.map((t) => {
+          const active = activeFilter === t.k;
+          return (
+            <button
+              key={t.k}
+              onClick={() => setActiveFilter(t.k)}
+              className={`m-chip ${t.c || ""}`}
+              style={{
+                height: 28, padding: "0 12px", fontSize: 12,
+                fontWeight: active ? 700 : 500,
+                background: active ? "#00d4aa" : undefined,
+                color: active ? "#000" : undefined,
+                borderColor: active ? "#00d4aa" : undefined,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >{t.l} <span style={{ opacity: 0.7, marginLeft: 4 }}>{t.n}</span></button>
+          );
+        })}
       </div>
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
-        {QUEUE.length === 0 && (
+        {visible.length === 0 && (
           <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
             <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// queue · empty</span>
-            <span>No leads waiting.</span>
+            <span>{activeFilter === "all" ? "No leads waiting." : "No matches for this filter."}</span>
           </div>
         )}
-        {QUEUE.map((l, i) => {
-          const heatColor = l.elapsed < 30 ? "var(--accent-money)" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
+        {visible.map((l, i) => {
+          const heatColor = l.elapsed < 30 ? "#00d4aa" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
+          const hasPhone = !!l.phone;
           return (
-            <div key={l.id} className="m-card" style={{ padding: 12, marginBottom: 8, display: "flex", gap: 12, alignItems: "center" }} onClick={() => onLead && onLead(l)}>
+            <div key={l.id} className="m-card" style={{ padding: 12, marginBottom: 8, display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }} onClick={() => onLead && onLead(l)}>
               <div style={{ width: 6, alignSelf: "stretch", borderRadius: 3, background: heatColor }}></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <strong style={{ fontSize: 14.5, fontWeight: 500 }}>{l.lead}</strong>
-                  <span title="LeadiD verified" style={{ width: 14, height: 14, borderRadius: 999, background: "color-mix(in oklch, var(--accent-money) 20%, transparent)", color: "var(--accent-money)", fontSize: 9, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+                  <span title="LeadiD verified" style={{ width: 14, height: 14, borderRadius: 999, background: "rgba(0,212,170,0.20)", color: "#00d4aa", fontSize: 9, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✓</span>
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>{l.age} · {l.state} · {l.source}</div>
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <span className="m-chip">{l.product}</span>
-                  <span className="m-chip" style={{ color: l.score >= 90 ? "var(--accent-money)" : "var(--text-secondary)", borderColor: l.score >= 90 ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : undefined }}>Score {l.score}</span>
+                  <span className="m-chip" style={{ color: l.score >= 90 ? "#00d4aa" : "var(--text-secondary)", borderColor: l.score >= 90 ? "rgba(0,212,170,0.30)" : undefined }}>Score {l.score}</span>
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                 <span style={{ fontFamily: "var(--font-mono)", color: heatColor, fontWeight: 600, fontSize: 12 }}>{l.elapsed}s</span>
-                <button className="m-btn m-btn-pri" style={{ height: 36, width: 36, padding: 0, borderRadius: 999 }} onClick={(e) => { e.stopPropagation(); onCall && onCall(l); }}>
-                  <MIcon.Phone s={16} c="oklch(0.18 0.005 260)"/>
+                <button
+                  disabled={!hasPhone}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!hasPhone) { window.toast && window.toast(`No phone on file for ${l.lead}`, "warn"); return; }
+                    onCall && onCall(l);
+                  }}
+                  title={hasPhone ? `Call ${l.phone}` : "No phone on file"}
+                  style={{
+                    height: 36, width: 36, padding: 0, borderRadius: 999,
+                    background: hasPhone ? "#00d4aa" : "var(--bg-raised)",
+                    color: hasPhone ? "#000" : "var(--text-tertiary)",
+                    border: "none",
+                    cursor: hasPhone ? "pointer" : "not-allowed",
+                    display: "grid", placeItems: "center",
+                    boxShadow: hasPhone ? "0 4px 14px rgba(0,212,170,0.22)" : "none",
+                  }}
+                >
+                  <MIcon.Phone s={16} c={hasPhone ? "#000" : "currentColor"}/>
                 </button>
               </div>
             </div>
@@ -253,12 +303,38 @@ function MScreenCall({ lead, onEnd }) {
       <div className="m-coach" style={{ marginTop: 10 }}>
         <div className="m-coach-l"><MIcon.Sparkles/> AI suggests now</div>
         <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>
-          Open with daily-routine question. Cheryl mentioned 3 medications — pivot to <b>Plan G drug-free coverage gap</b>.
+          {lead?.lead
+            ? <>Open with daily-routine question. Pivot to <b>Plan G coverage gap</b> if they mention current meds.</>
+            : <>Open with daily-routine questions before pricing.</>}
         </div>
+        {/* Each suggestion is now a button that fires the matching action. */}
         <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-          <span className="m-chip">Show script</span>
-          <span className="m-chip">Send SOA</span>
-          <span className="m-chip">Quote $145/mo</span>
+          <button
+            className="m-chip"
+            style={{ cursor: "pointer", border: "1px solid var(--border-subtle)" }}
+            onClick={() => {
+              if (window.gotoPage) window.gotoPage("library");
+              else window.toast && window.toast("Open desktop · Library → scripts", "info");
+            }}
+          >Show script</button>
+          <button
+            className="m-chip"
+            style={{ cursor: "pointer", border: "1px solid var(--border-subtle)" }}
+            onClick={() => {
+              const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+              const agencyName = meIdent?.agency_name || "your agency";
+              if (lead && window.generateSOAPdf) window.generateSOAPdf(lead, agencyName);
+              else window.toast && window.toast("SOA generator unavailable", "warn");
+            }}
+          >Send SOA</button>
+          <button
+            className="m-chip"
+            style={{ cursor: "pointer", border: "1px solid var(--border-subtle)" }}
+            onClick={() => {
+              if (window.gotoPage) window.gotoPage("quote");
+              else window.toast && window.toast("Quote available on desktop", "info");
+            }}
+          >Open quote</button>
         </div>
       </div>
 
@@ -267,8 +343,16 @@ function MScreenCall({ lead, onEnd }) {
           {muted ? <MIcon.MicOff/> : <MIcon.Mic/>}
           <span>{muted ? "Muted" : "Mute"}</span>
         </button>
-        <button className="m-cab"><MIcon.Hash/><span>Keypad</span></button>
-        <button className="m-cab"><MIcon.Sparkles s={20}/><span>Rebut</span></button>
+        <button
+          className="m-cab"
+          onClick={() => window.toast && window.toast("DTMF keypad opens during a real call on the dialer overlay.", "info")}
+          title="Send DTMF tones during the live call"
+        ><MIcon.Hash/><span>Keypad</span></button>
+        <button
+          className="m-cab"
+          onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Suggest a rebuttal for ${name}'s most likely objection on ${lead?.product || "Med Supp"}`, context: "Mobile call · rebuttal" } }))}
+          title="Ask AI for a rebuttal"
+        ><MIcon.Sparkles s={20}/><span>Rebut</span></button>
       </div>
       <button className="m-cab danger" style={{ height: 56, marginTop: 4 }} onClick={onEnd}>End call</button>
     </div>
@@ -295,20 +379,47 @@ function MScreenLead({ lead, onBack, onCall }) {
     );
   }
   const l = lead;
+  const hasPhone = !!l.phone;
+  // Action wiring — was four buttons with no onClick. Now each routes
+  // through the same helpers the desktop LeadDetail uses.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const onSMS = () => {
+    if (!hasPhone) { window.toast && window.toast(`No phone on file for ${l.lead}`, "warn"); return; }
+    window.smsCompose && window.smsCompose(l, l.phone);
+  };
+  const onSOA = () => {
+    const agencyName = meIdent?.agency_name || "your agency";
+    if (window.generateSOAPdf) window.generateSOAPdf(l, agencyName);
+    else window.toast && window.toast("SOA generator unavailable", "warn");
+  };
+  const onNote = () => {
+    // Note capture isn't on mobile yet — bounce to desktop CRM with a hint.
+    window.toast && window.toast("Notes coming to mobile soon — log via desktop CRM for now.", "info");
+  };
+  // Derive a stable avatar color from the lead's name hash (was a static
+  // orange/yellow gradient that made every lead look like the same person).
+  const _hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
+  const _hue = _hash(l.lead || "") % 360;
+  const avatarBg = `linear-gradient(135deg, hsl(${_hue} 60% 55%), hsl(${(_hue + 30) % 360} 65% 45%))`;
   return (
     <div className="m-screen">
       <div className="m-header">
         <button className="m-btn m-btn-pill" style={{ height: 32 }} onClick={onBack}>← Queue</button>
         <div style={{ flex: 1 }}></div>
-        <button className="m-btn m-btn-pill" style={{ height: 32 }}>•••</button>
+        <button
+          className="m-btn m-btn-pill"
+          style={{ height: 32 }}
+          title="More actions"
+          onClick={onNote}
+        >•••</button>
       </div>
       <div className="m-scroll">
         <div className="m-detail-h">
-          <div className="m-avatar" style={{ background: "linear-gradient(135deg,#f7971e,#ffd200)" }}>{l.lead.split(" ").map(n => n[0]).slice(0,2).join("")}</div>
+          <div className="m-avatar" style={{ background: avatarBg }}>{l.lead.split(" ").map(n => n[0]).slice(0,2).join("")}</div>
           <div style={{ flex: 1 }}>
             <div className="m-detail-name">{l.lead}</div>
             <div className="m-detail-sub">{l.age} · {l.state} · {l.source}</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
               <span className="m-chip money">Score {l.score}</span>
               <span className="m-chip heat"><MIcon.Flame/> {l.elapsed}s</span>
               <span className="m-chip">{l.product}</span>
@@ -317,26 +428,107 @@ function MScreenLead({ lead, onBack, onCall }) {
         </div>
 
         <div className="m-act-row">
-          <button className="m-cab" data-active onClick={onCall}><MIcon.Phone s={20}/><span>Call</span></button>
-          <button className="m-cab"><MIcon.Sparkles s={18}/><span>SMS</span></button>
-          <button className="m-cab"><MIcon.Shield s={18}/><span>SOA</span></button>
-          <button className="m-cab"><MIcon.Plus s={20}/><span>Note</span></button>
+          <button className="m-cab" data-active={hasPhone} disabled={!hasPhone} onClick={onCall}><MIcon.Phone s={20}/><span>Call</span></button>
+          <button className="m-cab" disabled={!hasPhone} onClick={onSMS}><MIcon.Sparkles s={18}/><span>SMS</span></button>
+          <button className="m-cab" onClick={onSOA}><MIcon.Shield s={18}/><span>SOA</span></button>
+          <button className="m-cab" onClick={onNote}><MIcon.Plus s={20}/><span>Note</span></button>
         </div>
 
-        <div className="m-section-h"><span>Compliance</span><span className="m-chip money">Verified</span></div>
+        <div className="m-section-h"><span>Compliance</span>
+          <span className="m-chip" style={{ color: l.consent === "verified" ? "#00d4aa" : undefined }}>
+            {l.consent === "verified" ? "Verified" : (l.consent || "Pending")}
+          </span>
+        </div>
         <div className="m-card">
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 13 }}><span style={{ color: "var(--text-secondary)" }}>LeadiD</span><span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>9f8c-2a11…</span></div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 13 }}><span style={{ color: "var(--text-secondary)" }}>TrustedForm</span><span className="m-chip money">Captured</span></div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}><span style={{ color: "var(--text-secondary)" }}>SOA needed</span><span className="m-chip warn">Before quote</span></div>
+          {(() => {
+            // Was three hardcoded rows. Now derive from the lead row
+            // (which carries consent + product hint) + show "needs"
+            // states only when the stage hasn't passed the relevant gate.
+            const product = (l.product || "").toLowerCase();
+            const isMedSupp = product.includes("med") || product.includes("supp");
+            const leadIdShort = l.leadId || l.lead_id || l.id;
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 13 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>LeadiD</span>
+                  <span className="mono" style={{ fontSize: 11.5, color: l.consent === "verified" ? "var(--text-secondary)" : "var(--text-tertiary)" }}>
+                    {l.consent === "verified" ? (leadIdShort ? String(leadIdShort).slice(-9) : "captured") : "not captured"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 13 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>TrustedForm</span>
+                  <span className="m-chip" style={{ color: l.consent === "verified" ? "#00d4aa" : undefined }}>
+                    {l.consent === "verified" ? "Captured" : "Pending"}
+                  </span>
+                </div>
+                {isMedSupp && (
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
+                    <span style={{ color: "var(--text-secondary)" }}>SOA needed</span>
+                    <span className="m-chip warn">Before quote</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         <div className="m-section-h"><span>Activity</span></div>
         <div className="m-card">
-          <div className="m-tl-i"><div className="m-tl-d">14s ago</div><div className="m-tl-b"><b>Form filled</b><div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>FB ad · t65_v3 · Travis County</div></div></div>
-          <div className="m-tl-i"><div className="m-tl-d">— —</div><div className="m-tl-b" style={{ color: "var(--text-tertiary)" }}>No prior contact</div></div>
+          {(() => {
+            const touches = (AppData.TOUCHPOINTS || [])
+              .filter(t => t.leadId === l.id || t.lead_pipeline_id === l.id || t.leadId === l.leadId)
+              .slice(0, 4);
+            const fmtRel = (iso) => {
+              if (!iso) return "—";
+              const ms = Date.now() - new Date(iso).getTime();
+              const m = Math.round(ms / 60000);
+              if (m < 1) return "now";
+              if (m < 60) return `${m}m ago`;
+              const h = Math.round(m / 60);
+              if (h < 24) return `${h}h ago`;
+              return `${Math.round(h / 24)}d ago`;
+            };
+            if (touches.length > 0) {
+              return touches.map((t, i) => (
+                <div key={t.id || i} className="m-tl-i">
+                  <div className="m-tl-d">{fmtRel(t.occurredAt || t.occurred_at)}</div>
+                  <div className="m-tl-b"><b>{t.kind || "Touch"}</b>{(t.summary || t.body) && <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{t.summary || t.body}</div>}</div>
+                </div>
+              ));
+            }
+            // Fallback: derive a single row from the lead itself.
+            return (
+              <>
+                {l.source && (
+                  <div className="m-tl-i">
+                    <div className="m-tl-d">{l.elapsed != null ? `${l.elapsed}s ago` : "—"}</div>
+                    <div className="m-tl-b"><b>Form filled</b><div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{[l.source, l.state].filter(Boolean).join(" · ")}</div></div>
+                  </div>
+                )}
+                <div className="m-tl-i">
+                  <div className="m-tl-d">— —</div>
+                  <div className="m-tl-b" style={{ color: "var(--text-tertiary)" }}>No prior contact logged</div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
-        <button className="m-btn m-btn-pri m-btn-block" style={{ marginTop: 16 }} onClick={onCall}><MIcon.Phone s={16} c="oklch(0.18 0.005 260)"/> Call now</button>
+        <button
+          disabled={!hasPhone}
+          onClick={onCall}
+          style={{
+            marginTop: 16, width: "100%",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+            padding: "12px 16px",
+            background: hasPhone ? "#00d4aa" : "var(--bg-raised)",
+            color: hasPhone ? "#000" : "var(--text-tertiary)",
+            border: "none", borderRadius: 10,
+            fontWeight: 700, fontSize: 13,
+            cursor: hasPhone ? "pointer" : "not-allowed",
+            boxShadow: hasPhone ? "0 4px 14px rgba(0,212,170,0.22)" : "none",
+          }}
+        ><MIcon.Phone s={16} c={hasPhone ? "#000" : "currentColor"}/> {hasPhone ? "Call now" : "Add a phone first"}</button>
       </div>
     </div>
   );
@@ -345,12 +537,27 @@ function MScreenLead({ lead, onBack, onCall }) {
 // ── Screen 5: Leaderboard ───────────────────────────────────────────────
 function MScreenLeaderboard({ onNav }) {
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const ranked = [...(AppData.REPS || [])].sort((a, b) => (b.mtd || 0) - (a.mtd || 0));
+  const myRepId = meIdent?.rep_id;
+  const [boardTab, setBoardTab] = useState("agency");
+  const fullRanked = [...(AppData.REPS || [])].sort((a, b) => (b.mtd || 0) - (a.mtd || 0));
+  // Filter the ranked list by tab. "all" is identical to "agency" until
+  // cross-agency views ship; "personal" scopes to just the viewer plus the
+  // two reps immediately above/below for context.
+  const ranked = (() => {
+    if (boardTab === "personal" && myRepId) {
+      const myIdx = fullRanked.findIndex(r => r.id === myRepId);
+      if (myIdx < 0) return [];
+      const start = Math.max(0, myIdx - 1);
+      const end = Math.min(fullRanked.length, myIdx + 2);
+      return fullRanked.slice(start, end);
+    }
+    return fullRanked;
+  })();
   const monthLabel = new Date().toLocaleDateString("en-US", { month: "short" });
   const agencyName = meIdent?.agency_name || "Agency";
-  // Podium requires 3 reps; otherwise list everyone as a flat list.
-  const podium = ranked.length >= 3 ? [ranked[1], ranked[0], ranked[2]] : null;
-  const tail   = ranked.length >= 3 ? ranked.slice(3) : ranked;
+  // Podium requires 3 reps + agency tab; flat list otherwise.
+  const podium = boardTab === "agency" && ranked.length >= 3 ? [ranked[1], ranked[0], ranked[2]] : null;
+  const tail   = boardTab === "agency" && ranked.length >= 3 ? ranked.slice(3) : ranked;
   return (
     <div className="m-screen">
       <div className="m-header">
@@ -361,11 +568,40 @@ function MScreenLeaderboard({ onNav }) {
         <span className="m-chip">{monthLabel}</span>
       </div>
 
-      <div style={{ padding: "0 16px 8px", display: "flex", gap: 6 }}>
-        {["Agency", "All teams", "Personal"].map((t, i) => (
-          <span key={i} className="m-chip" style={{ height: 28, padding: "0 12px", fontSize: 12, fontWeight: i === 0 ? 600 : 500, background: i === 0 ? "var(--text-primary)" : undefined, color: i === 0 ? "var(--bg-base)" : undefined, borderColor: i === 0 ? "var(--text-primary)" : undefined }}>{t}</span>
-        ))}
-      </div>
+      {(() => {
+        // Tabs were three static chips. Now: scope the ranked list to
+        // "Agency" (all reps), "Personal" (only me, with a delta header),
+        // and "All teams" stays as a placeholder labelled "All" until
+        // cross-agency views ship — at which point this can read from
+        // a future v_cross_agency_leaderboard view.
+        const tabs = [
+          { k: "agency",   l: "Agency" },
+          { k: "all",      l: "All teams" },
+          { k: "personal", l: "Personal" },
+        ];
+        return (
+          <div style={{ padding: "0 16px 8px", display: "flex", gap: 6 }}>
+            {tabs.map((t) => {
+              const active = boardTab === t.k;
+              return (
+                <button
+                  key={t.k}
+                  onClick={() => setBoardTab(t.k)}
+                  className="m-chip"
+                  style={{
+                    height: 28, padding: "0 12px", fontSize: 12,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? "#00d4aa" : undefined,
+                    color: active ? "#000" : undefined,
+                    borderColor: active ? "#00d4aa" : undefined,
+                    cursor: "pointer",
+                  }}
+                >{t.l}</button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
         {ranked.length === 0 && (
@@ -393,20 +629,36 @@ function MScreenLeaderboard({ onNav }) {
         )}
 
         {(() => {
+          // In "personal" tab the rank index in tail is local; map back to
+          // the rep's full-board position so the rep sees their TRUE rank.
+          const tierColor = (t) => ({ gold: "#D9A441", silver: "#C0C0C8", bronze: "#A97142", platinum: "#E5E4E2", diamond: "#B9F2FF" }[t]);
           const startRank = podium ? 4 : 1;
           return tail.map((r, i) => {
-            const tierColor = { gold: "#D9A441", silver: "#C0C0C8", bronze: "#A97142", platinum: "#E5E4E2", diamond: "#B9F2FF" }[r.tier];
+            const isMe = r.id === myRepId;
+            const rank = boardTab === "personal"
+              ? (fullRanked.findIndex(x => x.id === r.id) + 1)
+              : (i + startRank);
             return (
-              <div key={r.id} className="m-rank">
-                <div className="m-rank-n">{i + startRank}</div>
+              <div
+                key={r.id}
+                className="m-rank"
+                style={{
+                  background: isMe ? "rgba(0,212,170,0.08)" : undefined,
+                  borderLeft: isMe ? "3px solid #00d4aa" : "3px solid transparent",
+                }}
+              >
+                <div className="m-rank-n" style={{ color: isMe ? "#00d4aa" : undefined }}>{rank}</div>
                 <div className="m-rank-av" style={{ background: r.color }}>{r.name.split(" ").map(n => n[0]).join("")}</div>
                 <div className="m-rank-b">
-                  <div className="m-rank-name">{r.name}</div>
+                  <div className="m-rank-name">
+                    {r.name}
+                    {isMe && <span style={{ marginLeft: 6, fontSize: 10, color: "#00d4aa", fontFamily: "JetBrains Mono, monospace", letterSpacing: "0.06em" }}>YOU</span>}
+                  </div>
                   <div className="m-rank-meta">{r.dials || 0} dials · {r.appts || 0} appts · 🔥 {r.streak || 0}d</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div className="m-rank-v">${((r.mtd || 0) / 1000).toFixed(1)}k</div>
-                  <span className="m-tier" style={{ background: `color-mix(in oklch, ${tierColor} 30%, transparent)`, color: tierColor }}>{(r.tier || "").toUpperCase()}</span>
+                  <span className="m-tier" style={{ background: `color-mix(in oklch, ${tierColor(r.tier) || "#888"} 30%, transparent)`, color: tierColor(r.tier) || "#888" }}>{(r.tier || "").toUpperCase()}</span>
                 </div>
               </div>
             );
@@ -513,7 +765,16 @@ function MScreenComm({ onNav }) {
           <div className="m-title" style={{ fontSize: 24 }}>Commissions</div>
           <div className="m-sub">{monthLabel} · paid weekly</div>
         </div>
-        <button className="m-btn m-btn-pill" style={{ height: 32 }}>Statement</button>
+        <button
+          className="m-btn m-btn-pill"
+          style={{ height: 32 }}
+          onClick={() => {
+            // Wire to /commissions on desktop. Mobile statement export
+            // ships when commission CSV download endpoint is in place.
+            if (window.gotoPage) window.gotoPage("commissions");
+            else window.toast && window.toast("Statement available on desktop · /commissions", "info");
+          }}
+        >Statement</button>
       </div>
 
       <div className="m-scroll">
