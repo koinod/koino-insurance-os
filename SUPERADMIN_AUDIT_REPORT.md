@@ -270,21 +270,49 @@ Subscribes to `admin:impersonate` events for reactive start/stop.
 
 ---
 
-## (C) UI — Dense terminal-feel KOINO DS dark+amber
+## (C) UI — koino.capital DS (mint-green + deep black, denser cards)
 
-The repo already runs a dark-amber palette (`--accent-money` =
-amber/oklch gold, `--bg-base` near-black, `--font-mono` JetBrains).
-Platform admin reuses these tokens 100%. No new globals.
+The platform-admin surface mirrors the koino.capital storefront DS
+(`KOINO/ventures/products/storefront-static/`) — NOT the Repflow app's
+amber terminal DS. Tokens lifted directly from the storefront's
+`:root`:
 
-Density choices:
-- `gridTemplateColumns` tightened to 12-column terminal rhythm.
-- Every panel renders mono-width counters (`font-feature-settings:
-  "tnum"` is the existing `tabular` class).
-- The HQ hero strip uses `fontFamily: 'var(--font-mono)'` for the
-  values to lock columns when they grow.
-- Audit log uses 11px mono + amber chip for actor_role, danger chip for
-  `kind=*_failed`.
-- Sparkline reuses existing `Shared.Sparkline`.
+| Token              | Value          | Use                                |
+|--------------------|----------------|------------------------------------|
+| `--accent-money`   | `#00d4aa`      | primary mint-green (CTAs, success) |
+| `--accent-status`  | `#7c3aed`      | secondary purple                   |
+| `--accent-heat`    | `#f59e0b`      | warning / impersonation amber      |
+| `--bg-base`        | `#050505`      | deepest surface                    |
+| `--bg-raised`      | `#0d0d0d`      | card body                          |
+| `--bg-elevated`    | `#151515`      | chip / hover                       |
+| `--border-subtle`  | `#1a1a1a`      | default border                     |
+| `--border-strong`  | `#2a2a2a`      | hover border                       |
+| `--text-primary`   | `#e8e8e8`      | body text                          |
+| `--text-tertiary`  | `#888`         | meta text                          |
+| `--font-stack`     | Inter          | body                               |
+| `--font-mono`      | JetBrains Mono | numbers, code                      |
+
+These are scoped to a `.koino-platform` wrapper so they don't bleed into
+the rest of the Repflow app. Repflow's amber DS (`--accent-money` →
+amber/oklch gold) is **untouched** for every other surface.
+
+Density choices vs. the storefront's defaults:
+- Card padding: storefront uses 32-40px; platform admin uses **10-14px**
+  to pack more rows-per-screen for an operator surface.
+- Border radii: **10-12px** on panels, 8px on buttons, 100px on chips
+  (matches the rounded soft look without going full pill on tables).
+- Grid gaps: **8-12px** (tight). Six-card hero strip lives in
+  `grid-template-columns: repeat(6, 1fr)`, gap 8.
+- Hover: subtle `translateY(-1px)` lift on cards + metrics (matches the
+  storefront's `.btn-p:hover{transform:translateY(-1px)}`); no
+  amber-glow corners.
+- Numbers in `--font-mono` with `font-feature-settings: 'tnum'` so
+  columns lock as MRR / counts grow.
+- Audit log row height ~28px (was ~36px in the amber DS).
+- Impersonation banner uses `--accent-heat` (amber) with a pulsing dot
+  — same colour Repflow already uses for "warn" status, but presented
+  as a soft gradient (`linear-gradient(90deg, rgba(245,158,11,0.12),
+  rgba(245,158,11,0.04))`) rather than a hard fill.
 
 ---
 

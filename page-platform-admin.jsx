@@ -4,31 +4,310 @@
    Subpages: hq · agencies · users · billing · audit · flags · system
 
    The whole surface is gated on window.isSuperAdmin() OR role==='admin'.
-   Anyone else hitting these routes via the sidebar shouldn't be in nav, but
-   defense-in-depth check at mount.
+   Defense-in-depth check at mount. Cross-tenant fetches go through the
+   security-definer RPCs in migration 0019; non-super callers get
+   'forbidden' from the RPC body, which renders the ForbiddenCard.
 
-   Talks to the cross-tenant RPCs in migration 0019:
-     - platform_hq_kpis()
-     - platform_agencies_summary(p_include_demo)
-     - platform_users_summary(p_limit, p_offset)
-     - platform_audit_recent(p_limit, p_kind, p_hours)
-     - platform_set_global_flag(name, value)
-     - platform_set_agency_flag(agency, name, value)
-     - platform_seed_super_admin(email, notes)
-     - platform_revoke_super_admin(email)
-     - super_admin_act_as_start(target, reason)
-     - super_admin_act_as_stop(target)
+   ── styling — KOINO.CAPITAL DESIGN SYSTEM ──
+   Mirrors the storefront at koino.capital (KOINO/ventures/products/
+   storefront-static). Deep-black surfaces (#050505 / #0d0d0d / #151515),
+   mint-green primary (#00d4aa), purple secondary (#7c3aed), Inter sans
+   + JetBrains Mono. Border radii 10–14px (was 6px in Repflow's amber DS).
+   Subtle hover-lift (translateY(-1px)) instead of the terminal app's
+   accent-glow.
 
-   All four definers raise 'forbidden' if is_super_admin() is false, so we
-   don't have to thread a service-role key from the browser.
+   We don't fight the Repflow CSS — we scope a `.koino-platform` wrapper
+   that re-points `--accent-money` to mint-green and bumps card radii.
+   Components keep using `var(--accent-money)`, they just resolve to a
+   different colour inside this surface.
 
-   ── styling ──
-   Reuses existing tokens — --bg-base, --bg-raised, --bg-elevated, --bg-overlay,
-   --text-*, --accent-money (amber), --accent-status, --accent-heat,
-   --state-warning, --state-danger, --border-subtle. Tight terminal layout
-   (mono numbers, 11–12px chrome). No new globals. */
+   Cards: 10–14px padding (down from Repflow's 12–18px), 10–12px gap,
+   tighter grid columns. Numbers in mono. Soft hover lift. */
 
 (function () {
+
+// ──────────────────────────────────────────────────────────────────────────
+// Inject scoped styles once. We deliberately don't touch styles.css so this
+// change is self-contained — if the DS pivots again, this block is the only
+// edit needed.
+// ──────────────────────────────────────────────────────────────────────────
+(function injectKoinoStyles() {
+  if (document.getElementById("koino-platform-style")) return;
+  const css = `
+.koino-platform {
+  /* Override Repflow tokens within this scope. Mint-green replaces amber. */
+  --accent-money:      #00d4aa;
+  --accent-money-glow: rgba(0,212,170,0.18);
+  --accent-money-dim:  rgba(0,212,170,0.08);
+  --accent-status:     #7c3aed;
+  --accent-status-glow:rgba(124,58,237,0.18);
+  --accent-heat:       #f59e0b;
+  --bg-base:           #050505;
+  --bg-raised:         #0d0d0d;
+  --bg-elevated:       #151515;
+  --bg-overlay:        #1a1a1a;
+  --border-subtle:     #1a1a1a;
+  --border-strong:     #2a2a2a;
+  --text-primary:      #e8e8e8;
+  --text-secondary:    #b4b4b4;
+  --text-tertiary:     #888888;
+  --text-quaternary:   #555555;
+  --state-warning:     #f59e0b;
+  --state-danger:      #f87171;
+  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-stack);
+  letter-spacing: -0.005em;
+}
+
+/* Card primitive. The Repflow `.panel` class still applies; we extend it
+   inside the scope with rounded corners + soft hover. */
+.koino-platform .panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.koino-platform .panel:hover { border-color: var(--border-strong); }
+
+.koino-platform .panel-h {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.koino-platform .panel-h h3 {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+.koino-platform .panel-h .meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* Row primitive — tighter than Repflow default */
+.koino-platform .row {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.koino-platform .row:hover { background: var(--bg-elevated); }
+.koino-platform .row:last-child { border-bottom: none; }
+
+.koino-platform .list-h {
+  padding: 8px 14px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+}
+
+/* Chip — softer, rounded */
+.koino-platform .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 100px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.koino-platform .chip-money,
+.koino-platform .chip.chip-money {
+  background: var(--accent-money-dim);
+  border-color: var(--accent-money-glow);
+  color: var(--accent-money);
+}
+
+/* Buttons — match storefront btn-p / btn-s */
+.koino-platform .btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.koino-platform .btn:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-overlay);
+}
+.koino-platform .btn-primary {
+  background: var(--accent-money);
+  color: #000;
+  border-color: var(--accent-money);
+  font-weight: 600;
+}
+.koino-platform .btn-primary:hover {
+  background: var(--accent-money);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-money-glow);
+}
+.koino-platform .btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.koino-platform .btn-ghost:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* Inputs */
+.koino-platform .text-input {
+  padding: 7px 11px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-stack);
+  color: var(--text-primary);
+  transition: border-color 0.15s;
+}
+.koino-platform .text-input:focus {
+  outline: none;
+  border-color: var(--accent-money);
+}
+
+/* Page header — denser than Repflow's */
+.koino-platform .page-pad { padding: 18px 22px 32px; }
+.koino-platform .page-h {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.koino-platform .page-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.koino-platform .page-sub {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+}
+
+/* Metric tile — the HQ hero strip */
+.koino-platform .ko-metric {
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.koino-platform .ko-metric:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.koino-platform .ko-metric .lbl {
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+}
+.koino-platform .ko-metric .val {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.01em;
+}
+
+/* Tabular numbers helper */
+.koino-platform .tabular {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum';
+}
+
+/* Mono helper */
+.koino-platform .mono { font-family: var(--font-mono); }
+
+/* Impersonation banner — sticky, top-of-main */
+.koino-impersonation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  background: linear-gradient(90deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04));
+  border-bottom: 1px solid rgba(245,158,11,0.35);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.koino-impersonation .pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 0 rgba(245,158,11,0.6);
+  animation: koino-pulse 1.6s infinite;
+}
+@keyframes koino-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(245,158,11,0); }
+  100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+}
+.koino-impersonation .stop-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.4);
+  color: #f59e0b;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.koino-impersonation .stop-btn:hover { background: rgba(245,158,11,0.2); }
+
+/* Severity dot */
+.koino-platform .sev {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block;
+}
+`;
+  const style = document.createElement("style");
+  style.id = "koino-platform-style";
+  style.textContent = css;
+  document.head.appendChild(style);
+})();
 
 // ──────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -55,6 +334,19 @@ const safeRpc = async (sb, fn, args) => {
   }
 };
 
+const sevColor = (s) =>
+  s === "danger"  ? "#f87171" :
+  s === "warn"    ? "#f59e0b" :
+  s === "success" ? "#00d4aa" :
+  "#888";
+
+const toneColor = (t) =>
+  t === "money"  ? "#00d4aa" :
+  t === "status" ? "#7c3aed" :
+  t === "warn"   ? "#f59e0b" :
+  t === "danger" ? "#f87171" :
+  "#e8e8e8";
+
 // ──────────────────────────────────────────────────────────────────────────
 // ImpersonationBanner — global sticky banner mounted by index.html above topbar
 // ──────────────────────────────────────────────────────────────────────────
@@ -80,24 +372,124 @@ function ImpersonationBanner() {
   if (!target) return null;
   const stop = () => { window.stopSuperAdminActAs && window.stopSuperAdminActAs(); };
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 10,
-      padding: "8px 16px", borderBottom: "1px solid color-mix(in oklch, var(--state-warning) 40%, transparent)",
-      background: "color-mix(in oklch, var(--state-warning) 12%, var(--bg-base))",
-      fontSize: 12, color: "var(--text-primary)", position: "sticky", top: 0, zIndex: 40,
-      fontFamily: "var(--font-mono, ui-monospace)",
-    }}>
-      <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--state-warning)", boxShadow: "0 0 8px var(--state-warning)" }}/>
-      <strong style={{ color: "var(--state-warning)", letterSpacing: 0.3 }}>ACTING AS</strong>
-      <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{target.agency_name}</span>
-      <span style={{ color: "var(--text-tertiary)" }}>· every write attributed to your user_id, scoped to this agency</span>
-      <button onClick={stop} className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11, padding: "3px 10px", color: "var(--state-warning)", borderColor: "color-mix(in oklch, var(--state-warning) 40%, transparent)" }}>
-        Stop impersonating
-      </button>
+    <div className="koino-impersonation">
+      <span className="pulse"/>
+      <strong style={{ color: "#f59e0b", letterSpacing: 0.4 }}>ACTING AS</strong>
+      <span style={{ color: "#e8e8e8", fontWeight: 600, fontFamily: "Inter, sans-serif" }}>{target.agency_name}</span>
+      <span style={{ color: "#888" }}>· writes attributed to your user_id, scoped to this agency</span>
+      <button className="stop-btn" onClick={stop}>Stop impersonating</button>
     </div>
   );
 }
 window.ImpersonationBanner = ImpersonationBanner;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Reusable atoms (all use scoped tokens — only render inside .koino-platform)
+// ──────────────────────────────────────────────────────────────────────────
+function KoMetric({ label, value, tone }) {
+  return (
+    <div className="ko-metric">
+      <div className="lbl">{label}</div>
+      <div className="val" style={{ color: toneColor(tone) }}>{value}</div>
+    </div>
+  );
+}
+
+function ForbiddenCard({ error }) {
+  return (
+    <div className="page-pad">
+      <div className="panel" style={{ padding: 22, border: "1px solid rgba(248,113,113,0.35)" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171", letterSpacing: -0.01 }}>Platform admin · forbidden</div>
+        <div style={{ marginTop: 8, fontSize: 12.5, color: "#b4b4b4", lineHeight: 1.6 }}>
+          The cross-tenant RPC returned an error. You're either not on the
+          <code className="mono" style={{ marginLeft: 4, background: "#0d0d0d", padding: "1px 6px", borderRadius: 4, fontSize: 11 }}>koino_super_admins</code> allowlist,
+          or migration <code className="mono" style={{ fontSize: 11 }}>0019_super_admin_platform.sql</code> hasn't been applied.
+        </div>
+        <pre style={{ marginTop: 10, padding: 10, background: "#050505", borderRadius: 8, fontSize: 11, color: "#888", whiteSpace: "pre-wrap", overflowX: "auto", border: "1px solid #1a1a1a" }}>
+{String(error || "")}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function AuditRow({ a, compact }) {
+  return (
+    <div className="row" style={{ gridTemplateColumns: compact ? "92px 1.1fr 1fr 80px 18px" : "120px 1.1fr 1fr 90px 70px", fontSize: 11.5, fontFamily: "var(--font-mono)" }}>
+      <div style={{ color: "var(--text-tertiary)" }}>
+        {new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+      </div>
+      <div style={{ fontWeight: 500, color: "var(--accent-money)" }}>{a.kind || a.action}</div>
+      <div style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {a.target || "—"}{a.agency_name ? ` · ${a.agency_name}` : ""}
+      </div>
+      <div><span className="chip">{a.actor_role || "system"}</span></div>
+      <div><span className="sev" style={{ background: sevColor(a.severity) }}/></div>
+    </div>
+  );
+}
+
+function CapabilityRail() {
+  const [s, setS] = React.useState({ voice: "checking", sms: "checking", transcription: "checking" });
+  React.useEffect(() => {
+    const probe = async (path, body) => {
+      try {
+        const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+        if (r.status === 503) return "unconfigured";
+        if (r.ok) return "ready";
+        const j = await r.json().catch(() => ({}));
+        if (j.error && /missing|invalid_/i.test(j.error)) return "ready";
+        return "error";
+      } catch { return "error"; }
+    };
+    Promise.all([
+      probe("/api/twilio-token", {}),
+      probe("/api/twilio-sms", {}),
+      probe("/api/transcribe", {}),
+    ]).then(([v, s_, t]) => setS({ voice: v, sms: s_, transcription: t }));
+  }, []);
+  const dot = (state) => state === "ready" ? "#00d4aa" : state === "unconfigured" ? "#f59e0b" : state === "checking" ? "#555" : "#f87171";
+  return (
+    <div className="panel">
+      <div className="panel-h"><Icons.Bolt size={12}/><h3>Capabilities</h3><span className="meta">infra probe</span></div>
+      <div style={{ padding: "8px 14px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+        {[["Voice (Twilio)", s.voice], ["SMS (Twilio)", s.sms], ["Whisper", s.transcription]].map(([label, state]) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+            <span style={{ width: 6, height: 6, borderRadius: 50, background: dot(state) }}/>
+            <span style={{ flex: 1 }}>{label}</span>
+            <span style={{ fontSize: 9.5, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, fontFamily: "var(--font-mono)" }}>{state}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectInfoCard() {
+  const url = (window.SUPABASE_URL || "").replace(/^https?:\/\//, "").replace(/\.supabase\.co.*/, "");
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const acting = window.superAdminActingAs && window.superAdminActingAs();
+  return (
+    <div className="panel">
+      <div className="panel-h"><Icons.Folder size={12}/><h3>Project</h3></div>
+      <div style={{ padding: "8px 14px 12px", fontSize: 11, lineHeight: 1.85, fontFamily: "var(--font-mono)" }}>
+        <Row k="supabase" v={url || "—"}/>
+        <Row k="you" v={`${meIdent?.full_name || "—"} ${meIdent?.handle ? "· " + meIdent.handle : ""}`}/>
+        <Row k="role" v={<span style={{ color: meIdent?.is_super_admin ? "#00d4aa" : "#e8e8e8" }}>{meIdent?.is_super_admin ? "super_admin" : (meIdent?.role || "—")}</span>}/>
+        <Row k="agency" v={meIdent?.agency_name || "—"}/>
+        {acting && <Row k="act-as" v={<span style={{ color: "#f59e0b" }}>{acting.slice(0, 8)}…</span>}/>}
+      </div>
+    </div>
+  );
+}
+function Row({ k, v }) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <span style={{ color: "#555", minWidth: 56 }}>{k}</span>
+      <span style={{ color: "#e8e8e8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span>
+    </div>
+  );
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // HQ subpage — Mission control
@@ -119,7 +511,7 @@ function SubpageHQ({ onActAs }) {
     const [k, a, l] = await Promise.all([
       safeRpc(sb, "platform_hq_kpis", {}),
       safeRpc(sb, "platform_agencies_summary", { p_include_demo: showDemo }),
-      safeRpc(sb, "platform_audit_recent", { p_limit: 12, p_hours: 24 }),
+      safeRpc(sb, "platform_audit_recent", { p_limit: 10, p_hours: 24 }),
     ]);
     if (k.error && /forbidden|does not exist/i.test(k.error.message || "")) {
       setErr(k.error.message);
@@ -135,72 +527,69 @@ function SubpageHQ({ onActAs }) {
 
   if (err) return <ForbiddenCard error={err}/>;
 
-  const topAgencies = [...agencies].sort((x, y) => (y.mrr_cents || 0) - (x.mrr_cents || 0)).slice(0, 8);
-  const blockers = audit.filter(a => a.kind === "blocker_on_operator" || a.severity === "danger").slice(0, 5);
+  const topAgencies = [...agencies].sort((x, y) => (y.mrr_cents || 0) - (x.mrr_cents || 0)).slice(0, 6);
+  const blockers = audit.filter(a => a.kind === "blocker_on_operator" || a.severity === "danger").slice(0, 4);
   const liveAge = kpis?.generated_at ? Math.round((Date.now() - new Date(kpis.generated_at)) / 1000) : null;
   const isLive = liveAge != null && liveAge < 300;
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title" style={{ fontFamily: "var(--font-mono, ui-monospace)", letterSpacing: 0.5 }}>
-            KOINO HQ <span style={{ color: "var(--accent-money)" }}>·</span> mission control
+          <div className="page-title" style={{ fontFamily: "var(--font-mono)", letterSpacing: 0.3 }}>
+            KOINO <span style={{ color: "#00d4aa" }}>·</span> HQ
           </div>
           <div className="page-sub">
-            {loading ? "syncing fleet…" : `${agencies.length} agencies · ${isLive ? "live" : "stale"} · last sync ${liveAge != null ? liveAge + "s" : "—"}`}
+            {loading ? "syncing fleet…" : `${agencies.length} agencies · ${isLive ? "live" : "stale"} · ${liveAge != null ? liveAge + "s ago" : "—"}`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888" }}>
             <input type="checkbox" checked={showDemo} onChange={(e) => { setShowDemo(e.target.checked); try { localStorage.setItem("repflow.super_admin.show_demo", e.target.checked ? "1" : "0"); } catch {} }}/>
-            Show demo agencies
+            demo agencies
           </label>
-          <button className="btn" onClick={load}><Icons.Sparkles size={11}/> Re-sync</button>
+          <button className="btn" onClick={load}><Icons.Sparkles size={10}/> Re-sync</button>
         </div>
       </div>
 
-      {/* HQ hero strip — six tabular counters, mono so columns lock as numbers grow */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10,
-        marginBottom: 14, fontFamily: "var(--font-mono, ui-monospace)",
-      }}>
-        <HqMetric label="Agencies" value={kpis?.agency_count ?? "—"} tone="status"/>
-        <HqMetric label="Active 24h" value={kpis?.active_24h ?? "—"} tone="money"/>
-        <HqMetric label="Audit 24h" value={kpis?.audit_24h ?? "—"} tone="status"/>
-        <HqMetric label="MRR (sum)" value={fmtMoney(kpis?.mrr_cents)} tone="money"/>
-        <HqMetric label="Open NIGOs" value={kpis?.open_nigos ?? "—"} tone={kpis?.open_nigos > 0 ? "warn" : "money"}/>
-        <HqMetric label="Blockers" value={blockers.length} tone={blockers.length ? "danger" : "money"}/>
+      {/* HQ hero strip — six tabular counters, denser than amber DS */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 12 }}>
+        <KoMetric label="Agencies"   value={kpis?.agency_count ?? "—"} tone="status"/>
+        <KoMetric label="Active 24h" value={kpis?.active_24h ?? "—"}   tone="money"/>
+        <KoMetric label="Audit 24h"  value={kpis?.audit_24h ?? "—"}    tone="status"/>
+        <KoMetric label="MRR"        value={fmtMoney(kpis?.mrr_cents)} tone="money"/>
+        <KoMetric label="NIGOs"      value={kpis?.open_nigos ?? "—"}   tone={kpis?.open_nigos > 0 ? "warn" : "money"}/>
+        <KoMetric label="Blockers"   value={blockers.length}           tone={blockers.length ? "danger" : "money"}/>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
-        {/* LEFT column */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12 }}>
+        {/* LEFT */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div className="panel">
             <div className="panel-h">
-              <Icons.Building size={13}/>
+              <Icons.Building size={12}/>
               <h3>Top agencies by MRR</h3>
               <span className="meta">{topAgencies.length} of {agencies.length}</span>
             </div>
-            <div className="list">
-              <div className="list-h" style={{ gridTemplateColumns: "1.4fr 80px 80px 80px 80px 110px" }}>
+            <div>
+              <div className="list-h" style={{ gridTemplateColumns: "1.4fr 70px 60px 60px 70px 90px" }}>
                 <div>Agency</div><div>Plan</div><div>Members</div><div>NIGOs</div><div>MRR</div><div></div>
               </div>
-              {loading && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
-              {!loading && topAgencies.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No agencies visible — confirm you're on the super_admin allowlist.</div>}
+              {loading && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>Loading…</div>}
+              {!loading && topAgencies.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "#888", fontSize: 11.5 }}>No agencies visible — confirm super_admin allowlist.</div>}
               {topAgencies.map(a => (
-                <div key={a.id} className="row" style={{ gridTemplateColumns: "1.4fr 80px 80px 80px 80px 110px", fontFamily: "var(--font-mono, ui-monospace)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-stack)" }}>
+                <div key={a.id} className="row" style={{ gridTemplateColumns: "1.4fr 70px 60px 60px 70px 90px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontWeight: 500 }}>{a.name}</span>
-                    {a.is_demo && <span className="chip" style={{ fontSize: 9.5, color: "var(--text-tertiary)" }}>demo</span>}
+                    {a.is_demo && <span className="chip" style={{ fontSize: 9, color: "#555" }}>demo</span>}
                   </div>
-                  <div><span className="chip" style={{ fontSize: 10 }}>{a.plan}</span></div>
+                  <div><span className="chip">{a.plan}</span></div>
                   <div className="tabular">{a.member_count}</div>
-                  <div className="tabular" style={{ color: (a.open_nigos || 0) > 0 ? "var(--state-warning)" : "var(--text-tertiary)" }}>{a.open_nigos}</div>
-                  <div className="tabular" style={{ color: "var(--accent-money)" }}>{fmtMoney(a.mrr_cents)}</div>
+                  <div className="tabular" style={{ color: (a.open_nigos || 0) > 0 ? "#f59e0b" : "#555" }}>{a.open_nigos}</div>
+                  <div className="tabular" style={{ color: "#00d4aa" }}>{fmtMoney(a.mrr_cents)}</div>
                   <div>
-                    <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px" }} onClick={() => onActAs(a)}>
-                      <Icons.ArrowUpRight size={10}/> Act as
+                    <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => onActAs(a)}>
+                      <Icons.ArrowUpRight size={9}/> Act as
                     </button>
                   </div>
                 </div>
@@ -210,40 +599,38 @@ function SubpageHQ({ onActAs }) {
 
           <div className="panel">
             <div className="panel-h">
-              <Icons.Activity size={13}/>
+              <Icons.Activity size={12}/>
               <h3>Global audit · last 24h</h3>
               <span className="meta">{audit.length} events</span>
             </div>
-            <div className="list">
-              {audit.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No audit events in the window.</div>}
-              {audit.map(a => (
-                <AuditRow key={a.id} a={a}/>
-              ))}
+            <div>
+              {audit.length === 0 && <div style={{ padding: 16, textAlign: "center", color: "#888", fontSize: 11.5 }}>No audit events in window.</div>}
+              {audit.map(a => <AuditRow key={a.id} a={a}/>)}
             </div>
           </div>
         </div>
 
-        {/* RIGHT column */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* RIGHT */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div className="panel">
             <div className="panel-h">
-              <Icons.Shield size={13} style={{ color: "var(--state-warning)" }}/>
+              <Icons.Shield size={12} style={{ color: blockers.length ? "#f59e0b" : "#888" }}/>
               <h3>BLOCKERS on operator</h3>
               <span className="meta">{blockers.length}</span>
             </div>
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
               {blockers.length === 0 && (
-                <div style={{ padding: 12, color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.6 }}>
+                <div style={{ padding: 8, color: "#888", fontSize: 11.5, lineHeight: 1.55 }}>
                   Nothing flagged. Automation surfaces operator-dependent items here.
                 </div>
               )}
               {blockers.map(b => (
-                <div key={b.id} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, borderLeft: "3px solid var(--state-warning)", fontSize: 12 }}>
+                <div key={b.id} style={{ padding: 8, background: "var(--bg-base)", borderRadius: 8, borderLeft: "2px solid #f59e0b", fontSize: 11.5 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <strong style={{ fontFamily: "var(--font-mono, ui-monospace)", color: "var(--state-warning)" }}>{b.kind || b.action}</strong>
-                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{fmtAge(b.created_at)}</span>
+                    <strong style={{ fontFamily: "var(--font-mono)", color: "#f59e0b", fontSize: 11 }}>{b.kind || b.action}</strong>
+                    <span style={{ fontSize: 10, color: "#555" }}>{fmtAge(b.created_at)}</span>
                   </div>
-                  <div style={{ marginTop: 4, color: "var(--text-secondary)", fontSize: 11.5 }}>
+                  <div style={{ marginTop: 3, color: "#b4b4b4", fontSize: 11 }}>
                     {b.target || "—"}{b.agency_name ? ` · ${b.agency_name}` : ""}
                   </div>
                 </div>
@@ -254,112 +641,6 @@ function SubpageHQ({ onActAs }) {
           <CapabilityRail/>
           <ProjectInfoCard/>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function HqMetric({ label, value, tone }) {
-  const colors = {
-    money:  "var(--accent-money)",
-    status: "var(--accent-status)",
-    warn:   "var(--state-warning)",
-    danger: "var(--state-danger)",
-  };
-  const c = colors[tone] || "var(--text-primary)";
-  return (
-    <div style={{ padding: "12px 14px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
-      <div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, color: c, marginTop: 4, fontFeatureSettings: "'tnum'" }}>{value}</div>
-    </div>
-  );
-}
-
-function AuditRow({ a }) {
-  const severityColor =
-    a.severity === "danger"  ? "var(--state-danger)" :
-    a.severity === "warn"    ? "var(--state-warning)" :
-    a.severity === "success" ? "var(--accent-money)" :
-    "var(--text-tertiary)";
-  return (
-    <div className="row" style={{ gridTemplateColumns: "110px 1.2fr 1fr 90px 70px", fontSize: 11.5, fontFamily: "var(--font-mono, ui-monospace)" }}>
-      <div style={{ color: "var(--text-tertiary)" }}>{new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
-      <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{a.kind || a.action}</div>
-      <div style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.target || "—"}{a.agency_name ? ` · ${a.agency_name}` : ""}</div>
-      <div><span className="chip" style={{ fontSize: 9.5 }}>{a.actor_role || "system"}</span></div>
-      <div><span style={{ width: 6, height: 6, borderRadius: 999, background: severityColor, display: "inline-block" }}/></div>
-    </div>
-  );
-}
-
-function ForbiddenCard({ error }) {
-  return (
-    <div className="page-pad">
-      <div className="panel" style={{ padding: 24, border: "1px solid color-mix(in oklch, var(--state-danger) 35%, transparent)" }}>
-        <div style={{ fontSize: 16, fontWeight: 600, color: "var(--state-danger)" }}>Platform admin · forbidden</div>
-        <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          The cross-tenant RPC returned an error. You're either not on the
-          <code className="mono" style={{ marginLeft: 4, background: "var(--bg-raised)", padding: "1px 5px", borderRadius: 3 }}>koino_super_admins</code> allowlist,
-          or migration <code className="mono">0019_super_admin_platform.sql</code> hasn't been applied to this project yet.
-        </div>
-        <pre style={{ marginTop: 12, padding: 10, background: "var(--bg-base)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "pre-wrap", overflowX: "auto" }}>
-{String(error || "")}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-function CapabilityRail() {
-  // Reuses the capability shape from page-platform.jsx — three probes
-  // (voice / sms / transcription) hitting the local API. Lightweight; runs on
-  // mount only.
-  const [s, setS] = React.useState({ voice: "checking", sms: "checking", transcription: "checking" });
-  React.useEffect(() => {
-    const probe = async (path, body) => {
-      try {
-        const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
-        if (r.status === 503) return "unconfigured";
-        if (r.ok) return "ready";
-        const j = await r.json().catch(() => ({}));
-        if (j.error && /missing|invalid_/i.test(j.error)) return "ready";
-        return "error";
-      } catch { return "error"; }
-    };
-    Promise.all([
-      probe("/api/twilio-token", {}),
-      probe("/api/twilio-sms", {}),
-      probe("/api/transcribe", {}),
-    ]).then(([v, s_, t]) => setS({ voice: v, sms: s_, transcription: t }));
-  }, []);
-  const dot = (state) => state === "ready" ? "var(--accent-money)" : state === "unconfigured" ? "var(--state-warning)" : state === "checking" ? "var(--text-tertiary)" : "var(--state-danger)";
-  return (
-    <div className="panel">
-      <div className="panel-h"><Icons.Bolt size={13}/><h3>Capabilities</h3><span className="meta">infra probe</span></div>
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-        {[["Voice (Twilio)", s.voice], ["SMS (Twilio)", s.sms], ["Transcription (Whisper)", s.transcription]].map(([label, state]) => (
-          <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
-            <span style={{ width: 7, height: 7, borderRadius: 999, background: dot(state) }}/>
-            <span style={{ flex: 1 }}>{label}</span>
-            <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4, fontFamily: "var(--font-mono, ui-monospace)" }}>{state}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ProjectInfoCard() {
-  const url = (window.SUPABASE_URL || "").replace(/^https?:\/\//, "").replace(/\.supabase\.co.*/, "");
-  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  return (
-    <div className="panel">
-      <div className="panel-h"><Icons.Folder size={13}/><h3>Project</h3></div>
-      <div style={{ padding: 12, fontSize: 11.5, lineHeight: 1.8, fontFamily: "var(--font-mono, ui-monospace)" }}>
-        <div><span style={{ color: "var(--text-tertiary)" }}>supabase</span> {url || "—"}</div>
-        <div><span style={{ color: "var(--text-tertiary)" }}>you</span> {meIdent?.full_name || "—"} ({meIdent?.handle || "—"})</div>
-        <div><span style={{ color: "var(--text-tertiary)" }}>role</span> <span style={{ color: "var(--accent-money)" }}>{meIdent?.is_super_admin ? "super_admin" : (meIdent?.role || "—")}</span></div>
-        <div><span style={{ color: "var(--text-tertiary)" }}>agency</span> {meIdent?.agency_name || "—"}</div>
       </div>
     </div>
   );
@@ -376,7 +657,7 @@ function SubpageAgencies({ onActAs }) {
   const [loading, setLoading]   = React.useState(true);
   const [err, setErr]           = React.useState(null);
   const [q, setQ]               = React.useState("");
-  const [editing, setEditing]   = React.useState(null);   // for flags editor
+  const [editing, setEditing]   = React.useState(null);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -396,64 +677,57 @@ function SubpageAgencies({ onActAs }) {
     : agencies;
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">All agencies</div>
-          <div className="page-sub">{loading ? "loading…" : `${filtered.length} of ${agencies.length} agencies${showDemo ? "" : " (demo hidden)"}`}</div>
+          <div className="page-sub">{loading ? "loading…" : `${filtered.length} of ${agencies.length}${showDemo ? "" : " (demo hidden)"}`}</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-          <input className="text-input" style={{ width: 240 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or slug…"/>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="text-input" style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…"/>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888" }}>
             <input type="checkbox" checked={showDemo} onChange={(e) => { setShowDemo(e.target.checked); try { localStorage.setItem("repflow.super_admin.show_demo", e.target.checked ? "1" : "0"); } catch {} }}/>
-            Show demo
+            demo
           </label>
-          <button className="btn" onClick={load}><Icons.Sparkles size={11}/> Refresh</button>
+          <button className="btn" onClick={load}><Icons.Sparkles size={10}/> Refresh</button>
         </div>
       </div>
 
       <div className="panel">
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px 80px 80px 120px 140px" }}>
-            <div>Agency</div>
-            <div>Plan</div>
-            <div>Members</div>
-            <div>Reps</div>
-            <div>NIGOs</div>
-            <div>MRR</div>
-            <div>Created</div>
-            <div></div>
-          </div>
-          {loading && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
-          {!loading && filtered.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-              {q ? "No matches." : "No agencies visible. Verify the super_admin allowlist."}
-            </div>
-          )}
-          {filtered.map(a => (
-            <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px 80px 80px 120px 140px", fontFamily: "var(--font-mono, ui-monospace)" }}>
-              <div style={{ fontFamily: "var(--font-stack)" }}>
-                <span style={{ fontWeight: 500 }}>{a.name}</span>
-                {a.is_demo && <span className="chip" style={{ fontSize: 9.5, marginLeft: 6, color: "var(--text-tertiary)" }}>demo</span>}
-                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2, fontFamily: "var(--font-mono, ui-monospace)" }}>{a.slug || "—"} · {(a.id || "").slice(0, 8)}</div>
-              </div>
-              <div><span className="chip" style={{ fontSize: 10 }}>{a.plan}</span></div>
-              <div className="tabular">{a.member_count}</div>
-              <div className="tabular">{a.rep_count}</div>
-              <div className="tabular" style={{ color: (a.open_nigos || 0) > 0 ? "var(--state-warning)" : "var(--text-tertiary)" }}>{a.open_nigos}</div>
-              <div className="tabular" style={{ color: "var(--accent-money)" }}>{fmtMoney(a.mrr_cents)}</div>
-              <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}</div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px" }} onClick={() => onActAs(a)}>
-                  <Icons.ArrowUpRight size={10}/> Act as
-                </button>
-                <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px" }} onClick={() => setEditing(a)}>
-                  <Icons.Bolt size={10}/> Flags
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 70px 70px 60px 60px 80px 100px 130px" }}>
+          <div>Agency</div><div>Plan</div><div>Members</div><div>Reps</div><div>NIGOs</div><div>MRR</div><div>Created</div><div></div>
         </div>
+        {loading && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>Loading…</div>}
+        {!loading && filtered.length === 0 && (
+          <div style={{ padding: 22, textAlign: "center", color: "#888", fontSize: 11.5 }}>
+            {q ? "No matches." : "No agencies visible. Verify allowlist."}
+          </div>
+        )}
+        {filtered.map(a => (
+          <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 70px 70px 60px 60px 80px 100px 130px" }}>
+            <div>
+              <div style={{ fontWeight: 500 }}>
+                {a.name}
+                {a.is_demo && <span className="chip" style={{ fontSize: 9, marginLeft: 6, color: "#555" }}>demo</span>}
+              </div>
+              <div style={{ fontSize: 10, color: "#555", marginTop: 1, fontFamily: "var(--font-mono)" }}>{a.slug || "—"} · {(a.id || "").slice(0, 8)}</div>
+            </div>
+            <div><span className="chip">{a.plan}</span></div>
+            <div className="tabular">{a.member_count}</div>
+            <div className="tabular">{a.rep_count}</div>
+            <div className="tabular" style={{ color: (a.open_nigos || 0) > 0 ? "#f59e0b" : "#555" }}>{a.open_nigos}</div>
+            <div className="tabular" style={{ color: "#00d4aa" }}>{fmtMoney(a.mrr_cents)}</div>
+            <div style={{ color: "#888", fontSize: 10.5, fontFamily: "var(--font-mono)" }}>{a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}</div>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 7px" }} onClick={() => onActAs(a)}>
+                <Icons.ArrowUpRight size={9}/> Act as
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 7px" }} onClick={() => setEditing(a)}>
+                <Icons.Bolt size={9}/> Flags
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {editing && <AgencyFlagsModal agency={editing} onClose={() => setEditing(null)}/>}
@@ -514,69 +788,62 @@ function SubpageUsers() {
   };
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">All users</div>
-          <div className="page-sub">{loading ? "loading…" : `${filtered.length} of ${rows.length} users · ${rows.filter(r => r.is_super).length} super-admins`}</div>
+          <div className="page-sub">{loading ? "loading…" : `${filtered.length} of ${rows.length} · ${rows.filter(r => r.is_super).length} super-admins`}</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-          <input className="text-input" style={{ width: 260 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by email or agency…"/>
-          <button className="btn" onClick={load}><Icons.Sparkles size={11}/> Refresh</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="text-input" style={{ width: 240 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by email or agency…"/>
+          <button className="btn" onClick={load}><Icons.Sparkles size={10}/> Refresh</button>
         </div>
       </div>
 
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h"><Icons.Shield size={13} style={{ color: "var(--accent-money)" }}/><h3>Grant super_admin</h3></div>
-        <div style={{ padding: 12, display: "flex", gap: 8 }}>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h"><Icons.Shield size={12} style={{ color: "#00d4aa" }}/><h3>Grant super_admin</h3></div>
+        <div style={{ padding: 10, display: "flex", gap: 8 }}>
           <input className="text-input" value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="email@koino.capital" style={{ flex: 1 }}/>
           <button className="btn btn-primary" disabled={!grantEmail.trim() || busy} onClick={grant}>
-            <Icons.Check size={11}/> {busy ? "Granting…" : "Grant"}
+            <Icons.Check size={10}/> {busy ? "Granting…" : "Grant"}
           </button>
         </div>
-        <div style={{ padding: "0 12px 12px", fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-          The user must already have an <code className="mono">auth.users</code> row (signed in at least once). Allowlist is canonical; <code className="mono">KOINO_SUPER_ADMIN_EMAILS</code> env var seeds the same table on migration replay.
+        <div style={{ padding: "0 12px 10px", fontSize: 10.5, color: "#888", lineHeight: 1.55 }}>
+          User must have signed in once (auth.users row). Allowlist is canonical; <code className="mono" style={{ fontSize: 10 }}>KOINO_SUPER_ADMIN_EMAILS</code> env seeds on migration replay.
         </div>
       </div>
 
       <div className="panel">
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 120px 100px 110px" }}>
-            <div>Email</div>
-            <div>Agencies</div>
-            <div>Roles</div>
-            <div>Last sign-in</div>
-            <div>Super</div>
-            <div></div>
-          </div>
-          {loading && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
-          {!loading && filtered.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>{q ? "No matches." : "No users visible."}</div>
-          )}
-          {filtered.map(u => (
-            <div key={u.user_id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 120px 100px 110px", fontSize: 11.5 }}>
-              <div style={{ fontWeight: 500 }}>{u.email || "—"}</div>
-              <div style={{ color: "var(--text-secondary)" }}>{u.agencies || "—"}</div>
-              <div style={{ color: "var(--text-tertiary)" }}>{u.roles || "—"}</div>
-              <div style={{ fontFamily: "var(--font-mono, ui-monospace)", color: "var(--text-tertiary)" }}>{fmtAge(u.last_sign_in)}</div>
-              <div>{u.is_super && <span className="chip" style={{ color: "var(--accent-money)", borderColor: "color-mix(in oklch, var(--accent-money) 35%, transparent)" }}>super</span>}</div>
-              <div>
-                {u.is_super && (
-                  <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px", color: "var(--state-danger)" }} onClick={() => revoke(u.email)}>
-                    Revoke
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 100px 80px 90px" }}>
+          <div>Email</div><div>Agencies</div><div>Roles</div><div>Last sign-in</div><div>Super</div><div></div>
         </div>
+        {loading && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>Loading…</div>}
+        {!loading && filtered.length === 0 && (
+          <div style={{ padding: 22, textAlign: "center", color: "#888", fontSize: 11.5 }}>{q ? "No matches." : "No users visible."}</div>
+        )}
+        {filtered.map(u => (
+          <div key={u.user_id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 100px 80px 90px" }}>
+            <div style={{ fontWeight: 500 }}>{u.email || "—"}</div>
+            <div style={{ color: "#b4b4b4" }}>{u.agencies || "—"}</div>
+            <div style={{ color: "#888" }}>{u.roles || "—"}</div>
+            <div style={{ fontFamily: "var(--font-mono)", color: "#888", fontSize: 10.5 }}>{fmtAge(u.last_sign_in)}</div>
+            <div>{u.is_super && <span className="chip chip-money">super</span>}</div>
+            <div>
+              {u.is_super && (
+                <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px", color: "#f87171" }} onClick={() => revoke(u.email)}>
+                  Revoke
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Billing subpage — cross-agency Stripe roll-up (read-only placeholder)
+// Billing subpage
 // ──────────────────────────────────────────────────────────────────────────
 function SubpageBilling() {
   const [agencies, setAgencies] = React.useState([]);
@@ -601,56 +868,54 @@ function SubpageBilling() {
   const byPlan = agencies.reduce((m, a) => { m[a.plan] = (m[a.plan] || 0) + (a.mrr_cents || 0); return m; }, {});
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Repflow MRR</div>
-          <div className="page-sub">{loading ? "loading…" : `${agencies.length} agencies · ${fmtMoney(totalMrr)} MRR (sum)`}</div>
+          <div className="page-sub">{loading ? "loading…" : `${agencies.length} agencies · ${fmtMoney(totalMrr)} MRR sum`}</div>
         </div>
-        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888" }}>
           <input type="checkbox" checked={includeDemo} onChange={(e) => setIncludeDemo(e.target.checked)}/>
-          Include demo
+          include demo
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14, fontFamily: "var(--font-mono, ui-monospace)" }}>
-        <HqMetric label="MRR" value={fmtMoney(totalMrr)} tone="money"/>
-        <HqMetric label="Agencies billed" value={agencies.filter(a => (a.mrr_cents || 0) > 0).length} tone="status"/>
-        <HqMetric label="On trial" value={agencies.filter(a => a.plan === "trial").length} tone="warn"/>
-        <HqMetric label="Pro+" value={agencies.filter(a => /pro|growth|enterprise/i.test(a.plan || "")).length} tone="money"/>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+        <KoMetric label="MRR" value={fmtMoney(totalMrr)} tone="money"/>
+        <KoMetric label="Billed" value={agencies.filter(a => (a.mrr_cents || 0) > 0).length} tone="status"/>
+        <KoMetric label="Trial" value={agencies.filter(a => a.plan === "trial").length} tone="warn"/>
+        <KoMetric label="Pro+" value={agencies.filter(a => /pro|growth|enterprise/i.test(a.plan || "")).length} tone="money"/>
       </div>
 
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h"><Icons.Wallet size={13}/><h3>By plan</h3></div>
-        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h"><Icons.Wallet size={12}/><h3>By plan</h3></div>
+        <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 6 }}>
           {Object.entries(byPlan).map(([plan, cents]) => (
-            <div key={plan} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontFamily: "var(--font-mono, ui-monospace)" }}>
-              <div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>{plan}</div>
-              <div style={{ fontSize: 16, color: "var(--accent-money)", marginTop: 4 }}>{fmtMoney(cents)}</div>
+            <div key={plan} style={{ padding: 8, background: "var(--bg-base)", borderRadius: 8, border: "1px solid #1a1a1a", fontFamily: "var(--font-mono)" }}>
+              <div style={{ fontSize: 9.5, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>{plan}</div>
+              <div style={{ fontSize: 14, color: "#00d4aa", marginTop: 2, fontWeight: 600 }}>{fmtMoney(cents)}</div>
             </div>
           ))}
-          {Object.keys(byPlan).length === 0 && <div style={{ padding: 12, color: "var(--text-tertiary)", fontSize: 12 }}>No agencies yet.</div>}
+          {Object.keys(byPlan).length === 0 && <div style={{ padding: 8, color: "#888", fontSize: 11.5 }}>No agencies yet.</div>}
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Activity size={13}/><h3>Per-agency</h3></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 100px 100px" }}>
-            <div>Agency</div><div>Plan</div><div>MRR</div><div>Members</div>
-          </div>
-          {agencies.map(a => (
-            <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 100px 100px", fontFamily: "var(--font-mono, ui-monospace)" }}>
-              <div style={{ fontFamily: "var(--font-stack)" }}>{a.name}{a.is_demo && <span className="chip" style={{ marginLeft: 6, fontSize: 9.5 }}>demo</span>}</div>
-              <div><span className="chip" style={{ fontSize: 10 }}>{a.plan}</span></div>
-              <div className="tabular" style={{ color: "var(--accent-money)" }}>{fmtMoney(a.mrr_cents)}</div>
-              <div className="tabular">{a.member_count}</div>
-            </div>
-          ))}
+        <div className="panel-h"><Icons.Activity size={12}/><h3>Per-agency</h3></div>
+        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px" }}>
+          <div>Agency</div><div>Plan</div><div>MRR</div><div>Members</div>
         </div>
+        {agencies.map(a => (
+          <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 80px 80px 80px" }}>
+            <div style={{ fontWeight: 500 }}>{a.name}{a.is_demo && <span className="chip" style={{ marginLeft: 6, fontSize: 9 }}>demo</span>}</div>
+            <div><span className="chip">{a.plan}</span></div>
+            <div className="tabular" style={{ color: "#00d4aa" }}>{fmtMoney(a.mrr_cents)}</div>
+            <div className="tabular">{a.member_count}</div>
+          </div>
+        ))}
       </div>
-      <div style={{ marginTop: 12, padding: 12, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.6 }}>
-        Note: MRR is summed from the local <code className="mono">subscriptions</code> table where status = active/trialing. Live Stripe cross-customer aggregation is tracked separately.
+      <div style={{ marginTop: 10, padding: 8, fontSize: 10.5, color: "#555", lineHeight: 1.55 }}>
+        MRR sums local <code className="mono" style={{ fontSize: 10 }}>subscriptions.amount_cents</code> where status ∈ active/trialing. Live Stripe cross-customer roll-up tracked separately.
       </div>
     </div>
   );
@@ -682,46 +947,43 @@ function SubpageAudit() {
   const kinds = [...new Set(rows.map(r => r.kind).filter(Boolean))].sort();
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Global audit</div>
           <div className="page-sub">{loading ? "loading…" : `${rows.length} events · last ${hours}h${kind ? ` · kind=${kind}` : ""}`}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <Shared.Select value={hours} onChange={(v) => setHours(Number(v))} options={[
-            { v: 1, l: "Last 1h" }, { v: 6, l: "Last 6h" }, { v: 24, l: "Last 24h" }, { v: 72, l: "Last 3d" }, { v: 168, l: "Last 7d" },
-          ]}/>
-          <Shared.Select value={kind} onChange={setKind} options={[{ v: "", l: "All kinds" }, ...kinds.map(k => ({ v: k, l: k }))]}/>
-          <button className="btn" onClick={load}><Icons.Sparkles size={11}/> Refresh</button>
+          <select className="text-input" value={hours} onChange={(e) => setHours(Number(e.target.value))} style={{ padding: "6px 10px" }}>
+            <option value={1}>Last 1h</option><option value={6}>Last 6h</option><option value={24}>Last 24h</option>
+            <option value={72}>Last 3d</option><option value={168}>Last 7d</option>
+          </select>
+          <select className="text-input" value={kind} onChange={(e) => setKind(e.target.value)} style={{ padding: "6px 10px" }}>
+            <option value="">All kinds</option>
+            {kinds.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <button className="btn" onClick={load}><Icons.Sparkles size={10}/> Refresh</button>
         </div>
       </div>
 
       <div className="panel">
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "130px 1.1fr 1fr 1fr 110px 70px" }}>
-            <div>When</div><div>Kind</div><div>Target / agency</div><div>Actor</div><div>Role</div><div>Sev</div>
-          </div>
-          {loading && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
-          {!loading && rows.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No audit rows in this window.</div>}
-          {rows.map(a => (
-            <div key={a.id} className="row" style={{ gridTemplateColumns: "130px 1.1fr 1fr 1fr 110px 70px", fontSize: 11.5, fontFamily: "var(--font-mono, ui-monospace)" }}>
-              <div style={{ color: "var(--text-tertiary)" }}>{new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
-              <div style={{ fontWeight: 500 }}>{a.kind || a.action}</div>
-              <div style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${a.target || ""} ${a.agency_name || ""}`}>
-                {a.target || "—"}{a.agency_name ? ` · ${a.agency_name}` : ""}
-              </div>
-              <div style={{ color: "var(--text-tertiary)" }}>{a.actor_email || (a.actor_user_id ? a.actor_user_id.slice(0, 8) : "—")}</div>
-              <div><span className="chip" style={{ fontSize: 9.5 }}>{a.actor_role || "system"}</span></div>
-              <div>
-                <span style={{
-                  width: 6, height: 6, borderRadius: 999, display: "inline-block",
-                  background: a.severity === "danger" ? "var(--state-danger)" : a.severity === "warn" ? "var(--state-warning)" : a.severity === "success" ? "var(--accent-money)" : "var(--text-tertiary)",
-                }}/>
-              </div>
-            </div>
-          ))}
+        <div className="list-h" style={{ gridTemplateColumns: "120px 1.1fr 1fr 1fr 100px 50px" }}>
+          <div>When</div><div>Kind</div><div>Target / agency</div><div>Actor</div><div>Role</div><div>Sev</div>
         </div>
+        {loading && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>Loading…</div>}
+        {!loading && rows.length === 0 && <div style={{ padding: 22, textAlign: "center", color: "#888", fontSize: 11.5 }}>No audit rows in this window.</div>}
+        {rows.map(a => (
+          <div key={a.id} className="row" style={{ gridTemplateColumns: "120px 1.1fr 1fr 1fr 100px 50px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+            <div style={{ color: "#888" }}>{new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+            <div style={{ fontWeight: 500, color: "#00d4aa" }}>{a.kind || a.action}</div>
+            <div style={{ color: "#b4b4b4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${a.target || ""} ${a.agency_name || ""}`}>
+              {a.target || "—"}{a.agency_name ? ` · ${a.agency_name}` : ""}
+            </div>
+            <div style={{ color: "#888" }}>{a.actor_email || (a.actor_user_id ? a.actor_user_id.slice(0, 8) : "—")}</div>
+            <div><span className="chip">{a.actor_role || "system"}</span></div>
+            <div><span className="sev" style={{ background: sevColor(a.severity) }}/></div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -731,8 +993,8 @@ function SubpageAudit() {
 // Flags subpage
 // ──────────────────────────────────────────────────────────────────────────
 function SubpageFlags() {
-  const [global, setGlobal]   = React.useState([]);    // {key, value}
-  const [agencies, setAgencies] = React.useState([]); // for the per-agency editor list
+  const [global, setGlobal]   = React.useState([]);
+  const [agencies, setAgencies] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr]         = React.useState(null);
   const [newName, setNewName] = React.useState("");
@@ -772,37 +1034,35 @@ function SubpageFlags() {
   };
 
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Feature flags</div>
-          <div className="page-sub">{loading ? "loading…" : `${global.length} global flags · ${agencies.length} agencies`}</div>
+          <div className="page-sub">{loading ? "loading…" : `${global.length} global · ${agencies.length} agencies`}</div>
         </div>
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={load}><Icons.Sparkles size={11}/> Refresh</button>
+        <button className="btn" style={{ marginLeft: "auto" }} onClick={load}><Icons.Sparkles size={10}/> Refresh</button>
       </div>
 
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h"><Icons.Bolt size={13}/><h3>Global flags</h3><span className="meta">org_settings · feature_flag.*</span></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px" }}>
-            <div>Name</div><div>Value</div><div></div>
-          </div>
-          {global.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No global flags yet.</div>}
-          {global.map(f => (
-            <FlagRow key={f.name} flag={f} onChange={(v) => setGlobalFlag(f.name, v)}/>
-          ))}
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h"><Icons.Bolt size={12}/><h3>Global flags</h3><span className="meta">org_settings · feature_flag.*</span></div>
+        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 90px" }}>
+          <div>Name</div><div>Value</div><div></div>
         </div>
-        <div style={{ padding: 12, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1.4fr 1fr 100px", gap: 8, alignItems: "center" }}>
+        {global.length === 0 && <div style={{ padding: 14, textAlign: "center", color: "#888", fontSize: 11.5 }}>No global flags yet.</div>}
+        {global.map(f => (
+          <FlagRow key={f.name} flag={f} onChange={(v) => setGlobalFlag(f.name, v)}/>
+        ))}
+        <div style={{ padding: 10, borderTop: "1px solid #1a1a1a", display: "grid", gridTemplateColumns: "1.4fr 1fr 90px", gap: 8, alignItems: "center" }}>
           <input className="text-input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="new_flag_name"/>
           <input className="text-input" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="true / false / JSON"/>
-          <button className="btn btn-primary" disabled={!newName.trim()} onClick={addFlag}><Icons.Plus size={11}/> Add</button>
+          <button className="btn btn-primary" disabled={!newName.trim()} onClick={addFlag}><Icons.Plus size={10}/> Add</button>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Building size={13}/><h3>Per-agency overrides</h3><span className="meta">agencies.config.feature_flags.*</span></div>
-        <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.6 }}>
-          Per-agency overrides live in <code className="mono">agencies.config jsonb</code> under the <code className="mono">feature_flags</code> key. Open an agency from <strong>All agencies → Flags</strong> to edit.
+        <div className="panel-h"><Icons.Building size={12}/><h3>Per-agency overrides</h3><span className="meta">agencies.config.feature_flags.*</span></div>
+        <div style={{ padding: 10, fontSize: 11, color: "#888", lineHeight: 1.55 }}>
+          Per-agency overrides live in <code className="mono" style={{ fontSize: 10.5 }}>agencies.config.feature_flags</code>. Open from <strong>All agencies → Flags</strong>.
         </div>
       </div>
     </div>
@@ -816,33 +1076,32 @@ function FlagRow({ flag, onChange }) {
   const [draft, setDraft]     = React.useState(JSON.stringify(v));
   if (isBool) {
     return (
-      <div className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px", fontFamily: "var(--font-mono, ui-monospace)", fontSize: 12 }}>
+      <div className="row" style={{ gridTemplateColumns: "1.4fr 1fr 90px", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
         <div>{flag.name}</div>
-        <div style={{ color: v ? "var(--accent-money)" : "var(--text-tertiary)" }}>{v ? "true" : "false"}</div>
+        <div style={{ color: v ? "#00d4aa" : "#555" }}>{v ? "true" : "false"}</div>
         <div>
-          <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 10px" }} onClick={() => onChange(!v)}>{v ? "Disable" : "Enable"}</button>
+          <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => onChange(!v)}>{v ? "Disable" : "Enable"}</button>
         </div>
       </div>
     );
   }
   return (
-    <div className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px", fontFamily: "var(--font-mono, ui-monospace)", fontSize: 12 }}>
+    <div className="row" style={{ gridTemplateColumns: "1.4fr 1fr 90px", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
       <div>{flag.name}</div>
-      <div style={{ color: "var(--text-secondary)" }}>
+      <div style={{ color: "#b4b4b4" }}>
         {editing
           ? <input className="text-input" style={{ fontSize: 11 }} value={draft} onChange={(e) => setDraft(e.target.value)}/>
-          : <code style={{ fontSize: 11 }}>{JSON.stringify(v)}</code>}
+          : <code style={{ fontSize: 10.5 }}>{JSON.stringify(v)}</code>}
       </div>
       <div>
         {editing
-          ? <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 10px" }} onClick={() => { let parsed; try { parsed = JSON.parse(draft); } catch { parsed = draft; } onChange(parsed); setEditing(false); }}>Save</button>
-          : <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 10px" }} onClick={() => setEditing(true)}>Edit</button>}
+          ? <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => { let parsed; try { parsed = JSON.parse(draft); } catch { parsed = draft; } onChange(parsed); setEditing(false); }}>Save</button>
+          : <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => setEditing(true)}>Edit</button>}
       </div>
     </div>
   );
 }
 
-// Modal: edit per-agency feature flags for one agency
 function AgencyFlagsModal({ agency, onClose }) {
   const [cfg, setCfg]   = React.useState(null);
   const [busy, setBusy] = React.useState(false);
@@ -872,27 +1131,29 @@ function AgencyFlagsModal({ agency, onClose }) {
     setNewName(""); setNewValue("true");
   };
   return (
-    <Shared.Modal title={`Flags · ${agency.name}`} width={620} onClose={onClose}>
-      {cfg === null && <div style={{ padding: 14, color: "var(--text-tertiary)" }}>Loading…</div>}
-      {cfg !== null && (
-        <>
-          <div style={{ padding: "0 0 10px", fontSize: 11.5, color: "var(--text-tertiary)" }}>
-            Per-agency overrides override the global default. Stored at <code className="mono">agencies.config.feature_flags.{`{name}`}</code>.
-          </div>
-          {Object.entries(flags).length === 0 && (
-            <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>No overrides yet for this agency.</div>
-          )}
-          {Object.entries(flags).map(([name, value]) => (
-            <FlagRow key={name} flag={{ name, value }} onChange={(v) => set(name, v)}/>
-          ))}
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1.4fr 1fr 100px", gap: 8, alignItems: "center" }}>
-            <input className="text-input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="flag_name"/>
-            <input className="text-input" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="true / JSON"/>
-            <button className="btn btn-primary" disabled={!newName.trim() || busy} onClick={add}><Icons.Plus size={11}/> Add</button>
-          </div>
-        </>
-      )}
-    </Shared.Modal>
+    <div className="koino-platform">
+      <Shared.Modal title={`Flags · ${agency.name}`} width={580} onClose={onClose}>
+        {cfg === null && <div style={{ padding: 12, color: "#888", fontSize: 11.5 }}>Loading…</div>}
+        {cfg !== null && (
+          <>
+            <div style={{ padding: "0 0 10px", fontSize: 11, color: "#888", lineHeight: 1.55 }}>
+              Per-agency overrides shadow the global default. Stored at <code className="mono" style={{ fontSize: 10.5 }}>agencies.config.feature_flags</code>.
+            </div>
+            {Object.entries(flags).length === 0 && (
+              <div style={{ padding: 12, color: "#888", fontSize: 11.5 }}>No overrides yet.</div>
+            )}
+            {Object.entries(flags).map(([name, value]) => (
+              <FlagRow key={name} flag={{ name, value }} onChange={(v) => set(name, v)}/>
+            ))}
+            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1.4fr 1fr 90px", gap: 8, alignItems: "center" }}>
+              <input className="text-input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="flag_name"/>
+              <input className="text-input" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="true / JSON"/>
+              <button className="btn btn-primary" disabled={!newName.trim() || busy} onClick={add}><Icons.Plus size={10}/> Add</button>
+            </div>
+          </>
+        )}
+      </Shared.Modal>
+    </div>
   );
 }
 
@@ -904,35 +1165,34 @@ function SubpageSystem() {
   const projectRef = (url.match(/https?:\/\/([^.]+)\.supabase\.co/) || [])[1] || "—";
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   return (
-    <div className="page-pad" style={{ fontFamily: "var(--font-stack)" }}>
+    <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Env + health</div>
-          <div className="page-sub">platform infrastructure · ref {projectRef}</div>
+          <div className="page-sub">infrastructure · ref {projectRef}</div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <CapabilityRail/>
-
         <div className="panel">
-          <div className="panel-h"><Icons.Folder size={13}/><h3>Project</h3></div>
-          <div style={{ padding: 12, fontSize: 11.5, lineHeight: 1.9, fontFamily: "var(--font-mono, ui-monospace)" }}>
-            <div><span style={{ color: "var(--text-tertiary)" }}>supabase</span> {url}</div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>ref</span> {projectRef}</div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>build</span> v=77</div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>migration</span> 0019_super_admin_platform</div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>you</span> {meIdent?.full_name || "—"}</div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>role</span> <span style={{ color: meIdent?.is_super_admin ? "var(--accent-money)" : "var(--text-primary)" }}>{meIdent?.is_super_admin ? "super_admin" : (meIdent?.role || "—")}</span></div>
-            <div><span style={{ color: "var(--text-tertiary)" }}>act-as</span> {window.superAdminActingAs && window.superAdminActingAs() ? <span style={{ color: "var(--state-warning)" }}>{window.superAdminActingAs()}</span> : "—"}</div>
+          <div className="panel-h"><Icons.Folder size={12}/><h3>Project</h3></div>
+          <div style={{ padding: "8px 14px 12px", fontSize: 11, lineHeight: 1.85, fontFamily: "var(--font-mono)" }}>
+            <Row k="supabase" v={url}/>
+            <Row k="ref" v={projectRef}/>
+            <Row k="build" v="v=78"/>
+            <Row k="migration" v="0019_super_admin_platform"/>
+            <Row k="you" v={meIdent?.full_name || "—"}/>
+            <Row k="role" v={<span style={{ color: meIdent?.is_super_admin ? "#00d4aa" : "#e8e8e8" }}>{meIdent?.is_super_admin ? "super_admin" : (meIdent?.role || "—")}</span>}/>
+            <Row k="act-as" v={window.superAdminActingAs && window.superAdminActingAs() ? <span style={{ color: "#f59e0b" }}>{window.superAdminActingAs()}</span> : "—"}/>
           </div>
         </div>
       </div>
 
-      <div className="panel" style={{ marginTop: 14 }}>
-        <div className="panel-h"><Icons.Bolt size={13}/><h3>Stripe + Twilio + OpenAI</h3></div>
-        <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.6 }}>
-          Configure via Vercel env vars. Run <code className="mono">/api/twilio-app/provision</code> for new agency Twilio sub-accounts.
+      <div className="panel" style={{ marginTop: 12 }}>
+        <div className="panel-h"><Icons.Bolt size={12}/><h3>External services</h3></div>
+        <div style={{ padding: 10, fontSize: 11, color: "#888", lineHeight: 1.55 }}>
+          Configure Stripe / Twilio / OpenAI via Vercel env vars. Auto-provision Twilio sub-accounts via <code className="mono" style={{ fontSize: 10.5 }}>/api/twilio-app/provision</code>.
         </div>
       </div>
     </div>
@@ -940,23 +1200,23 @@ function SubpageSystem() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Container — gate + subpage router
+// Container — gate + subpage router. Wraps everything in .koino-platform
+// so the scoped DS overrides apply.
 // ──────────────────────────────────────────────────────────────────────────
 function PagePlatformAdmin({ subpage = "platform" }) {
-  // Defense-in-depth gate. Sidebar should never route a non-admin/non-super
-  // user here, but if something does, render a clean denial card instead of
-  // attempting cross-tenant RPCs that would just throw forbidden.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const isSuper = window.isSuperAdmin && window.isSuperAdmin();
   const isAdmin = meIdent && (meIdent.role === "admin" || meIdent.role === "super_admin");
   if (!isSuper && !isAdmin) {
     return (
-      <div className="page-pad">
-        <div className="panel" style={{ padding: 24 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--state-danger)" }}>Not authorized</div>
-          <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
-            Platform admin is gated on <code className="mono">koino_super_admins</code> allowlist (or role=admin for the IMO sub-views).
-            You're signed in as <strong>{meIdent?.role || "unknown"}</strong>.
+      <div className="koino-platform">
+        <div className="page-pad">
+          <div className="panel" style={{ padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171" }}>Not authorized</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "#b4b4b4", lineHeight: 1.55 }}>
+              Platform admin is gated on the <code className="mono" style={{ fontSize: 10.5 }}>koino_super_admins</code> allowlist.
+              You're signed in as <strong style={{ color: "#e8e8e8" }}>{meIdent?.role || "unknown"}</strong>.
+            </div>
           </div>
         </div>
       </div>
@@ -965,39 +1225,39 @@ function PagePlatformAdmin({ subpage = "platform" }) {
 
   const onActAs = async (agency) => {
     const reason = prompt(`Act as ${agency.name}? Reason (logged in target agency's audit):`);
-    if (reason === null) return;   // user cancelled
+    if (reason === null) return;
     await window.startSuperAdminActAs(agency.id, agency.name, reason || "");
     window.toast && window.toast(`Now acting as ${agency.name}`, "warn");
   };
 
-  // Non-super admin (role='admin') can see Agencies / Users / Audit at a
-  // degraded level (their own IMO + sub-agencies) — the underlying RPCs still
-  // raise forbidden, so we show a ForbiddenCard with an explanation. For the
-  // HQ surface, fall through to the existing single-agency PageAdmin.
   if (!isSuper && isAdmin) {
     return (
-      <div className="page-pad">
-        <div className="panel" style={{ padding: 18 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>Platform admin · IMO operator view</div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            Cross-tenant views are super-admin-only. Use <strong>Admin →</strong> in the sidebar for your own IMO's surface.
-            If you should be a super-admin, ping Ian to add you to <code className="mono">koino_super_admins</code>.
+      <div className="koino-platform">
+        <div className="page-pad">
+          <div className="panel" style={{ padding: 16 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600 }}>Platform admin · IMO operator view</div>
+            <div style={{ marginTop: 6, fontSize: 11.5, color: "#b4b4b4", lineHeight: 1.55 }}>
+              Cross-tenant views are super-admin-only. Use <strong>Admin →</strong> in the sidebar for your own IMO surface.
+              For super-admin grants, ping Ian to add you to <code className="mono" style={{ fontSize: 10.5 }}>koino_super_admins</code>.
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  let body;
   switch (subpage) {
-    case "agencies": return <SubpageAgencies onActAs={onActAs}/>;
-    case "users":    return <SubpageUsers/>;
-    case "billing":  return <SubpageBilling/>;
-    case "audit":    return <SubpageAudit/>;
-    case "flags":    return <SubpageFlags/>;
-    case "system":   return <SubpageSystem/>;
+    case "agencies": body = <SubpageAgencies onActAs={onActAs}/>; break;
+    case "users":    body = <SubpageUsers/>; break;
+    case "billing":  body = <SubpageBilling/>; break;
+    case "audit":    body = <SubpageAudit/>; break;
+    case "flags":    body = <SubpageFlags/>; break;
+    case "system":   body = <SubpageSystem/>; break;
     case "platform":
-    default:         return <SubpageHQ onActAs={onActAs}/>;
+    default:         body = <SubpageHQ onActAs={onActAs}/>; break;
   }
+  return <div className="koino-platform">{body}</div>;
 }
 window.PagePlatformAdmin = PagePlatformAdmin;
 
