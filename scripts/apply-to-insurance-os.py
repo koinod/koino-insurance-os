@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Apply migrations + seed data from source Repflow project (zybndnqnbxarpkhqpcxq, in
-sailorsbot org) onto Insurance OS (jfphwmzwteermalzwojp, in koino org), using a
-Personal Access Token minted in the koinod-authed Supabase account.
+Apply migrations + seed data from a source Repflow project onto Insurance OS
+(jfphwmzwteermalzwojp, in the koino-capital Supabase org), using a Personal
+Access Token minted in the koinod-authed Supabase account.
 
 Usage:
   python3 scripts/apply-to-insurance-os.py migrations
