@@ -483,6 +483,11 @@ function TodayRep({ aep }) {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button
             className="btn"
+            onClick={openLogActivity}
+            title="Capture a referral, walk-in, event lead, or any self-sourced contact"
+          ><Icons.Plus size={13}/> Add lead</button>
+          <button
+            className="btn"
             onClick={() => window.dispatchEvent(new CustomEvent("appointment:open", { detail: { lead: null } }))}
             title="Schedule a callback or appointment"
           ><Icons.Calendar size={13}/> Schedule</button>
@@ -568,7 +573,7 @@ function TodayRep({ aep }) {
         <div className="panel-h"><Icons.Bolt size={13}/><h3>Quick actions</h3></div>
         <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
           <ActionTile icon="Phone"          label="Power Hour"        sub="open Floor + autodialer" onClick={goFloor}/>
-          <ActionTile icon="Plus"           label="Log activity"      sub="referral / walk-in / event" onClick={openLogActivity}/>
+          <ActionTile icon="Plus"           label="Add lead"          sub="referral / walk-in / event" onClick={openLogActivity}/>
           <ActionTile icon="MessageSquare"  label={myManagerRow ? `DM ${myManagerRow.name.split(" ")[0]}` : "Messages"}
                                                                  sub={myManagerRow ? "your upline" : "open inbox"}  onClick={dmManager}/>
           <ActionTile icon="Folder"         label="Pull a script"     sub="Plan G · FE · TPMO"     onClick={() => window.gotoPage && window.gotoPage("library")}/>
@@ -809,9 +814,25 @@ function TodayManager({ aep }) {
           ><Icons.MessageSquare size={13}/> Standup notes</button>
           <button
             className="btn btn-primary"
-            onClick={() => {
+            onClick={async () => {
+              const mut = window.AppData && window.AppData.mutate;
+              const meIdent = (window.me && window.me()) || null;
+              const fromName = meIdent?.full_name || meIdent?.handle || "Your manager";
+              try {
+                if (mut && mut.notificationCreate) {
+                  await mut.notificationCreate({
+                    kind: "power_hour",
+                    severity: "info",
+                    title: "Power Hour — all hands on Floor",
+                    body: `${fromName} kicked off a Power Hour. Open Floor and dial.`,
+                    pageLink: "page=floor",
+                  });
+                }
+                window.toast && window.toast("Power Hour broadcast sent · all hands notified", "success");
+              } catch (_e) {
+                window.toast && window.toast("Power Hour broadcast failed — opened Floor anyway", "error");
+              }
               if (window.gotoPage) window.gotoPage("floor");
-              window.toast && window.toast("Power Hour started · all hands on Floor", "success");
             }}
           ><Icons.Phone size={13}/> Power Hour · all hands</button>
         </div>

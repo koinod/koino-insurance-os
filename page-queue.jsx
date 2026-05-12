@@ -428,20 +428,33 @@ function DispatchView({ onCall }) {
 
   const setPick = (qid, rid) => setPicks(p => ({ ...p, [qid]: rid }));
 
-  // Auto-route: when toggled on, fill picks with the suggestion for any lead
-  // that isn't already explicitly assigned. Also re-runs when QUEUE changes.
+  // Auto-route: when toggled on, fill picks AND persist the assignment via
+  // queueAssign so the lead actually lands on the rep's pipeline. Re-runs on
+  // every new arrival in QUEUE. Manual picks still win — anything already in
+  // picks is left alone.
   React.useEffect(() => {
     if (!autoRoute) return;
+    const unassigned = QUEUE.filter(q => !picks[q.id]);
+    if (unassigned.length === 0) return;
+    const plan = unassigned.map(q => ({ q, repId: suggestionFor(q).rep.id })).filter(p => p.repId);
+    if (plan.length === 0) return;
     setPicks(prev => {
       const next = { ...prev };
-      QUEUE.forEach(q => {
-        if (!next[q.id]) {
-          const s = suggestionFor(q);
-          next[q.id] = s.rep.id;
-        }
-      });
+      plan.forEach(({ q, repId }) => { next[q.id] = repId; });
       return next;
     });
+    (async () => {
+      let ok = 0;
+      for (const { q, repId } of plan) {
+        try {
+          if (AppData.mutate && AppData.mutate.queueAssign) {
+            await AppData.mutate.queueAssign(q.id, repId);
+            ok += 1;
+          }
+        } catch (_e) { /* per-row failure already surfaced by mutator */ }
+      }
+      if (ok > 0) window.toast && window.toast(`Auto-routed ${ok} lead${ok === 1 ? "" : "s"}`, "success");
+    })();
   // eslint-disable-next-line
   }, [autoRoute, QUEUE.length]);
 
@@ -477,7 +490,7 @@ function DispatchView({ onCall }) {
           <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: autoRoute ? "color-mix(in oklch, var(--accent-money) 14%, var(--bg-raised))" : "var(--bg-raised)", border: `1px solid ${autoRoute ? "color-mix(in oklch, var(--accent-money) 40%, transparent)" : "var(--border-subtle)"}`, borderRadius: 999, fontSize: 12, cursor: "pointer" }}>
             <input type="checkbox" checked={autoRoute} onChange={(e) => setAutoRoute(e.target.checked)} style={{ accentColor: "var(--accent-money)" }}/>
             <span style={{ fontWeight: 500, color: autoRoute ? "var(--accent-money)" : "var(--text-secondary)" }}>Auto-route</span>
-            <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{autoRoute ? "ON · suggestions auto-filled" : "OFF"}</span>
+            <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{autoRoute ? "ON · auto-assigning inbounds" : "OFF"}</span>
           </label>
           <button className="btn" onClick={() => setShowRules(true)}><Icons.Settings size={13}/> Routing rules</button>
         </div>

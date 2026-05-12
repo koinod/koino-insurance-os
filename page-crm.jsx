@@ -258,7 +258,7 @@ function PageCrm({ role = "owner" }) {
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
       {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}
-      {addLeadOpen   && <AddLeadModal reps={reps} sourceNames={sourceNames} onClose={() => setAddLeadOpen(false)} onSave={addLead}/>}
+      {addLeadOpen   && <AddLeadModal reps={reps} sourceNames={sourceNames} role={role} onClose={() => setAddLeadOpen(false)} onSave={addLead}/>}
       {csvOpen       && <CsvImportModal reps={reps} onClose={() => setCsvOpen(false)}/>}
     </div>
   );
@@ -489,13 +489,20 @@ function CsvImportModal({ reps, onClose }) {
 }
 
 // ═══ Add lead modal ═══════════════════════════════════════════════════════
-function AddLeadModal({ reps, sourceNames, onClose, onSave }) {
+function AddLeadModal({ reps, sourceNames, role, onClose, onSave }) {
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isRep = role === "rep";
+  const myRepId = meIdent?.rep_id || null;
+  const defaultOwner = isRep && myRepId
+    ? myRepId
+    : (reps[0]?.id || myRepId || "");
   const [form, setForm] = React.useState({
     name: "", phone: "", age: "", state: "", product: "Med Supp Plan G",
-    source: sourceNames[0] || "Manual entry", owner: reps[0]?.id || "",
+    source: sourceNames[0] || "Manual entry", owner: defaultOwner,
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const valid = form.name.trim().length > 0;
+  const ownerLockedToSelf = isRep;
   return (
     <Shared.Modal title="Add a lead manually" width={520} onClose={onClose}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -518,15 +525,23 @@ function AddLeadModal({ reps, sourceNames, onClose, onSave }) {
           <Shared.Select value={form.source} onChange={(v) => set("source", v)}
             options={[{ v: "Manual entry", l: "Manual entry" }, ...sourceNames.map(n => ({ v: n, l: n }))]}/>
         </Shared.Field>
-        <Shared.Field label="Assign to">
-          {reps.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", padding: "8px 0", lineHeight: 1.5 }}>
-              No teammates yet — invite a producer first under Settings → Team. The lead will be assigned to you when you add the first one.
+        {ownerLockedToSelf ? (
+          <Shared.Field label="Assigned to">
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", padding: "8px 10px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+              You ({meIdent?.full_name || meIdent?.handle || "current user"}) — reps can only add leads to their own book.
             </div>
-          ) : (
-            <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
-          )}
-        </Shared.Field>
+          </Shared.Field>
+        ) : (
+          <Shared.Field label="Assign to">
+            {reps.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", padding: "8px 0", lineHeight: 1.5 }}>
+                No teammates yet — invite a producer first under Settings → Team. The lead will be assigned to you when you add the first one.
+              </div>
+            ) : (
+              <Shared.Select value={form.owner} onChange={(v) => set("owner", v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+            )}
+          </Shared.Field>
+        )}
         <div/>
       </div>
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
