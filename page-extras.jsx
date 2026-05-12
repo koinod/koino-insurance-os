@@ -2500,10 +2500,10 @@ function PageBook() {
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
   const TABS = role === "owner"
-    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
-      ? [["team","Team & invites"],["carriers","Carriers"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-      : [["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
+      ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
+      : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
   // Allow other pages to deeplink into a specific tab via sessionStorage
   // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
   const initialTab = (() => {
@@ -2543,6 +2543,7 @@ function PageSettings({ role = "owner" }) {
           {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
           {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
           {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner"}/> : null; })()}
+          {tab === "agents"        && <SettingsAgents role={role}/>}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
         </div>
@@ -2860,6 +2861,176 @@ function SettingsIntegrations() {
       ))}
       {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => { setTwilioOpen(false); refresh(); }}/>; })()}
       {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => { setGenericOpen(null); refresh(); }}/>; })()}
+    </div>
+  );
+}
+
+/* Settings → Agents — install/uninstall AI agents recommended for the
+ * viewer's role. Sources truth from suggested_agents_for_role(role) RPC.
+ *
+ * Install flow tries:
+ *   1. RPC public.install_agent(p_agent_key) — if present, single round-trip
+ *   2. Direct upsert into public.rba_installs (agency_id from current_agency_id,
+ *      agent_key from suggestion). If `rba_installs` is missing we surface
+ *      the error rather than silently succeed.
+ *
+ * Uninstall hits public.rba_installs delete (RLS confines to viewer agency).
+ *
+ * Pass 6 (2026-05-11).
+ */
+function SettingsAgents({ role = "owner" }) {
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [installs,    setInstalls]    = React.useState([]);
+  const [loading,     setLoading]     = React.useState(true);
+  const [err,         setErr]         = React.useState(null);
+  const [busyKey,     setBusyKey]     = React.useState(null);
+  const [agencyId,    setAgencyId]    = React.useState(null);
+
+  const refresh = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setLoading(false); return; }
+    try {
+      const aid = (await sb.rpc("current_agency_id"))?.data || null;
+      setAgencyId(aid);
+      const [sug, ins] = await Promise.all([
+        sb.rpc("suggested_agents_for_role", { p_role: role }),
+        sb.from("rba_installs").select("agent_key, status, installed_at"),
+      ]);
+      if (Array.isArray(sug?.data)) setSuggestions(sug.data);
+      if (Array.isArray(ins?.data)) setInstalls(ins.data);
+      if (sug?.error && sug.error.code !== "PGRST116") setErr(sug.error.message || String(sug.error));
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setLoading(false); }
+  }, [role]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const installedKeys = React.useMemo(() => new Set(installs.map(i => i.agent_key)), [installs]);
+
+  const install = async (agentKey, label) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setBusyKey(agentKey);
+    try {
+      // Try RPC first
+      let ok = false;
+      try {
+        const r = await sb.rpc("install_agent", { p_agent_key: agentKey });
+        if (!r.error) ok = true;
+      } catch (_e) {}
+      if (!ok) {
+        // Fallback: direct insert. agency_id falls from RLS or current_agency_id.
+        const row = { agent_key: agentKey, status: "installed" };
+        if (agencyId) row.agency_id = agencyId;
+        const r2 = await sb.from("rba_installs").upsert(row, { onConflict: "agency_id,agent_key" });
+        if (r2.error) throw r2.error;
+      }
+      window.toast && window.toast(`${label} installed`, "success");
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Install failed: ${e?.message || e}`, "error");
+    } finally { setBusyKey(null); }
+  };
+
+  const uninstall = async (agentKey, label) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setBusyKey(agentKey);
+    try {
+      let q = sb.from("rba_installs").delete().eq("agent_key", agentKey);
+      if (agencyId) q = q.eq("agency_id", agencyId);
+      const r = await q;
+      if (r.error) throw r.error;
+      window.toast && window.toast(`${label} uninstalled`, "success");
+      await refresh();
+    } catch (e) {
+      window.toast && window.toast(`Uninstall failed: ${e?.message || e}`, "error");
+    } finally { setBusyKey(null); }
+  };
+
+  if (loading) {
+    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading agent recommendations…</div>;
+  }
+  if (err) {
+    return (
+      <div className="panel" style={{ padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load agents</div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{err}</div>
+        <button className="btn" onClick={refresh}>Try again</button>
+      </div>
+    );
+  }
+  if (suggestions.length === 0) {
+    return (
+      <div className="panel" style={{ padding: 18 }}>
+        <h3 style={{ margin: 0, marginBottom: 6 }}>Agents</h3>
+        <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+          No agents seeded in <code style={{ fontSize: 10.5 }}>role_agent_defaults</code> for the <strong>{role}</strong> role yet. Ask your IMO admin to populate defaults, or install agents directly from the Ops → Agents page.
+        </div>
+      </div>
+    );
+  }
+
+  const required = suggestions.filter(a => a.required);
+  const optional = suggestions.filter(a => !a.required);
+
+  const renderRow = (a) => {
+    const key = a.agent_key || a.id;
+    const label = a.label || a.name || key;
+    const installed = installedKeys.has(key);
+    return (
+      <div key={key} className="row" style={{ gridTemplateColumns: "1.4fr 1.6fr 130px", padding: "10px 12px", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+            {a.required && <span className="chip chip-status" style={{ marginRight: 6, fontSize: 10 }}>required</span>}
+            {a.host_hint && <span style={{ fontSize: 10.5 }}>runs on {a.host_hint}</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>{a.description || ""}</div>
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+          {installed ? (
+            <>
+              <span className="chip chip-money" style={{ fontSize: 10.5 }}>installed</span>
+              <button
+                className="btn btn-ghost"
+                disabled={a.required || busyKey === key}
+                title={a.required ? "Required agents can't be uninstalled" : "Uninstall"}
+                onClick={() => uninstall(key, label)}
+              >
+                {busyKey === key ? "…" : "Uninstall"}
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary" disabled={busyKey === key} onClick={() => install(key, label)}>
+              {busyKey === key ? "Installing…" : "Install"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {required.length > 0 && (
+        <div className="panel">
+          <div className="panel-h">
+            <h3>Required for {role}s</h3>
+            <span className="meta">{required.filter(a => installedKeys.has(a.agent_key || a.id)).length}/{required.length} installed</span>
+          </div>
+          <div className="list">{required.map(renderRow)}</div>
+        </div>
+      )}
+      {optional.length > 0 && (
+        <div className="panel">
+          <div className="panel-h">
+            <h3>Recommended</h3>
+            <span className="meta">{optional.length} optional agents</span>
+          </div>
+          <div className="list">{optional.map(renderRow)}</div>
+        </div>
+      )}
     </div>
   );
 }
