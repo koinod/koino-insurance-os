@@ -2655,52 +2655,109 @@ function OperatingStatesEditor() {
 }
 
 function SettingsBilling() {
-  const goBilling = () => {
-    if (window.gotoPage) window.gotoPage("billing");
-    else window.toast && window.toast("Billing page not yet wired", "info");
-  };
-  const updatePayment = () => {
-    // Stripe-hosted billing portal — env-gated. If no portal URL set, surface
-    // a friendly notice rather than the dead button it was before.
-    const url = window.AppData?.ORG_SETTINGS?.stripe_portal_url;
-    if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
-    window.toast && window.toast("Add STRIPE_PORTAL_URL to update payment method", "info");
-  };
+  // Source of truth is the live agencies row + page-billing.jsx AdminPlanCard
+  // (which talks to /api/stripe/checkout + /api/stripe/portal). The previous
+  // version of this tab hardcoded "Network · Annual / 9 of 25 producers /
+  // **** 4419 VISA" — fake numbers that drifted on every operator.
+  const [agency, setAgency] = React.useState(undefined); // undefined = loading
+  const [loadErr, setLoadErr] = React.useState(null);
+
+  const reload = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setAgency(null); return; }
+    const aid = window.getActiveAgencyId && window.getActiveAgencyId();
+    if (!aid) { setAgency(null); return; }
+    try {
+      const { data, error } = await sb.from("agencies").select("*").eq("id", aid).maybeSingle();
+      if (error) throw error;
+      setAgency(data || null);
+    } catch (e) {
+      setLoadErr(String(e?.message || e));
+      setAgency(null);
+    }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  // Refresh when realtime ticks the agency row (e.g., Stripe webhook updates
+  // subscription_status / current_period_end).
+  React.useEffect(() => {
+    const onMutate = (e) => { if (e.detail?.table === "agencies") reload(); };
+    window.addEventListener("data:mutated", onMutate);
+    return () => window.removeEventListener("data:mutated", onMutate);
+  }, [reload]);
+
+  if (agency === undefined) {
+    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading billing…</div>;
+  }
+  if (!agency) {
+    return (
+      <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Folder size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No agency to bill</div>
+        <div style={{ fontSize: 11.5, marginTop: 4 }}>
+          {loadErr ? <>Could not load: <span className="mono">{loadErr}</span></> : "Sign in to a real agency to manage billing."}
+        </div>
+        {loadErr && <button className="btn" style={{ marginTop: 12 }} onClick={reload}>Retry</button>}
+      </div>
+    );
+  }
+
+  const PlanCard = window.AdminPlanCard;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Plan</h3>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>Network · Annual</div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12.5, marginTop: 2 }}>Up to 25 producers · all integrations · 24h support</div>
-          </div>
-          <button className="btn btn-ghost" onClick={goBilling}>Manage plan</button>
+      {PlanCard
+        ? <PlanCard agency={agency}/>
+        : <div className="panel" style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 12.5 }}>page-billing.jsx not loaded — refresh the page.</div>}
+      <BillingInvoicesPanel agencyId={agency.id}/>
+    </div>
+  );
+}
+
+// Pulls invoice history straight from the billing_invoices view (populated
+// by the Stripe webhook). Empty state when there's no Stripe customer yet.
+function BillingInvoicesPanel({ agencyId }) {
+  const [rows, setRows] = React.useState(undefined);
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !agencyId) { setRows([]); return; }
+    sb.from("billing_invoices")
+      .select("id, amount_due_cents, currency, status, hosted_invoice_url, period_start, period_end, paid_at, created_at")
+      .eq("agency_id", agencyId)
+      .order("created_at", { ascending: false })
+      .limit(12)
+      .then(({ data, error }) => {
+        if (error || !Array.isArray(data)) setRows([]);
+        else setRows(data);
+      });
+  }, [agencyId]);
+  if (rows === undefined) return null;
+  if (rows.length === 0) return null;  // empty: hide rather than render an empty card
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>Recent invoices</h3><span className="meta">{rows.length}</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "100px 100px 100px 1fr 80px" }}>
+          <div>Period</div><div>Amount</div><div>Status</div><div></div><div></div>
         </div>
-      </div>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Usage this month</h3>
-        {[
-          { l: "Active producers", v: "9 / 25",  w: 36 },
-          { l: "Voice AI minutes", v: "12,480 / 50,000", w: 25 },
-          { l: "Lead enrichment",  v: "1,840 / 5,000",   w: 37 },
-          { l: "Storage",           v: "412 GB / 1 TB",   w: 41 },
-        ].map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 200px", padding: "8px 0", alignItems: "center", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0, fontSize: 12.5 }}>
-            <span style={{ color: "var(--text-secondary)" }}>{r.l}</span>
-            <span className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>{r.v}</span>
-            <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
-              <div style={{ width: `${r.w}%`, height: "100%", background: "var(--accent-money)" }}></div>
+        {rows.map(inv => (
+          <div key={inv.id} className="row" style={{ gridTemplateColumns: "100px 100px 100px 1fr 80px" }}>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+              {inv.period_start ? new Date(inv.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+            </div>
+            <div className="tabular" style={{ fontWeight: 500 }}>${((inv.amount_due_cents || 0) / 100).toFixed(2)}</div>
+            <div>
+              <span className={`chip ${inv.status === "paid" ? "chip-money" : inv.status === "open" ? "chip-status" : ""}`}>{inv.status}</span>
+            </div>
+            <div></div>
+            <div style={{ textAlign: "right" }}>
+              {inv.hosted_invoice_url && (
+                <a href={inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>
+                  View
+                </a>
+              )}
             </div>
           </div>
         ))}
-      </div>
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0, marginBottom: 8 }}>Payment method</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text-secondary)" }}>
-          <span className="chip">VISA</span><span className="mono" style={{ fontSize: 12.5 }}>**** 4419</span><span style={{ color: "var(--text-tertiary)", fontSize: 12.5 }}>· expires 09/27</span>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }} onClick={updatePayment}>Update</button>
-        </div>
       </div>
     </div>
   );

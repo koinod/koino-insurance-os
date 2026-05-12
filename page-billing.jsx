@@ -259,9 +259,15 @@ window.AgencySwitcher = AgencySwitcher;
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
     try {
-      const { data: ag } = await sb.from("agencies").select("id").limit(1).maybeSingle();
-      if (!ag) return;
-      sb.rpc("log_audit", { p_agency_id: ag.id, p_action: action, p_target: target || null, p_metadata: metadata || {}, p_actor_role: null }).then(() => {});
+      // Use the resolved active agency (switcher -> me().agency_id) instead
+      // of "first agency the anon RLS lets us see". On a multi-tenant viewer
+      // (super_admin, IMO owner with multiple memberships), the old query
+      // tagged every audit row to whichever agency the .limit(1) happened to
+      // return -- which was almost never the agency the operator was actually
+      // working in.
+      const aid = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (!aid) return;
+      sb.rpc("log_audit", { p_agency_id: aid, p_action: action, p_target: target || null, p_metadata: metadata || {}, p_actor_role: null }).then(() => {});
     } catch (_e) {}
   };
 
