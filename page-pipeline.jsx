@@ -38,7 +38,16 @@ function PagePipeline({ role = "owner" }) {
   const meIdent = window.me && window.me();
   const meId = meIdent?.rep_id || (REPS && REPS[0]?.id) || "viewer";
   const all = [...extra, ...PIPELINE].map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
-  const scoped = role === "rep" ? all.filter(p => p.owner === meId) : all;
+  // Scope rules:
+  //   rep     → own deals only
+  //   manager → me + downline (window.scopeRepIds() returns those)
+  //   owner / fleet roles → everything (scopeRepIds returns null)
+  // Was: only rep was scoped; manager saw the entire fleet pipeline -- a
+  // multi-tenant data-leak in agencies where one operator manages a slice.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const scoped = role === "rep"
+    ? all.filter(p => p.owner === meId)
+    : (scopeIds ? all.filter(p => !p.owner || scopeIds.includes(p.owner)) : all);
   const filtered = scoped.filter(p =>
     (filters.stage  === "all" || p.stage  === filters.stage) &&
     (filters.heat   === "all" || p.heat   === filters.heat) &&
