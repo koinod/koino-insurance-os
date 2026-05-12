@@ -685,7 +685,7 @@ function TwilioConfigModal({ onClose }) {
   React.useEffect(() => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
-    sb.from("connections").select("config").eq("id", "twilio").single().then(({ data }) => {
+    sb.from("connections").select("config").eq("id", "twilio").maybeSingle().then(({ data }) => {
       if (data?.config) {
         setSavedSnapshot(data.config);
         setForm(f => ({ ...f, ...data.config, api_key_secret: "" })); // never echo secrets back

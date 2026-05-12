@@ -331,7 +331,7 @@ function ConnectorConfigModal({ connectorId, onClose }) {
   React.useEffect(() => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
-    sb.from("connections").select("config, name").eq("id", connectorId).single().then(({ data }) => {
+    sb.from("connections").select("config, name").eq("id", connectorId).maybeSingle().then(({ data }) => {
       if (data?.config) {
         // Strip password fields when echoing back (they live server-side)
         const safe = { ...data.config };

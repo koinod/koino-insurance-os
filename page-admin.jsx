@@ -26,7 +26,7 @@ function PageAdmin({ role = "owner" }) {
     if (!sb) { setLoading(false); return; }
     setLoading(true);
     try {
-      const { data: ag } = await sb.from("agencies").select("*").limit(1).single();
+      const { data: ag } = await sb.from("agencies").select("*").limit(1).maybeSingle();
       if (ag) {
         setAgency(ag);
         const [m, i, a] = await Promise.all([
@@ -205,7 +205,7 @@ function PerAgencyNotificationsPanel({ open, onClose, goto }) {
     const { data: session } = await sb.auth.getSession();
     if (!session?.session) { setLoading(false); return; }
     const userId = session.session.user.id;
-    const { data: ag } = await sb.from("agencies").select("id, name").limit(1).single();
+    const { data: ag } = await sb.from("agencies").select("id, name").limit(1).maybeSingle();
     if (!ag) { setLoading(false); return; }
     setAgency(ag);
     // GAP-C1 — notifications targeted to this rep, plus agency-wide broadcasts
