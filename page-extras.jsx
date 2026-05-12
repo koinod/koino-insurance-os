@@ -2696,44 +2696,170 @@ function SettingsBilling() {
 }
 
 function SettingsIntegrations() {
-  const { CONNECTIONS } = AppData;
-  const [testing, setTesting] = React.useState(null);
-  const [twilioOpen, setTwilioOpen]   = React.useState(false);
-  const [genericOpen, setGenericOpen] = React.useState(null);  // connector id
+  // Pass 6 (2026-05-11): source of truth is public.connector_catalog crossed
+  // with the agency's public.connections rows for connected status.
+  // AppData.CONNECTIONS is now [] by default for real agencies (P1 fix), so
+  // reading from it directly would hide all available connectors. The
+  // catalog table is the catalog; connections is the configured-state side.
+  const [catalog, setCatalog]     = React.useState([]);
+  const [connections, setConnections] = React.useState([]);
+  const [loading, setLoading]     = React.useState(true);
+  const [loadErr, setLoadErr]     = React.useState(null);
+  const [testing, setTesting]     = React.useState(null);
+  const [twilioOpen, setTwilioOpen]     = React.useState(false);
+  const [genericOpen, setGenericOpen]   = React.useState(null);
 
-  const test = async (c) => {
-    setTesting(c.id);
-    // Simulated test — flip status briefly to "warn" then back to ok via mutate.connectionStatus
-    await new Promise(r => setTimeout(r, 600));
+  const refresh = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setLoading(false); return; }
     try {
-      await AppData.mutate.connectionStatus(c.id, "ok", c.meta + " · last test " + new Date().toLocaleTimeString());
-      window.toast && window.toast(`${c.name}: connection healthy`, "success");
-    } catch (_e) {}
-    setTesting(null);
+      const [cat, conn] = await Promise.all([
+        sb.from("connector_catalog").select("*"),
+        sb.from("connections").select("id, connector_key, status, meta, config"),
+      ]);
+      // connector_catalog should be queryable by all authed users (it's a
+      // global catalog). connections is RLS-scoped to viewer_agency_ids().
+      if (cat.error && cat.error.code !== "PGRST116") setLoadErr(cat.error.message || String(cat.error));
+      setCatalog(Array.isArray(cat.data) ? cat.data : []);
+      setConnections(Array.isArray(conn.data) ? conn.data : []);
+    } catch (e) {
+      setLoadErr(String(e?.message || e));
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const byKey = React.useMemo(() => {
+    const m = new Map();
+    connections.forEach(c => m.set(c.connector_key || c.id, c));
+    return m;
+  }, [connections]);
+
+  const test = async (key, label) => {
+    setTesting(key);
+    try {
+      const r = await fetch("/api/connector/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connector_key: key }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && (j?.ok || j?.status === "ok")) window.toast && window.toast(`${label}: healthy`, "success");
+      else window.toast && window.toast(`${label}: ${j?.error || "test failed"}`, "warn");
+    } catch (_e) {
+      window.toast && window.toast(`${label}: test endpoint unreachable`, "warn");
+    } finally {
+      setTesting(null);
+      refresh();
+    }
   };
 
-  return (
-    <div className="panel">
-      <div className="panel-h"><h3>Connected services</h3><span className="meta">{CONNECTIONS.length} configured</span></div>
-      <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
-          <div>Service</div><div>Category</div><div>Status</div><div>Detail</div><div></div>
-        </div>
-        {CONNECTIONS.map(c => (
-          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
-            <div style={{ fontWeight: 500 }}>{c.name}</div>
-            <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
-            <div><span className={`chip ${c.status === "ok" ? "chip-money" : c.status === "warn" ? "chip-status" : "chip-danger"}`}>{c.status === "ok" ? "Connected" : c.status === "warn" ? "Action needed" : "Down"}</span></div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
-            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" onClick={() => test(c)} disabled={testing === c.id}>{testing === c.id ? "Testing..." : "Test"}</button>
-              <button className="btn btn-ghost" onClick={() => { if (c.id === "twilio") setTwilioOpen(true); else if (window.CONNECTOR_SCHEMAS && window.CONNECTOR_SCHEMAS[c.id]) setGenericOpen(c.id); else window.toast && window.toast(`No config schema for ${c.name} yet`, "info"); }}>{c.status === "ok" ? "Configure" : "Reconnect"}</button>
-            </div>
+  // Fall back to legacy CONNECTIONS list ONLY for demo agencies so the
+  // sandbox tour still looks alive. Real agencies see the live catalog.
+  const isDemoAgency = !!(window.isDemoAgency && window.isDemoAgency());
+  if (isDemoAgency && catalog.length === 0 && (AppData.CONNECTIONS || []).length > 0) {
+    const CONNECTIONS = AppData.CONNECTIONS;
+    return (
+      <div className="panel">
+        <div className="panel-h"><h3>Connected services</h3><span className="meta">demo data · {CONNECTIONS.length} configured</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
+            <div>Service</div><div>Category</div><div>Status</div><div>Detail</div><div></div>
           </div>
-        ))}
+          {CONNECTIONS.map(c => (
+            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
+              <div style={{ fontWeight: 500 }}>{c.name}</div>
+              <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
+              <div><span className={`chip ${c.status === "ok" ? "chip-money" : c.status === "warn" ? "chip-status" : "chip-danger"}`}>{c.status === "ok" ? "Connected" : c.status === "warn" ? "Action needed" : "Down"}</span></div>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{c.meta}</div>
+              <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" onClick={() => { if (c.id === "twilio") setTwilioOpen(true); else if (window.CONNECTOR_SCHEMAS && window.CONNECTOR_SCHEMAS[c.id]) setGenericOpen(c.id); }}>{c.status === "ok" ? "Configure" : "Reconnect"}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => setTwilioOpen(false)}/>; })()}
+        {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => setGenericOpen(null)}/>; })()}
       </div>
-      {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => setTwilioOpen(false)}/>; })()}
-      {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => setGenericOpen(null)}/>; })()}
+    );
+  }
+
+  if (loading) {
+    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading connector catalog…</div>;
+  }
+  if (loadErr) {
+    return (
+      <div className="panel" style={{ padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load connectors</div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{loadErr}</div>
+        <button className="btn" onClick={refresh}>Try again</button>
+      </div>
+    );
+  }
+  if (catalog.length === 0) {
+    return (
+      <div className="panel" style={{ padding: 18 }}>
+        <h3 style={{ margin: 0, marginBottom: 6 }}>Connectors</h3>
+        <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+          No connectors in <code style={{ fontSize: 10.5 }}>connector_catalog</code> yet. Once your backend seeds the catalog, every integration (Twilio, Stripe, Gmail, iPipeline, etc.) will appear here with status badges.
+        </div>
+      </div>
+    );
+  }
+
+  // Group by category for legibility
+  const groups = catalog.reduce((acc, c) => {
+    const cat = c.category || "Other";
+    (acc[cat] = acc[cat] || []).push(c);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {Object.entries(groups).map(([cat, items]) => (
+        <div className="panel" key={cat}>
+          <div className="panel-h"><h3>{cat}</h3><span className="meta">{items.filter(c => byKey.get(c.connector_key || c.id)?.status === "ok").length}/{items.length} connected</span></div>
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 1.4fr 200px" }}>
+              <div>Service</div><div>Status</div><div>Detail</div><div></div>
+            </div>
+            {items.map(c => {
+              const key  = c.connector_key || c.id;
+              const live = byKey.get(key);
+              const isConnected = live && live.status === "ok";
+              const isWarn      = live && live.status === "warn";
+              return (
+                <div key={key} className="row" style={{ gridTemplateColumns: "1.6fr 100px 1.4fr 200px" }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{c.label || c.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{c.description || ""}</div>
+                  </div>
+                  <div>
+                    <span className={`chip ${isConnected ? "chip-money" : isWarn ? "chip-status" : ""}`}>
+                      {isConnected ? "Connected" : isWarn ? "Action needed" : "Not connected"}
+                    </span>
+                  </div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{live?.meta || ""}</div>
+                  <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                    {isConnected && (
+                      <button className="btn btn-ghost" onClick={() => test(key, c.label || c.name)} disabled={testing === key}>
+                        {testing === key ? "Testing…" : "Test"}
+                      </button>
+                    )}
+                    <button className="btn" onClick={() => {
+                      if (key === "twilio") setTwilioOpen(true);
+                      else setGenericOpen(key);
+                    }}>
+                      {isConnected ? "Configure" : isWarn ? "Reconnect" : "Connect"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => { setTwilioOpen(false); refresh(); }}/>; })()}
+      {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => { setGenericOpen(null); refresh(); }}/>; })()}
     </div>
   );
 }
