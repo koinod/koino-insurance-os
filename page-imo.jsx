@@ -306,25 +306,64 @@ function AgenciesTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo,
   const { loading, agencies, memberCounts, lastActive, err } = fleet;
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState("all");
+  const [editing, setEditing] = React.useState(null);     // agency row to edit
+  const [busy, setBusy] = React.useState(null);
 
   const filtered = agencies.filter(a => {
     if (search && !a.name.toLowerCase().includes(search.toLowerCase()) && !(a.slug || "").includes(search.toLowerCase())) return false;
     if (filter === "onboarding" && a.onboarding_complete) return false;
-    if (filter === "live" && !a.onboarding_complete) return false;
+    if (filter === "live" && (!a.onboarding_complete || a.suspended_at)) return false;
+    if (filter === "suspended" && !a.suspended_at) return false;
     return true;
   });
 
+  // Suspend / un-suspend an agency. Calls `suspend_agency(p_agency_id,
+  // p_suspend bool)` first — when that RPC isn't deployed, falls back to a
+  // direct update on agencies.suspended_at. Both paths surface the server
+  // error verbatim.
+  const toggleSuspend = async (a) => {
+    const suspend = !a.suspended_at;
+    if (!confirm(`${suspend ? "Suspend" : "Un-suspend"} ${a.name}? ${suspend ? "Members lose dashboard access until restored." : "Access is restored immediately."}`)) return;
+    setBusy(a.id);
+    const sb = window.getSupabase();
+    try {
+      const rpc = await sb.rpc("suspend_agency", { p_agency_id: a.id, p_suspend: suspend });
+      if (rpc.error && /function .* does not exist/i.test(rpc.error.message || "")) {
+        const { error } = await sb.from("agencies")
+          .update({ suspended_at: suspend ? new Date().toISOString() : null })
+          .eq("id", a.id);
+        if (error) throw error;
+      } else if (rpc.error) { throw rpc.error; }
+      window.toast && window.toast(`${a.name} ${suspend ? "suspended" : "restored"}`, "success");
+      // Audit log — the RPC handles this itself when present; the fallback
+      // path needs the explicit log_audit call so the action is visible in
+      // the cross-agency audit trail.
+      sb.rpc("log_audit", {
+        p_agency_id: a.id,
+        p_action: suspend ? "agency.suspend" : "agency.restore",
+        p_target: a.slug || a.id,
+        p_metadata: { by: "imo" },
+        p_actor_role: null,
+      }).then(() => {});
+      reload();
+    } catch (e) {
+      window.toast && window.toast(`${suspend ? "Suspend" : "Restore"} failed: ${e.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
   return (
+    <>
     <div className="k-card">
       <div className="k-card-h">
         <h3>All sub-agencies</h3>
         <span className="k-meta">{filtered.length} visible · {agencies.length} total</span>
         <div className="k-actions">
           <input className="k-input" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width:140 }}/>
-          <select className="k-select" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width:130 }}>
+          <select className="k-select" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width:140 }}>
             <option value="all">All</option>
             <option value="live">Live only</option>
             <option value="onboarding">Mid-onboarding</option>
+            <option value="suspended">Suspended</option>
           </select>
           {isSuperAdmin && (
             <label style={{ display:"flex", alignItems:"center", gap:5, fontSize:"0.7rem", color:"var(--k-t3)", fontFamily:"var(--k-mono)", textTransform:"uppercase", letterSpacing:"0.06em" }}>
@@ -338,8 +377,8 @@ function AgenciesTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo,
       </div>
       {err && <div className="k-error">{err}</div>}
       <div className="k-table">
-        <div className="k-tr k-head" style={{ gridTemplateColumns:"1.6fr 70px 90px 70px 80px 80px 80px" }}>
-          <div>Agency</div><div>State</div><div>Plan</div><div>Members</div><div>Last active</div><div>Status</div><div></div>
+        <div className="k-tr k-head" style={{ gridTemplateColumns:"1.6fr 60px 80px 60px 70px 80px 180px" }}>
+          <div>Agency</div><div>State</div><div>Plan</div><div>Members</div><div>Last active</div><div>Status</div><div>Actions</div>
         </div>
         {loading && <div className="k-empty">Loading fleet…</div>}
         {!loading && filtered.length === 0 && !err && (
@@ -348,11 +387,12 @@ function AgenciesTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo,
           </div>
         )}
         {filtered.map(a => (
-          <div key={a.id} className="k-tr k-body" style={{ gridTemplateColumns:"1.6fr 70px 90px 70px 80px 80px 80px" }}>
+          <div key={a.id} className="k-tr k-body" style={{ gridTemplateColumns:"1.6fr 60px 80px 60px 70px 80px 180px", opacity: a.suspended_at ? 0.6 : 1 }}>
             <div style={{ minWidth:0 }}>
               <div className="k-cell-name" style={{ display:"flex", gap:6, alignItems:"center" }}>
                 {a.name}
                 {isDemoRow(a) && <StatusChip kind="demo">demo</StatusChip>}
+                {a.suspended_at && <StatusChip kind="danger">suspended</StatusChip>}
               </div>
               <div className="k-cell-sub">{a.slug}</div>
             </div>
@@ -360,12 +400,98 @@ function AgenciesTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo,
             <div style={{ color:"var(--k-t2)" }}>{a.plan || "—"}</div>
             <div className="k-num">{memberCounts[a.id] || 0}</div>
             <div className="k-mono" style={{ fontSize:"0.7rem", color:"var(--k-t3)" }}>{fmtAge(lastActive[a.id])}</div>
-            <div><StatusChip kind={a.onboarding_complete ? "live" : "warn"}>{a.onboarding_complete ? "live" : "onboarding"}</StatusChip></div>
-            <div><button className="k-btn k-btn-ghost" onClick={() => onSwitchAgency(a)}>Open →</button></div>
+            <div><StatusChip kind={a.suspended_at ? "danger" : a.onboarding_complete ? "live" : "warn"}>{a.suspended_at ? "off" : a.onboarding_complete ? "live" : "onboarding"}</StatusChip></div>
+            <div style={{ display:"flex", gap:4, justifyContent:"flex-end" }}>
+              <button className="k-btn k-btn-ghost" onClick={() => setEditing(a)} title="Rename / change plan / state">Edit</button>
+              <button className="k-btn k-btn-ghost" disabled={busy === a.id} onClick={() => toggleSuspend(a)} title={a.suspended_at ? "Restore agency access" : "Suspend agency"}>
+                {a.suspended_at ? "Restore" : "Suspend"}
+              </button>
+              <button className="k-btn k-btn-ghost" onClick={() => onSwitchAgency(a)}>Open →</button>
+            </div>
           </div>
         ))}
       </div>
     </div>
+    {editing && <EditAgencyModal agency={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }}/>}
+    </>
+  );
+}
+
+// ─── EditAgencyModal — rename / change plan / change state ─────────────────
+function EditAgencyModal({ agency, onClose, onSaved }) {
+  const [name, setName]   = React.useState(agency.name || "");
+  const [plan, setPlan]   = React.useState(agency.plan || "trial");
+  const [state, setState] = React.useState(agency.primary_state || "");
+  const [busy, setBusy]   = React.useState(false);
+  const [err, setErr]     = React.useState("");
+
+  const save = async () => {
+    if (!name.trim()) { setErr("Agency name is required."); return; }
+    setBusy(true); setErr("");
+    const sb = window.getSupabase();
+    try {
+      // Build a minimal patch — don't write fields the user didn't change.
+      const patch = {};
+      if (name.trim() !== agency.name) patch.name = name.trim();
+      if (plan !== (agency.plan || "trial")) patch.plan = plan;
+      if (state !== (agency.primary_state || "")) patch.primary_state = state || null;
+      if (Object.keys(patch).length === 0) { onClose(); return; }
+      const { error } = await sb.from("agencies").update(patch).eq("id", agency.id);
+      if (error) throw error;
+      sb.rpc("log_audit", {
+        p_agency_id: agency.id,
+        p_action: "agency.update",
+        p_target: agency.slug || agency.id,
+        p_metadata: patch,
+        p_actor_role: null,
+      }).then(() => {});
+      window.toast && window.toast(`${name.trim()} updated`, "success");
+      onSaved && onSaved();
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setBusy(false); }
+  };
+
+  const STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+
+  return (
+    <Shared.Modal title={`Edit ${agency.name}`} width={520} onClose={onClose}>
+      <div className="koino-skin" style={{ background:"transparent", color:"inherit" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+            <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Agency name</span>
+            <input className="k-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus/>
+          </label>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Plan</span>
+              <select className="k-select" value={plan} onChange={(e) => setPlan(e.target.value)}>
+                <option value="trial">Trial</option>
+                <option value="starter">Starter</option>
+                <option value="growth">Growth</option>
+                <option value="scale">Scale</option>
+              </select>
+            </label>
+            <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Resident state</span>
+              <select className="k-select" value={state} onChange={(e) => setState(e.target.value)}>
+                <option value="">—</option>
+                {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+          </div>
+          <div style={{ padding:10, background:"var(--k-s2)", borderRadius:6, fontSize:"0.7rem", color:"var(--k-t3)", lineHeight:1.5 }}>
+            <span className="k-mono">id:</span> <span className="k-mono" style={{ color:"var(--k-t2)" }}>{agency.id}</span><br/>
+            <span className="k-mono">slug:</span> <span className="k-mono" style={{ color:"var(--k-t2)" }}>{agency.slug || "—"}</span> · slug rename is not supported here (deep-links break)
+          </div>
+          {err && <div style={{ color:"var(--k-danger)", fontSize:"0.75rem", fontFamily:"var(--k-mono)" }}>{err}</div>}
+        </div>
+        <div style={{ marginTop:14, display:"flex", gap:8 }}>
+          <button className="k-btn k-btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</button>
+          <button className="k-btn k-btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </Shared.Modal>
   );
 }
 
