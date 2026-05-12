@@ -190,6 +190,13 @@ function computeBreakoutScore(rep, ctx) {
 }
 function PredictiveCards({ scope }) {
   // scope = "team" (manager downline) or "org" (fleet)
+  // Gated by feature flag `predictive_cards` (default on). Set globally
+  // from platform-admin → Flags, or per-agency from agency-flags modal.
+  // When off the section disappears entirely — a no-op render.
+  const ffOn = (typeof window !== "undefined" && window.featureFlagOn)
+    ? window.featureFlagOn("predictive_cards", true)
+    : true;
+  if (!ffOn) return null;
   const reps = AppData.REPS || [];
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
   const visibleReps = scope === "org" ? reps
