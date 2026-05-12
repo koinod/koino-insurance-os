@@ -116,6 +116,26 @@ function PagePipeline({ role = "owner" }) {
 
   const applyBulk = async () => {
     const ids = Array.from(sel);
+
+    // GAP-MP2 — manager "coach owners" bulk action: fan out a coaching note
+    // to each unique rep who owns at least one of the selected deals.
+    if (bulkAction === "coach") {
+      const ownerIds = Array.from(new Set(ids.map(id => all.find(p => p.id === id)?.owner).filter(Boolean)));
+      if (ownerIds.length === 0) {
+        window.toast && window.toast("No owners on the selected leads — assign first.", "warn");
+        return;
+      }
+      const note = (bulkValue || "").trim();
+      if (!note) { window.toast && window.toast("Add a coaching note before sending.", "warn"); return; }
+      setBulkOpen(false);
+      try {
+        await Promise.all(ownerIds.map(rid => AppData.mutate.coachingNoteCreate(rid, note)));
+        window.toast && window.toast(`Coached ${ownerIds.length} producer${ownerIds.length === 1 ? "" : "s"}`, "success");
+        setSel(new Set());
+      } catch (_e) {}
+      return;
+    }
+
     setOverrides(o => {
       const next = { ...o };
       ids.forEach(id => { next[id] = { ...(next[id] || {}), [bulkAction === "stage" ? "stage" : "owner"]: bulkValue }; });
@@ -259,7 +279,7 @@ function PagePipeline({ role = "owner" }) {
       )}
 
       {view === "kanban" && (
-        <div className="kanban-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: 10 }}>
+        <div className="kanban-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: 8 }}>
           {stages.map(s => {
             const items = filtered.filter(p => p.stage === s);
             const sum = items.reduce((a, b) => a + (b.ap || 0), 0);
@@ -269,29 +289,29 @@ function PagePipeline({ role = "owner" }) {
                 onDrop={(e) => { e.preventDefault(); if (drag != null) { moveTo(drag, s); setDrag(null); } }}>
                 <div className="panel-h">
                   <h3>{s}</h3>
-                  <span className="meta tabular">{items.length} · ${sum.toLocaleString()}</span>
+                  <span className="meta tabular" style={{ fontFamily: "var(--font-mono)" }}>{items.length} · ${sum.toLocaleString()}</span>
                 </div>
-                <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, minHeight: 220 }}>
+                <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 4, minHeight: 200 }}>
                   {items.map(p => (
                     <div key={p.id}
                       draggable
                       onDragStart={() => setDrag(p.id)}
                       onDragEnd={() => setDrag(null)}
                       onClick={() => setOpenLead(p)}
-                      style={{ background: drag === p.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 10, cursor: "grab", opacity: drag === p.id ? 0.5 : 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 500 }}>
+                      style={{ background: drag === p.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", padding: 8, cursor: "grab", opacity: drag === p.id ? 0.5 : 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500 }}>
                         <span className="dot" style={{ background: heatColor(p.heat) }}></span>
                         {p.lead}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{p.product}</div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                        <span className="tabular" style={{ fontSize: 12, fontWeight: 500 }}>{p.ap ? `$${p.ap.toLocaleString()}` : "—"}</span>
-                        <Shared.Avatar rep={repById[p.owner]} size={16}/>
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{p.product}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                        <span className="tabular" style={{ fontSize: 11.5, fontWeight: 500, fontFamily: "var(--font-mono)" }}>{p.ap ? `$${p.ap.toLocaleString()}` : "—"}</span>
+                        <Shared.Avatar rep={repById[p.owner]} size={14}/>
                       </div>
                     </div>
                   ))}
                   {items.length === 0 && drag != null && (
-                    <div style={{ padding: 14, border: "1px dashed var(--border-strong)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 11.5, textAlign: "center" }}>Drop to move to {s}</div>
+                    <div style={{ padding: 10, border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-sm)", color: "var(--text-tertiary)", fontSize: 11, textAlign: "center" }}>Drop to move to {s}</div>
                   )}
                 </div>
               </div>
@@ -357,11 +377,37 @@ function PagePipeline({ role = "owner" }) {
           </>
         }>
           <Shared.Field label="Action">
-            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : (ownerOptionReps[0]?.id || "")); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
+            <Shared.Select
+              value={bulkAction}
+              onChange={(v) => {
+                setBulkAction(v);
+                if (v === "stage") setBulkValue("Contacted");
+                else if (v === "owner") setBulkValue(ownerOptionReps[0]?.id || "");
+                else setBulkValue("");
+              }}
+              options={[
+                { v: "stage", l: "Move to stage" },
+                { v: "owner", l: "Reassign to producer" },
+                ...(role !== "rep" ? [{ v: "coach", l: "Coach owners on these deals" }] : []),
+              ]}
+            />
           </Shared.Field>
-          <Shared.Field label="Value">
-            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : ownerOptionReps.map(r => ({ v: r.id, l: r.name }))}/>
-          </Shared.Field>
+          {bulkAction === "coach" ? (
+            <Shared.Field label="Coaching note (sent to each unique owner)">
+              <textarea
+                className="text-input"
+                rows={4}
+                value={bulkValue}
+                onChange={(e) => setBulkValue(e.target.value)}
+                placeholder="One observation, one ask. E.g.: These deals are stalling at Quoted — try the Plan G anchor on your next dial."
+                style={{ width: "100%", lineHeight: 1.5, resize: "vertical" }}
+              />
+            </Shared.Field>
+          ) : (
+            <Shared.Field label="Value">
+              <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : ownerOptionReps.map(r => ({ v: r.id, l: r.name }))}/>
+            </Shared.Field>
+          )}
         </Shared.Modal>
       )}
     </div>
@@ -378,6 +424,13 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heatColor = lead.heat === "hot" ? "var(--accent-heat)" : lead.heat === "warm" ? "var(--state-warning)" : lead.heat === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
   const initials = lead.lead.split(" ").map(s => s[0]).join("");
+
+  // GAP-MP1 — manager-coaching modals on the lead drawer. Lets a manager
+  // reviewing a stuck deal coach the rep on it (Note) or page them with a
+  // focus alert (Alert) without leaving the pipeline context.
+  const [noteOpen,  setNoteOpen]  = React.useState(false);
+  const [alertOpen, setAlertOpen] = React.useState(false);
+  const showCoachActions = role !== "rep" && owner;
 
   // Inline-editable phone + email — debounce-saves to pipelineContact mutator
   const [phone, setPhone] = React.useState(lead.phone || "");
@@ -538,6 +591,16 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
         </div>
 
         <div className="slideout-foot">
+          {showCoachActions && (
+            <>
+              <button className="btn" title={`Coach ${owner.name.split(" ")[0]} on this deal`} onClick={() => setNoteOpen(true)}>
+                <Icons.Activity size={12}/> Note
+              </button>
+              <button className="btn" title={`Alert ${owner.name.split(" ")[0]} about this deal`} onClick={() => setAlertOpen(true)}>
+                <Icons.Bell size={12}/> Alert
+              </button>
+            </>
+          )}
           <button className="btn" disabled={!email.trim()}
             title={email.trim() ? `Email ${email}` : "Add email first"}
             onClick={() => email.trim() && (window.location.href = `mailto:${email.trim()}?subject=Following up on your ${lead.product || "policy"} quote`)}>
@@ -560,7 +623,114 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
           </button>
         </div>
       </aside>
+
+      {noteOpen && owner && (
+        <LeadCoachingNoteModal lead={lead} rep={owner} onClose={() => setNoteOpen(false)}/>
+      )}
+      {alertOpen && owner && (
+        <LeadFocusAlertModal lead={lead} rep={owner} onClose={() => setAlertOpen(false)}/>
+      )}
     </div>
+  );
+}
+
+/* GAP-MP1 — coaching note + focus alert modals scoped to a specific lead.
+   Pre-fills the body with the lead context (stage, days-in-stage, AP, next
+   action) so the manager just edits + sends. Persists via the same
+   AppData.mutate.coachingNoteCreate / notificationCreate path the Team
+   Board uses, so notes show up in the rep's coaching feed and alerts
+   route into their bell. */
+function LeadCoachingNoteModal({ lead, rep, onClose }) {
+  const defaultBody = `On ${lead.lead} (${lead.product}, ${lead.stage}, ${lead.days}d in stage, ${lead.ap ? "$" + lead.ap.toLocaleString() + " AP" : "no AP yet"}): `;
+  const [body, setBody] = React.useState(defaultBody);
+  const [saving, setSaving] = React.useState(false);
+  const submit = async () => {
+    if (!body.trim() || body.trim() === defaultBody.trim()) return;
+    setSaving(true);
+    try {
+      await AppData.mutate.coachingNoteCreate(rep.id, body.trim());
+      window.toast && window.toast(`Coaching note saved for ${rep.name.split(" ")[0]}`, "success");
+      onClose();
+    } catch (_e) { setSaving(false); }
+  };
+  return (
+    <Shared.Modal title={`Coach ${rep.name.split(" ")[0]} on ${lead.lead}`} width={520} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={saving || !body.trim() || body.trim() === defaultBody.trim()}>
+          <Icons.Check size={11}/> {saving ? "Saving…" : "Save note"}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 8, lineHeight: 1.5 }}>
+        Pre-filled with the deal context. Add the one observation + the one ask. Persists to <code style={{ fontSize: 10.5 }}>coaching_notes</code>.
+      </div>
+      <textarea
+        autoFocus
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={5}
+        className="text-input"
+        style={{ width: "100%", minHeight: 100, lineHeight: 1.5, resize: "vertical" }}
+      />
+    </Shared.Modal>
+  );
+}
+
+function LeadFocusAlertModal({ lead, rep, onClose }) {
+  const presets = [
+    { t: `Move ${lead.lead} forward`,   b: `${lead.lead} is at ${lead.stage} for ${lead.days}d. What's blocking next step? Drop in.` },
+    { t: "Call back today",              b: `${lead.lead} (${lead.product}) needs a touch today. Don't let it cool.` },
+    { t: "Add app docs",                 b: `${lead.lead} is in App In — upload the missing docs so we don't NIGO.` },
+  ];
+  const [title, setTitle] = React.useState(presets[0].t);
+  const [body,  setBody]  = React.useState(presets[0].b);
+  const [severity, setSeverity] = React.useState("info");
+  const [sending, setSending] = React.useState(false);
+  const submit = async () => {
+    setSending(true);
+    try {
+      await AppData.mutate.notificationCreate({
+        repId: rep.id,
+        recipientHandle: rep.handle,
+        kind: "deal_focus",
+        severity,
+        title: title.trim(),
+        body: body.trim(),
+        pageLink: "pipeline",
+      });
+      window.toast && window.toast(`Alert sent to ${rep.name.split(" ")[0]}`, "success");
+      onClose();
+    } catch (_e) { setSending(false); }
+  };
+  return (
+    <Shared.Modal title={`Alert ${rep.name.split(" ")[0]} · ${lead.lead}`} width={520} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={!title.trim() || sending}>
+          <Icons.Send size={11}/> {sending ? "Sending…" : "Send alert"}
+        </button>
+      </>
+    }>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+        {presets.map((p, i) => (
+          <button key={i} className="btn btn-ghost" style={{ fontSize: 10.5 }} onClick={() => { setTitle(p.t); setBody(p.b); }}>{p.t}</button>
+        ))}
+      </div>
+      <Shared.Field label="Severity">
+        <Shared.Select value={severity} onChange={setSeverity} options={[
+          { v: "info",    l: "Info" },
+          { v: "warning", l: "Warning" },
+          { v: "urgent",  l: "Urgent" },
+        ]}/>
+      </Shared.Field>
+      <Shared.Field label="Title">
+        <input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)}/>
+      </Shared.Field>
+      <Shared.Field label="Body">
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="text-input" style={{ width: "100%", minHeight: 80, lineHeight: 1.5, resize: "vertical" }}/>
+      </Shared.Field>
+    </Shared.Modal>
   );
 }
 
