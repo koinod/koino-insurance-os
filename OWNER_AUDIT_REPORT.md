@@ -6,6 +6,16 @@ Method: read each surface end-to-end, trace every render path back to either
 live data (Supabase tables hydrated through `data.jsx`) or hardcoded seed,
 flag mismatches with file:line.
 
+**DS note** — UI on every audit-shipped surface follows the **koino.capital
+website DS** (green `#00d4aa` + near-black surfaces, 12-16px radii, smaller
+cards, denser packing). Sourced from
+`KOINO/ventures/products/storefront-static/index.html`. Scoped via the new
+`.koino-ds` wrapper in `styles.css:48-238` so the rest of the OS keeps its
+existing dark+amber tokens until a follow-on migration. See
+`KoinoPlanCard` (`page-extras.jsx`), the empty states in
+`page-attribution.jsx` + `page-pipeline-sequences.jsx`, and the dense
+`BillingInvoicesPanel` for the pattern.
+
 ## Surfaces audited
 
 | # | Surface | Source file | Verdict |
@@ -302,6 +312,7 @@ value column whether the driver returns parsed or stringified JSON.
 ## Commits in this branch
 
 ```
+85f128c ui(owner-audit): re-skin to koino.capital DS (green + black, rounded soft)
 78ae858 fix(settings): hydrate org_settings so saved values survive refresh
 05b6544 fix(sequences): kill stray ENROLLED ref in sidebar active-count
 1be84e6 fix(attribution): wire Lead Vendors page to live AppData (was demo seed)
@@ -312,7 +323,7 @@ b8e536c fix(pipeline): manager view scopes to downline (was leaking fleet)
 b9430c4 fix(owner): hydrate AppData.EXPENSES + LEAD_SPEND_TOTALS for P&L waterfall
 ```
 
-8 commits, 0 pushes (per brief).
+9 commits, 0 pushes (per brief).
 
 ## Recommended next pass
 
@@ -326,3 +337,11 @@ b9430c4 fix(owner): hydrate AppData.EXPENSES + LEAD_SPEND_TOTALS for P&L waterfa
 5. Replace `page-attribution.jsx:226` "22% override" with live
    `AgencyConfig` value.
 6. Add a `gmail` entry to `api/connector/test.js` CHECKS map.
+7. **DS migration** — propagate the `.koino-ds` palette across the rest of
+   the OS (sidebar, topbar, page-owner / page-platform / page-ops-depth /
+   page-recruiting / page-manager / page-pipeline). Either rename the
+   existing oklch tokens to point at the koino.capital values or wrap each
+   page shell in `.koino-ds`. Consistency hit until that lands: the audit
+   surfaces (Settings → Billing, attribution + sequences empty states)
+   render in the green+black website palette, while the rest of the OS
+   still renders in the dark+amber prototype palette.
