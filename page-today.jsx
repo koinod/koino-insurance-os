@@ -883,8 +883,15 @@ function TodayManager({ aep }) {
         </div>
       </div>
 
+      {/* Floor live strip — compact presence-pill row showing which downline
+          reps are dialing right now. Sits ABOVE the spend strip so the
+          manager's first read is "who's working" before "what cost what".
+          Subscribes to Supabase realtime channel `presence:agency_<id>` when
+          available; falls back to AppData.REPS.presence on hydrate. */}
+      <FloorLiveStrip REPS={REPS} agencyId={me?.agency_id}/>
+
       {/* Spend congruency strip — every value derives from real tables.
-          Sources cited inline; falls back to "—" when no data path exists. */}
+          Empty cells render .koino-empty mono tag, not fake numbers. */}
       <TodaySpendStrip scopeIds={scopeIds} teamToday={teamToday}/>
 
       <div className="kpi-row">
@@ -923,7 +930,114 @@ function TodayManager({ aep }) {
   );
 }
 
+/* Floor live strip — presence pills for downline reps. Compact strip that
+   answers "who's working right now?" at a glance. Subscribes to Supabase
+   realtime channel `presence:agency_<id>` when the channel is reachable.
+   Falls back to AppData.REPS.presence (hydrated by the regular data sync)
+   when realtime isn't wired or the channel times out. Never blocks paint.
+
+   Status pills (matching koino.capital DS):
+     dialing   → --accent-money + live dot
+     coaching  → --accent-status (info purple)
+     idle      → --text-tertiary
+     off       → --text-quaternary
+*/
+function FloorLiveStrip({ REPS, agencyId }) {
+  // Live overlay: rep_id → presence string (overrides hydrated REPS.presence).
+  const [livePresence, setLivePresence] = React.useState({});
+  // Realtime: try to subscribe; on first message or after 1.5s timeout, mark
+  // realtime "ready" so the UI labels itself accurately. Falls through on any
+  // failure — never blocks paint.
+  const [realtimeOk, setRealtimeOk] = React.useState(false);
+  React.useEffect(() => {
+    if (!agencyId) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || typeof sb.channel !== "function") return;
+    let channel;
+    let cancelled = false;
+    try {
+      channel = sb.channel(`presence:agency_${agencyId}`);
+      channel.on("presence", { event: "sync" }, () => {
+        if (cancelled) return;
+        const state = channel.presenceState();
+        const overlay = {};
+        Object.values(state).flat().forEach((p) => {
+          if (p?.rep_id) overlay[p.rep_id] = p.status || "idle";
+        });
+        setLivePresence(overlay);
+        setRealtimeOk(true);
+      });
+      channel.subscribe();
+    } catch (_e) { /* fall back to hydrated REPS.presence */ }
+    return () => { cancelled = true; if (channel) { try { sb.removeChannel(channel); } catch {} } };
+  }, [agencyId]);
+
+  if (REPS.length === 0) {
+    return (
+      <div style={{ padding: "8px 12px", marginBottom: 10, background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: 10 }}>
+        <Icons.Phone size={11} style={{ color: "var(--text-tertiary)" }}/>
+        <span className="koino-empty">today · no producers in scope</span>
+      </div>
+    );
+  }
+
+  const presenceFor = (r) => livePresence[r.id] || r.presence || "idle";
+  const dialing  = REPS.filter(r => presenceFor(r) === "live" || presenceFor(r) === "dialing");
+  const coaching = REPS.filter(r => presenceFor(r) === "coaching");
+
+  const pillColor = (p) => {
+    if (p === "live" || p === "dialing")   return "var(--accent-money)";
+    if (p === "coaching")                   return "var(--accent-status)";
+    if (p === "off")                        return "var(--text-quaternary)";
+    return "var(--text-tertiary)";
+  };
+
+  return (
+    <div style={{
+      padding: "6px 10px",
+      marginBottom: 10,
+      background: "var(--bg-elevated)",
+      border: "1px solid var(--border-subtle)",
+      borderRadius: "var(--radius-md)",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+    }}>
+      <span style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>Floor</span>
+      <span className={dialing.length > 0 ? "dot dot-live" : "dot"}></span>
+      <span style={{ fontSize: 11, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+        {dialing.length} dialing · {coaching.length} coaching · {REPS.length - dialing.length - coaching.length} idle
+      </span>
+      <span style={{ marginLeft: "auto", display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {REPS.map(r => {
+          const p = presenceFor(r);
+          const dials = r.dials || 0;
+          return (
+            <button
+              key={r.id}
+              className="btn btn-ghost"
+              style={{ padding: "2px 6px", fontSize: 10.5, display: "flex", alignItems: "center", gap: 4, border: "1px solid var(--border-subtle)" }}
+              title={`${r.name} · ${p} · ${dials} dials today`}
+              onClick={() => { if (window.gotoPage) window.gotoPage("messages"); }}
+            >
+              <span className="dot" style={{ background: pillColor(p), width: 6, height: 6 }}></span>
+              <span style={{ fontWeight: 500 }}>{r.name.split(" ")[0]}</span>
+              <span className="tabular" style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{dials}</span>
+            </button>
+          );
+        })}
+      </span>
+      {!realtimeOk && (
+        <span className="koino-empty" title="Supabase realtime channel presence:agency_<id> not connected — falling back to AppData hydrate">cached</span>
+      )}
+    </div>
+  );
+}
+
 /* Spend congruency strip — every value computed from real tables.
+   Empty cells render `.koino-empty` mono tag instead of fake numbers
+   per the 2026-05-12 anti-theater directive.
    Cited sources per chip:
      Team CPA today     → SUM(agency_expenses today, kind=lead_spend) / today's leads
      Lead spend today   → SUM(agency_expenses today, kind=lead_spend)
@@ -953,12 +1067,14 @@ function TodaySpendStrip({ scopeIds, teamToday }) {
     return inScope({ owner: n.assignedTo });
   }).length;
 
+  // Per Ian's anti-theater rule: empty cells render `// no data` mono marker.
+  const empty = <span className="koino-empty">no data</span>;
   return (
     <SpendStrip items={[
-      { l: "Team CPA today",  v: cpa != null ? `$${cpa}` : "—",                                tone: cpa != null ? "money" : "" },
-      { l: "Lead spend today", v: leadSpendCents > 0 ? `$${Math.round(leadSpendCents/100).toLocaleString()}` : "—" },
-      { l: "Comp paid today",  v: compPaidCents > 0 ? `$${Math.round(compPaidCents).toLocaleString()}` : "—", tone: compPaidCents > 0 ? "money" : "" },
-      { l: "Open NIGO",        v: String(openNigos),                                            tone: openNigos > 0 ? "warn" : "" },
+      { l: "Team CPA today",   v: cpa != null ? `$${cpa}` : empty,                                                              tone: cpa != null ? "money" : "" },
+      { l: "Lead spend today", v: leadSpendCents > 0 ? `$${Math.round(leadSpendCents/100).toLocaleString()}` : empty },
+      { l: "Comp paid today",  v: compPaidCents > 0 ? `$${Math.round(compPaidCents).toLocaleString()}` : empty,                  tone: compPaidCents > 0 ? "money" : "" },
+      { l: "Open NIGO",        v: openNigos > 0 ? String(openNigos) : empty,                                                     tone: openNigos > 0 ? "warn" : "" },
     ]}/>
   );
 }

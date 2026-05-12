@@ -1157,3 +1157,16 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
    stack two headers. Same shape as .training-embed above. */
 .crm-nested-recruiting > .page-pad { padding: 0; }
 .crm-nested-recruiting > .page-pad > .page-h:first-child { display: none; }
+
+/* Empty-state mono tag — anti-theater marker for "no real data path" cells.
+   Used in place of fake numbers everywhere a section has nothing to show.
+   Reads "// today · empty" / "// no data" — looks like a code comment, makes
+   it obvious to operators that nothing's been wired or no rows exist. */
+.koino-empty {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-quaternary);
+  letter-spacing: 0.02em;
+  font-weight: 400;
+}
+.koino-empty::before { content: "// "; opacity: 0.6; }
