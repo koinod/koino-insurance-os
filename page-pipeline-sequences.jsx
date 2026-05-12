@@ -4,11 +4,22 @@
    A lead enrolled in a sequence gets multi-touch SMS+email follow-up
    automatically; replies pause the sequence and flag the rep.
 
+   Live data flow:
+     AppData.SEQUENCES               → reference rows (id, name, description, steps[])
+     AppData.SEQUENCE_ENROLLMENTS    → tenant-scoped enrollments (lead, owner, status, currentStep)
+     AppData.PIPELINE                → lead lookup for enrollment list
+     AppData.REPS                    → owner avatar + name resolution
+
+   Demo seed (the SEQ_DEMO + ENROLLED_DEMO arrays below) only renders for
+   the demo agency or when no live sequences exist on the tenant. Real
+   agencies see the empty state with a "create sequence" CTA, never
+   fake names like "Cheryl Hampton".
+
    Exposed as window.PipelineSequences (sub-tab of Pipeline). */
 
 (function () {
 
-const SEQ = [
+const SEQ_DEMO = [
   { id: "ps1", name: "Quote follow-up · Med Supp", channel: "sms_email",  active: 28, days: 12, steps: [
     { day: 0,  ch: "SMS",   template: "Hi {{first}}, this is {{rep}} with Atlas. I just texted you the Plan G quote — check your messages. Q's? Reply here." },
     { day: 1,  ch: "Email", template: "Subject: Your Plan G quote\n\n{{first}}, here's the breakdown of your Plan G estimate. Hospital max out-of-pocket = Part B deductible. PDF attached." },
@@ -35,7 +46,7 @@ const SEQ = [
   ]},
 ];
 
-const ENROLLED = [
+const ENROLLED_DEMO = [
   { id: "e1", lead: "Cheryl Hampton",  seq: "ps1", step: 2, status: "active",   nextSendIn: "in 14h", lastReply: "—",       owner: "marc" },
   { id: "e2", lead: "Robert Mendez",    seq: "ps3", step: 1, status: "paused",   nextSendIn: "—",      lastReply: "5m ago",  owner: "dani" },
   { id: "e3", lead: "Patricia Volker", seq: "ps1", step: 3, status: "active",   nextSendIn: "in 2d",  lastReply: "—",       owner: "kira" },
@@ -44,11 +55,115 @@ const ENROLLED = [
   { id: "e6", lead: "Naomi Reese",      seq: "ps4", step: 0, status: "complete", nextSendIn: "—",      lastReply: "1mo ago", owner: "jada" },
 ];
 
+// Project the live AppData.SEQUENCES + SEQUENCE_ENROLLMENTS into the shape
+// the prototype originally used (steps array, channel hint, active count).
+// Falls back to demo seed for demo agencies; real agencies with no live
+// sequences get the empty state.
+function _liveSeqList() {
+  const rawSeq = (window.AppData && window.AppData.SEQUENCES) || [];
+  const enrollments = (window.AppData && window.AppData.SEQUENCE_ENROLLMENTS) || [];
+  if (rawSeq.length === 0) {
+    const isDemo = !!(window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency());
+    return isDemo ? SEQ_DEMO : [];
+  }
+  return rawSeq.filter(s => s.active !== false).map(s => {
+    const steps = Array.isArray(s.steps) ? s.steps : [];
+    const channels = new Set(steps.map(st => (st.ch || st.channel || "").toLowerCase()).filter(Boolean));
+    const channel = channels.size === 0 ? "sms_email"
+      : channels.size === 1 ? Array.from(channels)[0]
+      : "sms_email";
+    const last = steps.length > 0 ? (steps[steps.length - 1].day || 0) : 0;
+    const active = enrollments.filter(e => e.sequenceId === s.id && e.status === "active").length;
+    return {
+      id: s.id, name: s.name, channel, active, days: last,
+      steps: steps.map(st => ({
+        day: st.day || 0,
+        ch: (st.ch || st.channel || "SMS").toUpperCase(),
+        template: st.template || st.body || "",
+      })),
+    };
+  });
+}
+
+function _liveEnrolledList(seqId) {
+  const enrollments = (window.AppData && window.AppData.SEQUENCE_ENROLLMENTS) || [];
+  if (enrollments.length === 0) {
+    const isDemo = !!(window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency());
+    return isDemo ? ENROLLED_DEMO.filter(e => e.seq === seqId) : [];
+  }
+  const leadById = Object.fromEntries((window.AppData?.PIPELINE || []).map(l => [l.id, l]));
+  const fmtAgo = (iso) => {
+    if (!iso) return "—";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 60000) return "now";
+    if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`;
+    if (ms < 86400000) return `${Math.round(ms / 3600000)}h ago`;
+    return `${Math.round(ms / 86400000)}d ago`;
+  };
+  const fmtIn = (iso) => {
+    if (!iso) return "—";
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return "now";
+    if (ms < 3600000) return `in ${Math.round(ms / 60000)}m`;
+    if (ms < 86400000) return `in ${Math.round(ms / 3600000)}h`;
+    return `in ${Math.round(ms / 86400000)}d`;
+  };
+  return enrollments
+    .filter(e => e.sequenceId === seqId)
+    .map(e => ({
+      id: e.id,
+      lead: leadById[e.leadId]?.lead || (e.leadId ? `Lead ${String(e.leadId).slice(0, 8)}` : "—"),
+      seq: e.sequenceId,
+      step: e.currentStep || 0,
+      status: e.status || "active",
+      nextSendIn: fmtIn(e.nextStepAt),
+      lastReply: fmtAgo(e.lastReplyAt),
+      owner: e.owner,
+    }));
+}
+
 function PipelineSequences({ role = "owner" }) {
-  const [activeId, setActiveId] = React.useState(SEQ[0].id);
+  // Re-render when realtime hydrate ticks (new enrollments, status flips).
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    return () => {
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+    };
+  }, []);
+
+  const SEQ = _liveSeqList();
+  const [activeId, setActiveId] = React.useState(SEQ[0]?.id || null);
   const [edits, setEdits] = React.useState({});
+  React.useEffect(() => {
+    if (!activeId && SEQ.length > 0) setActiveId(SEQ[0].id);
+  }, [SEQ.length, activeId]);
+
+  if (SEQ.length === 0) {
+    return (
+      <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Sparkles size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No sequences yet</div>
+        <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5, maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
+          Create a multi-touch SMS+email follow-up your producers can drop leads into. New
+          quote · App-In sigs missing · cross-sell — pick one to start.
+        </div>
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: 14 }}
+          onClick={() => window.toast && window.toast("Sequence builder coming next pass — enroll via lead detail rail for now", "info")}
+        >
+          <Icons.Plus size={11}/> New sequence
+        </button>
+      </div>
+    );
+  }
+
   const seq = SEQ.find(s => s.id === activeId) || SEQ[0];
-  const enrolled = ENROLLED.filter(e => e.seq === seq.id);
+  const enrolled = _liveEnrolledList(seq.id);
 
   const updateStep = (i, body) => setEdits({ ...edits, [seq.id]: { ...(edits[seq.id] || {}), [i]: body } });
 
@@ -147,7 +262,9 @@ function PipelineSequences({ role = "owner" }) {
 
 window.PipelineSequences = PipelineSequences;
 
-/* Helper used by LeadDetail to pick / preview a sequence to enroll into */
-window.PIPELINE_SEQUENCES = SEQ;
+// Helper used by LeadDetail to pick / preview a sequence to enroll into.
+// Returns a *function* that returns the live list, so callers always read
+// the freshest hydrate (was a static snapshot of the demo seed before).
+window.PIPELINE_SEQUENCES = _liveSeqList;
 
 })();

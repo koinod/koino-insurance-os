@@ -438,26 +438,36 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
 
           <div className="field-l">Sequences</div>
           <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-            {((window.PIPELINE_SEQUENCES || []).slice(0, 3)).map(s => (
-              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
-                <Icons.Workflow size={12} style={{ color: "var(--text-tertiary)" }}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</div>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.steps.length} steps · {s.days}d · {s.channel}</div>
+            {(() => {
+              // PIPELINE_SEQUENCES used to be a static array of demo seed.
+              // It's now a function that returns the live list (real
+              // AppData.SEQUENCES + demo fallback gated to demo agencies),
+              // so callers re-pull on every render and respect hydrate.
+              const src = window.PIPELINE_SEQUENCES;
+              const list = typeof src === "function" ? (src() || []) : (Array.isArray(src) ? src : []);
+              if (list.length === 0) {
+                return (
+                  <div style={{ padding: 10, fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "center", border: "1px dashed var(--border-subtle)", borderRadius: 6 }}>
+                    No sequences yet — owners can build follow-up sequences from Pipeline → Sequences. Until one exists, leads sit in their current stage with no automated nudge.
+                  </div>
+                );
+              }
+              return list.slice(0, 3).map(s => (
+                <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
+                  <Icons.Workflow size={12} style={{ color: "var(--text-tertiary)" }}/>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(s.steps || []).length} steps · {s.days || 0}d · {s.channel}</div>
+                  </div>
+                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={async () => {
+                    try {
+                      await AppData.mutate.sequenceEnroll(lead.id, s.id, lead.owner);
+                      window.toast && window.toast(`Enrolled ${lead.lead} in ${s.name}${AppData.LIVE ? " · saved" : ""}`, "success");
+                    } catch (_e) {}
+                  }}>Enroll</button>
                 </div>
-                <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={async () => {
-                  try {
-                    await AppData.mutate.sequenceEnroll(lead.id, s.id, lead.owner);
-                    window.toast && window.toast(`Enrolled ${lead.lead} in ${s.name}${AppData.LIVE ? " · saved" : ""}`, "success");
-                  } catch (_e) {}
-                }}>Enroll</button>
-              </div>
-            ))}
-            {(window.PIPELINE_SEQUENCES || []).length === 0 && (
-              <div style={{ padding: 10, fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "center", border: "1px dashed var(--border-subtle)", borderRadius: 6 }}>
-                No sequences yet — owners can build follow-up sequences in Settings → Routing rules. Until one exists, leads sit in their current stage with no automated nudge.
-              </div>
-            )}
+              ));
+            })()}
           </div>
 
           <div className="divider"></div>
