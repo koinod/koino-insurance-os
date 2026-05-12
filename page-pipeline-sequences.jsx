@@ -144,20 +144,16 @@ function PipelineSequences({ role = "owner" }) {
 
   if (SEQ.length === 0) {
     return (
-      <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
-        <Icons.Sparkles size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
-        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No sequences yet</div>
-        <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5, maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
-          Create a multi-touch SMS+email follow-up your producers can drop leads into. New
-          quote · App-In sigs missing · cross-sell — pick one to start.
+      <div className="koino-ds">
+        <div className="koino-empty">
+          <div className="koino-empty-icon"><Icons.Sparkles size={16}/></div>
+          <h4>No sequences yet</h4>
+          <p>Create a multi-touch SMS+email follow-up your producers can drop leads into. New quote · App-In sigs missing · cross-sell — pick one to start.</p>
+          <button
+            className="koino-btn koino-btn-primary"
+            onClick={() => window.toast && window.toast("Sequence builder coming next pass — enroll via lead detail rail for now", "info")}
+          ><Icons.Plus size={11}/> New sequence</button>
         </div>
-        <button
-          className="btn btn-primary"
-          style={{ marginTop: 14 }}
-          onClick={() => window.toast && window.toast("Sequence builder coming next pass — enroll via lead detail rail for now", "info")}
-        >
-          <Icons.Plus size={11}/> New sequence
-        </button>
       </div>
     );
   }

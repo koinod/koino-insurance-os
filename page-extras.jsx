@@ -2655,10 +2655,10 @@ function OperatingStatesEditor() {
 }
 
 function SettingsBilling() {
-  // Source of truth is the live agencies row + page-billing.jsx AdminPlanCard
-  // (which talks to /api/stripe/checkout + /api/stripe/portal). The previous
-  // version of this tab hardcoded "Network · Annual / 9 of 25 producers /
-  // **** 4419 VISA" — fake numbers that drifted on every operator.
+  // Source of truth is the live agencies row + a koino.capital-styled
+  // PlanCard wired to /api/stripe/checkout + /api/stripe/portal. The
+  // previous version hardcoded "Network · Annual / 9 of 25 / **** 4419 VISA"
+  // — fake numbers that drifted on every operator.
   const [agency, setAgency] = React.useState(undefined); // undefined = loading
   const [loadErr, setLoadErr] = React.useState(null);
 
@@ -2678,7 +2678,7 @@ function SettingsBilling() {
   }, []);
   React.useEffect(() => { reload(); }, [reload]);
 
-  // Refresh when realtime ticks the agency row (e.g., Stripe webhook updates
+  // Refresh when realtime ticks the agency row (Stripe webhook updates
   // subscription_status / current_period_end).
   React.useEffect(() => {
     const onMutate = (e) => { if (e.detail?.table === "agencies") reload(); };
@@ -2687,34 +2687,137 @@ function SettingsBilling() {
   }, [reload]);
 
   if (agency === undefined) {
-    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading billing…</div>;
+    return (
+      <div className="koino-ds">
+        <div className="koino-card" style={{ padding: 18, color: "var(--k-t2)", fontSize: 12 }}>Loading billing…</div>
+      </div>
+    );
   }
   if (!agency) {
     return (
-      <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>
-        <Icons.Folder size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
-        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No agency to bill</div>
-        <div style={{ fontSize: 11.5, marginTop: 4 }}>
-          {loadErr ? <>Could not load: <span className="mono">{loadErr}</span></> : "Sign in to a real agency to manage billing."}
+      <div className="koino-ds">
+        <div className="koino-empty">
+          <div className="koino-empty-icon"><Icons.Folder size={16}/></div>
+          <h4>No agency to bill</h4>
+          <p>{loadErr ? <>Couldn't load: <span className="mono">{loadErr}</span></> : "Sign in to a real agency to manage billing."}</p>
+          {loadErr && <button className="koino-btn koino-btn-primary" onClick={reload}>Retry</button>}
         </div>
-        {loadErr && <button className="btn" style={{ marginTop: 12 }} onClick={reload}>Retry</button>}
       </div>
     );
   }
 
-  const PlanCard = window.AdminPlanCard;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {PlanCard
-        ? <PlanCard agency={agency}/>
-        : <div className="panel" style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 12.5 }}>page-billing.jsx not loaded — refresh the page.</div>}
+    <div className="koino-ds">
+      <KoinoPlanCard agency={agency}/>
       <BillingInvoicesPanel agencyId={agency.id}/>
     </div>
   );
 }
 
-// Pulls invoice history straight from the billing_invoices view (populated
-// by the Stripe webhook). Empty state when there's no Stripe customer yet.
+// koino.capital-styled plan card. Talks to the same Stripe endpoints the
+// AdminPlanCard does, but laid out in the green+black/rounded-soft DS.
+function KoinoPlanCard({ agency }) {
+  const [pricingOpen, setPricingOpen] = React.useState(false);
+  const [portalBusy, setPortalBusy]   = React.useState(false);
+
+  const plan         = agency?.tier || "agency_starter";
+  const planLabel    = plan === "rep_solo" ? "Rep Solo"
+                    : plan === "agency_starter" ? "Agency Starter"
+                    : plan === "agency_growth" ? "Agency Growth"
+                    : "Agency Enterprise";
+  const status        = agency?.subscription_status || "trial";
+  const trialEndsAt   = agency?.trial_ends_at ? new Date(agency.trial_ends_at) : null;
+  const trialDaysLeft = trialEndsAt ? Math.max(0, Math.ceil((trialEndsAt - new Date()) / (1000 * 60 * 60 * 24))) : null;
+  const monthly       = agency?.monthly_price_cents != null ? agency.monthly_price_cents / 100 : (plan === "rep_solo" ? 97 : 997);
+  const periodEnd     = agency?.current_period_end ? new Date(agency.current_period_end) : null;
+  const statusTone    = status === "active" ? "" : status === "trialing" ? "koino-pill-muted" : status === "past_due" ? "koino-pill-danger" : "koino-pill-warn";
+
+  const openPortal = async () => {
+    if (!agency?.subscription_id) { setPricingOpen(true); return; }
+    setPortalBusy(true);
+    try {
+      const sb = window.getSupabase();
+      const { data: session } = await sb.auth.getSession();
+      const r = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { "content-type": "application/json", "authorization": `Bearer ${session.session.access_token}` },
+        body: JSON.stringify({ agency_id: agency.id }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "portal failed");
+      window.location.href = j.url;
+    } catch (e) {
+      window.toast && window.toast(`Couldn't open billing portal: ${e.message}`, "error");
+    } finally { setPortalBusy(false); }
+  };
+
+  return (
+    <div className="koino-card" style={{ padding: 18 }}>
+      <div className="koino-card-h">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="koino-tag">Plan</span>
+          <h3>{planLabel}</h3>
+        </div>
+        <span className={`koino-pill ${statusTone}`}>{status}</span>
+      </div>
+
+      <div className="koino-kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+        <div className="koino-kpi" style={{ padding: "10px 12px" }}>
+          <div className="koino-kpi-label">Monthly</div>
+          <div className="koino-kpi-value accent">${monthly.toFixed(0)}</div>
+          <div className="koino-kpi-sub">+ usage caps</div>
+        </div>
+        {trialDaysLeft != null && trialDaysLeft > 0 && (
+          <div className="koino-kpi" style={{ padding: "10px 12px" }}>
+            <div className="koino-kpi-label">Trial</div>
+            <div className="koino-kpi-value">{trialDaysLeft}d</div>
+            <div className="koino-kpi-sub">{agency?.trial_kind === "agency_trial_7d" ? "$5k + $997 at end" : "then $997/mo"}</div>
+          </div>
+        )}
+        {periodEnd && (
+          <div className="koino-kpi" style={{ padding: "10px 12px" }}>
+            <div className="koino-kpi-label">Renews</div>
+            <div className="koino-kpi-value" style={{ fontSize: 14, fontWeight: 600 }}>
+              {periodEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </div>
+            <div className="koino-kpi-sub">${monthly.toFixed(0)} auto-charge</div>
+          </div>
+        )}
+      </div>
+
+      <div className="koino-divider"/>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {!agency?.subscription_id ? (
+          <>
+            <button className="koino-btn koino-btn-primary" onClick={() => setPricingOpen(true)}>
+              <Icons.ArrowUpRight size={11}/> Activate subscription
+            </button>
+            <span style={{ alignSelf: "center", fontSize: 11, color: "var(--k-t2)" }}>
+              $5k Agency · $97 Rep Solo · 7-day trial
+            </span>
+          </>
+        ) : (
+          <>
+            <button className="koino-btn" onClick={openPortal} disabled={portalBusy}>
+              <Icons.ArrowUpRight size={11}/> {portalBusy ? "Loading…" : "Manage billing"}
+            </button>
+            <button className="koino-btn koino-btn-ghost" onClick={() => setPricingOpen(true)}>
+              Change plan
+            </button>
+          </>
+        )}
+      </div>
+      {pricingOpen && window.PricingModal && (() => {
+        const M = window.PricingModal;
+        return <M currentTier={plan} agencyId={agency?.id} customerEmail={null} onClose={() => setPricingOpen(false)}/>;
+      })()}
+    </div>
+  );
+}
+
+// Pulls invoice history straight from billing_invoices (populated by the
+// Stripe webhook). Empty state when there's no Stripe customer yet.
 function BillingInvoicesPanel({ agencyId }) {
   const [rows, setRows] = React.useState(undefined);
   React.useEffect(() => {
@@ -2731,27 +2834,29 @@ function BillingInvoicesPanel({ agencyId }) {
       });
   }, [agencyId]);
   if (rows === undefined) return null;
-  if (rows.length === 0) return null;  // empty: hide rather than render an empty card
+  if (rows.length === 0) return null;  // hide rather than render an empty card
+
+  const tone = (status) => status === "paid" ? "" : status === "open" ? "koino-pill-warn" : "koino-pill-muted";
   return (
-    <div className="panel">
-      <div className="panel-h"><h3>Recent invoices</h3><span className="meta">{rows.length}</span></div>
-      <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "100px 100px 100px 1fr 80px" }}>
-          <div>Period</div><div>Amount</div><div>Status</div><div></div><div></div>
+    <div className="koino-card" style={{ padding: 0, overflow: "hidden" }}>
+      <div className="koino-card-h" style={{ padding: "12px 14px", marginBottom: 0, borderBottom: "1px solid var(--k-b)" }}>
+        <h3>Recent invoices</h3>
+        <span className="koino-pill koino-pill-muted">{rows.length}</span>
+      </div>
+      <div className="koino-list">
+        <div className="koino-list-h" style={{ gridTemplateColumns: "90px 1fr 90px 70px", borderRadius: 0, background: "transparent" }}>
+          <div>Period</div><div>Amount</div><div>Status</div><div></div>
         </div>
         {rows.map(inv => (
-          <div key={inv.id} className="row" style={{ gridTemplateColumns: "100px 100px 100px 1fr 80px" }}>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+          <div key={inv.id} className="koino-row" style={{ gridTemplateColumns: "90px 1fr 90px 70px", borderTopColor: "var(--k-b)" }}>
+            <div style={{ fontSize: 11.5, color: "var(--k-t2)" }}>
               {inv.period_start ? new Date(inv.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
             </div>
-            <div className="tabular" style={{ fontWeight: 500 }}>${((inv.amount_due_cents || 0) / 100).toFixed(2)}</div>
-            <div>
-              <span className={`chip ${inv.status === "paid" ? "chip-money" : inv.status === "open" ? "chip-status" : ""}`}>{inv.status}</span>
-            </div>
-            <div></div>
+            <div className="tabular" style={{ fontWeight: 600, color: "var(--k-t)" }}>${((inv.amount_due_cents || 0) / 100).toFixed(2)}</div>
+            <div><span className={`koino-pill ${tone(inv.status)}`}>{inv.status}</span></div>
             <div style={{ textAlign: "right" }}>
               {inv.hosted_invoice_url && (
-                <a href={inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>
+                <a href={inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer" className="koino-btn koino-btn-ghost" style={{ padding: "3px 8px" }}>
                   View
                 </a>
               )}

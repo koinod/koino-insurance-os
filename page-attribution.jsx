@@ -241,20 +241,18 @@ function PageAttribution({ role = "owner" }) {
       />
 
       {VENDORS.length === 0 && (
-        <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
-          <Icons.TrendingUp size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No lead spend tracked yet</div>
-          <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.55, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
-            Log lead-spend expenses with a <span className="mono">lead_source_id</span> tag in <strong>Expenses</strong>, and ROAS / CPA / CPL populate here automatically as policies issue against those leads.
+        <div className="koino-ds">
+          <div className="koino-empty">
+            <div className="koino-empty-icon"><Icons.TrendingUp size={16}/></div>
+            <h4>No lead spend tracked yet</h4>
+            <p>Log lead-spend expenses with a <span className="mono" style={{ color: "var(--k-a)" }}>lead_source_id</span> tag in Expenses. ROAS, CPA, and CPL populate here automatically as policies issue against those leads.</p>
+            <button
+              className="koino-btn koino-btn-primary"
+              onClick={() => window.gotoPage && window.gotoPage("expenses")}
+            ><Icons.ArrowUpRight size={11}/> Open Expenses</button>
           </div>
-          <button
-            className="btn btn-primary"
-            style={{ marginTop: 12 }}
-            onClick={() => window.gotoPage && window.gotoPage("expenses")}
-          ><Icons.ArrowUpRight size={11}/> Open Expenses</button>
         </div>
       )}
-      {VENDORS.length > 0 && <></>}
 
       {tab === "vendors" && (
         <div className="panel">

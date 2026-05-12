@@ -46,6 +46,218 @@
   --row-h: 30px;
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   koino.capital design system (green + black, rounded soft)
+   Sourced from KOINO/ventures/products/storefront-static/index.html.
+   Scoped via .koino-ds wrapper so the rest of the OS keeps its tokens
+   while the owner-audit surfaces (Settings -> Billing, Attribution empty
+   state, Sequences empty state, BillingInvoicesPanel) match the website.
+   ────────────────────────────────────────────────────────────────────── */
+.koino-ds {
+  /* surface palette — near-black + tight-step elevation */
+  --k-bg:        #050505;
+  --k-s1:        #0d0d0d;
+  --k-s2:        #151515;
+  --k-b:         #1a1a1a;
+  --k-bh:        #2a2a2a;
+  /* type */
+  --k-t:         #e8e8e8;
+  --k-t2:        #888;
+  --k-t3:        #555;
+  /* accents — green primary, purple secondary, amber warn, red danger */
+  --k-a:         #00d4aa;
+  --k-ag:        rgba(0, 212, 170, 0.15);
+  --k-ad:        rgba(0, 212, 170, 0.08);
+  --k-p:         #7c3aed;
+  --k-warn:      #f59e0b;
+  --k-danger:    #ef4444;
+  /* fonts (inherit from app — Inter + JetBrains Mono already loaded) */
+  --k-mono: var(--font-mono);
+  --k-sans: var(--font-ui);
+
+  color: var(--k-t);
+  font-family: var(--k-sans);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Card: smaller + tighter than website hero cards. Dense for in-app use. */
+.koino-card {
+  background: var(--k-s1);
+  border: 1px solid var(--k-b);
+  border-radius: 12px;
+  padding: 16px 18px;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+.koino-card:hover { border-color: var(--k-bh); }
+.koino-card.is-active   { border-color: var(--k-a); box-shadow: 0 0 0 1px var(--k-ag); }
+.koino-card.is-warn      { border-color: rgba(245, 158, 11, 0.35); }
+.koino-card.is-danger    { border-color: rgba(239, 68, 68, 0.35); }
+.koino-card-h {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.koino-card-h h3 {
+  margin: 0; font-size: 13px; font-weight: 600; color: var(--k-t);
+  letter-spacing: -0.01em;
+}
+
+/* Tag — uppercase mono mini-label, accent green */
+.koino-tag {
+  font-family: var(--k-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--k-a);
+  font-weight: 600;
+}
+
+/* Pill — chip with rounded-full radius, three tones */
+.koino-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--k-ad);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+  border-radius: 100px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  color: var(--k-a);
+  font-weight: 500;
+  font-family: var(--k-sans);
+}
+.koino-pill-warn   { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.25); color: var(--k-warn); }
+.koino-pill-danger { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.25); color: var(--k-danger); }
+.koino-pill-muted  { background: transparent; border-color: var(--k-b); color: var(--k-t2); }
+
+/* Buttons — primary green-on-black, secondary outline, ghost */
+.koino-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  background: var(--k-s2);
+  color: var(--k-t);
+  font-family: var(--k-sans);
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid var(--k-b);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  text-decoration: none;
+}
+.koino-btn:hover { border-color: var(--k-bh); background: var(--k-b); }
+.koino-btn-primary {
+  background: var(--k-a);
+  color: #000;
+  border-color: var(--k-a);
+}
+.koino-btn-primary:hover {
+  background: var(--k-a);
+  color: #000;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px var(--k-ag);
+}
+.koino-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--k-t2);
+  padding: 4px 10px;
+  font-weight: 500;
+}
+.koino-btn-ghost:hover { color: var(--k-t); background: var(--k-b); }
+
+/* Empty state — centered, restrained, single CTA */
+.koino-empty {
+  background: var(--k-s1);
+  border: 1px solid var(--k-b);
+  border-radius: 12px;
+  padding: 36px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.koino-empty-icon {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: var(--k-ad);
+  border-radius: 10px;
+  color: var(--k-a);
+  margin-bottom: 4px;
+}
+.koino-empty h4 {
+  margin: 0; font-size: 13.5px; font-weight: 600; color: var(--k-t);
+}
+.koino-empty p {
+  margin: 0; font-size: 12px; color: var(--k-t2);
+  max-width: 380px; line-height: 1.55;
+}
+.koino-empty .koino-btn { margin-top: 10px; }
+
+/* Dense list rows — tighter than .row from the OS DS */
+.koino-list {
+  display: flex; flex-direction: column;
+}
+.koino-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--k-b);
+  font-size: 12px;
+}
+.koino-row:first-child { border-top: 0; }
+.koino-row:hover { background: rgba(255, 255, 255, 0.012); }
+.koino-list-h {
+  display: grid;
+  gap: 10px;
+  padding: 6px 12px;
+  font-family: var(--k-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--k-t3);
+  background: var(--k-bg);
+  border-radius: 8px 8px 0 0;
+}
+
+/* KPI strip — small, tight, mono numbers */
+.koino-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.koino-kpi {
+  background: var(--k-s1);
+  border: 1px solid var(--k-b);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.koino-kpi-label {
+  font-family: var(--k-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--k-t3);
+}
+.koino-kpi-value {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--k-t);
+  font-variant-numeric: tabular-nums;
+}
+.koino-kpi-value.accent { color: var(--k-a); }
+.koino-kpi-sub {
+  margin-top: 2px; font-size: 10.5px; color: var(--k-t2);
+}
+
+/* Divider that matches the soft border tone */
+.koino-divider {
+  height: 1px; background: var(--k-b); margin: 12px 0;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
