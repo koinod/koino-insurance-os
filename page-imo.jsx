@@ -980,6 +980,14 @@ function Row({ k, v }) {
 }
 
 // ─── 5. Audit log ───────────────────────────────────────────────────────────
+const AUDIT_RANGES = [
+  { id: "24h", label: "Last 24h",  ms: 24 * 3600_000 },
+  { id: "7d",  label: "Last 7d",   ms: 7  * 86400_000 },
+  { id: "30d", label: "Last 30d",  ms: 30 * 86400_000 },
+  { id: "90d", label: "Last 90d",  ms: 90 * 86400_000 },
+  { id: "all", label: "All time",  ms: null },
+];
+
 function AuditTab({ fleet }) {
   const { agencies } = fleet;
   const [rows, setRows] = React.useState([]);
@@ -987,6 +995,9 @@ function AuditTab({ fleet }) {
   const [err, setErr] = React.useState(null);
   const [filterAg, setFilterAg] = React.useState("");
   const [filterRole, setFilterRole] = React.useState("");
+  const [filterAction, setFilterAction] = React.useState("");
+  const [range, setRange] = React.useState("7d");
+  const [limit, setLimit] = React.useState(200);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -995,20 +1006,24 @@ function AuditTab({ fleet }) {
     try {
       const ids = agencies.map(a => a.id);
       if (ids.length === 0) { setRows([]); setLoading(false); return; }
+      const rangeConf = AUDIT_RANGES.find(r => r.id === range);
+      const since = rangeConf?.ms ? new Date(Date.now() - rangeConf.ms).toISOString() : null;
       let q = sb.from("agency_audit_log")
         .select("id, agency_id, action, actor_role, target, metadata, created_at")
         .in("agency_id", ids)
         .order("created_at", { ascending: false })
-        .limit(200);
-      if (filterAg)   q = q.eq("agency_id", filterAg);
-      if (filterRole) q = q.eq("actor_role", filterRole);
+        .limit(limit);
+      if (filterAg)     q = q.eq("agency_id", filterAg);
+      if (filterRole)   q = q.eq("actor_role", filterRole);
+      if (filterAction) q = q.ilike("action", `%${filterAction}%`);
+      if (since)        q = q.gte("created_at", since);
       const { data, error } = await q;
       if (error) throw error;
       setRows(data || []);
     } catch (e) {
       setErr(String(e?.message || e));
     } finally { setLoading(false); }
-  }, [agencies, filterAg, filterRole]);
+  }, [agencies, filterAg, filterRole, filterAction, range, limit]);
   React.useEffect(() => { load(); }, [load]);
 
   React.useEffect(() => {
@@ -1019,17 +1034,50 @@ function AuditTab({ fleet }) {
 
   const agencyById = React.useMemo(() => Object.fromEntries(agencies.map(a => [a.id, a])), [agencies]);
 
+  // Client-side CSV export of the currently-loaded rows. Quote CSV-special
+  // chars; downloads as audit-log-YYYY-MM-DD.csv via Blob + ObjectURL so
+  // there's no server roundtrip. Limited to whatever's loaded — set limit
+  // higher first if a bigger export is needed.
+  const exportCsv = () => {
+    if (rows.length === 0) { window.toast && window.toast("Nothing to export", "warn"); return; }
+    const q = (v) => {
+      if (v == null) return "";
+      const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = ["created_at", "agency_id", "agency_name", "action", "actor_role", "target", "metadata"];
+    const lines = [header.join(",")];
+    for (const ev of rows) {
+      const ag = agencyById[ev.agency_id];
+      lines.push([
+        ev.created_at, ev.agency_id, ag?.name || "",
+        ev.action, ev.actor_role || "", ev.target || "", ev.metadata || {},
+      ].map(q).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `audit-log-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    window.toast && window.toast(`Exported ${rows.length} events`, "success");
+  };
+
   return (
     <div className="k-card">
       <div className="k-card-h">
         <h3>Cross-agency audit log</h3>
-        <span className="k-meta">{rows.length} events</span>
+        <span className="k-meta">{rows.length}{rows.length === limit ? "+" : ""} events</span>
         <div className="k-actions">
-          <select className="k-select" style={{ width:180 }} value={filterAg} onChange={(e) => setFilterAg(e.target.value)}>
+          <input className="k-input" placeholder="Filter action…" value={filterAction} onChange={(e) => setFilterAction(e.target.value)} style={{ width:150 }}/>
+          <select className="k-select" style={{ width:160 }} value={filterAg} onChange={(e) => setFilterAg(e.target.value)}>
             <option value="">All agencies</option>
             {agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <select className="k-select" style={{ width:130 }} value={filterRole} onChange={(e) => setFilterRole(e.target.value)}>
+          <select className="k-select" style={{ width:120 }} value={filterRole} onChange={(e) => setFilterRole(e.target.value)}>
             <option value="">All actors</option>
             <option value="imo_owner">imo_owner</option>
             <option value="owner">owner</option>
@@ -1038,12 +1086,22 @@ function AuditTab({ fleet }) {
             <option value="rep">rep</option>
             <option value="system">system</option>
           </select>
+          <select className="k-select" style={{ width:120 }} value={range} onChange={(e) => setRange(e.target.value)}>
+            {AUDIT_RANGES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
+          <select className="k-select" style={{ width:90 }} value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
           <button className="k-btn k-btn-ghost" onClick={load}>↻</button>
+          <button className="k-btn" onClick={exportCsv}>↓ CSV</button>
         </div>
       </div>
       {err && <div className="k-error">{err}</div>}
       <div className="k-table">
-        <div className="k-tr k-head" style={{ gridTemplateColumns:"130px 1.2fr 1.4fr 1fr 90px" }}>
+        <div className="k-tr k-head" style={{ gridTemplateColumns:"130px 1.2fr 1.4fr 1fr 80px" }}>
           <div>When</div><div>Agency</div><div>Action</div><div>Target</div><div>Actor</div>
         </div>
         {loading && <div className="k-empty">Loading…</div>}
@@ -1052,12 +1110,18 @@ function AuditTab({ fleet }) {
         )}
         {rows.map(ev => {
           const ag = agencyById[ev.agency_id];
+          // Action chips colored by family: anything that touches NIGO /
+          // suspends / failures gets a warning tone.
+          const actLow = (ev.action || "").toLowerCase();
+          const actKind = /\b(fail|error|suspend|cancel|nigo)\b/.test(actLow) ? "warn"
+                        : /\b(login|signin|signup|provision|stripe|paid|won)\b/.test(actLow) ? "live"
+                        : "neutral";
           return (
-            <div key={ev.id} className="k-tr k-body" style={{ gridTemplateColumns:"130px 1.2fr 1.4fr 1fr 90px" }}>
+            <div key={ev.id} className="k-tr k-body" style={{ gridTemplateColumns:"130px 1.2fr 1.4fr 1fr 80px" }}>
               <div className="k-mono" style={{ fontSize:"0.7rem", color:"var(--k-t3)" }}>{new Date(ev.created_at).toLocaleString()}</div>
               <div style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{ag?.name || ev.agency_id.slice(0, 8)}</div>
-              <div className="k-cell-name">{ev.action}</div>
-              <div className="k-mono" style={{ fontSize:"0.7rem", color:"var(--k-t3)", overflow:"hidden", textOverflow:"ellipsis" }}>{ev.target || "—"}</div>
+              <div><StatusChip kind={actKind}>{ev.action}</StatusChip></div>
+              <div className="k-mono" style={{ fontSize:"0.7rem", color:"var(--k-t3)", overflow:"hidden", textOverflow:"ellipsis" }} title={ev.target || ""}>{ev.target || "—"}</div>
               <div><StatusChip>{ev.actor_role || "system"}</StatusChip></div>
             </div>
           );
