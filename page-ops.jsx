@@ -154,24 +154,56 @@ window.ConnectorPicker = ConnectorPicker;
 
 function PageHardware() {
   const [enrollOpen, setEnrollOpen] = React.useState(false);
+  const [inspect, setInspect]        = React.useState(null);
+
+  const removeHost = async (h) => {
+    if (!confirm(`Remove host "${h.name}"? Any agents deployed to it will stop running. Re-enroll later if you change your mind.`)) return;
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("hardware").delete().eq("id", h.id);
+        if (error) throw error;
+      }
+      window.AppData.HARDWARE = (window.AppData.HARDWARE || []).filter(x => x.id !== h.id);
+      window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "hardware", kind: "delete", id: h.id } }));
+      window.toast && window.toast(`Removed ${h.name}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Delete failed: ${e?.message || e}`, "error");
+    }
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
-        <div><div className="page-title">Hardware</div><div className="page-sub">Customer-owned nodes running Repflow agents · enroll a fresh VPS or Mac mini in 60 seconds</div></div>
+        <div><div className="page-title">Hardware</div><div className="page-sub">{(AppData.HARDWARE || []).length} enrolled host{(AppData.HARDWARE || []).length === 1 ? "" : "s"} · click any to inspect deployments + logs</div></div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn" onClick={() => window.toast && window.toast("Email ops@koino.capital to schedule a hardware-onboarding call", "info")}><Icons.Calendar size={13}/> Schedule call with ops</button>
           <button className="btn btn-primary" onClick={() => setEnrollOpen(true)}><Icons.Plus size={13}/> Enroll new host</button>
         </div>
       </div>
       {enrollOpen && (() => { const M = window.EnrollHostModal; return M ? <M onClose={() => setEnrollOpen(false)}/> : null; })()}
+
+      {(AppData.HARDWARE || []).length === 0 && (
+        <div className="panel" style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)" }}>
+          <Icons.Server size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8, fontWeight: 500 }}>No hosts yet</div>
+          <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
+            Enroll a Mac mini, VPS, or any Linux/macOS box and Repflow agents run on your hardware — not in our cloud.
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setEnrollOpen(true)}>
+            <Icons.Plus size={11}/> Enroll first host
+          </button>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
-        {AppData.HARDWARE.map(h => (
+        {(AppData.HARDWARE || []).map(h => (
           <div key={h.id} className="panel" style={{ padding: 18 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Icons.Server size={16} style={{ color: "var(--text-secondary)" }}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{h.name}</div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{h.kind} · last sync {h.last}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{h.kind} · last sync {h.last || "—"}</div>
               </div>
               <span className={`dot dot-${h.status === "ok" ? "live" : "warn"}`} style={{ width: 8, height: 8 }}></span>
               <span style={{ fontSize: 11, fontWeight: 500, color: h.status === "ok" ? "var(--accent-money)" : "var(--state-warning)" }}>{h.status === "ok" ? "Healthy" : "Attention"}</span>
@@ -184,10 +216,93 @@ function PageHardware() {
             <div style={{ marginTop: 14, height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden" }}>
               <div style={{ width: `${h.load}%`, height: "100%", background: h.load > 60 ? "var(--state-warning)" : "var(--accent-money)" }}></div>
             </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
+              <button className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => setInspect(h)}>
+                <Icons.Activity size={11}/> Inspect
+              </button>
+              <button className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: 11, marginLeft: "auto", color: "var(--state-danger)" }} onClick={() => removeHost(h)}>
+                <Icons.X size={11}/> Remove
+              </button>
+            </div>
           </div>
         ))}
       </div>
+
+      {inspect && <HostInspectModal host={inspect} onClose={() => setInspect(null)}/>}
     </div>
+  );
+}
+
+// Drills a single host: its deployments, recent runs, and a tail-log
+// shortcut into the Agents page. Was: no way to see what was actually
+// running on a host without clicking around the Agents page guessing.
+function HostInspectModal({ host, onClose }) {
+  const [deployments, setDeployments] = React.useState(undefined);
+  const [runs, setRuns] = React.useState([]);
+
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setDeployments([]); return; }
+    Promise.all([
+      sb.from("agent_deployments").select("*").eq("host_id", host.id),
+      sb.from("agent_runs").select("*").eq("host_id", host.id).order("started_at", { ascending: false }).limit(8),
+    ]).then(([d, r]) => {
+      setDeployments(d.data || []);
+      setRuns(r.data || []);
+    });
+  }, [host.id]);
+
+  const agentName = (id) => (AppData.AGENTS || []).find(a => a.id === id)?.name || id;
+
+  return (
+    <Shared.Modal title={`Host · ${host.name}`} width={620} onClose={onClose} actions={
+      <button className="btn btn-ghost" onClick={onClose}>Close</button>
+    }>
+      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <Shared.KpiCard label="Status" value={host.status}/>
+        <Shared.KpiCard label="Uptime" value={host.uptime || "—"}/>
+        <Shared.KpiCard label="Load" value={`${host.load}%`}/>
+        <Shared.KpiCard label="Agents" value={String(host.agents || 0)}/>
+      </div>
+      <div className="divider"></div>
+      <div className="field-l">Deployments</div>
+      <div className="list" style={{ marginTop: 6 }}>
+        <div className="list-h" style={{ gridTemplateColumns: "1.5fr 90px 130px" }}>
+          <div>Agent</div><div>Status</div><div>Started</div>
+        </div>
+        {deployments === undefined && <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>Loading…</div>}
+        {deployments && deployments.length === 0 && (
+          <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>No agents deployed to this host yet. Deploy one from Agents → Deploy agent.</div>
+        )}
+        {(deployments || []).map(d => (
+          <div key={d.id} className="row" style={{ gridTemplateColumns: "1.5fr 90px 130px" }}>
+            <div style={{ fontWeight: 500 }}>{agentName(d.agent_id)}</div>
+            <div><span className={`chip ${d.status === "live" ? "chip-money" : ""}`}>{d.status}</span></div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{d.started_at ? new Date(d.started_at).toLocaleString() : "—"}</div>
+          </div>
+        ))}
+      </div>
+      <div className="divider"></div>
+      <div className="field-l">Recent runs</div>
+      <div className="list" style={{ marginTop: 6 }}>
+        {runs.length === 0 && (
+          <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>No runs recorded.</div>
+        )}
+        {runs.map(r => (
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "120px 1fr 70px 70px" }}>
+            <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{new Date(r.started_at).toLocaleTimeString()}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(r.agent_id)}</div>
+            <div><span className={`chip ${r.status === "ok" ? "chip-money" : r.status === "running" ? "chip-info" : "chip-danger"}`}>{r.status}</span></div>
+            <div className="tabular" style={{ textAlign: "right", fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.duration_ms ? `${r.duration_ms}ms` : "—"}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 12, display: "flex", gap: 6 }}>
+        <button className="btn" onClick={() => { window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "agents" }})); onClose(); }}>
+          <Icons.ArrowUpRight size={11}/> Open Agents → tail log
+        </button>
+      </div>
+    </Shared.Modal>
   );
 }
 
