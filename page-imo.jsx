@@ -1132,34 +1132,76 @@ function AuditTab({ fleet }) {
 }
 
 // ─── 6. System health ───────────────────────────────────────────────────────
+// Known boolean feature flags surfaced from agencies.config. Each entry is
+// { key, label, hint }. The flags themselves do NOT need to exist on the row
+// — the UI defaults to false and writes only when toggled.
+const FEATURE_FLAGS = [
+  { key: "aep_mode",          label: "AEP Surge",            hint: "Surface AEP scoreboard + chip in Today header." },
+  { key: "autodial_enabled",  label: "Auto-dialer",          hint: "Allow reps to launch the autodialer in Floor." },
+  { key: "live_transcription",label: "Live transcription",   hint: "Stream Whisper transcripts on call open." },
+  { key: "ai_coach",          label: "AI coach",             hint: "Surface post-call coaching cards." },
+  { key: "scrub_before_dial", label: "Pre-dial DNC scrub",   hint: "Run a DNC + state-license check before each dial." },
+];
+
 function SystemTab({ fleet, reload }) {
   const [probes, setProbes] = React.useState({
     me: { state: "checking" }, agencyIds: { state: "checking" },
-    audit: { state: "checking" }, twilio: { state: "checking" },
-    transcribe: { state: "checking" },
+    audit: { state: "checking" }, rls: { state: "checking" },
+    twilio: { state: "checking" }, twilioSms: { state: "checking" },
+    transcribe: { state: "checking" }, stripe: { state: "checking" },
+    realtime: { state: "checking" },
   });
+  const [rlsRows, setRlsRows] = React.useState([]);
+  const [flags, setFlags] = React.useState({});
+  const [flagsBusy, setFlagsBusy] = React.useState(null);
+  const [flagsAgency, setFlagsAgency] = React.useState(null);
 
   const run = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) { setProbes(p => ({ ...p, me: { state: "error", detail: "supabase not initialized" } })); return; }
 
+    // me() + viewer_agency_ids() — paired RLS sanity. Cross-check that the
+    // agency_members rows the user actually has match the helper output.
+    let viewerAgencyIds = [];
     try {
       const r = await sb.rpc("me");
       if (r.error) setProbes(p => ({ ...p, me: { state: "error", detail: r.error.message } }));
-      else setProbes(p => ({ ...p, me: { state: "ok", detail: Array.isArray(r.data) && r.data.length > 0 ? `rep ${r.data[0].rep_id}` : "no rep row" } }));
+      else setProbes(p => ({ ...p, me: { state: "ok", detail: Array.isArray(r.data) && r.data.length > 0 ? `rep ${r.data[0].rep_id} · role ${r.data[0].role}` : "no rep row" } }));
     } catch (e) { setProbes(p => ({ ...p, me: { state: "error", detail: String(e) } })); }
 
     try {
       const r = await sb.rpc("viewer_agency_ids");
       if (r.error) setProbes(p => ({ ...p, agencyIds: { state: "error", detail: r.error.message } }));
       else {
-        const ids = Array.isArray(r.data) ? r.data.map(x => x.viewer_agency_ids || x).filter(Boolean) : [];
+        viewerAgencyIds = Array.isArray(r.data) ? r.data.map(x => x.viewer_agency_ids || x).filter(Boolean) : [];
         setProbes(p => ({ ...p, agencyIds: {
-          state: ids.length > 0 ? "ok" : "warn",
-          detail: ids.length > 0 ? `${ids.length} agency_id${ids.length === 1 ? "" : "s"} visible` : "no agency memberships",
+          state: viewerAgencyIds.length > 0 ? "ok" : "warn",
+          detail: viewerAgencyIds.length > 0 ? `${viewerAgencyIds.length} agency_id${viewerAgencyIds.length === 1 ? "" : "s"} visible` : "no agency memberships",
         } }));
       }
     } catch (e) { setProbes(p => ({ ...p, agencyIds: { state: "error", detail: String(e) } })); }
+
+    // RLS cross-check: pull this user's agency_members rows directly. If the
+    // count differs from viewer_agency_ids(), RLS is mis-scoped somewhere.
+    try {
+      const { data: sess } = await sb.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (uid) {
+        const r = await sb.from("agency_members").select("agency_id, role, active").eq("user_id", uid);
+        const myRows = (r.data || []).filter(m => m.active !== false);
+        setRlsRows(myRows);
+        // viewerAgencyIds set vs my active membership set should match exactly.
+        const helperSet = new Set(viewerAgencyIds);
+        const myIds = myRows.map(m => m.agency_id);
+        const mismatch = myIds.filter(id => !helperSet.has(id)).length + viewerAgencyIds.filter(id => !myIds.includes(id)).length;
+        setProbes(p => ({ ...p, rls: mismatch > 0
+          ? { state: "warn", detail: `${mismatch} id${mismatch === 1 ? "" : "s"} differ between viewer_agency_ids() and agency_members` }
+          : { state: "ok", detail: `helper matches ${myRows.length} active membership${myRows.length === 1 ? "" : "s"}` },
+        }));
+      } else {
+        setProbes(p => ({ ...p, rls: { state: "warn", detail: "no session — anonymous viewer" } }));
+      }
+    } catch (e) { setProbes(p => ({ ...p, rls: { state: "error", detail: String(e) } })); }
 
     try {
       const r = await sb.from("agency_audit_log").select("id", { count: "exact", head: true }).limit(1);
@@ -1167,29 +1209,103 @@ function SystemTab({ fleet, reload }) {
       else setProbes(p => ({ ...p, audit: { state: "ok", detail: `${r.count ?? 0} events visible` } }));
     } catch (e) { setProbes(p => ({ ...p, audit: { state: "error", detail: String(e) } })); }
 
+    // Probe API endpoints. 503 = env-vars missing, ok/known-error = ready.
+    const apiProbe = async (path, body, expectedError, missingHint) => {
+      try {
+        const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 503) return { state: "warn", detail: missingHint };
+        if (expectedError && j.error === expectedError) return { state: "ok", detail: "configured" };
+        if (r.ok) return { state: "ok", detail: "ready" };
+        if (r.status === 404) return { state: "warn", detail: `route 404 — deploy ${path}` };
+        return { state: "error", detail: j.error || `HTTP ${r.status}` };
+      } catch (e) { return { state: "error", detail: String(e) }; }
+    };
+    apiProbe("/api/twilio-token", {}, null,                  "TWILIO_* env vars missing").then(s => setProbes(p => ({ ...p, twilio: s })));
+    apiProbe("/api/twilio-sms",   {}, "missing_to_or_body",  "TWILIO_AUTH_TOKEN missing").then(s => setProbes(p => ({ ...p, twilioSms: s })));
+    apiProbe("/api/transcribe",   {}, "missing_audio_url",   "OPENAI_API_KEY missing").then(s => setProbes(p => ({ ...p, transcribe: s })));
+    apiProbe("/api/stripe/checkout", { plan: "_probe", agency_id: "_probe" }, "stripe_not_configured", "STRIPE_SECRET_KEY missing").then(s => setProbes(p => ({ ...p, stripe: s })));
+
+    // Supabase realtime: subscribe to a heartbeat channel and check status
+    // within 1.5s. CHANNEL_ERROR = connection blocked.
     try {
-      const r = await fetch("/api/twilio-token", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      if (r.status === 503) setProbes(p => ({ ...p, twilio: { state: "warn", detail: "env vars missing" } }));
-      else if (r.ok)         setProbes(p => ({ ...p, twilio: { state: "ok", detail: "ready" } }));
-      else                   setProbes(p => ({ ...p, twilio: { state: "error", detail: `HTTP ${r.status}` } }));
-    } catch (e) { setProbes(p => ({ ...p, twilio: { state: "error", detail: String(e) } })); }
-    try {
-      const r = await fetch("/api/transcribe", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 503) setProbes(p => ({ ...p, transcribe: { state: "warn", detail: "OPENAI_API_KEY missing" } }));
-      else if (j.error === "missing_audio_url") setProbes(p => ({ ...p, transcribe: { state: "ok", detail: "ready" } }));
-      else if (r.ok)         setProbes(p => ({ ...p, transcribe: { state: "ok", detail: "ready" } }));
-      else                   setProbes(p => ({ ...p, transcribe: { state: "error", detail: `HTTP ${r.status}` } }));
-    } catch (e) { setProbes(p => ({ ...p, transcribe: { state: "error", detail: String(e) } })); }
+      const ch = sb.channel("__imo_probe");
+      let resolved = false;
+      const t = setTimeout(() => {
+        if (!resolved) {
+          setProbes(p => ({ ...p, realtime: { state: "warn", detail: "no SUBSCRIBED ack within 1.5s" } }));
+          try { ch.unsubscribe(); } catch {}
+        }
+      }, 1500);
+      ch.subscribe((status) => {
+        resolved = true;
+        clearTimeout(t);
+        if (status === "SUBSCRIBED")    setProbes(p => ({ ...p, realtime: { state: "ok", detail: "websocket connected" } }));
+        else                            setProbes(p => ({ ...p, realtime: { state: "warn", detail: status } }));
+        try { ch.unsubscribe(); } catch {}
+      });
+    } catch (e) { setProbes(p => ({ ...p, realtime: { state: "error", detail: String(e) } })); }
   }, []);
   React.useEffect(() => { run(); }, [run]);
+
+  // ─── Feature flags loader ──────────────────────────────────────────────
+  const loadFlags = React.useCallback(async (agencyId) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !agencyId) return;
+    const r = await sb.from("agencies").select("config").eq("id", agencyId).maybeSingle();
+    const cfg = (r.data && r.data.config) || {};
+    setFlags(cfg.feature_flags || {});
+  }, []);
+
+  React.useEffect(() => {
+    // Default to the active agency the IMO has scoped to; if there's none,
+    // fall back to the first agency in the fleet so the panel renders.
+    const active = (() => { try { return localStorage.getItem("repflow.active_agency"); } catch { return null; } })();
+    const a = fleet.agencies.find(x => x.id === active) || fleet.agencies[0] || null;
+    setFlagsAgency(a);
+    if (a) loadFlags(a.id);
+  }, [fleet.agencies, loadFlags]);
+
+  const toggleFlag = async (key, current) => {
+    if (!flagsAgency) return;
+    setFlagsBusy(key);
+    const next = { ...flags, [key]: !current };
+    const sb = window.getSupabase();
+    try {
+      // Patch agencies.config.feature_flags. We must read+write (jsonb merge)
+      // since we don't have a partial-jsonb update RPC for arbitrary keys.
+      const cur = await sb.from("agencies").select("config").eq("id", flagsAgency.id).maybeSingle();
+      const cfg = (cur.data && cur.data.config) || {};
+      const newCfg = { ...cfg, feature_flags: next };
+      const { error } = await sb.from("agencies").update({ config: newCfg }).eq("id", flagsAgency.id);
+      if (error) throw error;
+      setFlags(next);
+      sb.rpc("log_audit", {
+        p_agency_id: flagsAgency.id,
+        p_action: "feature_flag.toggle",
+        p_target: key,
+        p_metadata: { value: !current },
+        p_actor_role: null,
+      }).then(() => {});
+      window.toast && window.toast(`${key} → ${!current ? "on" : "off"}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Toggle failed: ${e.message || e}`, "error");
+    } finally { setFlagsBusy(null); }
+  };
 
   const probeRows = [
     { id: "me",         label: "RPC me()",                hint: "Returns the signed-in viewer's rep + agency identity",   p: probes.me },
     { id: "agencyIds",  label: "RPC viewer_agency_ids()", hint: "Returns the set of agency_ids RLS will allow for reads", p: probes.agencyIds },
+    { id: "rls",        label: "RLS scope match",         hint: "viewer_agency_ids() ↔ agency_members must match exactly", p: probes.rls },
     { id: "audit",      label: "agency_audit_log read",   hint: "Cross-agency audit trail must be readable here",         p: probes.audit },
-    { id: "twilio",     label: "Twilio (voice + SMS)",    hint: "Required for live dial + transcription",                 p: probes.twilio },
-    { id: "transcribe", label: "Transcription (OpenAI)",  hint: "Whisper backs live call coaching",                       p: probes.transcribe },
+    { id: "realtime",   label: "Supabase realtime",       hint: "Websocket connection for live updates",                  p: probes.realtime },
+  ];
+
+  const integrationRows = [
+    { id: "twilio",     label: "Twilio voice",          hint: "Outbound dial + WebRTC softphone",            p: probes.twilio },
+    { id: "twilioSms",  label: "Twilio SMS",            hint: "Programmable Messaging (follow-ups, nudges)", p: probes.twilioSms },
+    { id: "transcribe", label: "OpenAI / Whisper",      hint: "Live + recorded call transcription",          p: probes.transcribe },
+    { id: "stripe",     label: "Stripe billing",        hint: "Plan checkout + per-agency MRR tracking",     p: probes.stripe },
   ];
 
   const tone = (s) => s === "ok" ? "var(--k-a)" : s === "warn" ? "var(--k-warn)" : s === "checking" ? "var(--k-t3)" : "var(--k-danger)";
@@ -1200,7 +1316,7 @@ function SystemTab({ fleet, reload }) {
     <div className="k-stack">
       <div className="k-card">
         <div className="k-card-h">
-          <h3>System health</h3>
+          <h3>Supabase + RLS health</h3>
           <span className="k-meta">{probeRows.filter(r => r.p.state === "ok").length} / {probeRows.length} ok</span>
           <div className="k-actions"><button className="k-btn k-btn-ghost" onClick={run}>↻ Re-probe</button></div>
         </div>
@@ -1222,14 +1338,103 @@ function SystemTab({ fleet, reload }) {
       </div>
 
       <div className="k-card">
+        <div className="k-card-h">
+          <h3>Integrations</h3>
+          <span className="k-meta">{integrationRows.filter(r => r.p.state === "ok").length} / {integrationRows.length} ok</span>
+        </div>
+        <div>
+          {integrationRows.map(r => (
+            <div key={r.id} className="k-probe">
+              <span className="k-probe-dot" style={{ background: tone(r.p.state) }}/>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div className="k-probe-label">
+                  {r.label}
+                  <StatusChip kind={chipKind(r.p.state)}>{stateLabel(r.p.state)}</StatusChip>
+                </div>
+                <div className="k-probe-hint">{r.hint}</div>
+                {r.p.detail && <div className="k-probe-detail">{r.p.detail}</div>}
+              </div>
+              {r.p.state === "warn" && (
+                <a className="k-btn k-btn-ghost" href="https://vercel.com/dashboard" target="_blank" rel="noopener noreferrer">Vercel env ↗</a>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="k-card">
+        <div className="k-card-h">
+          <h3>Feature flags</h3>
+          <span className="k-meta">per-agency · agencies.config.feature_flags</span>
+          <div className="k-actions">
+            <select className="k-select" style={{ width:200 }} value={flagsAgency?.id || ""} onChange={(e) => {
+              const a = fleet.agencies.find(x => x.id === e.target.value);
+              setFlagsAgency(a || null);
+              if (a) loadFlags(a.id);
+            }}>
+              <option value="">Pick agency…</option>
+              {fleet.agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        </div>
+        {!flagsAgency && <div className="k-empty">Pick a sub-agency above to manage its flags.</div>}
+        {flagsAgency && (
+          <div>
+            {FEATURE_FLAGS.map(f => {
+              const on = !!flags[f.key];
+              const busy = flagsBusy === f.key;
+              return (
+                <div key={f.key} className="k-probe">
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div className="k-probe-label">
+                      {f.label}
+                      <StatusChip kind={on ? "live" : "neutral"}>{on ? "on" : "off"}</StatusChip>
+                    </div>
+                    <div className="k-probe-hint">{f.hint}</div>
+                    <div className="k-probe-detail">key: {f.key}</div>
+                  </div>
+                  <button className="k-btn" disabled={busy} onClick={() => toggleFlag(f.key, on)}>{busy ? "…" : (on ? "Turn off" : "Turn on")}</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="k-card">
+        <div className="k-card-h">
+          <h3>RLS sanity · my memberships</h3>
+          <span className="k-meta">{rlsRows.length} active rows</span>
+        </div>
+        <div>
+          {rlsRows.length === 0 && <div className="k-empty">No active agency_members rows for the signed-in user.</div>}
+          {rlsRows.map(m => {
+            const ag = fleet.agencies.find(a => a.id === m.agency_id);
+            return (
+              <div key={m.agency_id} className="k-probe">
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div className="k-probe-label">
+                    {ag?.name || <span className="k-mono">{m.agency_id.slice(0, 8)}…</span>}
+                    <StatusChip kind={ag ? "live" : "warn"}>{ag ? "in scope" : "RLS-hidden"}</StatusChip>
+                  </div>
+                  <div className="k-probe-detail">role: <span className="k-mono" style={{ color:"var(--k-a)" }}>{m.role}</span> · agency_id: <span className="k-mono">{m.agency_id}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="k-card-body" style={{ borderTop:"1px solid var(--k-b)", padding:"10px 14px", fontSize:"0.72rem", color:"var(--k-t3)", lineHeight:1.6 }}>
+          For an IMO oversight role, you should have one membership row per sub-agency. If a sub-agency is visible in the fleet but missing here, your viewer_agency_ids() helper is granting reads via a different path (e.g. SECURITY DEFINER on parent_agency_id) — that's by design for the IMO model, but worth verifying with the System probe above.
+        </div>
+      </div>
+
+      <div className="k-card">
         <div className="k-card-h"><h3>Fleet sanity</h3></div>
         <div className="k-card-body">
           <div style={{ fontSize:"0.82rem", lineHeight:1.7 }}>
             <div><span className="k-num" style={{ color:"var(--k-a)", fontWeight:700 }}>{fleet.agencies.length}</span> sub-agencies in this viewer's scope.</div>
             <div><span className="k-num" style={{ color:"var(--k-a)", fontWeight:700 }}>{fleet.metrics.producers}</span> producers in scope across them.</div>
-          </div>
-          <div style={{ marginTop:8, color:"var(--k-t3)", fontSize:"0.72rem", lineHeight:1.5 }}>
-            If viewer_agency_ids() returns 1 and you expect more, the agency_members rows for the other sub-agencies are missing or inactive — check the Members tab.
+            <div><span className="k-num" style={{ color:"var(--k-a)", fontWeight:700 }}>{fleet.metrics.policies}</span> policies in book.</div>
           </div>
           <button className="k-btn" style={{ marginTop:10 }} onClick={reload}>Re-hydrate fleet</button>
         </div>
