@@ -146,11 +146,29 @@ function MobileRep() {
 
               <div className="cardstack">
                 {cards.length === 0 && (
-                  <div className="swipe-card" style={{ alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-                    <Icons.Sparkles size={20} style={{ color: "var(--accent-money)" }}/>
-                    <div style={{ fontSize: 14, fontWeight: 500, marginTop: 6 }}>Queue empty</div>
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Pull from AEP pool?</div>
-                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setCards((AppData.QUEUE || []).slice(0, 6))}>Pull 6 leads</button>
+                  <div className="swipe-card" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", display: "flex", flexDirection: "column", gap: 8 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// queue · empty</span>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>No leads loaded</div>
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary)", maxWidth: 240, lineHeight: 1.5 }}>
+                      {(AppData.QUEUE || []).length > 0
+                        ? `${(AppData.QUEUE || []).length} fresh in the inbound funnel — pull a batch to start swiping.`
+                        : "Nothing in inbound yet — wait for routing or add a lead from CRM."}
+                    </div>
+                    {(AppData.QUEUE || []).length > 0 && (
+                      <button
+                        onClick={() => setCards((AppData.QUEUE || []).slice(0, 6))}
+                        style={{
+                          marginTop: 8,
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          padding: "8px 16px",
+                          background: "#00d4aa", color: "#000",
+                          border: "none", borderRadius: 8,
+                          fontWeight: 700, fontSize: 12,
+                          cursor: "pointer",
+                          boxShadow: "0 4px 14px rgba(0,212,170,0.22)",
+                        }}
+                      ><Icons.Bolt size={11}/> Pull 6 leads</button>
+                    )}
                   </div>
                 )}
                 {cards.slice(0, 3).reverse().map((c, idx, arr) => {
@@ -192,9 +210,9 @@ function MobileRep() {
                       </div>
                       {isTop && dir && (
                         <div style={{ position: "absolute", inset: 14, pointerEvents: "none", display: "grid", placeItems: "center" }}>
-                          <div style={{ padding: "6px 14px", borderRadius: 6, fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", textTransform: "uppercase",
-                            background: dir === "right" ? "color-mix(in oklch, var(--accent-money) 25%, transparent)" : dir === "left" ? "color-mix(in oklch, var(--state-danger) 25%, transparent)" : "color-mix(in oklch, var(--state-info) 25%, transparent)",
-                            color: dir === "right" ? "var(--accent-money)" : dir === "left" ? "var(--state-danger)" : "var(--state-info)" }}>
+                          <div style={{ padding: "6px 14px", borderRadius: 8, fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", textTransform: "uppercase",
+                            background: dir === "right" ? "rgba(0,212,170,0.25)" : dir === "left" ? "color-mix(in oklch, var(--state-danger) 25%, transparent)" : "color-mix(in oklch, var(--state-info) 25%, transparent)",
+                            color: dir === "right" ? "#00d4aa" : dir === "left" ? "var(--state-danger)" : "var(--state-info)" }}>
                             {dir === "right" ? "DIAL" : dir === "left" ? "SKIP" : dir === "up" ? "SMS" : "LATER"}
                           </div>
                         </div>
@@ -216,11 +234,16 @@ function MobileRep() {
             return <C
               onNav={(n) => setTab(n === "queue" ? "dial" : n)}
               onLead={(l) => {
-                // Never synthesize a phone number — dialing a fake number
-                // is worse than no-op. If the pipeline row has no phone,
-                // toast and let the rep open lead detail instead.
-                if (!l.phone) { window.toast && window.toast(`No phone on file for ${l.lead}`, "warn"); return; }
-                window.repflowDial && window.repflowDial(l.phone, l.lead);
+                // Card tap: with phone → dial. Without phone → fall through
+                // to a useful action (toast + we already keep the user on
+                // the mobile pipeline tab, but on desktop the rep would
+                // open lead detail to add a phone). Mobile has no lead-
+                // detail slide-out, so the best we can do is be clear.
+                if (l.phone) {
+                  window.repflowDial && window.repflowDial(l.phone, l.lead);
+                  return;
+                }
+                window.toast && window.toast(`No phone on file for ${l.lead} — add one on desktop or send to CRM.`, "warn");
               }}
             />;
           })()}
@@ -234,23 +257,37 @@ function MobileRep() {
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 14 }}>{agencyName} · MTD · live</div>
                 <div className="panel">
                   {ranked.length === 0 && (
-                    <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-                      No producers on the board yet.
+                    <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// board · empty</span>
+                      <span>No producers on the board yet.</span>
                     </div>
                   )}
-                  {ranked.map((r, i) => (
-                    <div key={r.id} className="row" style={{ gridTemplateColumns: "24px 1fr 80px", height: 50, padding: "0 12px" }}>
-                      <span className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <Shared.Avatar rep={r} size={24}/>
-                        <div>
-                          <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}</div>
-                          <Shared.TierChip tier={r.tier} compact/>
+                  {ranked.map((r, i) => {
+                    const isMe = r.id === myRepId;
+                    return (
+                      <div
+                        key={r.id}
+                        className="row"
+                        style={{
+                          gridTemplateColumns: "24px 1fr 80px",
+                          height: 50,
+                          padding: "0 12px",
+                          background: isMe ? "rgba(0,212,170,0.08)" : undefined,
+                          borderLeft: isMe ? "2px solid #00d4aa" : "2px solid transparent",
+                        }}
+                      >
+                        <span className="tabular" style={{ fontWeight: 600, color: isMe ? "#00d4aa" : i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Shared.Avatar rep={r} size={24}/>
+                          <div>
+                            <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}{isMe && <span style={{ marginLeft: 6, fontSize: 10, color: "#00d4aa", fontFamily: "var(--font-mono)", letterSpacing: "0.06em" }}>YOU</span>}</div>
+                            <Shared.TierChip tier={r.tier} compact/>
+                          </div>
                         </div>
+                        <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontSize: 13 }}>${((r.mtd || 0)/1000).toFixed(1)}k</div>
                       </div>
-                      <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontSize: 13 }}>${((r.mtd || 0)/1000).toFixed(1)}k</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             );
@@ -285,14 +322,46 @@ function MobileRep() {
                   const tier = (displayTier || "bronze").toLowerCase();
                   const target = tt[tier] || 12000;
                   const pct = Math.min(100, (mtd / Math.max(1, target)) * 100);
+                  const remaining = Math.max(0, target - mtd);
                   return (
-                    <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                      <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
-                    </div>
+                    <>
+                      <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #00d4aa, #7c3aed)" }}></div>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
+                        {remaining > 0 ? `$${remaining.toLocaleString()} to ${tier === "diamond" ? "stretch goal" : "next tier"}` : "Tier hit — keep stacking"}
+                      </div>
+                    </>
                   );
                 })()}
               </div>
-              <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 16, color: "var(--state-danger)" }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                <button
+                  onClick={() => {
+                    // mobile.html doesn't load /settings — but the desktop
+                    // does. Surface a hint instead of dead button.
+                    if (window.gotoPage) window.gotoPage("settings");
+                    else window.toast && window.toast("Open Repflow on desktop to edit your profile.", "info");
+                  }}
+                  style={{
+                    width: "100%", justifyContent: "center",
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "10px 14px",
+                    background: "#00d4aa", color: "#000",
+                    border: "none", borderRadius: 8,
+                    fontWeight: 700, fontSize: 12,
+                    cursor: "pointer",
+                    boxShadow: "0 4px 14px rgba(0,212,170,0.22)",
+                  }}
+                >
+                  <Icons.User size={12}/> Edit profile
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  style={{ width: "100%", justifyContent: "center", color: "var(--state-danger)" }}
+                  onClick={() => window.signOut && window.signOut()}
+                ><Icons.X size={12}/> Sign out</button>
+              </div>
             </>
             );
           })()}
