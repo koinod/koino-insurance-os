@@ -26,15 +26,19 @@ if (entries.length === 0) {
   process.exit(1);
 }
 
-// No `format` set: with `bundle: false`, esbuild emits a plain transpile —
-// no IIFE wrapper — which preserves the classic <script>-tag global scope
-// that these files were originally written against (function/const at top
-// level become page-level globals, just like Babel-in-browser used to give us).
+// IIFE wrap per file. Without it, classic <script> tags share the global
+// lexical scope, and every file's top-level `const { useState } = React;`
+// collides ("Identifier 'useState' has already been declared"). Babel-in-
+// browser used to wrap each <script type="text/babel"> automatically; with
+// the precompiled-JSX path we have to do the same explicitly. The .jsx files
+// that need to expose APIs already assign to `window.*` at the bottom
+// (e.g. `window.Shared = { ... }`), so IIFE wrapping is transparent to them.
 await build({
   entryPoints: entries,
   outdir: outDir,
   outExtension: { ".js": ".js" },
   bundle: false,
+  format: "iife",
   loader: { ".jsx": "jsx" },
   target: ["es2020"],
   jsx: "transform",
