@@ -99,7 +99,7 @@ function Kpi({ label, value, sub, hero }) {
 function useFleet(includeDemo) {
   const [state, setState] = React.useState({
     loading: true, agencies: [], memberCounts: {}, lastActive: {},
-    metrics: { policies: 0, premiumCents: 0, producers: 0 },
+    metrics: { policies: 0, premiumCents: 0, producers: 0, liveNow: 0, audit7d: 0, activePremiumCents: 0 },
     err: null,
   });
 
@@ -110,7 +110,7 @@ function useFleet(includeDemo) {
     try {
       const { data: ag, error: agErr } = await sb
         .from("agencies")
-        .select("id, name, slug, plan, is_demo, primary_state, created_at, onboarding_complete, parent_agency_id")
+        .select("id, name, slug, plan, is_demo, primary_state, created_at, onboarding_complete, parent_agency_id, suspended_at")
         .order("created_at", { ascending: false });
       if (agErr) throw agErr;
 
@@ -120,13 +120,17 @@ function useFleet(includeDemo) {
       const memberCounts = {};
       const lastActive = {};
       let producers = 0;
+      let liveNow = 0;
       let policies = 0;
       let premiumCents = 0;
+      let activePremiumCents = 0;
+      let audit7d = 0;
+      const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
 
       if (ids.length > 0) {
         const [{ data: members }, { data: audit }, { data: reps }, { data: pols }] = await Promise.all([
           sb.from("agency_members").select("agency_id, active").in("agency_id", ids),
-          sb.from("agency_audit_log").select("agency_id, created_at").in("agency_id", ids).order("created_at", { ascending: false }).limit(1000),
+          sb.from("agency_audit_log").select("agency_id, created_at").in("agency_id", ids).order("created_at", { ascending: false }).limit(2000),
           sb.from("reps").select("id, agency_id, presence").in("agency_id", ids),
           sb.from("policies").select("agency_id, status, ap_cents").in("agency_id", ids),
         ]);
@@ -137,17 +141,27 @@ function useFleet(includeDemo) {
         }
         for (const ev of (audit || [])) {
           if (!lastActive[ev.agency_id]) lastActive[ev.agency_id] = ev.created_at;
+          if (new Date(ev.created_at).getTime() > sevenDaysAgo) audit7d += 1;
         }
         producers = (reps || []).length;
+        liveNow = (reps || []).filter(r => r.presence === "live").length;
         for (const p of (pols || [])) {
           policies += 1;
-          premiumCents += Number(p.ap_cents || 0);
+          const ap = Number(p.ap_cents || 0);
+          premiumCents += ap;
+          // "Active" = anything not explicitly cancelled/lapsed. policies.status
+          // values in the schema are issued/in_force/cancelled/lapsed; treat any
+          // unrecognized status as active so envs without the column don't go
+          // to zero.
+          const status = (p.status || "").toLowerCase();
+          if (status !== "cancelled" && status !== "lapsed") activePremiumCents += ap;
         }
       }
 
       setState({
         loading: false, agencies: filtered, memberCounts, lastActive,
-        metrics: { policies, premiumCents, producers }, err: null,
+        metrics: { policies, premiumCents, producers, liveNow, audit7d, activePremiumCents },
+        err: null,
       });
     } catch (e) {
       setState(s => ({ ...s, loading: false, err: String(e?.message || e) }));
@@ -180,17 +194,25 @@ function StatusChip({ kind = "neutral", children }) {
 // ─── 1. Overview ────────────────────────────────────────────────────────────
 function OverviewTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo, onOpenProvision, onSwitchAgency }) {
   const { loading, agencies, memberCounts, lastActive, metrics, err } = fleet;
-  const pendingOnboard = agencies.filter(a => !a.onboarding_complete);
+  // Stale-first sort for pending onboarding — the one that's been sitting
+  // longest is the one most likely to need a nudge.
+  const pendingOnboard = agencies
+    .filter(a => !a.onboarding_complete)
+    .slice()
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const fresh = agencies.slice(0, 6);
   const totalMembers = Object.values(memberCounts).reduce((a, b) => a + b, 0);
+  const stalestDays = pendingOnboard[0]
+    ? Math.max(0, Math.round((Date.now() - new Date(pendingOnboard[0].created_at)) / 86400000))
+    : 0;
 
   return (
     <div className="k-stack">
       <div className="k-kpis">
-        <Kpi hero label="Sub-agencies" value={agencies.length} sub={`${pendingOnboard.length} mid-onboarding`}/>
-        <Kpi label="Producers"        value={metrics.producers} sub={`${totalMembers} member${totalMembers === 1 ? "" : "s"} total`}/>
-        <Kpi label="Policies in book" value={metrics.policies}  sub="across all sub-agencies"/>
-        <Kpi label="Aggregate AP"     value={fmtMoney(metrics.premiumCents)} sub="annual premium written"/>
+        <Kpi hero label="Sub-agencies" value={agencies.length} sub={pendingOnboard.length > 0 ? `${pendingOnboard.length} mid-onboarding · stalest ${stalestDays}d` : "all live"}/>
+        <Kpi label="Producers"        value={metrics.producers} sub={`${metrics.liveNow} live now · ${totalMembers} member${totalMembers === 1 ? "" : "s"}`}/>
+        <Kpi label="Active AP"        value={fmtMoney(metrics.activePremiumCents)} sub={`${metrics.policies} policies in book`}/>
+        <Kpi label="Activity (7d)"    value={metrics.audit7d} sub="events across fleet"/>
       </div>
 
       {err && (
@@ -254,17 +276,24 @@ function OverviewTab({ fleet, reload, isSuperAdmin, includeDemo, setIncludeDemo,
           </div>
           <div className="k-card-body" style={{ padding:8 }}>
             {pendingOnboard.length === 0 && <div className="k-empty">All sub-agencies finished setup.</div>}
-            {pendingOnboard.slice(0, 8).map(a => (
-              <div key={a.id} style={{ padding:"8px 10px", background:"var(--k-s2)", borderRadius:6, marginBottom:6, fontSize:"0.78rem", border:"1px solid var(--k-b)" }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                  <strong style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>{a.name}</strong>
-                  <button className="k-btn k-btn-ghost" onClick={() => onSwitchAgency(a)}>Resume →</button>
+            {pendingOnboard.slice(0, 8).map(a => {
+              const days = Math.max(0, Math.round((Date.now() - new Date(a.created_at)) / 86400000));
+              const isStale = days >= 7;
+              return (
+                <div key={a.id} style={{ padding:"8px 10px", background:"var(--k-s2)", borderRadius:6, marginBottom:6, fontSize:"0.78rem", border:`1px solid ${isStale ? "rgba(245,158,11,0.35)" : "var(--k-b)"}` }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                    <strong style={{ minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>{a.name}</strong>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      {isStale && <StatusChip kind="warn">{days}d stale</StatusChip>}
+                      <button className="k-btn k-btn-ghost" onClick={() => onSwitchAgency(a)}>Resume →</button>
+                    </div>
+                  </div>
+                  <div className="k-mono" style={{ fontSize:"0.65rem", color:"var(--k-t3)", marginTop:3 }}>
+                    Created {new Date(a.created_at).toLocaleDateString()} · {a.primary_state || "no state"}
+                  </div>
                 </div>
-                <div className="k-mono" style={{ fontSize:"0.65rem", color:"var(--k-t3)", marginTop:3 }}>
-                  Created {new Date(a.created_at).toLocaleDateString()} · {a.primary_state || "no state"}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
