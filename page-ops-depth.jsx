@@ -31,6 +31,7 @@ function PageNIGO({ role = "manager" }) {
   const [filter, setFilter] = React.useState({ status: "open", priority: "all" });
   const [drill, setDrill]   = React.useState(null);
   const [statusOverrides, setStatusOverrides] = React.useState({});
+  const [newOpen, setNewOpen] = React.useState(false);
   // Live: project AppData.NIGOS into the local schema, fall back to demo NIGOS.
   const liveNigos = (() => {
     const N = AppData.NIGOS;
@@ -99,8 +100,11 @@ function PageNIGO({ role = "manager" }) {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.Select value={filter.status}   onChange={(v) => setFilter({ ...filter, status: v })}   options={[{ v: "all", l: "All status" }, { v: "open", l: "Open" }, { v: "in_review", l: "In review" }, { v: "fixed", l: "Fixed" }]}/>
           <Shared.Select value={filter.priority} onChange={(v) => setFilter({ ...filter, priority: v })} options={[{ v: "all", l: "All priority" }, { v: "p0", l: "P0 — same day" }, { v: "p1", l: "P1 — this week" }, { v: "p2", l: "P2 — flexible" }]}/>
+          <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={13}/> Log NIGO</button>
         </div>
       </div>
+
+      {newOpen && <NewNIGOModal onClose={() => setNewOpen(false)}/>}
 
       {(() => {
         // GAP-MP2 follow-on — KPIs honor the same scope as the queue list so a
@@ -561,20 +565,47 @@ function PageForecast() {
     return { day, ap: weightedAP * (1 - Math.exp(-day / 12)) };
   });
 
+  // Owner-set monthly goal (overrides $50k stub for coverage ratio).
+  const goal = (window.AppData?.ORG_SETTINGS?.forecast_monthly_goal_cents)
+    ? (window.AppData.ORG_SETTINGS.forecast_monthly_goal_cents / 100)
+    : 50000;
+
+  // Active manual override -- if owner pinned a forecast number, use it
+  // for the headline + curve scale. Most-recent forecast_overrides row.
+  const overrides = (AppData.FORECAST_OVERRIDES || []).slice().sort((a, b) => new Date(b.setAt || 0) - new Date(a.setAt || 0));
+  const activeOverride = overrides[0] || null;
+  const headlineAP = activeOverride?.override != null && activeOverride.override > 0 ? activeOverride.override : weightedAP;
+  const [overrideOpen, setOverrideOpen] = React.useState(false);
+  const [goalOpen, setGoalOpen] = React.useState(false);
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Revenue forecast</div>
-          <div className="page-sub">Pipeline value × stage close-probability · 30-day rolling forecast</div>
+          <div className="page-sub">
+            Pipeline value × stage close-probability · 30-day rolling forecast
+            {activeOverride && <> · <span style={{ color: "var(--state-warning)" }}>manual override: ${Math.round(activeOverride.override).toLocaleString()}</span></>}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => setGoalOpen(true)} title="Set the monthly AP goal that coverage ratio measures against">
+            <Icons.Edit size={11}/> Set goal
+          </button>
+          <button className="btn btn-primary" onClick={() => setOverrideOpen(true)} title="Pin a manual forecast number that supersedes the weighted calculation">
+            <Icons.Sparkles size={11}/> Override forecast
+          </button>
         </div>
       </div>
 
+      {overrideOpen && <ForecastOverrideModal weightedAP={weightedAP} onClose={() => setOverrideOpen(false)}/>}
+      {goalOpen     && <ForecastGoalModal currentGoal={goal} onClose={() => setGoalOpen(false)}/>}
+
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Weighted pipeline" prefix="$" value={Math.round(weightedAP).toLocaleString()} sub="all stages × prob"/>
-        <Shared.KpiCard      label="In App stage" value={pipeline.filter(p => p.stage === "App In").length} sub="78% close"/>
+        <Shared.KpiCard hero label="Weighted pipeline" prefix="$" value={Math.round(headlineAP).toLocaleString()} sub={activeOverride ? "manual override" : "all stages × prob"}/>
+        <Shared.KpiCard      label="In App stage" value={pipeline.filter(p => p.stage === "App In").length} sub={`${Math.round(STAGE_PROB["App In"] * 100)}% close`}/>
         <Shared.KpiCard      label="Issued MTD" value={pipeline.filter(p => p.stage === "Issued").length}/>
-        <Shared.KpiCard      label="Coverage ratio" value={(weightedAP / 50000).toFixed(2) + "x"} sub="vs $50k goal" trend="up"/>
+        <Shared.KpiCard      label="Coverage ratio" value={(headlineAP / Math.max(goal, 1)).toFixed(2) + "x"} sub={`vs $${Math.round(goal).toLocaleString()} goal`} trend={headlineAP >= goal ? "up" : undefined}/>
       </div>
 
       <div className="rec-detail-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
@@ -633,6 +664,184 @@ function PageForecast() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ForecastOverrideModal({ weightedAP, onClose }) {
+  const [amount, setAmount] = React.useState(Math.round(weightedAP).toString());
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+
+  const period = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+
+  const submit = async () => {
+    const cents = Math.round(parseFloat(amount) * 100);
+    if (!cents || cents <= 0) { window.toast && window.toast("Enter a positive dollar amount", "warn"); return; }
+    setBusy(true);
+    try {
+      await AppData.mutate.forecastOverrideSet(period, cents, reason || null);
+      window.toast && window.toast(`Forecast pinned at $${parseFloat(amount).toLocaleString()}`, "success");
+      onClose();
+    } catch (_e) {} finally { setBusy(false); }
+  };
+
+  const clear = async () => {
+    setBusy(true);
+    try {
+      await AppData.mutate.forecastOverrideClear();
+      window.toast && window.toast("Cleared override · using weighted pipeline", "success");
+      onClose();
+    } catch (_e) {} finally { setBusy(false); }
+  };
+
+  return (
+    <Shared.Modal title="Override forecast" width={460} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-ghost" onClick={clear} disabled={busy} style={{ color: "var(--state-danger)" }}>Clear override</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>
+          <Icons.Check size={11}/> {busy ? "Saving…" : "Pin forecast"}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 12, lineHeight: 1.55 }}>
+        Replaces the weighted-pipeline headline with a number you set. Stored in <span className="mono">forecast_overrides</span> with a timestamp + reason for audit. Period: <strong>{period}</strong>.
+      </div>
+      <Shared.Field label="Forecast amount ($)">
+        <input className="text-input" type="number" step="100" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus/>
+      </Shared.Field>
+      <Shared.Field label="Reason (optional)" hint="Why you're overriding — gets logged for audit">
+        <textarea
+          className="text-input" rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder='e.g. "Three large annuity apps not yet in pipeline"'
+          style={{ resize: "vertical", fontFamily: "inherit" }}
+        />
+      </Shared.Field>
+      <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>
+        Weighted pipeline = ${Math.round(weightedAP).toLocaleString()} · clear the override to revert to it.
+      </div>
+    </Shared.Modal>
+  );
+}
+
+function ForecastGoalModal({ currentGoal, onClose }) {
+  const [goal, setGoal] = React.useState(currentGoal.toString());
+  const [busy, setBusy] = React.useState(false);
+  const submit = async () => {
+    const v = parseFloat(goal);
+    if (!v || v <= 0) { window.toast && window.toast("Enter a positive amount", "warn"); return; }
+    setBusy(true);
+    try {
+      await AppData.mutate.orgSettingsSave({ forecast_monthly_goal_cents: Math.round(v * 100) });
+      window.toast && window.toast(`Monthly goal set to $${v.toLocaleString()}`, "success");
+      onClose();
+    } catch (_e) {} finally { setBusy(false); }
+  };
+  return (
+    <Shared.Modal title="Monthly AP goal" width={420} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>
+          <Icons.Check size={11}/> {busy ? "Saving…" : "Save goal"}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 12 }}>
+        Sets the denominator for the coverage ratio KPI. Stored in <span className="mono">org_settings.forecast_monthly_goal_cents</span>.
+      </div>
+      <Shared.Field label="Monthly AP goal ($)">
+        <input className="text-input" type="number" step="1000" min="0" value={goal} onChange={(e) => setGoal(e.target.value)} autoFocus/>
+      </Shared.Field>
+    </Shared.Modal>
+  );
+}
+
+function NewNIGOModal({ onClose }) {
+  // Loads policies + reasons + reps so the operator picks from real
+  // tenant data; falls back to a minimal form if hydrate hasn't run.
+  const policies = (AppData.POLICIES || []).slice(0, 100);
+  const reasons  = (AppData.NIGO_REASONS || []);
+  const reps     = (AppData.REPS || []);
+  const [form, setForm] = React.useState({
+    policyId: policies[0]?.id || "",
+    reasonId: reasons[0]?.id || "",
+    notes: "",
+    assignedTo: reps[0]?.id || "",
+    status: "open",
+  });
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async () => {
+    if (!form.policyId) { window.toast && window.toast("Pick a policy", "warn"); return; }
+    setBusy(true);
+    try {
+      const pol = policies.find(p => p.id === form.policyId);
+      await AppData.mutate.nigoCreate({
+        policyId: form.policyId,
+        pipelineId: pol?.leadId || null,
+        reasonId: form.reasonId || null,
+        notes: form.notes || null,
+        assignedTo: form.assignedTo || null,
+        status: form.status,
+      });
+      window.toast && window.toast(`NIGO logged${AppData.LIVE ? " · saved" : ""}`, "success");
+      onClose();
+    } catch (_e) {} finally { setBusy(false); }
+  };
+
+  return (
+    <Shared.Modal title="Log NIGO" width={540} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !form.policyId}>
+          <Icons.Plus size={11}/> {busy ? "Saving…" : "Log NIGO"}
+        </button>
+      </>
+    }>
+      {policies.length === 0 && (
+        <div style={{ padding: 10, background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", borderRadius: 6, color: "var(--state-warning)", fontSize: 12, marginBottom: 12 }}>
+          No policies on file yet — create one before logging a NIGO against it.
+        </div>
+      )}
+      <Shared.Field label="Policy">
+        <Shared.Select value={form.policyId} onChange={(v) => setForm({ ...form, policyId: v })} options={[
+          { v: "", l: "— Pick policy —" },
+          ...policies.map(p => ({ v: p.id, l: `${p.policyNumber || p.id.slice(0, 8)} · ${p.product || ""} · ${p.state || ""}` })),
+        ]}/>
+      </Shared.Field>
+      <Shared.Field label="Reason" hint="Hydrated from public.nigo_reasons">
+        <Shared.Select value={form.reasonId} onChange={(v) => setForm({ ...form, reasonId: v })} options={[
+          { v: "", l: "— Pick reason —" },
+          ...reasons.map(r => ({ v: r.id, l: `${r.label}${r.severity ? ` · ${r.severity}` : ""}` })),
+        ]}/>
+      </Shared.Field>
+      <Shared.Field label="Assign to">
+        <Shared.Select value={form.assignedTo} onChange={(v) => setForm({ ...form, assignedTo: v })} options={[
+          { v: "", l: "— Unassigned —" },
+          ...reps.map(r => ({ v: r.id, l: `${r.name} (${r.handle || r.id})` })),
+        ]}/>
+      </Shared.Field>
+      <Shared.Field label="Notes">
+        <textarea
+          className="text-input" rows={3}
+          value={form.notes}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          placeholder="What's missing? Carrier feedback verbatim ideal."
+          style={{ resize: "vertical", fontFamily: "inherit" }}
+        />
+      </Shared.Field>
+      <Shared.Field label="Status">
+        <Shared.Select value={form.status} onChange={(v) => setForm({ ...form, status: v })} options={[
+          { v: "open", l: "Open" },
+          { v: "in_review", l: "In review" },
+        ]}/>
+      </Shared.Field>
+    </Shared.Modal>
   );
 }
 

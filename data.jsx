@@ -1251,35 +1251,105 @@ window.AppData.mutate = {
   },
 
   /* ── NIGO workflow ──────────────────────────────────────────────────── */
+  // Table is public.nigos (migration 0002). Was writing to nigo_items (the
+  // wrong name) and reading from AppData.NIGO (singular) while the hydrate
+  // populates AppData.NIGOS (plural) -- both broke real-tenant saves.
   async nigoCreate(item) {
+    // Translate the camelCase shape page-ops-depth + page-floor use into the
+    // snake_case Supabase row, but keep the camelCase copy in-memory so
+    // existing renderers don't change.
+    const payload = {
+      policy_id: item.policyId || null,
+      pipeline_id: item.pipelineId || null,
+      reason_id: item.reasonId || null,
+      notes: item.notes || null,
+      assigned_to: item.assignedTo || null,
+      status: item.status || "open",
+    };
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
-        const { data, error } = await sb.from("nigo_items").insert(item).select().single();
+        const { data, error } = await sb.from("nigos").insert(payload).select().single();
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
-        if (data) item.id = data.id;
+        if (data) {
+          item.id = data.id;
+          item.createdAt = data.created_at;
+        }
       }
     }
-    (window.AppData.NIGO = window.AppData.NIGO || []).unshift(item);
-    _emitMutation("nigo_items", "insert", item.id);
+    if (!item.id) item.id = "tmp-" + Date.now();
+    if (!item.createdAt) item.createdAt = new Date().toISOString();
+    (window.AppData.NIGOS = window.AppData.NIGOS || []).unshift(item);
+    _emitMutation("nigos", "insert", item.id);
+  },
+
+  // Forecast manual override -- owner pins a number that supersedes the
+  // weighted-AP calculation for the current period. Writes a new row to
+  // public.forecast_overrides (history kept for audit). Latest row wins
+  // on read.
+  async forecastOverrideSet(period, overrideCents, reason) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { data, error } = await sb.from("forecast_overrides").insert({
+          period_text: period,
+          override_cents: overrideCents,
+          reason: reason || null,
+          set_at: new Date().toISOString(),
+        }).select().single();
+        if (error) { window.toast && window.toast(`Override failed: ${error.message}`, "error"); throw error; }
+        if (data) {
+          (window.AppData.FORECAST_OVERRIDES = window.AppData.FORECAST_OVERRIDES || []).unshift({
+            id: data.id, period: data.period_text,
+            override: Math.round((data.override_cents || 0) / 100),
+            reason: data.reason, setAt: data.set_at,
+          });
+        }
+      }
+    } else {
+      // Demo: just stash the override locally
+      (window.AppData.FORECAST_OVERRIDES = window.AppData.FORECAST_OVERRIDES || []).unshift({
+        id: "tmp-" + Date.now(), period,
+        override: Math.round(overrideCents / 100),
+        reason, setAt: new Date().toISOString(),
+      });
+    }
+    _emitMutation("forecast_overrides", "insert", null);
+  },
+
+  async forecastOverrideClear() {
+    // Soft clear -- inserts a "null" override so the latest row signals "use weighted".
+    // (forecast_overrides.override_cents has no NOT NULL constraint? Check.)
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        // Just delete the most-recent override for the current period.
+        const latest = (window.AppData.FORECAST_OVERRIDES || [])[0];
+        if (latest?.id && !String(latest.id).startsWith("tmp-")) {
+          await sb.from("forecast_overrides").delete().eq("id", latest.id);
+        }
+      }
+    }
+    (window.AppData.FORECAST_OVERRIDES || []).shift();
+    _emitMutation("forecast_overrides", "delete", null);
   },
 
   async nigoStatus(id, status, detail) {
-    const row = (window.AppData.NIGO || []).find(n => n.id === id);
+    const row = (window.AppData.NIGOS || []).find(n => n.id === id);
     if (row) {
       row.status = status;
-      if (status === "resolved") row.resolved_at = new Date().toISOString();
-      if (detail) row.detail = detail;
+      if (status === "resolved") row.resolvedAt = new Date().toISOString();
+      if (detail) row.notes = detail;
     }
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const patch = { status };
       if (status === "resolved") patch.resolved_at = new Date().toISOString();
-      if (detail) patch.detail = detail;
-      const { error } = await sb.from("nigo_items").update(patch).eq("id", id);
+      if (detail) patch.notes = detail;
+      const { error } = await sb.from("nigos").update(patch).eq("id", id);
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
-    _emitMutation("nigo_items", "update", id);
+    _emitMutation("nigos", "update", id);
   },
 
   /* ── Recruiting ─────────────────────────────────────────────────────── */
