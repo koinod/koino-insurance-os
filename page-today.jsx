@@ -276,6 +276,8 @@ function PredictiveCards({ scope }) {
 
 function TasksPanel({ repId, limit = 6 }) {
   const tasks = (AppData.TASKS || []).filter(t => t.status === "open" && (!repId || t.repId === repId));
+  // Force a rerender when a task is completed locally
+  const [, force] = React.useState(0);
   if (tasks.length === 0) return null;
   const fmt = (iso) => {
     if (!iso) return "no due date";
@@ -290,6 +292,40 @@ function TasksPanel({ repId, limit = 6 }) {
   };
   const priColor = (p) => p === "urgent" ? "var(--state-danger)" : p === "high" ? "var(--state-warning)" : "var(--accent-status)";
   const kindIcon = { call: "Phone", sms: "MessageSquare", email: "Mail", admin: "Folder", followup: "Bell", review: "Activity", soa: "Shield", other: "Circle" };
+  // Wire row click → route to the related entity (lead → pipeline,
+  // policy → commissions). Rows used to be display-only.
+  const onRowClick = (t) => {
+    if (t.relatedLeadId) {
+      window.gotoPage && window.gotoPage("pipeline");
+      // Pipeline page listens for pipeline:openLead via event bus; if
+      // listener absent, the navigation alone surfaces the row.
+      setTimeout(() => window.dispatchEvent(new CustomEvent("pipeline:openLead", { detail: { id: t.relatedLeadId } })), 50);
+      return;
+    }
+    if (t.relatedPolicyId) {
+      window.gotoPage && window.gotoPage("commissions");
+      return;
+    }
+    // Generic admin task — toast hint
+    window.toast && window.toast(t.title, "info");
+  };
+  const completeTask = async (t) => {
+    t.status = "completed";
+    t.completedAt = new Date().toISOString();
+    force(n => n + 1);
+    const sb = window.getSupabase && window.getSupabase();
+    if (sb && AppData.LIVE && typeof t.id === "string" && !t.id.startsWith("local-")) {
+      try {
+        await sb.from("tasks").update({ status: "completed", completed_at: t.completedAt }).eq("id", t.id);
+        window.toast && window.toast("Task completed", "success");
+      } catch (e) {
+        window.toast && window.toast(`Couldn't save: ${e?.message || e}`, "error");
+        t.status = "open"; t.completedAt = null; force(n => n + 1);
+      }
+    } else {
+      window.toast && window.toast("Task completed", "success");
+    }
+  };
   return (
     <div className="panel" style={{ marginBottom: 14 }}>
       <div className="panel-h">
@@ -301,7 +337,12 @@ function TasksPanel({ repId, limit = 6 }) {
         {tasks.slice(0, limit).map(t => {
           const Ico = Icons[kindIcon[t.kind] || "Circle"];
           return (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+            <div
+              key={t.id}
+              onClick={() => onRowClick(t)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}
+              title={t.relatedLeadId ? "Open in pipeline" : t.relatedPolicyId ? "Open in commissions" : t.title}
+            >
               <span className="dot" style={{ background: priColor(t.priority) }}></span>
               {Ico && <Ico size={13} style={{ color: "var(--text-tertiary)" }}/>}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -309,6 +350,17 @@ function TasksPanel({ repId, limit = 6 }) {
                 {t.body && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{t.body}</div>}
               </div>
               <span style={{ fontSize: 11, color: t.dueAt && new Date(t.dueAt) < new Date() ? "var(--state-danger)" : "var(--text-tertiary)" }}>{fmt(t.dueAt)}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); completeTask(t); }}
+                title="Mark task complete"
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  width: 22, height: 22, padding: 0,
+                  background: "transparent",
+                  border: "1px solid var(--border-subtle)", borderRadius: 6,
+                  color: "var(--text-tertiary)", cursor: "pointer",
+                }}
+              ><Icons.Check size={11}/></button>
             </div>
           );
         })}
@@ -331,6 +383,13 @@ const TIER_TARGETS = {
 function todayDateStr() {
   const d = new Date(); d.setHours(0,0,0,0);
   return d.toISOString().slice(0, 10);
+}
+
+function currentQuarter() {
+  // Was a hardcoded currentQuarter() literal in all three role views. Derive from
+  // current month so the page-title chip is honest year-round.
+  const d = new Date();
+  return "Q" + (Math.floor(d.getMonth() / 3) + 1);
 }
 
 function TodayRep({ aep }) {
@@ -398,9 +457,28 @@ function TodayRep({ aep }) {
     + ` · ${todayHrs}h of dial time`
     + ` · ${tierCopy}`;
 
-  // Sparklines remain demo for now (need historical aggregation table — Sprint-1 work).
-  const spark1 = [12,18,15,22,30,28,35,42];
-  const spark2 = [4,6,5,8,11,9,12,14];
+  // Sparklines derive from the last 8 days of activity for this rep.
+  // Was: two hardcoded ascending arrays that lied about pre-launch reps'
+  // history. Now: bucket COMMISSIONS by day for hero spark, POLICIES by
+  // day for the apps spark, RECORDINGS by day for dials. If the rep has
+  // no history yet, pass undefined (the Sparkline component already
+  // no-ops on missing data).
+  const _bucketLastNDays = (rows, dateField, n = 8) => {
+    const buckets = new Array(n).fill(0);
+    const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    rows.forEach(r => {
+      const iso = r[dateField];
+      if (!iso) return;
+      const d = new Date(iso);
+      const diff = Math.floor((today0 - d) / (1000 * 60 * 60 * 24));
+      if (diff >= 0 && diff < n) buckets[n - 1 - diff] += (r.amount || 1);
+    });
+    return buckets;
+  };
+  const myCommissions = (COMMISSIONS || []).filter(c => c.repId === myRow.id);
+  const myPolicies    = (POLICIES || []).filter(p => p.owner === myRow.id);
+  const spark1 = myCommissions.length > 0 ? _bucketLastNDays(myCommissions, "earnedAt") : undefined;
+  const spark2 = myPolicies.length    > 0 ? _bucketLastNDays(myPolicies,    "issuedAt") : undefined;
 
   // GAP-A1 — first-action CTA. Show a hero banner whenever the rep has done
   // nothing today (no dials, no apps, no commissions) so a brand-new producer
@@ -461,7 +539,7 @@ function TodayRep({ aep }) {
       <div className="page-h">
         <div>
           <div className="page-title">
-            Today — {aep ? (() => { const ctx = useAepContext(myRow?.id, "rep"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}
+            Today — {aep ? (() => { const ctx = useAepContext(myRow?.id, "rep"); return ctx ? <AepTitleChip ctx={ctx}/> : currentQuarter(); })() : currentQuarter()}
             {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, marginLeft: 8, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
           </div>
           <div className="page-sub">{subline}</div>
@@ -478,56 +556,88 @@ function TodayRep({ aep }) {
 
       {dayIsBlank && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 14,
-          padding: "14px 18px", marginBottom: 14,
-          background: "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))",
-          border: "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)",
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "12px 14px", marginBottom: 12,
+          background: "rgba(0,212,170,0.08)",
+          border: "1px solid rgba(0,212,170,0.25)",
           borderRadius: 10,
         }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "color-mix(in oklch, var(--accent-money) 22%, transparent)", color: "var(--accent-money)",
+            width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,212,170,0.18)", color: "#00d4aa",
           }}>
-            <Icons.Phone size={16}/>
+            <Icons.Phone size={15}/>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.005em" }}>
               Start the day with a dial
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
               {queueDepth > 0
-                ? `${queueDepth} lead${queueDepth === 1 ? "" : "s"} are waiting in your queue. The first one is fresh — speed-to-lead beats every other variable.`
-                : "Your queue is empty. Pull a list from CRM → Inbox or wait for inbound, then dial."}
+                ? `${queueDepth} lead${queueDepth === 1 ? "" : "s"} waiting · speed-to-lead beats every other variable.`
+                : "Queue is empty. Pull a list from the dial queue."}
             </div>
           </div>
-          <button className="btn btn-primary" onClick={goFloor}>
-            <Icons.Phone size={12}/> {queueDepth > 0 ? "Make your first dial" : "Open Floor"}
+          <button
+            onClick={queueDepth > 0 ? goFloor : () => window.gotoPage && window.gotoPage("queue")}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px",
+              background: "#00d4aa", color: "#000",
+              border: "none", borderRadius: 8,
+              fontWeight: 700, fontSize: 12,
+              cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(0,212,170,0.22)",
+            }}
+          >
+            <Icons.Phone size={11}/> {queueDepth > 0 ? "First dial" : "Open queue"}
           </button>
         </div>
       )}
 
       {showOnboarding && (
-        /* GAP-A4 — onboarding checklist. Persistent until all 5 steps done. */
-        <div className="panel" style={{ marginBottom: 14, padding: 14, background: "var(--bg-elevated)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <Icons.ListChecks size={14} style={{ color: "var(--accent-status)" }}/>
-            <strong style={{ fontSize: 13 }}>Get production-ready</strong>
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-tertiary)" }}>{onboardingDone} / {onboardingSteps.length}</span>
+        /* GAP-A4 — onboarding checklist. Persistent until all 5 steps done.
+           Each tile is now clickable: routes to the page that completes
+           that step. Was display-only. */
+        <div className="panel" style={{ marginBottom: 12, padding: 12, background: "var(--bg-elevated)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// onboarding</span>
+            <strong style={{ fontSize: 12.5 }}>Get production-ready</strong>
+            <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{onboardingDone} / {onboardingSteps.length}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
             {onboardingSteps.map(s => {
               const Ico = Icons[s.icon] || Icons.Check;
               const done = !!onboardingRow[s.k];
+              const stepGoto = {
+                licenseSigned: "settings",   // → Profile, sign producer agreement
+                niprVerified:  "settings",   // → Profile licensing
+                bankingSet:    "settings",   // → Profile (banking once exists)
+                kitShipped:    "messages",   // → DM upline about kit status
+                firstDial:     "queue",      // → dial queue
+              };
+              const go = () => {
+                if (done) return;
+                const target = stepGoto[s.k];
+                if (target && window.gotoPage) window.gotoPage(target);
+              };
               return (
-                <div key={s.k} style={{
-                  padding: 10, borderRadius: 6,
-                  background: done ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
-                  border: `1px solid ${done ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "var(--border-subtle)"}`,
-                  display: "flex", alignItems: "center", gap: 8,
-                }}>
-                  <Ico size={12} style={{ color: done ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
-                  <span style={{ flex: 1, fontSize: 11.5, color: done ? "var(--text-primary)" : "var(--text-secondary)", textDecoration: done ? "line-through" : "none" }}>{s.l}</span>
-                  {done && <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>}
+                <div
+                  key={s.k}
+                  onClick={done ? undefined : go}
+                  title={done ? "Completed" : s.l}
+                  style={{
+                    padding: 8, borderRadius: 8,
+                    background: done ? "rgba(0,212,170,0.10)" : "var(--bg-raised)",
+                    border: `1px solid ${done ? "rgba(0,212,170,0.30)" : "var(--border-subtle)"}`,
+                    display: "flex", alignItems: "center", gap: 6,
+                    cursor: done ? "default" : "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <Ico size={11} style={{ color: done ? "#00d4aa" : "var(--text-tertiary)" }}/>
+                  <span style={{ flex: 1, fontSize: 11, color: done ? "var(--text-primary)" : "var(--text-secondary)", textDecoration: done ? "line-through" : "none" }}>{s.l}</span>
+                  {done && <Icons.Check size={10} style={{ color: "#00d4aa" }}/>}
                 </div>
               );
             })}
@@ -574,12 +684,21 @@ function TodayRep({ aep }) {
         }).length;
         const cpa = issuedMtd > 0 ? Math.round(leadSpendMtd / issuedMtd) : null;
         const isDemo = window.isDemoAgency && window.isDemoAgency();
+        // NIGO drag was hardcoded "$0"; derive from open/in-review NIGOs
+        // for THIS rep this month, summing chargeback exposure when present.
+        const monthPref = (new Date()).toISOString().slice(0, 7);
+        const myNigos = (AppData.NIGOS || []).filter(n =>
+          n.repId === myRow.id &&
+          (n.status === "open" || n.status === "in_review") &&
+          (n.createdAt || "").startsWith(monthPref)
+        );
+        const nigoDrag = myNigos.reduce((s, n) => s + (n.exposureCents ? Math.round(n.exposureCents / 100) : n.exposure || 0), 0);
         return (
           <SpendStrip items={[
             { l: "Cost / issued",  v: cpa != null ? `$${cpa}` : (isDemo ? "$112" : "—"), tone: "money" },
             { l: "Lead spend MTD", v: leadSpendMtd > 0 ? `$${leadSpendMtd.toLocaleString()}` : (isDemo ? "$680" : "$0") },
             { l: "Issued MTD",     v: issuedMtd > 0 ? String(issuedMtd) : (isDemo ? "—" : "0"), tone: "money" },
-            { l: "NIGO drag",      v: "$0", tone: "money" },
+            { l: "NIGO drag",      v: nigoDrag > 0 ? `$${nigoDrag.toLocaleString()}` : "$0", tone: nigoDrag > 0 ? "warn" : "money" },
           ]}/>
         );
       })()}
@@ -587,7 +706,7 @@ function TodayRep({ aep }) {
       <div className="kpi-row">
         <Shared.KpiCard hero label="Today's Commission" value={todayCommission.toLocaleString()} prefix="$" sub={`MTD: $${mtdNum.toLocaleString()}`} trend={todayCommission > 0 ? "up" : undefined} spark={spark1}/>
         <Shared.KpiCard label="Apps submitted (today)" value={appsToday} sub={`tier: ${(myRow.tier || "—").toUpperCase()}`} spark={spark2}/>
-        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined} spark={[60,72,68,75,80,78,85,87]}/>
+        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined}/>
       </div>
 
       <TasksPanel repId={myRow?.id} limit={5}/>
@@ -794,7 +913,17 @@ function TodayRep({ aep }) {
                 );
               }
               return myRecs.map(r => (
-                <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 70px 80px 80px 1fr", height: 44 }}>
+                <div
+                  key={r.id}
+                  className="row"
+                  onClick={() => {
+                    if (window.gotoPage) window.gotoPage("calls");
+                    // Calls page listens for calls:openRecording; harmless no-op otherwise.
+                    setTimeout(() => window.dispatchEvent(new CustomEvent("calls:openRecording", { detail: { id: r.id } })), 50);
+                  }}
+                  title={`Open call · ${r.lead}`}
+                  style={{ gridTemplateColumns: "1.2fr 70px 80px 80px 1fr", height: 44, cursor: "pointer" }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Icons.Volume size={13} style={{ color: "var(--text-tertiary)" }}/>
                     <div>
@@ -867,7 +996,7 @@ function TodayManager({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {(() => { const m = window.me && window.me(); return m?.agency_name || "Team"; })()} — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
+          <div className="page-title">Today · {(() => { const m = window.me && window.me(); return m?.agency_name || "Team"; })()} — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : currentQuarter(); })() : currentQuarter()}</div>
           <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1031,7 +1160,7 @@ function TodayOwner({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {agencyName} — {aep ? (() => { const ctx = useAepContext(null, "owner"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
+          <div className="page-title">Today · {agencyName} — {aep ? (() => { const ctx = useAepContext(null, "owner"); return ctx ? <AepTitleChip ctx={ctx}/> : currentQuarter(); })() : currentQuarter()}</div>
           <div className="page-sub">{REPS.length} producers · ${teamToday.toLocaleString()} AP closed today · ${teamMTD.toLocaleString()} MTD</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
