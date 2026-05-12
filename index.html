@@ -33,8 +33,8 @@
 <script type="text/babel" src="tweaks-panel.jsx?v=76"></script>
 <script type="text/babel" src="data.jsx?v=78"></script>
 <script type="text/babel" src="icons.jsx?v=75"></script>
-<script type="text/babel" src="shared.jsx?v=77"></script>
-<script type="text/babel" src="page-today.jsx?v=78"></script>
+<script type="text/babel" src="shared.jsx?v=78"></script>
+<script type="text/babel" src="page-today.jsx?v=79"></script>
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=76"></script>
 <script type="text/babel" src="page-pipeline.jsx?v=78"></script>
 <script type="text/babel" src="page-queue.jsx?v=76"></script>
@@ -253,7 +253,16 @@ function App() {
       case "quote":       return (() => { const P = window.PageQuote;       return P ? <P role={role}/> : null; })();
       case "auto-quoter": return (() => { const P = window.PageAutoQuoter;  return P ? <P role={role}/> : null; })();
       case "book":        return <PageBook/>;
-      case "recruiting":  return <PageRecruiting role={role}/>;
+      case "recruiting":  return (() => {
+        // Manager restructure 2026-05-12: recruiting is now a CRM sub-tab
+        // for managers. Owner + rep keep the standalone view.
+        if (role === "manager") {
+          try { sessionStorage.setItem("repflow.crm.tab", "recruiting"); } catch {}
+          window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "crm" } }));
+          return null;
+        }
+        return <PageRecruiting role={role}/>;
+      })();
       case "settings":    return <PageSettings role={role}/>;
       case "admin":       return (() => {
         // Platform-admin gets the cross-agency super-admin dashboard;
@@ -272,7 +281,19 @@ function App() {
       case "audit":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="audit"/>    : null; })();
       case "system":      return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="system"/>   : null; })();
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
-      case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
+      // Manager restructure 2026-05-12: pay / expenses / nigo / recruiting
+      // are folded into Today + CRM. For managers, redirect to the sub-tab
+      // by stashing the target in sessionStorage and re-navigating. Other
+      // roles (rep / owner) still get the standalone workspaces so deep
+      // links + the owner P&L flow keep working.
+      case "nigo":        return (() => {
+        if (role === "manager") {
+          try { sessionStorage.setItem("repflow.today.subtab", "nigo"); } catch {}
+          window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "today" } }));
+          return null;
+        }
+        const P = window.PageNIGO; return P ? <P role={role}/> : null;
+      })();
 
       // Consolidated NAV aliases (NAV restructure 2026-05-05).
       // Old routes (vault/tree/performance/attribution/training/resources/
@@ -281,8 +302,22 @@ function App() {
       case "library":     return (() => { const P = window.PageLibrary; return P ? <P role={role}/> : <PageTraining role={role}/>; })();
       case "org":         return <PageOrgTree/>;
       case "compliance":  return <PageVault role={role}/>;
-      case "pay":         return <PageCommissions role={role}/>;
-      case "expenses":    return (() => { const P = window.PageExpenses;    return P ? <P role={role}/> : null; })();
+      case "pay":         return (() => {
+        if (role === "manager") {
+          try { sessionStorage.setItem("repflow.today.subtab", "pay"); } catch {}
+          window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "today" } }));
+          return null;
+        }
+        return <PageCommissions role={role}/>;
+      })();
+      case "expenses":    return (() => {
+        if (role === "manager") {
+          try { sessionStorage.setItem("repflow.today.subtab", "expenses"); } catch {}
+          window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "today" } }));
+          return null;
+        }
+        const P = window.PageExpenses; return P ? <P role={role}/> : null;
+      })();
 
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
       // earlier owner nav consolidation. They redirect into related pages.

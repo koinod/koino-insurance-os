@@ -841,7 +841,20 @@ function TodayManager({ aep }) {
   const cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
   const dialFloor = (cfg?.daily_dial_floor || 60) * REPS.length;
 
-  const [subTab, setSubTab] = React.useState("pulse");
+  // Sub-tab state — supports deep-link via sessionStorage stash. Set
+  // sessionStorage["repflow.today.subtab"] = "pay" before nav:goto({page:"today"})
+  // and the manager lands directly on the Pay sub-tab. Used by the Pay /
+  // Expenses / NIGO route aliases in index.html so legacy URLs still resolve.
+  const [subTab, setSubTab] = React.useState(() => {
+    try {
+      const stash = sessionStorage.getItem("repflow.today.subtab");
+      if (stash) {
+        sessionStorage.removeItem("repflow.today.subtab");
+        if (["pulse", "pay", "expenses", "nigo"].includes(stash)) return stash;
+      }
+    } catch {}
+    return "pulse";
+  });
 
   return (
     <div className="page-pad">
