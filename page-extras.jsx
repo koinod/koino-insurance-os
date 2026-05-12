@@ -4512,74 +4512,101 @@ function SettingsGlobalIntegrations() {
   );
 }
 
-function SettingsNotifications() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
-  const update = (k, v) => {
-    const next = { ...prefs, [k]: v };
-    setPrefs(next);
-    window.AppData.mutate.notificationPrefsSave("me", next).catch(() => {});
-  };
-  const t = (k, l, sub) => (
-    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
-      <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => update(k, e.target.checked)}/>
-      </span>
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
-      </div>
-      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
-    </label>
-  );
-  return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0 }}>Notifications</h3>
-      <div style={{ marginTop: 8 }}>
-        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
-        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
-        {t("dealIssued",    "Deal issued",                   "Push immediately")}
-        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
-        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
-        {t("recruitingNew", "New applicant in funnel",        "Daily")}
-        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
-      </div>
-    </div>
-  );
-}
-function SettingsNotifications_OLD() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
-  const t = (k, l, sub) => (
-    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
-      <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => setPrefs({ ...prefs, [k]: e.target.checked })}/>
-      </span>
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
-      </div>
-      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
-    </label>
-  );
-  return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0 }}>Notifications</h3>
-      <div style={{ marginTop: 8 }}>
-        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
-        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
-        {t("dealIssued",    "Deal issued",                   "Push immediately")}
-        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
-        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
-        {t("recruitingNew", "New applicant in funnel",        "Daily")}
-        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
-      </div>
-    </div>
-  );
-}
+/* Notifications — what events I get a ping for. Loads existing prefs on
+ * mount from public.notification_prefs (via the existing AppData mutate
+ * helper). Toggles auto-save with optimistic UI; on error rolls back.
+ *
+ * Note: there are TWO notification surfaces in this app:
+ *   - SettingsNotifications (this) — per-event opt-in (leadNew, nigo, …)
+ *   - SettingsPersonalConnectors    — which channels (Telegram, Slack, …)
+ * They're complementary; this one controls *what*, that one controls *how*. */
+const NOTIF_DEFAULTS = {
+  leadNew: true, leadStuck: true, dealIssued: true, nigo: true,
+  coachingNew: false, recruitingNew: true, dailyDigest: true,
+};
+const NOTIF_DEFS = [
+  ["leadNew",       "New lead in my queue",          "Push within 30s of routing"],
+  ["leadStuck",     "Lead stuck > 3 days in stage",  "Daily morning digest"],
+  ["dealIssued",    "Deal issued",                    "Push immediately"],
+  ["nigo",          "NIGO returned",                   "Push + email + escalate to mgr"],
+  ["coachingNew",   "New coaching card for me",       "Daily digest"],
+  ["recruitingNew", "New applicant in funnel",         "Daily"],
+  ["dailyDigest",   "Daily digest email",              "08:00 weekdays"],
+];
 
+function SettingsNotifications() {
+  const sb = window.getSupabase && window.getSupabase();
+  const [prefs,   setPrefs]   = React.useState(NOTIF_DEFAULTS);
+  const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
+  const [savingKey, setSavingKey] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!sb) { setLoading(false); return; }
+    (async () => {
+      try {
+        // Try the dedicated table first.
+        const r = await sb.from("notification_prefs")
+          .select("prefs")
+          .eq("user_id", (await sb.auth.getUser()).data?.user?.id || "")
+          .maybeSingle();
+        if (r.error && r.error.code !== "PGRST116") throw r.error;
+        if (r.data?.prefs && typeof r.data.prefs === "object") {
+          setPrefs({ ...NOTIF_DEFAULTS, ...r.data.prefs });
+        }
+      } catch (e) {
+        setErr(String(e?.message || e));
+      } finally { setLoading(false); }
+    })();
+  }, [sb]);
+
+  const update = async (k, v) => {
+    const previous = prefs;
+    const next = { ...prefs, [k]: v };
+    setPrefs(next);                 // optimistic
+    setSavingKey(k);
+    try {
+      await window.AppData.mutate.notificationPrefsSave("me", next);
+    } catch (e) {
+      // Rollback on failure — never leave the UI in a fake "saved" state.
+      setPrefs(previous);
+      window.toast && window.toast(`Couldn't save: ${e?.message || e}`, "error");
+    } finally { setSavingKey(null); }
+  };
+
+  if (loading) return <div className="ks-empty">Loading notification preferences…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {err && (
+        <div className="ks-denied">
+          <Icons.AlertTriangle size={16} style={{ color: "var(--state-warning)" }}/>
+          <div>
+            <strong>Using defaults</strong>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>Couldn't read your saved preferences: <span className="mono">{err}</span>. Toggling will create a new row.</div>
+          </div>
+        </div>
+      )}
+      <div className="ks-tile" style={{ background: "transparent", border: 0, padding: 0 }}>
+        <div className="ks-tile-sub">Which events trigger a notification. The <em>how</em> (Telegram / SMS / Slack / email digest) lives in <strong>Personal connectors</strong>.</div>
+      </div>
+      <div className="panel">
+        {NOTIF_DEFS.map(([k, l, sub], i) => (
+          <label key={k} style={{ display: "grid", gridTemplateColumns: "auto 1fr 110px", gap: 12, padding: "12px 14px", borderBottom: i < NOTIF_DEFS.length - 1 ? "1px solid var(--border-subtle)" : 0, alignItems: "center", cursor: "pointer" }}>
+            <input type="checkbox" checked={!!prefs[k]} onChange={(e) => update(k, e.target.checked)} disabled={savingKey === k}/>
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
+            </div>
+            <span style={{ textAlign: "right", color: savingKey === k ? "var(--text-tertiary)" : (prefs[k] ? "var(--accent-money)" : "var(--text-quaternary)"), fontSize: 11.5, fontWeight: 500 }}>
+              {savingKey === k ? "saving…" : (prefs[k] ? "ON" : "off")}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 /* Settings → Profile — bound to public.profiles via save_profile +
  * get_my_profile RPCs (2026-05-11 backend).
  *
