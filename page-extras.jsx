@@ -3241,24 +3241,22 @@ function SettingsNotifications() {
       .catch((e) => window.toast && window.toast(`Save failed: ${e?.message || e}`, "error"));
   };
   const t = (k, l, sub) => (
-    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
-      <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={!!prefs[k]} disabled={!loaded} onChange={(e) => update(k, e.target.checked)}/>
-      </span>
+    <label style={{ display: "grid", gridTemplateColumns: "24px 1fr 90px", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center", cursor: "pointer" }}>
+      <input type="checkbox" checked={!!prefs[k]} disabled={!loaded} onChange={(e) => update(k, e.target.checked)} style={{ accentColor: "var(--accent-money)" }}/>
       <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
+        <div style={{ fontWeight: 500, fontSize: 12.5 }}>{l}</div>
+        <div style={{ color: "var(--text-tertiary)", fontSize: 11, marginTop: 1 }}>{sub}</div>
       </div>
-      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
+      <span style={{ textAlign: "right", color: prefs[k] ? "var(--accent-money)" : "var(--text-tertiary)", fontSize: 10.5, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{prefs[k] ? "On" : "Off"}</span>
     </label>
   );
   return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0 }}>Notifications</h3>
-      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, marginBottom: 8 }}>
+    <div className="panel" style={{ padding: 14 }}>
+      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Notifications</h3>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 3, marginBottom: 6, lineHeight: 1.5 }}>
         Saved to your account · used by the bell, the morning digest, and SMS / email fan-out when configured.
       </div>
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 4 }}>
         {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
         {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
         {t("dealIssued",    "Deal issued",                   "Push immediately")}

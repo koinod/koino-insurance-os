@@ -1,23 +1,28 @@
-/* Repflow design tokens */
+/* Koino design tokens — aligned to koino.capital website (green + black, soft).
+ *
+ * Was: amber/blue-leaning oklch palette. Now: pure black surfaces, teal-green
+ * primary (--a #00d4aa from koino.capital), purple secondary for status.
+ * Token NAMES preserved so the rest of the app inherits automatically without
+ * touching every component. */
 :root {
-  --bg-base: oklch(0.18 0.005 260);
-  --bg-elevated: oklch(0.22 0.008 260);
-  --bg-raised: oklch(0.26 0.01 260);
-  --bg-overlay: oklch(0.30 0.012 260);
-  --border-subtle: oklch(0.32 0.012 260);
-  --border-strong: oklch(0.40 0.014 260);
-  --text-primary: oklch(0.96 0 0);
-  --text-secondary: oklch(0.72 0.005 260);
-  --text-tertiary: oklch(0.55 0.005 260);
-  --text-quaternary: oklch(0.42 0.005 260);
+  --bg-base: #050505;
+  --bg-elevated: #0d0d0d;
+  --bg-raised: #151515;
+  --bg-overlay: #1a1a1a;
+  --border-subtle: #1a1a1a;
+  --border-strong: #2a2a2a;
+  --text-primary: #e8e8e8;
+  --text-secondary: #888888;
+  --text-tertiary: #555555;
+  --text-quaternary: #3a3a3a;
 
-  --accent-money: oklch(0.78 0.18 152);
-  --accent-money-dim: oklch(0.55 0.13 152);
-  --accent-heat: oklch(0.72 0.20 30);
-  --accent-status: oklch(0.78 0.16 85);
-  --state-danger: oklch(0.65 0.20 25);
-  --state-warning: oklch(0.78 0.16 70);
-  --state-info: oklch(0.72 0.10 230);
+  --accent-money: #00d4aa;
+  --accent-money-dim: rgba(0, 212, 170, 0.4);
+  --accent-heat: #f59e0b;
+  --accent-status: #7c3aed;
+  --state-danger: #ef4444;
+  --state-warning: #f59e0b;
+  --state-info: #3b82f6;
 
   --tier-bronze: #A97142;
   --tier-silver: #C0C0C8;
@@ -25,14 +30,14 @@
   --tier-platinum: #E5E4E2;
   --tier-diamond: #B9F2FF;
 
-  --row-h: 36px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
+  --row-h: 32px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-xl: 14px;
 
-  --shadow-floating: 0 20px 50px -20px rgba(0,0,0,0.7), 0 8px 16px -8px rgba(0,0,0,0.5);
-  --shadow-inset: inset 0 1px 0 oklch(0.40 0.012 260 / 0.6);
+  --shadow-floating: 0 8px 30px rgba(0, 212, 170, 0.08), 0 20px 50px -20px rgba(0,0,0,0.7);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.04);
 
   --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -497,14 +502,16 @@ input, textarea { font-family: inherit; color: inherit; }
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  transition: border-color 120ms var(--ease-out);
 }
+.panel:hover { border-color: var(--border-strong); }
 .panel-h {
-  padding: 11px 14px;
-  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  display: flex; align-items: center; gap: 8px;
   border-bottom: 1px solid var(--border-subtle);
 }
-.panel-h h3 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
-.panel-h .meta { color: var(--text-tertiary); font-size: 11.5px; margin-left: auto; }
+.panel-h h3 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; }
+.panel-h .meta { color: var(--text-tertiary); font-size: 11px; margin-left: auto; }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -520,10 +527,14 @@ input, textarea { font-family: inherit; color: inherit; }
 .btn:hover { background: var(--bg-overlay); }
 .btn-primary {
   background: var(--accent-money);
-  color: #062512;
+  color: #001a14;
   border-color: transparent;
+  font-weight: 600;
 }
-.btn-primary:hover { background: oklch(0.82 0.18 152); }
+.btn-primary:hover {
+  background: #00ebbe;
+  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.18);
+}
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
 .btn-ghost:hover { background: var(--bg-elevated); color: var(--text-primary); }
 

@@ -99,33 +99,39 @@ function PageLeaderboard({ role = "rep" }) {
       </div>
 
       {sorted.length === 0 && (
-        <div className="panel" style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+        <div className="panel" style={{ padding: 28, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
           {role === "manager"
             ? <>No producers visible in your downline yet. <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "recruiting" } })); }} style={{ color: "var(--accent-money)" }}>Invite reps from Recruiting</a>.</>
             : "No producers yet — invite reps to see standings."}
         </div>
       )}
 
-      {/* Podium */}
-      {sorted.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: 14, marginBottom: 14 }}>
+      {/* Podium — tighter packing, koino.capital green-accent for the leader */}
+      {sorted.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1.15fr 1fr", gap: 10, marginBottom: 12 }}>
         {[1, 0, 2].filter(i => sorted[i]).map(i => {
           const r = sorted[i];
           const podium = i === 0;
           return (
-            <div key={r.id} className="panel" style={{ padding: 0, position: "relative", overflow: "hidden", background: podium ? "linear-gradient(180deg, color-mix(in oklch, var(--accent-status) 8%, var(--bg-elevated)), var(--bg-elevated))" : undefined, border: podium ? "1px solid color-mix(in oklch, var(--accent-status) 35%, var(--border-subtle))" : undefined }}>
-              <div style={{ padding: 18, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-                <div className="mono tabular" style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 8 }}>RANK</div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: podium ? 56 : 40, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: podium ? "var(--accent-status)" : "var(--text-secondary)" }}>{i + 1}</div>
-                <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Shared.Avatar rep={r} size={28}/>
+            <div key={r.id} className="panel" style={{
+              padding: 0,
+              position: "relative",
+              overflow: "hidden",
+              background: podium ? "linear-gradient(180deg, rgba(0,212,170,0.06), var(--bg-elevated))" : undefined,
+              borderColor: podium ? "rgba(0,212,170,0.35)" : undefined,
+            }}>
+              <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+                <div className="mono tabular" style={{ fontSize: 10, color: "var(--text-tertiary)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Rank</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: podium ? 44 : 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: podium ? "var(--accent-money)" : "var(--text-secondary)" }}>{i + 1}</div>
+                <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Shared.Avatar rep={r} size={24}/>
                   <div style={{ textAlign: "left" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{r.name}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.handle}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{r.handle}</div>
                   </div>
                 </div>
-                <div style={{ marginTop: 10 }}><Shared.TierChip tier={r.tier}/></div>
-                <div className="tabular" style={{ marginTop: 10, fontFamily: "var(--font-display)", fontSize: podium ? 36 : 26, fontWeight: 600, letterSpacing: "-0.025em", color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{(masksOthers && r.id !== myId) ? "Relative band" : "MTD AP"} · streak {r.streak}d</div>
+                <div style={{ marginTop: 8 }}><Shared.TierChip tier={r.tier} compact/></div>
+                <div className="tabular" style={{ marginTop: 8, fontFamily: "var(--font-mono)", fontSize: podium ? 26 : 20, fontWeight: 700, letterSpacing: "-0.02em", color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(masksOthers && r.id !== myId) ? "Relative band" : "MTD AP"} · streak {r.streak}d</div>
               </div>
             </div>
           );
@@ -142,13 +148,13 @@ function PageLeaderboard({ role = "rep" }) {
             <div>#</div><div>Rep</div><div>Tier</div><div style={{textAlign:"right"}}>MTD AP</div><div style={{textAlign:"right"}}>Streak</div><div style={{textAlign:"right"}}>Δ</div><div>Bar</div>
           </div>
           {sorted.map((r, i) => (
-            <div key={r.id} className="row" style={{ gridTemplateColumns: "40px 1.4fr 100px 110px 70px 70px 1fr", height: 44 }}>
-              <div className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Shared.Avatar rep={r} size={22}/>
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "32px 1.4fr 100px 110px 70px 70px 1fr", height: 36 }}>
+              <div className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-money)" : "var(--text-tertiary)" }}>{i + 1}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Shared.Avatar rep={r} size={20}/>
                 <div>
-                  <div style={{ fontWeight: 500 }}>{r.name} {r.id === myId && <span className="chip chip-money" style={{ marginLeft: 4, fontSize: 9.5 }}>YOU</span>}</div>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.handle} · {r.dials} dials today</div>
+                  <div style={{ fontWeight: 500, fontSize: 12.5 }}>{r.name} {r.id === myId && <span className="chip chip-money" style={{ marginLeft: 4, fontSize: 9.5 }}>YOU</span>}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{r.handle} · {r.dials} dials today</div>
                 </div>
               </div>
               <div><Shared.TierChip tier={r.tier}/></div>
@@ -167,9 +173,9 @@ function PageLeaderboard({ role = "rep" }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
         <div className="panel">
-          <div className="panel-h"><Icons.Award size={13}/><h3>Recent badges</h3></div>
+          <div className="panel-h"><Icons.Award size={12}/><h3>Recent badges</h3></div>
           {(() => {
             // Derive badges from real signals in scope. Falls back to an empty
             // state if no rep has earned anything yet — was a hardcoded list of
@@ -179,36 +185,36 @@ function PageLeaderboard({ role = "rep" }) {
               if ((r.streak || 0) >= 30) out.push({ who: r.name, what: `${r.streak}-day dial streak`, icon: "Flame", color: "var(--accent-heat)" });
               else if ((r.streak || 0) >= 7) out.push({ who: r.name, what: `${r.streak}-day streak`, icon: "Flame", color: "var(--accent-heat)" });
               const tierIdx = ["bronze","silver","gold","platinum","diamond"].indexOf(r.tier);
-              if (tierIdx >= 3) out.push({ who: r.name, what: `${r.tier.charAt(0).toUpperCase()}${r.tier.slice(1)} tier`, icon: "Trophy", color: "var(--accent-status)" });
-              if ((r.mtd || 0) >= 50000) out.push({ who: r.name, what: `$${Math.round((r.mtd||0)/1000)}K month`, icon: "Diamond", color: "var(--tier-diamond)" });
+              if (tierIdx >= 3) out.push({ who: r.name, what: `${r.tier.charAt(0).toUpperCase()}${r.tier.slice(1)} tier`, icon: "Trophy", color: "var(--accent-money)" });
+              if ((r.mtd || 0) >= 50000) out.push({ who: r.name, what: `$${Math.round((r.mtd||0)/1000)}K month`, icon: "Diamond", color: "var(--accent-money)" });
               return out;
             }).slice(0, 6);
             if (earned.length === 0) {
               return (
-                <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>
+                <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 11.5, textAlign: "center", lineHeight: 1.5 }}>
                   No badges yet. Streaks, tier promotions, and $50K months will surface here as your team earns them.
                 </div>
               );
             }
             return (
-              <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
                 {earned.map((b, i) => {
                   const Ico = Icons[b.icon] || Icons.Award;
                   const rep = sorted.find(r => r.name === b.who);
                   return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 6 }}>
-                      <Ico size={14} style={{ color: b.color }}/>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12.5 }}><span style={{ fontWeight: 500 }}>{b.who}</span> · <span style={{ color: b.color }}>{b.what}</span></div>
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <Ico size={12} style={{ color: b.color }}/>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11.5 }}><span style={{ fontWeight: 500 }}>{b.who}</span> <span style={{ color: b.color }}>· {b.what}</span></div>
                       </div>
                       {role !== "rep" && rep && (
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: "3px 6px" }}
+                          style={{ padding: "2px 5px" }}
                           title={`Send a congrats note to ${b.who.split(" ")[0]}`}
                           onClick={() => AppData.mutate.coachingNoteCreate && AppData.mutate.coachingNoteCreate(rep.id, `Nice — ${b.what}. Keep it going.`).then(() => window.toast && window.toast(`Noted ${rep.name.split(" ")[0]}'s win`, "success")).catch(() => {})}
                         >
-                          <Icons.MessageSquare size={11}/>
+                          <Icons.MessageSquare size={10}/>
                         </button>
                       )}
                     </div>
@@ -220,29 +226,29 @@ function PageLeaderboard({ role = "rep" }) {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Live floor</h3><span className="meta">presence</span></div>
-          <div style={{ padding: 14 }}>
+          <div className="panel-h"><Icons.Bolt size={12} style={{ color: "var(--accent-money)" }}/><h3>Live floor</h3><span className="meta">presence</span></div>
+          <div style={{ padding: "8px 12px 10px" }}>
             {(() => {
               const live = sorted.filter(r => r.presence === "live").length;
               return (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: live > 0 ? "var(--accent-money)" : "var(--text-tertiary)", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: live > 0 ? "var(--accent-money)" : "var(--text-tertiary)", marginBottom: 6, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   <span className={live > 0 ? "dot dot-live" : "dot"}></span>
-                  {live > 0 ? `${live} producer${live === 1 ? "" : "s"} on calls right now` : "No one on calls right now"}
+                  {live > 0 ? `${live} on calls now` : "No live calls"}
                 </div>
               );
             })()}
             {sorted.slice(0, 6).map(r => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0" }}>
-                <Shared.Avatar rep={r} size={20}/>
-                <div style={{ flex: 1, fontSize: 12.5 }}>{r.name}</div>
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+                <Shared.Avatar rep={r} size={18}/>
+                <div style={{ flex: 1, fontSize: 11.5 }}>{r.name}</div>
                 {r.presence === "live"
-                  ? <span className="chip chip-money"><span className="dot dot-live" style={{marginRight:4}}></span>dialing</span>
-                  : r.presence === "off" ? <span className="chip" style={{ color: "var(--text-quaternary)" }}>off</span>
-                  : <span className="chip">idle</span>}
+                  ? <span className="chip chip-money" style={{ fontSize: 9.5 }}><span className="dot dot-live" style={{marginRight:4}}></span>dialing</span>
+                  : r.presence === "off" ? <span className="chip" style={{ color: "var(--text-quaternary)", fontSize: 9.5 }}>off</span>
+                  : <span className="chip" style={{ fontSize: 9.5 }}>idle</span>}
               </div>
             ))}
             {sorted.length === 0 && (
-              <div style={{ padding: 12, fontSize: 12, color: "var(--text-tertiary)" }}>No producers in scope.</div>
+              <div style={{ padding: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>No producers in scope.</div>
             )}
           </div>
         </div>
