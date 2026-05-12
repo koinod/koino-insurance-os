@@ -499,11 +499,13 @@ function EditAgencyModal({ agency, onClose, onSaved }) {
 function MembersTab({ fleet, reload }) {
   const { agencies } = fleet;
   const [rows, setRows] = React.useState([]);
+  const [invites, setInvites] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState(null);
   const [filterAg, setFilterAg] = React.useState("");
   const [filterRole, setFilterRole] = React.useState("");
   const [busy, setBusy] = React.useState(null);
+  const [inviteOpen, setInviteOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -511,14 +513,16 @@ function MembersTab({ fleet, reload }) {
     setLoading(true); setErr(null);
     try {
       const ids = agencies.map(a => a.id);
-      if (ids.length === 0) { setRows([]); setLoading(false); return; }
-      const { data, error } = await sb
-        .from("agency_members")
-        .select("user_id, agency_id, role, rep_id, joined_at, active")
-        .in("agency_id", ids)
-        .order("joined_at", { ascending: false });
-      if (error) throw error;
-      setRows(data || []);
+      if (ids.length === 0) { setRows([]); setInvites([]); setLoading(false); return; }
+      const [m, i] = await Promise.all([
+        sb.from("agency_members").select("user_id, agency_id, role, rep_id, joined_at, active").in("agency_id", ids).order("joined_at", { ascending: false }),
+        sb.from("agency_invites").select("token, agency_id, role, email_hint, expires_at, used_at, invited_by").in("agency_id", ids).order("expires_at", { ascending: false }).limit(50),
+      ]);
+      if (m.error) throw m.error;
+      setRows(m.data || []);
+      // agency_invites may have RLS blocks for some roles; treat read error
+      // as "empty list" rather than failing the whole tab.
+      setInvites(i.error ? [] : (i.data || []));
     } catch (e) {
       setErr(String(e?.message || e));
     } finally { setLoading(false); }
@@ -573,7 +577,28 @@ function MembersTab({ fleet, reload }) {
     } finally { setBusy(null); }
   };
 
+  const revokeInvite = async (inv) => {
+    if (!confirm(`Revoke this invite for ${inv.email_hint || "—"}?`)) return;
+    const sb = window.getSupabase();
+    try {
+      // Try revoke_invite RPC, else expire the row directly.
+      const rpc = await sb.rpc("revoke_invite", { p_token: inv.token });
+      if (rpc.error && /function .* does not exist/i.test(rpc.error.message || "")) {
+        const { error } = await sb.from("agency_invites")
+          .update({ expires_at: new Date().toISOString() }).eq("token", inv.token);
+        if (error) throw error;
+      } else if (rpc.error) { throw rpc.error; }
+      window.toast && window.toast("Invite revoked", "success");
+      load();
+    } catch (e) {
+      window.toast && window.toast(`Revoke failed: ${e.message || e}`, "error");
+    }
+  };
+
+  const pendingInvites = invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date());
+
   return (
+    <>
     <div className="k-card">
       <div className="k-card-h">
         <h3>Members across sub-agencies</h3>
@@ -592,6 +617,7 @@ function MembersTab({ fleet, reload }) {
             <option value="rep">rep</option>
           </select>
           <button className="k-btn k-btn-ghost" onClick={load}>↻</button>
+          <button className="k-btn k-btn-primary" onClick={() => setInviteOpen(true)}>+ Invite</button>
         </div>
       </div>
       {err && <div className="k-error">{err}</div>}
@@ -629,6 +655,146 @@ function MembersTab({ fleet, reload }) {
         })}
       </div>
     </div>
+
+    {pendingInvites.length > 0 && (
+      <div className="k-card" style={{ marginTop:12 }}>
+        <div className="k-card-h">
+          <h3>Pending invites</h3>
+          <span className="k-meta">{pendingInvites.length} outstanding</span>
+        </div>
+        <div className="k-table">
+          <div className="k-tr k-head" style={{ gridTemplateColumns:"1.4fr 1fr 100px 110px 100px 110px" }}>
+            <div>Email hint</div><div>Agency</div><div>Role</div><div>Expires</div><div>Link</div><div></div>
+          </div>
+          {pendingInvites.map(inv => {
+            const ag = agencyById[inv.agency_id];
+            const link = `${window.location.origin}/?invite=${encodeURIComponent(inv.token)}`;
+            const copy = () => { navigator.clipboard.writeText(link); window.toast && window.toast("Invite link copied", "success"); };
+            return (
+              <div key={inv.token} className="k-tr k-body" style={{ gridTemplateColumns:"1.4fr 1fr 100px 110px 100px 110px" }}>
+                <div className="k-cell-name">{inv.email_hint || "—"}</div>
+                <div style={{ overflow:"hidden", textOverflow:"ellipsis", color:"var(--k-t2)" }}>{ag?.name || inv.agency_id.slice(0, 8)}</div>
+                <div><StatusChip>{inv.role}</StatusChip></div>
+                <div className="k-mono" style={{ fontSize:"0.7rem", color:"var(--k-t3)" }}>{new Date(inv.expires_at).toLocaleDateString()}</div>
+                <div><button className="k-btn k-btn-ghost" onClick={copy}>Copy</button></div>
+                <div><button className="k-btn k-btn-ghost k-btn-danger" onClick={() => revokeInvite(inv)}>Revoke</button></div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
+    {inviteOpen && <InviteMemberModal agencies={agencies} onClose={() => setInviteOpen(false)} onMinted={() => { setInviteOpen(false); load(); }}/>}
+    </>
+  );
+}
+
+// ─── InviteMemberModal — mint_invite + copy-link ───────────────────────────
+function InviteMemberModal({ agencies, onClose, onMinted }) {
+  // Default to the active agency the IMO is currently scoped to, so the
+  // common path ("invite to this sub-agency I just opened") is one click.
+  const defaultId = (() => {
+    try { return localStorage.getItem("repflow.active_agency") || (agencies[0]?.id || ""); }
+    catch { return agencies[0]?.id || ""; }
+  })();
+  const [agencyId, setAgencyId] = React.useState(defaultId);
+  const [role, setRole]   = React.useState("rep");
+  const [email, setEmail] = React.useState("");
+  const [busy, setBusy]   = React.useState(false);
+  const [err, setErr]     = React.useState("");
+  const [token, setToken] = React.useState(null);
+
+  const mint = async () => {
+    if (!agencyId) { setErr("Pick a sub-agency."); return; }
+    if (!email.trim()) { setErr("Email hint is required so the recipient sees who it's for."); return; }
+    setBusy(true); setErr(""); setToken(null);
+    const sb = window.getSupabase();
+    try {
+      // Try the RPC; fall back to /api/invites/create (which wraps the same
+      // RPC server-side with the user's JWT forwarded).
+      let tok = null;
+      try {
+        const r = await sb.rpc("mint_invite", { p_agency_id: agencyId, p_role: role, p_email_hint: email.trim() });
+        if (r.error) throw r.error;
+        tok = (r.data && typeof r.data === "object") ? (r.data.token || r.data) : r.data;
+      } catch (rpcErr) {
+        const r2 = await fetch("/api/invites/create", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agency_id: agencyId, role, email_hint: email.trim() }),
+        });
+        const j = await r2.json().catch(() => ({}));
+        if (!r2.ok) throw new Error(j.error || `HTTP ${r2.status}`);
+        tok = j.token;
+      }
+      if (!tok) throw new Error("mint returned no token");
+      setToken(tok);
+      window.toast && window.toast("Invite minted", "success");
+      // Don't auto-close — operator needs to copy the link first.
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setBusy(false); }
+  };
+
+  const link = token ? `${window.location.origin}/?invite=${encodeURIComponent(token)}` : "";
+  const copyLink = () => { navigator.clipboard.writeText(link); window.toast && window.toast("Link copied — paste into email/Slack/DM", "success"); };
+
+  return (
+    <Shared.Modal title="Invite a member" width={520} onClose={() => { if (token) onMinted(); else onClose(); }}>
+      <div className="koino-skin" style={{ background:"transparent", color:"inherit" }}>
+        {!token && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Sub-agency</span>
+              <select className="k-select" value={agencyId} onChange={(e) => setAgencyId(e.target.value)}>
+                <option value="">Pick one…</option>
+                {agencies.map(a => <option key={a.id} value={a.id}>{a.name}{isDemoRow(a) ? " (demo)" : ""}</option>)}
+              </select>
+            </label>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 140px", gap:10 }}>
+              <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Email hint</span>
+                <input className="k-input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" autoFocus/>
+              </label>
+              <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Role</span>
+                <select className="k-select" value={role} onChange={(e) => setRole(e.target.value)}>
+                  <option value="rep">rep</option>
+                  <option value="manager">manager</option>
+                  <option value="admin">admin</option>
+                  <option value="owner">owner</option>
+                  <option value="imo_owner">imo_owner</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ padding:10, background:"var(--k-ad)", border:"1px solid rgba(0,212,170,0.25)", borderRadius:6, fontSize:"0.72rem", color:"var(--k-t2)", lineHeight:1.55 }}>
+              Calls <span className="k-mono" style={{ color:"var(--k-a)" }}>mint_invite</span> as the signed-in user. The invite expires in 14 days. <strong style={{ color:"var(--k-t)" }}>We don't auto-email</strong> — copy the link and send it via your channel of choice (TCPA-safe).
+            </div>
+            {err && <div style={{ color:"var(--k-danger)", fontSize:"0.75rem", fontFamily:"var(--k-mono)" }}>{err}</div>}
+            <div style={{ display:"flex", gap:8, marginTop:6 }}>
+              <button className="k-btn k-btn-primary" disabled={busy || !email.trim() || !agencyId} onClick={mint}>{busy ? "Minting…" : "Mint invite"}</button>
+              <button className="k-btn k-btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {token && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ padding:10, background:"var(--k-ad)", border:"1px solid rgba(0,212,170,0.3)", borderRadius:6, fontSize:"0.8rem", color:"var(--k-t)", fontWeight:600 }}>
+              ✓ Invite minted for {email}
+            </div>
+            <label style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <span style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Invite link · expires in 14 days</span>
+              <input className="k-input" readOnly value={link} onClick={(e) => e.target.select()} style={{ fontFamily:"var(--k-mono)", fontSize:"0.7rem" }}/>
+            </label>
+            <div style={{ display:"flex", gap:8 }}>
+              <button className="k-btn k-btn-primary" onClick={copyLink}>Copy link</button>
+              <button className="k-btn" onClick={() => { setToken(null); setEmail(""); }}>Mint another</button>
+              <button className="k-btn k-btn-ghost" onClick={onMinted} style={{ marginLeft:"auto" }}>Done</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Shared.Modal>
   );
 }
 
