@@ -43,27 +43,39 @@ const BY_PRODUCT_DEMO = [
 ];
 
 // Roll up live data into the prototype's expected vendor / state / product
-// shapes. Returns { vendors, byState, byProduct, isLive }. When the tenant
-// has no lead spend or sources, callers fall back to the demo arrays for
-// demo agencies and render an empty state for real agencies.
-function _liveAttribution() {
+// shapes for a given period. Returns { vendors, byState, byProduct, isLive }.
+// When the tenant has no lead spend or sources, callers fall back to the
+// demo arrays for demo agencies and render an empty state for real agencies.
+function _liveAttribution(period = "MTD") {
   const sources    = (window.AppData && window.AppData.LEAD_SOURCES) || [];
   const expenses   = (window.AppData && window.AppData.EXPENSES) || [];
   const pipeline   = (window.AppData && window.AppData.PIPELINE) || [];
   const policies   = (window.AppData && window.AppData.POLICIES) || [];
   const attributions = (window.AppData && window.AppData.ATTRIBUTIONS) || [];
 
+  // Period cutoff — same windows as page-expenses.jsx + page-today so the
+  // operator sees the same numbers between surfaces.
+  const now = new Date();
+  const cutoff = (() => {
+    if (period === "MTD") return new Date(now.getFullYear(), now.getMonth(), 1);
+    if (period === "T30") return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+    if (period === "T90") return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90);
+    if (period === "YTD") return new Date(now.getFullYear(), 0, 1);
+    return new Date(0);
+  })();
+
   // Apply manager scope. Owner / fleet roles get null → see everything.
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
   const scopedPipeline = scopeIds ? pipeline.filter(l => !l.owner || scopeIds.includes(l.owner)) : pipeline;
   const scopedPolicies = scopeIds ? policies.filter(p => !p.owner || scopeIds.includes(p.owner)) : policies;
 
-  // 1. Spend per source (cents). Lead-spend expenses tagged to a
-  // lead_source_id are authoritative; untagged spend gets bucketed under
-  // an "_untagged" key so the operator sees the gap.
+  // 1. Spend per source (cents) within the period window. Lead-spend
+  // expenses tagged to a lead_source_id are authoritative; untagged spend
+  // bucketed under "_untagged" so the operator sees the gap.
   const spendBySource = {};
   for (const e of expenses) {
     if (e.kind !== "lead_spend") continue;
+    if (e.paid_at && new Date(e.paid_at) < cutoff) continue;
     const k = e.lead_source_id || "_untagged";
     spendBySource[k] = (spendBySource[k] || 0) + (e.amount_cents || 0);
   }
@@ -178,9 +190,11 @@ function PageAttribution({ role = "owner" }) {
   }, []);
 
   const [tab, setTab] = React.useState("vendors");
+  const [period, setPeriod] = React.useState("MTD");  // MTD | T30 | T90 | YTD
   const [sort, setSort] = React.useState({ key: "roas", dir: "desc" });
+  const [newVendorOpen, setNewVendorOpen] = React.useState(false);
 
-  const live = _liveAttribution();
+  const live = _liveAttribution(period);
   const isDemoAgency = !!(window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency());
   const VENDORS    = live.isLive ? live.vendors    : (isDemoAgency ? VENDORS_DEMO    : []);
   const BY_STATE   = live.isLive ? live.byState    : (isDemoAgency ? BY_STATE_DEMO   : []);
@@ -213,19 +227,68 @@ function PageAttribution({ role = "owner" }) {
   const blendedROAS = totalSpend ? totalAP / totalSpend : 0;
   const blendedCPA  = totalIssued ? totalSpend / totalIssued : 0;
 
+  const periodLabel = { MTD: "Month to date", T30: "Trailing 30d", T90: "Trailing 90d", YTD: "Year to date" }[period] || period;
+
+  // Export CSV of the currently-active tab. Function is what the operator
+  // sees: vendor / state / product rollup downloads as a CSV per-period.
+  const exportCsv = () => {
+    let header, rows, fileBase;
+    if (tab === "vendors") {
+      header = ["vendor","category","spend","leads","cpl","issued","cpa","ap","roas"];
+      rows = sorted.map(v => [v.name, v.category, v.spend.toFixed(2), v.leads, v.cpl.toFixed(2), v.issued, v.cpa.toFixed(2), v.ap.toFixed(2), v.roas.toFixed(2)]);
+      fileBase = "attribution_vendors";
+    } else if (tab === "state") {
+      header = ["state","spend","ap","roas"];
+      rows = BY_STATE.map(r => [r.state, r.spend, r.ap, r.lift]);
+      fileBase = "attribution_by_state";
+    } else if (tab === "product") {
+      header = ["product","spend","ap","roas"];
+      rows = BY_PRODUCT.map(r => [r.p, r.spend, r.ap, r.lift]);
+      fileBase = "attribution_by_product";
+    } else {
+      window.toast && window.toast("Switch to By vendor / state / product to export", "info");
+      return;
+    }
+    const escape = (cell) => {
+      const s = String(cell ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [header.join(","), ...rows.map(r => r.map(escape).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${fileBase}_${period.toLowerCase()}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    window.toast && window.toast(`Exported ${period} ${tab}`, "success");
+  };
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Lead Vendors · Attribution</div>
-          <div className="page-sub">Acquisition cost → Pipeline outcomes → Commissions, by vendor / state / product</div>
+          <div className="page-sub">{periodLabel} · acquisition cost → pipeline outcomes → policies, by vendor / state / product</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn"><Icons.Calendar size={13}/> April</button>
-          <button className="btn"><Icons.ArrowUpRight size={13}/> Export</button>
-          <button className="btn btn-primary"><Icons.Plus size={13}/> New vendor</button>
+          <Shared.SectionPill
+            items={[{k:"T30",l:"30d"},{k:"MTD",l:"MTD"},{k:"T90",l:"90d"},{k:"YTD",l:"YTD"}]}
+            value={period}
+            onChange={setPeriod}
+            dense
+          />
+          <button className="btn" onClick={exportCsv} title={`Download ${tab} as CSV`}>
+            <Icons.ArrowUpRight size={13}/> Export
+          </button>
+          <button className="btn btn-primary" onClick={() => setNewVendorOpen(true)}>
+            <Icons.Plus size={13}/> New vendor
+          </button>
         </div>
       </div>
+
+      {newVendorOpen && (
+        <NewLeadVendorModal onClose={() => setNewVendorOpen(false)}/>
+      )}
 
       <div className="kpi-row">
         <Shared.KpiCard hero label="Spend MTD" prefix="$" value={totalSpend.toLocaleString()} sub={`${totalLeads} leads`}/>
@@ -256,7 +319,7 @@ function PageAttribution({ role = "owner" }) {
 
       {tab === "vendors" && (
         <div className="panel">
-          <div className="panel-h"><h3>By vendor · April</h3><span className="meta">{VENDORS.length} sources</span></div>
+          <div className="panel-h"><h3>By vendor · {period}</h3><span className="meta">{VENDORS.length} source{VENDORS.length === 1 ? "" : "s"}</span></div>
           <div className="list">
             <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 80px 80px 90px 90px 80px" }}>
               <SortH k="name"      label="Vendor"/>
@@ -341,35 +404,50 @@ function PageAttribution({ role = "owner" }) {
         </div>
       )}
 
-      {tab === "roi" && <ROIExplorer enriched={enriched}/>}
+      {tab === "roi" && <ROIExplorer enriched={enriched} period={period}/>}
     </div>
   );
 }
 
-function ROIExplorer({ enriched }) {
+function ROIExplorer({ enriched, period }) {
   const [budget, setBudget] = React.useState(20000);
-  // Greedy allocator: spend $1 at a time on the highest-ROAS vendor that hasn't hit a saturation cap
-  const cap = 12000; // arbitrary saturation cap per vendor for prototype
-  const sorted = [...enriched].sort((a, b) => b.roas - a.roas);
+  // Saturation cap derived from each vendor's historical spend × 2 — better
+  // than the arbitrary $12k flat cap. Smaller vendors don't get over-allocated.
+  const sorted = [...enriched].filter(v => v.roas > 0).sort((a, b) => b.roas - a.roas);
   let remaining = budget;
   const alloc = sorted.map(v => {
+    const cap = Math.max(v.spend * 2, 1500);   // floor at $1.5k so new vendors get a shot
     const give = Math.min(remaining, cap);
     remaining -= give;
     return { ...v, alloc: give };
   });
   const projAP = alloc.reduce((a, v) => a + v.alloc * v.roas, 0);
 
+  // Owner override percentage from agency config; fall back to industry
+  // default. Was hardcoded 22%; now reflects whatever the owner set in
+  // Settings -> Org config (or the future Compensation tab).
+  const overridePct = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get().override_pct) || 0.22;
+
   return (
     <div className="rec-detail-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
       <div className="panel">
-        <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>What if I spent ${budget.toLocaleString()} next month?</h3></div>
+        <div className="panel-h">
+          <Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/>
+          <h3>If I spent ${budget.toLocaleString()} next month</h3>
+          <span className="meta">basis: {period}</span>
+        </div>
         <div style={{ padding: 14 }}>
-          <input type="range" min={5000} max={50000} step={1000} value={budget} onChange={(e) => setBudget(+e.target.value)} style={{ width: "100%" }}/>
+          <input type="range" min={5000} max={100000} step={1000} value={budget} onChange={(e) => setBudget(+e.target.value)} style={{ width: "100%" }}/>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-            <span>$5k</span><span>$50k</span>
+            <span>$5k</span><span>$100k</span>
           </div>
 
           <div style={{ marginTop: 14 }}>
+            {alloc.length === 0 && (
+              <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>
+                No vendors with positive ROAS to allocate against. Log lead spend + issue policies to unlock the projection.
+              </div>
+            )}
             {alloc.filter(a => a.alloc > 0).map(a => (
               <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 80px 80px 1fr", padding: "6px 0", alignItems: "center", fontSize: 12, borderBottom: "1px solid var(--border-subtle)" }}>
                 <span style={{ fontWeight: 500 }}>{a.name}</span>
@@ -385,31 +463,173 @@ function ROIExplorer({ enriched }) {
           <div style={{ marginTop: 14, padding: 12, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", borderRadius: 6 }}>
             <div style={{ fontSize: 11, color: "var(--accent-money)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500 }}>Projected outcome</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 600, marginTop: 4 }}>${Math.round(projAP).toLocaleString()} AP</div>
-            <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>Net to owner override (22%): ${Math.round(projAP * 0.22).toLocaleString()}</div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>
+              Net to owner override ({Math.round(overridePct * 100)}%): ${Math.round(projAP * overridePct).toLocaleString()}
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+              Override % from AgencyConfig — change in Settings to recalibrate.
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-h"><h3>Optimization opportunities</h3></div>
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            { k: "Cut",   t: "LinkedIn · agency owners", b: "ROAS 1.34x — below 2x threshold. -$2,410/mo, -$3.2k AP. Net +$2,300", c: "var(--state-danger)" },
-            { k: "Scale", t: "Referral · Producer downline", b: "ROAS 184x. Marginal CAC = $3.53. Push downline incentives.",   c: "var(--accent-money)" },
-            { k: "Test",  t: "Google 'medicare supplement' broaden", b: "Top of funnel CPC bidding may be too narrow — test +20% budget", c: "var(--accent-status)" },
-            { k: "Watch", t: "T65 list · DataMail",        b: "Persistency 81%, below cohort. Watch FE 13-mo lapse next month.",     c: "var(--state-warning)" },
-          ].map((x, i) => (
-            <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="chip" style={{ color: x.c, borderColor: `color-mix(in oklch, ${x.c} 30%, transparent)`, background: `color-mix(in oklch, ${x.c} 10%, transparent)`, fontWeight: 600 }}>{x.k}</span>
-                <strong style={{ fontSize: 12.5 }}>{x.t}</strong>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{x.b}</div>
+      <OptimizationOpportunitiesPanel vendors={enriched}/>
+    </div>
+  );
+}
+
+// Live-data optimization signals. Was a static list of 4 hardcoded items
+// referencing demo vendor names; now derived from the actual VENDORS array
+// for the current period.
+function OptimizationOpportunitiesPanel({ vendors }) {
+  const ops = React.useMemo(() => {
+    const out = [];
+    // Cut: any vendor spending > $100 with ROAS < 2 (loses money)
+    for (const v of vendors) {
+      if (v.spend < 100) continue;
+      if (v.roas < 2 && v.roas > 0) {
+        out.push({
+          k: "Cut", c: "var(--state-danger)",
+          t: v.name,
+          b: `ROAS ${v.roas.toFixed(2)}x — below 2x threshold. -$${Math.round(v.spend).toLocaleString()}/period, -$${Math.round(v.ap).toLocaleString()} AP.`,
+        });
+      }
+    }
+    // Scale: top-ROAS vendors above 4x with at least 5 leads (statistical
+    // signal). Suggest doubling spend.
+    const scalable = vendors.filter(v => v.roas >= 4 && v.leads >= 5).sort((a, b) => b.roas - a.roas).slice(0, 2);
+    for (const v of scalable) {
+      out.push({
+        k: "Scale", c: "var(--accent-money)",
+        t: v.name,
+        b: `ROAS ${v.roas.toFixed(2)}x · CPL $${v.cpl.toFixed(0)}. Double spend → estimated +$${Math.round(v.spend * v.roas).toLocaleString()} AP.`,
+      });
+    }
+    // Watch: persistency available (not null) and < 85
+    for (const v of vendors) {
+      if (v.persistency != null && v.persistency < 85 && v.persistency > 0) {
+        out.push({
+          k: "Watch", c: "var(--state-warning)",
+          t: v.name,
+          b: `Persistency ${v.persistency}% below cohort target (85%). Risk of 13-mo lapse chargebacks.`,
+        });
+      }
+    }
+    // Test: vendors with very small spend (< $200) but issued at least 1
+    // policy — high signal, low investment so far. Suggest testing more.
+    for (const v of vendors) {
+      if (v.spend > 0 && v.spend < 200 && v.issued >= 1) {
+        out.push({
+          k: "Test", c: "var(--accent-status)",
+          t: v.name,
+          b: `Only $${Math.round(v.spend)} spent but ${v.issued} issued (ROAS ${v.roas.toFixed(1)}x). Test a $1-2k bump next period.`,
+        });
+      }
+    }
+    // Untagged: warn if "_untagged" bucket has spend
+    const untagged = vendors.find(v => v.id === "_untagged");
+    if (untagged && untagged.spend > 0) {
+      out.push({
+        k: "Tag", c: "var(--state-warning)",
+        t: "Untagged lead spend",
+        b: `$${Math.round(untagged.spend).toLocaleString()} of spend isn't tied to a lead source — ROAS can't be computed. Tag each expense in Expenses → Edit.`,
+      });
+    }
+    return out.slice(0, 6);
+  }, [vendors]);
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h3>Optimization opportunities</h3>
+        <span className="meta">{ops.length === 0 ? "all clear" : `${ops.length} signal${ops.length === 1 ? "" : "s"}`}</span>
+      </div>
+      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {ops.length === 0 && (
+          <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>
+            No signals from current data. Add more vendors or wait for more issued policies before the system can recommend cuts / scales.
+          </div>
+        )}
+        {ops.map((x, i) => (
+          <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="chip" style={{ color: x.c, borderColor: `color-mix(in oklch, ${x.c} 30%, transparent)`, background: `color-mix(in oklch, ${x.c} 10%, transparent)`, fontWeight: 600 }}>{x.k}</span>
+              <strong style={{ fontSize: 12.5 }}>{x.t}</strong>
             </div>
-          ))}
-        </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{x.b}</div>
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+// Modal to add a new agency_lead_sources row. Writes via supabase client
+// (the page already reads back through AppData.LEAD_SOURCES on the next
+// hydrate tick, so the new vendor appears in the vendor list automatically).
+function NewLeadVendorModal({ onClose }) {
+  const [form, setForm] = React.useState({ name: "", vendor: "", kind: "paid_social", cost_per_lead: "" });
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async () => {
+    if (!form.name.trim()) { window.toast && window.toast("Name required", "warn"); return; }
+    setBusy(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const aid = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (!sb) throw new Error("Supabase not loaded");
+      if (!aid) throw new Error("No active agency");
+      const cpl = parseFloat(form.cost_per_lead);
+      const row = {
+        agency_id: aid,
+        name: form.name.trim(),
+        vendor: form.vendor.trim() || null,
+        kind: form.kind,
+        cost_per_lead_cents: !isNaN(cpl) && cpl > 0 ? Math.round(cpl * 100) : null,
+        active: true,
+      };
+      const { error } = await sb.from("agency_lead_sources").insert(row);
+      if (error) throw error;
+      window.toast && window.toast(`Added lead source: ${form.name}`, "success");
+      if (window.hydrateFromSupabase) await window.hydrateFromSupabase();
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Shared.Modal title="New lead vendor" width={520} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !form.name.trim()}>
+          <Icons.Plus size={11}/> {busy ? "Saving…" : "Add vendor"}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 12, lineHeight: 1.55 }}>
+        Add a lead source so spend can be tagged in Expenses and roll up here as ROAS. Once it's saved, tag your existing lead-spend rows to populate the vendor view.
+      </div>
+      <Shared.Field label="Display name *">
+        <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Facebook · T65 v3 creative" autoFocus/>
+      </Shared.Field>
+      <Shared.Field label="Vendor / platform">
+        <input className="text-input" value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="FB Ads, Convoso, DataMail, Google Ads…"/>
+      </Shared.Field>
+      <Shared.Field label="Kind">
+        <Shared.Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v })} options={[
+          { v: "paid_social",  l: "Paid social" },
+          { v: "paid_search",  l: "Paid search" },
+          { v: "inbound",       l: "Inbound calls" },
+          { v: "list",           l: "List / direct mail" },
+          { v: "referral",       l: "Referral" },
+          { v: "other",           l: "Other" },
+        ]}/>
+      </Shared.Field>
+      <Shared.Field label="Cost per lead (optional, $)" hint="Used as a fallback when expenses aren't tagged">
+        <input className="text-input" type="number" step="0.01" min="0" value={form.cost_per_lead} onChange={(e) => setForm({ ...form, cost_per_lead: e.target.value })} placeholder="33.50"/>
+      </Shared.Field>
+    </Shared.Modal>
   );
 }
 
