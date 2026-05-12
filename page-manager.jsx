@@ -145,7 +145,7 @@ function PageTeam() {
       </div>
 
       <Shared.SectionPill
-        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"}]}
+        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"},{k:"vault-files",l:"Vault"},{k:"resources",l:"Resources"},{k:"quote",l:"Quote Tool"}]}
         value="team"
         onChange={(k) => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
       />
@@ -520,7 +520,7 @@ function CoachingManager() {
       </div>
 
       <Shared.SectionPill
-        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"}]}
+        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"},{k:"vault-files",l:"Vault"},{k:"resources",l:"Resources"},{k:"quote",l:"Quote Tool"}]}
         value="coaching"
         onChange={(k) => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
       />
