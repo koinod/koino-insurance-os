@@ -4560,20 +4560,23 @@ function SettingsAuditLog() {
 /* Feature flags — super-admin only. Reads public.feature_flags. */
 function SettingsFeatureFlags() {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows] = React.useState([]);
+  const [rows,    setRows]    = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
   const [busyKey, setBusyKey] = React.useState(null);
   const [creating, setCreating] = React.useState(false);
   const [newRow, setNewRow] = React.useState({ key: "", enabled: false, scope: "global", description: "" });
+  const [filter, setFilter] = React.useState("");
 
   const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
-      const { data } = await sb.from("feature_flags").select("*").order("key");
+      const { data, error } = await sb.from("feature_flags").select("*").order("key");
+      if (error) throw error;
       setRows(Array.isArray(data) ? data : []);
-    } catch (_e) {}
-    finally { setLoading(false); }
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
   }, [sb]);
   React.useEffect(() => { refresh(); }, [refresh]);
 
@@ -4603,34 +4606,45 @@ function SettingsFeatureFlags() {
   };
 
   if (loading) return <div className="ks-empty">Loading feature flags…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div><strong>Couldn't load flags</strong><div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{err}</div><button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button></div></div>;
+
+  const filtered = rows.filter(r => {
+    if (!filter.trim()) return true;
+    const f = filter.toLowerCase();
+    return r.key.toLowerCase().includes(f) || (r.description || "").toLowerCase().includes(f);
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <div className="ks-section-label" style={{ padding: 0 }}>Feature flags</div>
         <span className="chip">{rows.filter(r => r.enabled).length}/{rows.length} on</span>
+        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by key or description…" style={{ maxWidth: 260 }}/>
         <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setCreating(true)}><Icons.Plus size={12}/> New flag</button>
       </div>
-      {rows.length === 0
-        ? <div className="ks-empty">No flags defined yet.</div>
-        : <div className="panel"><div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
-              <div>Key</div><div>Scope</div><div>Description</div><div></div>
-            </div>
-            {rows.map(r => (
-              <div key={r.key} className="row" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
-                <div className="mono" style={{ fontWeight: 500 }}>{r.key}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.scope || "global"}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description || "—"}</div>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button className="btn btn-ghost" disabled={busyKey === r.key} onClick={() => toggle(r)}>
-                    {busyKey === r.key ? "…" : (r.enabled ? <span style={{ color: "var(--accent-money)" }}>ON</span> : <span>OFF</span>)}
-                  </button>
-                </div>
+      {rows.length === 0 ? (
+        <div className="ks-empty">No flags defined yet. Click New flag to add one — flags become readable to every authed user immediately.</div>
+      ) : filtered.length === 0 ? (
+        <div className="ks-empty">No flags match the filter.</div>
+      ) : (
+        <div className="panel"><div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
+            <div>Key</div><div>Scope</div><div>Description</div><div></div>
+          </div>
+          {filtered.map(r => (
+            <div key={r.key} className="row" style={{ gridTemplateColumns: "1.4fr 100px 1fr 100px" }}>
+              <div className="mono" style={{ fontWeight: 500 }}>{r.key}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.scope || "global"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description || "—"}</div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button className="btn btn-ghost" disabled={busyKey === r.key} onClick={() => toggle(r)}>
+                  {busyKey === r.key ? "…" : (r.enabled ? <span style={{ color: "var(--accent-money)", fontWeight: 700 }}>ON</span> : <span style={{ color: "var(--text-quaternary)" }}>OFF</span>)}
+                </button>
               </div>
-            ))}
+            </div>
+          ))}
         </div></div>
-      }
+      )}
       {creating && (
         <Shared.Modal title="New feature flag" width={460} onClose={() => setCreating(false)} actions={
           <>
@@ -4661,6 +4675,28 @@ function SettingsFeatureFlags() {
 function SettingsDemoControls() {
   const sb = window.getSupabase && window.getSupabase();
   const [busy, setBusy] = React.useState(null);
+  const [stats, setStats] = React.useState(null);
+  // The Atlas demo agency id is fixed in migration 0001 and reused as the
+  // anon-RLS carve-out. We surface it so the operator knows exactly which
+  // tenant the destructive actions hit.
+  const DEMO_ID = window.Shared?.DEMO_AGENCY_ID || "e0a68c9f-cf48-47b0-bef7-dba3f27db0b9";
+
+  const refreshStats = React.useCallback(async () => {
+    if (!sb) return;
+    try {
+      const [pipe, calls, reps] = await Promise.all([
+        sb.from("pipeline").select("id", { count: "exact", head: true }).eq("agency_id", DEMO_ID),
+        sb.from("recordings").select("id", { count: "exact", head: true }).eq("agency_id", DEMO_ID),
+        sb.from("reps").select("id", { count: "exact", head: true }).eq("agency_id", DEMO_ID),
+      ]);
+      setStats({
+        pipeline:   typeof pipe.count   === "number" ? pipe.count   : null,
+        recordings: typeof calls.count  === "number" ? calls.count  : null,
+        reps:       typeof reps.count   === "number" ? reps.count   : null,
+      });
+    } catch (_e) {}
+  }, [sb, DEMO_ID]);
+  React.useEffect(() => { refreshStats(); }, [refreshStats]);
 
   const call = async (rpc, label, confirmMsg) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
@@ -4669,6 +4705,7 @@ function SettingsDemoControls() {
       const r = await sb.rpc(rpc);
       if (r.error) throw r.error;
       window.toast && window.toast(`${label}: done`, "success");
+      await refreshStats();
     } catch (e) {
       window.toast && window.toast(`${label} failed: ${e?.message || e}`, "error");
     } finally { setBusy(null); }
@@ -4677,17 +4714,27 @@ function SettingsDemoControls() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="ks-tile">
-        <div className="ks-tile-h"><Icons.Brain size={14}/> Demo agency<span className="ks-tile-tag">read</span></div>
-        <div className="ks-tile-sub">The Atlas demo agency is the seed shown to anon visitors. These actions reset its pipeline, reps, and recorded calls back to factory defaults.</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button className="btn" disabled={busy === "reseed_demo"}     onClick={() => call("reseed_demo",     "Reseed demo",  "Reseed the demo agency (overwrites Atlas data)?")}>{busy === "reseed_demo" ? "…" : "Reseed demo"}</button>
-          <button className="btn" disabled={busy === "wipe_demo_calls"} onClick={() => call("wipe_demo_calls", "Wipe calls",   "Wipe the demo agency's call recordings?")}>{busy === "wipe_demo_calls" ? "…" : "Wipe demo calls"}</button>
-          <button className="btn" disabled={busy === "reset_demo_pipeline"} onClick={() => call("reset_demo_pipeline", "Reset pipeline", "Reset the demo pipeline (kanban + queue) only?")}>{busy === "reset_demo_pipeline" ? "…" : "Reset pipeline"}</button>
+        <div className="ks-tile-h">
+          <Icons.Brain size={14}/> Demo agency
+          <span className="ks-tile-tag mono">{DEMO_ID.slice(0, 8)}…</span>
+        </div>
+        <div className="ks-tile-sub">The Atlas demo agency is the seed shown to anon visitors. These actions reset its pipeline, reps, and recorded calls back to factory defaults — they only affect this exact agency_id.</div>
+        {stats && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 6 }}>
+            <div style={{ padding: "6px 10px", background: "var(--bg-raised)", borderRadius: 8 }}><div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>Pipeline</div><div className="tabular" style={{ fontSize: 15, fontWeight: 700 }}>{stats.pipeline ?? "—"}</div></div>
+            <div style={{ padding: "6px 10px", background: "var(--bg-raised)", borderRadius: 8 }}><div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>Recordings</div><div className="tabular" style={{ fontSize: 15, fontWeight: 700 }}>{stats.recordings ?? "—"}</div></div>
+            <div style={{ padding: "6px 10px", background: "var(--bg-raised)", borderRadius: 8 }}><div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>Reps</div><div className="tabular" style={{ fontSize: 15, fontWeight: 700 }}>{stats.reps ?? "—"}</div></div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+          <button className="btn" disabled={busy === "reseed_demo"}         onClick={() => call("reseed_demo",         "Reseed demo",     "Reseed the demo agency (overwrites Atlas data)?")}>{busy === "reseed_demo"         ? "…" : "Reseed demo"}</button>
+          <button className="btn" disabled={busy === "reset_demo_pipeline"} onClick={() => call("reset_demo_pipeline", "Reset pipeline",  "Reset the demo pipeline (kanban + queue) only?")}>{busy === "reset_demo_pipeline" ? "…" : "Reset pipeline"}</button>
+          <button className="btn" disabled={busy === "wipe_demo_calls"}     onClick={() => call("wipe_demo_calls",     "Wipe calls",      "Wipe the demo agency's call recordings?")}>{busy === "wipe_demo_calls"     ? "…" : "Wipe demo calls"}</button>
         </div>
       </div>
       <div className="ks-tile">
-        <div className="ks-tile-h"><Icons.AlertTriangle size={14}/> Notes</div>
-        <div className="ks-tile-sub">These call public RPCs (<span className="mono">reseed_demo / wipe_demo_calls / reset_demo_pipeline</span>). If the RPC isn't defined yet, you'll see a "function does not exist" toast — fine, that means nothing was changed.</div>
+        <div className="ks-tile-h"><Icons.AlertTriangle size={14}/> RPC notes</div>
+        <div className="ks-tile-sub">These call public RPCs (<span className="mono">reseed_demo / wipe_demo_calls / reset_demo_pipeline</span>). If an RPC isn't defined yet you'll see "function … does not exist" — that means nothing was changed; safe to ignore until the RPC ships.</div>
       </div>
     </div>
   );
@@ -4697,21 +4744,35 @@ function SettingsDemoControls() {
  * (not per-agency connections). */
 function SettingsGlobalIntegrations() {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows] = React.useState([]);
+  const [rows,    setRows]    = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
   const [editing, setEditing] = React.useState(null);
-  const [busy, setBusy] = React.useState(false);
+  const [busy,    setBusy]    = React.useState(false);
+  const [filter,  setFilter]  = React.useState("");
+  const [catFilter, setCatFilter] = React.useState("all");
 
   const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
-      const { data } = await sb.from("connector_catalog").select("*").order("category").order("label");
+      const { data, error } = await sb.from("connector_catalog").select("*").order("category").order("label");
+      if (error) throw error;
       setRows(Array.isArray(data) ? data : []);
-    } catch (_e) {}
-    finally { setLoading(false); }
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
   }, [sb]);
   React.useEffect(() => { refresh(); }, [refresh]);
+
+  const categories = React.useMemo(() => Array.from(new Set(rows.map(r => r.category).filter(Boolean))).sort(), [rows]);
+  const filtered = rows.filter(r => {
+    if (catFilter !== "all" && r.category !== catFilter) return false;
+    if (!filter.trim()) return true;
+    const f = filter.toLowerCase();
+    return (r.label || "").toLowerCase().includes(f)
+        || (r.connector_key || "").toLowerCase().includes(f)
+        || (r.description || "").toLowerCase().includes(f);
+  });
 
   const save = async () => {
     if (!editing?.connector_key?.trim()) { window.toast && window.toast("Key required", "warn"); return; }
@@ -4735,33 +4796,39 @@ function SettingsGlobalIntegrations() {
   };
 
   if (loading) return <div className="ks-empty">Loading global connector catalog…</div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div><strong>Couldn't load catalog</strong><div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{err}</div><button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button></div></div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <div className="ks-section-label" style={{ padding: 0 }}>Connector catalog</div>
         <span className="chip">{rows.filter(r => r.is_enabled !== false).length}/{rows.length} enabled</span>
+        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter…" style={{ maxWidth: 220 }}/>
+        <Shared.Select value={catFilter} onChange={setCatFilter} options={[{ v: "all", l: "All categories" }, ...categories.map(c => ({ v: c, l: c }))]}/>
         <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setEditing({ connector_key: "", label: "", category: "Other", description: "", is_enabled: true })}>
           <Icons.Plus size={12}/> New connector
         </button>
       </div>
-      {rows.length === 0
-        ? <div className="ks-empty">Catalog is empty. Add the first connector to make it visible to every agency.</div>
-        : <div className="panel"><div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
-              <div>Connector</div><div>Category</div><div>Description</div><div>Status</div><div></div>
+      {rows.length === 0 ? (
+        <div className="ks-empty">Catalog is empty. Add the first connector to make it visible to every agency.</div>
+      ) : filtered.length === 0 ? (
+        <div className="ks-empty">No connectors match the filter.</div>
+      ) : (
+        <div className="panel"><div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
+            <div>Connector</div><div>Category</div><div>Description</div><div>Status</div><div></div>
+          </div>
+          {filtered.map(r => (
+            <div key={r.connector_key} className="row" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
+              <div><div style={{ fontWeight: 500 }}>{r.label || r.connector_key}</div><div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.connector_key}</div></div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.category}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description}</div>
+              <div><span className={`chip ${r.is_enabled === false ? "" : "chip-money"}`}>{r.is_enabled === false ? "off" : "on"}</span></div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}><button className="btn btn-ghost" onClick={() => setEditing({ ...r })}><Icons.Edit size={11}/></button></div>
             </div>
-            {rows.map(r => (
-              <div key={r.connector_key} className="row" style={{ gridTemplateColumns: "1fr 110px 1fr 90px 80px" }}>
-                <div><div style={{ fontWeight: 500 }}>{r.label || r.connector_key}</div><div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.connector_key}</div></div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.category}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description}</div>
-                <div><span className={`chip ${r.is_enabled === false ? "" : "chip-money"}`}>{r.is_enabled === false ? "off" : "on"}</span></div>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}><button className="btn btn-ghost" onClick={() => setEditing({ ...r })}><Icons.Edit size={11}/></button></div>
-              </div>
-            ))}
-          </div></div>
-      }
+          ))}
+        </div></div>
+      )}
       {editing && (
         <Shared.Modal title={editing.connector_key && rows.some(r => r.connector_key === editing.connector_key) ? "Edit connector" : "New connector"} width={520} onClose={() => setEditing(null)} actions={
           <>
