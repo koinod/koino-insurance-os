@@ -2529,12 +2529,23 @@ function PageSettings({ role = "owner" }) {
           <div className="page-sub">{role === "owner" ? "Organization, team, carriers, billing, integrations, API, routing" : role === "manager" ? "Team, carriers, routing rules and notifications" : "Your profile and notifications"}</div>
         </div>
         {/* P7: prominent Edit Profile entry point. Works for every role
-            (owner / manager / rep / imo_owner). Highlights when active so
-            users can find their way back to other tabs after clicking. */}
+            (owner / manager / rep / imo_owner). Highlights when active
+            using the koino.capital teal treatment so users can find their
+            way back to other tabs after clicking. */}
         <button
-          className={"btn " + (tab === "profile" ? "btn-primary" : "")}
-          style={{ marginLeft: "auto" }}
           onClick={() => setTab("profile")}
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px",
+            background: tab === "profile" ? "#00d4aa" : "var(--bg-raised)",
+            color: tab === "profile" ? "#000" : "var(--text-primary)",
+            border: tab === "profile" ? "none" : "1px solid var(--border-subtle)",
+            borderRadius: 8,
+            fontWeight: 700, fontSize: 12,
+            cursor: "pointer",
+            boxShadow: tab === "profile" ? "0 4px 14px rgba(0,212,170,0.22)" : "none",
+          }}
         >
           <Icons.User size={13}/> Edit Profile
         </button>
@@ -3001,10 +3012,10 @@ function SettingsAgents({ role = "owner" }) {
           </div>
         </div>
         <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>{a.description || ""}</div>
-        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", alignItems: "center" }}>
           {installed ? (
             <>
-              <span className="chip chip-money" style={{ fontSize: 10.5 }}>installed</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: "rgba(0,212,170,0.14)", color: "#00d4aa", border: "1px solid rgba(0,212,170,0.30)", borderRadius: 999, fontSize: 10.5, fontWeight: 600 }}>installed</span>
               <button
                 className="btn btn-ghost"
                 disabled={a.required || busyKey === key}
@@ -3015,7 +3026,20 @@ function SettingsAgents({ role = "owner" }) {
               </button>
             </>
           ) : (
-            <button className="btn btn-primary" disabled={busyKey === key} onClick={() => install(key, label)}>
+            <button
+              disabled={busyKey === key}
+              onClick={() => install(key, label)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 14px",
+                background: busyKey === key ? "var(--bg-raised)" : "#00d4aa",
+                color: busyKey === key ? "var(--text-tertiary)" : "#000",
+                border: "none", borderRadius: 8,
+                fontWeight: 700, fontSize: 12,
+                cursor: busyKey === key ? "wait" : "pointer",
+                boxShadow: busyKey === key ? "none" : "0 4px 14px rgba(0,212,170,0.18)",
+              }}
+            >
               {busyKey === key ? "Installing…" : "Install"}
             </button>
           )}
@@ -3568,11 +3592,31 @@ function SettingsProfile({ role }) {
         </div>
       </div>
 
-      <div className="panel" style={{ padding: 16, display: "flex", gap: 10, alignItems: "center" }}>
-        <button className="btn btn-primary" onClick={save} disabled={saving || Object.keys(dirty).length === 0}>
-          <Icons.Check size={12}/> {saving ? "Saving…" : "Save profile"}
-        </button>
-        {saveMsg && <span style={{ color: "var(--accent-money)", fontSize: 12 }}>{saveMsg}</span>}
+      <div className="panel" style={{ padding: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        {(() => {
+          const dirtyCount = Object.keys(dirty).length;
+          const enabled = !saving && dirtyCount > 0;
+          return (
+            <button
+              onClick={save}
+              disabled={!enabled}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "10px 18px",
+                background: enabled ? "#00d4aa" : "var(--bg-raised)",
+                color: enabled ? "#000" : "var(--text-tertiary)",
+                border: "none", borderRadius: 8,
+                fontWeight: 700, fontSize: 13,
+                cursor: enabled ? "pointer" : "not-allowed",
+                boxShadow: enabled ? "0 4px 14px rgba(0,212,170,0.22)" : "none",
+                transition: "all 0.15s",
+              }}
+            >
+              <Icons.Check size={12}/> {saving ? "Saving…" : "Save profile"}
+            </button>
+          );
+        })()}
+        {saveMsg && <span style={{ color: "#00d4aa", fontSize: 12, fontFamily: "var(--font-mono)" }}>{saveMsg}</span>}
         {Object.keys(dirty).length > 0 && !saving && <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{Object.keys(dirty).length} unsaved change{Object.keys(dirty).length === 1 ? "" : "s"}</span>}
       </div>
 

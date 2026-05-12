@@ -512,7 +512,19 @@ echo "Repflow helper installed."`;
           Click below to fire a test <span className="mono">repflow://call</span> at +15125550123. If your helper is installed
           you'll see the dialer; otherwise your OS opens its default phone app.
         </div>
-        <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => window.repflowCall("+15125550123", "Test Lead")}>
+        <button
+          onClick={() => window.repflowCall("+15125550123", "Test Lead")}
+          style={{
+            marginTop: 12,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "10px 16px",
+            background: "#00d4aa", color: "#000",
+            border: "none", borderRadius: 8,
+            fontWeight: 700, fontSize: 12,
+            cursor: "pointer",
+            boxShadow: "0 4px 14px rgba(0,212,170,0.22)",
+          }}
+        >
           <Icons.Phone size={12}/> Fire test call
         </button>
       </div>
