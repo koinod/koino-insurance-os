@@ -46,7 +46,7 @@ const BY_PRODUCT_DEMO = [
 // shapes for a given period. Returns { vendors, byState, byProduct, isLive }.
 // When the tenant has no lead spend or sources, callers fall back to the
 // demo arrays for demo agencies and render an empty state for real agencies.
-function _liveAttribution(period = "MTD") {
+function _liveAttribution(period = "MTD", treeScopeIds = null) {
   const sources    = (window.AppData && window.AppData.LEAD_SOURCES) || [];
   const expenses   = (window.AppData && window.AppData.EXPENSES) || [];
   const pipeline   = (window.AppData && window.AppData.PIPELINE) || [];
@@ -64,10 +64,13 @@ function _liveAttribution(period = "MTD") {
     return new Date(0);
   })();
 
-  // Apply manager scope. Owner / fleet roles get null → see everything.
-  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
-  const scopedPipeline = scopeIds ? pipeline.filter(l => !l.owner || scopeIds.includes(l.owner)) : pipeline;
-  const scopedPolicies = scopeIds ? policies.filter(p => !p.owner || scopeIds.includes(p.owner)) : policies;
+  // Apply manager scope, then layer the Org Tree handoff scope. tree scope
+  // wins (operator explicitly clicked "Drill into sub-tree"); manager scope
+  // is the default for non-owner viewers.
+  const managerScope = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const effectiveScope = treeScopeIds && treeScopeIds.length > 0 ? treeScopeIds : managerScope;
+  const scopedPipeline = effectiveScope ? pipeline.filter(l => !l.owner || effectiveScope.includes(l.owner)) : pipeline;
+  const scopedPolicies = effectiveScope ? policies.filter(p => !p.owner || effectiveScope.includes(p.owner)) : policies;
 
   // 1. Spend per source (cents) within the period window. Lead-spend
   // expenses tagged to a lead_source_id are authoritative; untagged spend
@@ -189,12 +192,30 @@ function PageAttribution({ role = "owner" }) {
     };
   }, []);
 
+  // Scope handoff from Org Tree -> "Drill into sub-tree" puts rep_ids and
+  // a human label into sessionStorage; we read them once on mount, restrict
+  // _liveAttribution's pipeline/policies to those reps, and surface a
+  // "Filtered to: X" chip the operator can clear.
+  const [scopeFromTree, setScopeFromTree] = React.useState(null);
+  React.useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("repflow.scope.rep_ids");
+      const label = sessionStorage.getItem("repflow.scope.label");
+      if (raw) {
+        const ids = JSON.parse(raw);
+        if (Array.isArray(ids) && ids.length > 0) setScopeFromTree({ ids, label: label || "filtered" });
+      }
+      sessionStorage.removeItem("repflow.scope.rep_ids");
+      sessionStorage.removeItem("repflow.scope.label");
+    } catch {}
+  }, []);
+
   const [tab, setTab] = React.useState("vendors");
   const [period, setPeriod] = React.useState("MTD");  // MTD | T30 | T90 | YTD
   const [sort, setSort] = React.useState({ key: "roas", dir: "desc" });
   const [newVendorOpen, setNewVendorOpen] = React.useState(false);
 
-  const live = _liveAttribution(period);
+  const live = _liveAttribution(period, scopeFromTree?.ids);
   const isDemoAgency = !!(window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency());
   const VENDORS    = live.isLive ? live.vendors    : (isDemoAgency ? VENDORS_DEMO    : []);
   const BY_STATE   = live.isLive ? live.byState    : (isDemoAgency ? BY_STATE_DEMO   : []);
@@ -268,7 +289,15 @@ function PageAttribution({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">Lead Vendors · Attribution</div>
-          <div className="page-sub">{periodLabel} · acquisition cost → pipeline outcomes → policies, by vendor / state / product</div>
+          <div className="page-sub">
+            {periodLabel} · acquisition cost → pipeline outcomes → policies, by vendor / state / product
+            {scopeFromTree && (
+              <span style={{ marginLeft: 10, padding: "2px 10px", borderRadius: 100, background: "color-mix(in oklch, var(--accent-money) 12%, transparent)", color: "var(--accent-money)", fontSize: 11, fontWeight: 500 }}>
+                Filtered: {scopeFromTree.label}
+                <button onClick={() => setScopeFromTree(null)} className="btn btn-ghost" style={{ marginLeft: 6, padding: "0 4px", fontSize: 10, color: "var(--accent-money)" }} title="Clear filter">×</button>
+              </span>
+            )}
+          </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.SectionPill

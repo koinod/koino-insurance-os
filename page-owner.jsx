@@ -197,6 +197,30 @@ function _recruitingFunnel() {
   ];
 }
 
+// Anomaly snooze — per-user, persisted to localStorage so the operator
+// can dismiss signal noise (e.g. "I know about that NIGO spike, hide it
+// for 24h"). Keyed by a stable signal hash (type + body) so the same
+// anomaly can be snoozed across renders.
+const SNOOZE_KEY = "repflow.owner.anomaly_snooze.v1";
+function _loadSnoozes() {
+  try {
+    const raw = localStorage.getItem(SNOOZE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const now = Date.now();
+    // Prune expired
+    const fresh = {};
+    for (const [k, until] of Object.entries(parsed)) {
+      if (until > now) fresh[k] = until;
+    }
+    return fresh;
+  } catch { return {}; }
+}
+function _saveSnoozes(s) {
+  try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(s)); } catch {}
+}
+function _anomalyKey(a) { return `${a.t}::${a.b}`; }
+
 function PagePnL() {
   const [period, setPeriod]      = React.useState("MTD");  // MTD | T12 | YTD
   const m = _pnlLiveMetrics(period);
@@ -221,7 +245,19 @@ function PagePnL() {
   const overrideSub = m.overrideRev > 0 ? `live · ${fmtDelta(m.overrideRevDelta)}` : "no override commissions yet";
   const nigoSub     = m.nigoDrag > 0 ? `live · ${fmtDelta(m.nigoDragDelta, true)}` : "no clawbacks";
   const recFunnel = _recruitingFunnel();
-  const anomalies = _computeAnomalies();
+  const [snoozes, setSnoozes] = React.useState(() => _loadSnoozes());
+  const anomaliesAll = _computeAnomalies();
+  const anomalies = anomaliesAll.filter(a => !snoozes[_anomalyKey(a)]);
+  const snoozedCount = anomaliesAll.length - anomalies.length;
+  const snoozeFor = (a, hours) => {
+    const next = { ...snoozes, [_anomalyKey(a)]: Date.now() + hours * 3600 * 1000 };
+    setSnoozes(next); _saveSnoozes(next);
+    window.toast && window.toast(`Snoozed "${a.t}" for ${hours}h`, "info");
+  };
+  const unsnoozeAll = () => {
+    setSnoozes({}); _saveSnoozes({});
+    window.toast && window.toast("Cleared snoozes", "info");
+  };
   const [askValue, setAskValue]  = React.useState("");
   const [waterfallDrill, setDrill] = React.useState(null);
 
@@ -355,7 +391,7 @@ function PagePnL() {
         <div className="panel">
           <div className="panel-h">
             <Icons.TrendingUp size={13}/>
-            <h3>Revenue waterfall · this month</h3>
+            <h3>Revenue waterfall · {periodLabel.toLowerCase()}</h3>
             <span className="meta">drill any row</span>
           </div>
           <div className="list">
@@ -446,12 +482,17 @@ function PagePnL() {
             <div className="panel-h">
               <Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/>
               <h3>Anomalies</h3>
-              <span className="meta">{anomalies.length === 0 ? "all clear" : `${anomalies.length} signal${anomalies.length === 1 ? "" : "s"}`}</span>
+              <span className="meta">
+                {anomalies.length === 0 ? "all clear" : `${anomalies.length} signal${anomalies.length === 1 ? "" : "s"}`}
+                {snoozedCount > 0 && <> · <button className="btn btn-ghost" style={{ padding: "1px 6px", fontSize: 10.5 }} onClick={unsnoozeAll} title="Restore all snoozed anomalies">{snoozedCount} snoozed · clear</button></>}
+              </span>
             </div>
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
               {anomalies.length === 0 && (
                 <div style={{ fontSize: 12, color: "var(--text-tertiary)", padding: "16px 0", textAlign: "center" }}>
-                  No anomalies detected. Persistency, NIGO, certs, and lead-spend trends look normal.
+                  {snoozedCount > 0
+                    ? <>All visible anomalies snoozed. <button className="btn btn-ghost" style={{ padding: "2px 8px" }} onClick={unsnoozeAll}>Restore</button></>
+                    : "No anomalies detected. Persistency, NIGO, certs, and lead-spend trends look normal."}
                 </div>
               )}
               {anomalies.map((x, i) => (
@@ -461,7 +502,12 @@ function PagePnL() {
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{x.t}</div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{x.b}</div>
                   </div>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => handleAnomaly(x.target)}>{x.a}</button>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => handleAnomaly(x.target)}>{x.a}</button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px", fontSize: 10.5, color: "var(--text-tertiary)" }} onClick={() => snoozeFor(x, 24)} title="Hide for 24h">
+                      <Icons.X size={10}/>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -742,11 +788,20 @@ function PageOrgTree() {
                 </Shared.Field>
               )}
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={() => {
-                if (sel?.id && AppData.REPS.find(r => r.id === sel.id)) {
-                  // It's a rep — go to leaderboard filtered to them (placeholder: just go to leaderboard)
-                  window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "leaderboard" }}));
+                // Carry the selected scope into the target page via
+                // sessionStorage so downstream pages can pre-filter to
+                // this node's reps. Cleared on first read by the consumer.
+                try {
+                  if (scopeRepIds && scopeRepIds.length > 0) {
+                    sessionStorage.setItem("repflow.scope.rep_ids", JSON.stringify(scopeRepIds));
+                    sessionStorage.setItem("repflow.scope.label", sel?.name || agencyName);
+                  }
+                } catch {}
+                if (repObj) {
+                  // Single rep — performance page filtered to them
+                  window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "performance" }}));
                 } else {
-                  // Region/owner node — go to attribution by region
+                  // Region/owner node — attribution by region
                   window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "attribution" }}));
                 }
               }}><Icons.ArrowUpRight size={12}/> Drill into sub-tree</button>
