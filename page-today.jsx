@@ -604,8 +604,30 @@ function TodayRep({ aep }) {
               <div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{ textAlign: "right" }}>SLA clock</div><div></div>
             </div>
             {(QUEUE || []).length === 0 && (
-              <div style={{ padding: 22, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
-                Queue is empty. Open <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11.5 }} onClick={() => window.gotoPage && window.gotoPage("queue")}>Dial Queue</button> to pull a list.
+              <div style={{
+                padding: "20px 16px",
+                textAlign: "center",
+                fontSize: 12,
+                color: "var(--text-tertiary)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// queue · empty</span>
+                <span>No fresh leads waiting. Pull a list from the dial queue.</span>
+                <button
+                  onClick={() => window.gotoPage && window.gotoPage("queue")}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "6px 14px",
+                    background: "#00d4aa", color: "#000",
+                    border: "none", borderRadius: 8,
+                    fontWeight: 700, fontSize: 11.5,
+                    cursor: "pointer",
+                    boxShadow: "0 4px 14px rgba(0,212,170,0.18)",
+                  }}
+                ><Icons.Phone size={11}/> Open dial queue</button>
               </div>
             )}
             {(QUEUE || []).slice(0, 6).map(l => {
@@ -688,8 +710,11 @@ function TodayRep({ aep }) {
                       </div>
                     </>
                   ) : (
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                      No coaching notes yet. After your next AI-scored call, your upline can drop a focus card here.
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no notes yet</span>
+                      <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55, maxWidth: 320 }}>
+                        After your next AI-scored call, your upline can drop a focus card here.
+                      </div>
                     </div>
                   )}
                 </div>
@@ -762,8 +787,9 @@ function TodayRep({ aep }) {
               ).slice(0, 6);
               if (myRecs.length === 0) {
                 return (
-                  <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-                    No calls recorded yet. Start a power hour and your scored calls will land here.
+                  <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no calls yet</span>
+                    <span style={{ maxWidth: 280, lineHeight: 1.5 }}>Start a power hour — your scored calls will land here.</span>
                   </div>
                 );
               }

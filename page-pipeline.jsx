@@ -238,14 +238,58 @@ function PagePipeline({ role = "owner" }) {
               </div>
             ))}
             {filtered.length === 0 && (
-              <div style={{ padding: 36, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+              <div style={{
+                padding: "28px 20px",
+                textAlign: "center",
+                color: "var(--text-tertiary)",
+                fontSize: 12.5,
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                alignItems: "center",
+              }}>
                 {scoped.length === 0 && role === "rep" ? (
                   <>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>No pipeline yet.</div>
-                    <div>Pull a lead from the Dial Queue or add one manually.</div>
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <button className="btn" onClick={() => window.gotoPage && window.gotoPage("queue")}><Icons.Phone size={11}/> Open Dial Queue</button>
-                      <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={11}/> New lead</button>
+                    {/* koino.capital tag label — JetBrains Mono uppercase teal */}
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>
+                      // your pipeline
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+                      No leads yet.
+                    </div>
+                    <div style={{ maxWidth: 340, lineHeight: 1.5 }}>
+                      Pull a lead from the dial queue or add one manually.
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button
+                        onClick={() => window.gotoPage && window.gotoPage("queue")}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          padding: "8px 16px",
+                          background: "var(--bg-raised)",
+                          color: "var(--text-primary)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 8,
+                          fontWeight: 600, fontSize: 12,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                      ><Icons.Phone size={11}/> Open dial queue</button>
+                      <button
+                        onClick={() => setNewOpen(true)}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          padding: "8px 16px",
+                          background: "#00d4aa",
+                          color: "#000",
+                          border: "none",
+                          borderRadius: 8,
+                          fontWeight: 700, fontSize: 12,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                          boxShadow: "0 4px 14px rgba(0,212,170,0.18)",
+                        }}
+                      ><Icons.Plus size={11}/> New lead</button>
                     </div>
                   </>
                 ) : scoped.length === 0 ? (

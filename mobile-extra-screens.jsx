@@ -82,8 +82,9 @@ function MScreenCoaching({ onNav }) {
       </div>
       <div className="m-scroll">
         {cards.length === 0 && (
-          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-            No coaching notes yet. After your next AI-scored call, your upline can drop focus cards here.
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no notes yet</span>
+            <span style={{ maxWidth: 280, lineHeight: 1.5 }}>After your next AI-scored call, your upline can drop focus cards here.</span>
           </div>
         )}
         {cards.map((c, i) => (
@@ -130,8 +131,9 @@ function MScreenVault({ onNav }) {
       </div>
       <div className="m-scroll">
         {items.length === 0 && (
-          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-            No compliance artifacts retained yet. Recorded calls, SOAs, and TPMO captures will land here.
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// vault · empty</span>
+            <span style={{ maxWidth: 280, lineHeight: 1.5 }}>Recorded calls, SOAs, and TPMO captures will land here.</span>
           </div>
         )}
         {items.map((a, i) => (

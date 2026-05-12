@@ -168,8 +168,9 @@ function MScreenQueue({ onNav, onCall, onLead }) {
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
         {QUEUE.length === 0 && (
-          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-            Queue is empty.
+          <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// queue · empty</span>
+            <span>No leads waiting.</span>
           </div>
         )}
         {QUEUE.map((l, i) => {
@@ -285,7 +286,10 @@ function MScreenLead({ lead, onBack, onCall }) {
           <button className="m-btn m-btn-pill" style={{ height: 32 }} onClick={onBack}>← Queue</button>
         </div>
         <div className="m-scroll" style={{ display: "grid", placeItems: "center", padding: 36, color: "var(--text-tertiary)", fontSize: 12.5 }}>
-          No lead selected.
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no lead bound</span>
+            <span>Pick a lead from the queue.</span>
+          </div>
         </div>
       </div>
     );
@@ -365,8 +369,9 @@ function MScreenLeaderboard({ onNav }) {
 
       <div className="m-scroll" style={{ paddingTop: 4 }}>
         {ranked.length === 0 && (
-          <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-            No producers on the board yet.
+          <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// board · empty</span>
+            <span>No producers on the board yet.</span>
           </div>
         )}
         {/* Top 3 podium (only when 3+ reps) */}
@@ -529,8 +534,9 @@ function MScreenComm({ onNav }) {
         <div className="m-section-h"><span>Recent issues</span></div>
         <div className="m-card" style={{ padding: 0 }}>
           {rowsToShow.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-              No issued policies yet this period.
+            <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+              <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no issues yet</span>
+              <span>Your first issued policy will land here.</span>
             </div>
           )}
           {rowsToShow.map((r, i, arr) => (
