@@ -4278,53 +4278,80 @@ function SettingsProducts({ canEdit }) {
  * into via viewer_agency_ids(). */
 function SettingsCrossAgency() {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows] = React.useState([]);
+  const [rows, setRows]     = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [err, setErr] = React.useState(null);
+  const [err,    setErr]    = React.useState(null);
+  const [filter, setFilter] = React.useState("");
+  const [kindFilter, setKindFilter] = React.useState("all");
 
-  React.useEffect(() => {
+  const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    (async () => {
-      try {
-        const { data, error } = await sb.from("agencies")
-          .select("id, name, kind, parent_agency_id, created_at, is_demo")
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        setRows(Array.isArray(data) ? data : []);
-      } catch (e) { setErr(String(e?.message || e)); }
-      finally    { setLoading(false); }
-    })();
+    setLoading(true); setErr(null);
+    try {
+      const { data, error } = await sb.from("agencies")
+        .select("id, name, kind, parent_agency_id, created_at, is_demo")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
   }, [sb]);
+  React.useEffect(() => { refresh(); }, [refresh]);
 
   if (loading) return <div className="ks-empty">Loading visible agencies…</div>;
-  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load agencies: <span className="mono">{err}</span></div></div>;
+  if (err)     return <div className="ks-denied"><Icons.AlertTriangle size={16}/> <div>Couldn't load agencies: <span className="mono">{err}</span><div style={{ marginTop: 6 }}><button className="btn btn-ghost" onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button></div></div></div>;
   if (rows.length === 0) return <div className="ks-empty">You only see one agency — yourself. Add child agencies in Provision sub-agency.</div>;
 
+  const filtered = rows.filter(r => {
+    if (kindFilter !== "all" && (r.kind || "agency") !== kindFilter) return false;
+    if (!filter.trim()) return true;
+    const f = filter.toLowerCase();
+    return (r.name || "").toLowerCase().includes(f) || (r.id || "").toLowerCase().includes(f);
+  });
+  const byId = new Map(rows.map(r => [r.id, r]));
+
   return (
-    <div className="panel">
-      <div className="panel-h"><h3>Visible agencies</h3><span className="meta">{rows.length} total</span></div>
-      <div className="list">
-        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 110px 130px 100px" }}>
-          <div>Agency</div><div>Kind</div><div>Demo?</div><div>Created</div><div></div>
-        </div>
-        {rows.map(r => (
-          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 110px 130px 100px" }}>
-            <div>
-              <div style={{ fontWeight: 500 }}>{r.name}</div>
-              <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.id.slice(0, 8)}…</div>
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.kind || "agency"}</div>
-            <div>{r.is_demo ? <span className="chip">demo</span> : <span style={{ fontSize: 11, color: "var(--text-quaternary)" }}>live</span>}</div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</div>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" onClick={() => {
-                try { sessionStorage.setItem("repflow.impersonate.agency_id", r.id); } catch {}
-                window.toast && window.toast(`Switching to ${r.name}…`, "info");
-                window.location.reload();
-              }}>Open</button>
-            </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name or id…" style={{ maxWidth: 280 }}/>
+        <Shared.Select value={kindFilter} onChange={setKindFilter} options={[
+          { v: "all",    l: "All kinds" },
+          { v: "agency", l: "Agency" },
+          { v: "imo",    l: "IMO" },
+        ]}/>
+        <span className="chip">{filtered.length} of {rows.length}</span>
+        <button className="btn btn-ghost" onClick={refresh} style={{ marginLeft: "auto" }}><Icons.RefreshCw size={11}/> Refresh</button>
+      </div>
+      <div className="panel">
+        <div className="panel-h"><h3>Visible agencies</h3><span className="meta">RLS-scoped via viewer_agency_ids()</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 1fr 110px 90px 100px" }}>
+            <div>Agency</div><div>Kind</div><div>Parent</div><div>Created</div><div>Mode</div><div></div>
           </div>
-        ))}
+          {filtered.map(r => {
+            const parent = r.parent_agency_id ? byId.get(r.parent_agency_id) : null;
+            return (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 1fr 110px 90px 100px" }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{r.name}</div>
+                  <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.id.slice(0, 8)}…</div>
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.kind || "agency"}</div>
+                <div style={{ fontSize: 11.5, color: parent ? "var(--text-secondary)" : "var(--text-quaternary)" }}>{parent ? parent.name : "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</div>
+                <div>{r.is_demo ? <span className="chip">demo</span> : <span className="chip chip-money" style={{ fontSize: 10 }}>live</span>}</div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" onClick={() => {
+                    try { localStorage.setItem("repflow.active_agency", r.id); } catch {}
+                    window.toast && window.toast(`Switching to ${r.name}…`, "info");
+                    window.location.reload();
+                  }}>Open</button>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && <div className="ks-empty" style={{ margin: 8 }}>No agencies match the current filters.</div>}
+        </div>
       </div>
     </div>
   );
@@ -4343,19 +4370,47 @@ function SettingsProvisionSubAgency() {
     if (!form.name.trim() || !form.owner_email.trim()) {
       window.toast && window.toast("Name + owner email required", "warn"); return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.owner_email.trim())) {
+      window.toast && window.toast("Owner email looks invalid", "warn"); return;
+    }
     setBusy(true);
     try {
       let ok = false;
+      let rpcErr = null;
       try {
         const r = await sb.rpc("create_child_agency", { p_name: form.name.trim(), p_owner_email: form.owner_email.trim(), p_kind: form.kind, p_is_demo: form.is_demo });
         if (!r.error) ok = true;
-      } catch (_e) {}
+        else rpcErr = r.error;
+      } catch (e) { rpcErr = e; }
       if (!ok) {
-        const { error } = await sb.from("agencies").insert({ name: form.name.trim(), kind: form.kind, is_demo: form.is_demo });
-        if (error) throw error;
-        // Best-effort email invite — owner_email saved as a comment if the
-        // invites table exists. We don't fail if it's missing.
-        try { await sb.from("agency_invites").insert({ email: form.owner_email.trim(), role: "owner" }); } catch (_e2) {}
+        // Fallback path: insert agency, then mint an invite via /api/invites/create
+        // so it carries the correct agency_id binding + auth token.
+        const ins = await sb.from("agencies").insert({ name: form.name.trim(), kind: form.kind, is_demo: form.is_demo }).select("id").single();
+        if (ins.error) throw ins.error;
+        const newAgencyId = ins.data?.id;
+        if (!newAgencyId) throw new Error("Agency created but id not returned");
+        try {
+          const { data: session } = await sb.auth.getSession();
+          if (session?.session) {
+            const inviteRes = await fetch("/api/invites/create", {
+              method: "POST",
+              headers: { "content-type": "application/json", "authorization": `Bearer ${session.session.access_token}` },
+              body: JSON.stringify({ agency_id: newAgencyId, role: "owner", email_hint: form.owner_email.trim() })
+            });
+            if (!inviteRes.ok) {
+              const j = await inviteRes.json().catch(() => ({}));
+              window.toast && window.toast(`Agency created — invite mint failed: ${j.error || inviteRes.statusText}`, "warn");
+            } else {
+              const j = await inviteRes.json();
+              if (j.invite_url) {
+                navigator.clipboard?.writeText(j.invite_url).catch(() => {});
+                window.toast && window.toast(`Invite link copied — send to ${form.owner_email}`, "success");
+              }
+            }
+          }
+        } catch (e2) {
+          window.toast && window.toast(`Agency created — invite endpoint unreachable: ${e2?.message || e2}`, "warn");
+        }
       }
       window.toast && window.toast(`Provisioned ${form.name}`, "success");
       setForm({ name: "", owner_email: "", kind: "agency", is_demo: false });
@@ -4399,58 +4454,103 @@ function SettingsProvisionSubAgency() {
  * present, otherwise notifications fallback. */
 function SettingsAuditLog() {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows] = React.useState([]);
+  const [rows,    setRows]    = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [source, setSource] = React.useState("audit_log");
-  const [filter, setFilter] = React.useState("");
+  const [err,     setErr]     = React.useState(null);
+  const [source,  setSource]  = React.useState("audit_log");
+  const [filter,  setFilter]  = React.useState("");
+  const [actionFilter, setActionFilter] = React.useState("all");
+  const [limit,   setLimit]   = React.useState(100);
 
   const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
-      let r = await sb.from("audit_log").select("id, action, actor_id, target_table, target_id, created_at, payload").order("created_at", { ascending: false }).limit(100);
+      let r = await sb.from("audit_log")
+        .select("id, agency_id, action, actor_id, target_table, target_id, created_at, payload")
+        .order("created_at", { ascending: false })
+        .limit(limit);
       if (r.error) {
-        // Fall back to notifications
-        const r2 = await sb.from("notifications").select("id, kind, created_at, body, payload").order("created_at", { ascending: false }).limit(100);
+        // Fall back to notifications — same row shape from this UI's
+        // perspective (id, created_at, action, target).
+        const r2 = await sb.from("notifications")
+          .select("id, kind, created_at, body, payload")
+          .order("created_at", { ascending: false })
+          .limit(limit);
         if (!r2.error) { setRows(Array.isArray(r2.data) ? r2.data : []); setSource("notifications"); }
-        else { setRows([]); }
+        else          { setRows([]); setErr(r.error.message || String(r.error)); }
       } else {
         setRows(Array.isArray(r.data) ? r.data : []);
         setSource("audit_log");
       }
-    } catch (_e) {}
-    finally { setLoading(false); }
-  }, [sb]);
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
+  }, [sb, limit]);
   React.useEffect(() => { refresh(); }, [refresh]);
 
-  if (loading) return <div className="ks-empty">Loading audit log…</div>;
-  if (rows.length === 0) return <div className="ks-empty">No audit events recorded yet.</div>;
+  const actions = React.useMemo(() => {
+    const s = new Set();
+    rows.forEach(r => { const a = r.action || r.kind; if (a) s.add(a); });
+    return Array.from(s).sort();
+  }, [rows]);
 
-  const filtered = filter.trim()
-    ? rows.filter(r => JSON.stringify(r).toLowerCase().includes(filter.toLowerCase()))
-    : rows;
+  if (loading) return <div className="ks-empty">Loading audit log…</div>;
+  if (err && rows.length === 0) {
+    return (
+      <div className="ks-denied">
+        <Icons.AlertTriangle size={16}/>
+        <div>
+          <strong>Couldn't load audit log</strong>
+          <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{err}</div>
+          <button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button>
+        </div>
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="ks-empty">
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No audit events yet</div>
+        <div style={{ marginTop: 4 }}>Audit events show up here as your team uses the OS. Reads are scoped via viewer_agency_ids() so you see your own agency's footprint.</div>
+      </div>
+    );
+  }
+
+  const filtered = rows.filter(r => {
+    if (actionFilter !== "all" && (r.action || r.kind) !== actionFilter) return false;
+    if (!filter.trim()) return true;
+    return JSON.stringify(r).toLowerCase().includes(filter.toLowerCase());
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter actions / actors / targets…" style={{ maxWidth: 320 }}/>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input className="text-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter actions / actors / targets…" style={{ maxWidth: 280 }}/>
+        <Shared.Select value={actionFilter} onChange={setActionFilter} options={[{ v: "all", l: "All actions" }, ...actions.map(a => ({ v: a, l: a }))]}/>
+        <Shared.Select value={limit} onChange={(v) => setLimit(+v)} options={[
+          { v: 50,  l: "last 50"  },
+          { v: 100, l: "last 100" },
+          { v: 250, l: "last 250" },
+          { v: 500, l: "last 500" },
+        ]}/>
         <span className="chip">{filtered.length} of {rows.length}</span>
         <span className="mono" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-tertiary)" }}>source: {source}</span>
         <button className="btn btn-ghost" onClick={refresh}><Icons.RefreshCw size={12}/> Refresh</button>
       </div>
       <div className="panel">
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "140px 1fr 1fr 100px" }}>
+          <div className="list-h" style={{ gridTemplateColumns: "140px 1fr 1.2fr 110px" }}>
             <div>When</div><div>Action</div><div>Target</div><div>Actor</div>
           </div>
-          {filtered.slice(0, 100).map(r => (
-            <div key={r.id} className="row" style={{ gridTemplateColumns: "140px 1fr 1fr 100px" }}>
+          {filtered.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "140px 1fr 1.2fr 110px" }}>
               <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} title={r.created_at}>{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</div>
               <div style={{ fontWeight: 500 }}>{r.action || r.kind || "—"}</div>
               <div className="mono" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{r.target_table ? `${r.target_table}/${(r.target_id || "").toString().slice(0, 8)}` : (r.body || "—")}</div>
               <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(r.actor_id || "").toString().slice(0, 8) || "—"}</div>
             </div>
           ))}
+          {filtered.length === 0 && <div className="ks-empty" style={{ margin: 8 }}>No events match the current filters.</div>}
         </div>
       </div>
     </div>
