@@ -4021,8 +4021,8 @@ function SettingsCompliance() {
         <div className="ks-tile-h"><Icons.Shield size={14}/> DNC list<span className="ks-tile-tag">{form.dnc_list_url ? "set" : "missing"}</span></div>
         <div className="ks-tile-sub">URL or storage path to your federal/state DNC scrub list. Your dialer should reject any number that appears here.</div>
         <Shared.Field label="DNC source URL"><input className="text-input" value={form.dnc_list_url} onChange={(e) => update("dnc_list_url", e.target.value)} placeholder="https://… or s3://agency-bucket/dnc.csv"/></Shared.Field>
-        <Shared.Field label="Quiet hours">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <Shared.Field label="Quiet hours" hint="Outbound dialing blocked outside this window (local time of the lead).">
+          <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <input className="text-input" type="time" value={form.quiet_hours_start} onChange={(e) => update("quiet_hours_start", e.target.value)}/>
             <input className="text-input" type="time" value={form.quiet_hours_end} onChange={(e) => update("quiet_hours_end", e.target.value)}/>
           </div>
@@ -4032,7 +4032,7 @@ function SettingsCompliance() {
       <div className="ks-tile">
         <div className="ks-tile-h"><Icons.Activity size={14}/> Jornaya LeadiD<span className="ks-tile-tag">{form.jornaya_account_id ? "configured" : "off"}</span></div>
         <div className="ks-tile-sub">Tracks every web lead's TCPA consent. Account + site id from your Jornaya dashboard.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="profile-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <Shared.Field label="Account id"><input className="text-input" value={form.jornaya_account_id} onChange={(e) => update("jornaya_account_id", e.target.value)} placeholder="JV-XXXXX"/></Shared.Field>
           <Shared.Field label="Site id"><input className="text-input" value={form.jornaya_site_id} onChange={(e) => update("jornaya_site_id", e.target.value)} placeholder="ST-XXXXX"/></Shared.Field>
         </div>
