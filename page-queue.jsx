@@ -82,7 +82,7 @@ function DialQueueView({ onCall }) {
       <div className="queue-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
         <div className="panel">
           <div className="panel-h">
-            <h3>{tab === "mine" ? "My follow-ups · scored" : "Inbound · Med Supp + FE"}</h3>
+            <h3>{tab === "mine" ? "My follow-ups · scored" : "Inbound"}</h3>
             <span className="meta">sort: {tab === "mine" ? "highest-heat first" : "speed-to-lead"}</span>
           </div>
           <div className="list">
@@ -90,36 +90,69 @@ function DialQueueView({ onCall }) {
               <div></div><div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{textAlign:"right"}}>Score</div><div style={{textAlign:"right"}}>{tab === "mine" ? "Last" : "SLA"}</div><div></div>
             </div>
             {visible.length === 0 && (
-              <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-                {tab === "mine"
-                  ? "No leads assigned to you yet. Switch to Inbound to grab the next one, or import from CRM → Inbox."
-                  : "Inbound queue is clear."}
+              <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                  // {tab === "mine" ? "my queue · empty" : "inbound · clear"}
+                </span>
+                <span style={{ maxWidth: 320, lineHeight: 1.5 }}>
+                  {tab === "mine"
+                    ? "No leads assigned to you yet. Switch to Inbound or pull from CRM."
+                    : "No fresh inbound leads waiting."}
+                </span>
+                {tab === "mine" && (
+                  <button
+                    onClick={() => setTab("inbound")}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "6px 14px", marginTop: 4,
+                      background: "#00d4aa", color: "#000",
+                      border: "none", borderRadius: 8,
+                      fontWeight: 700, fontSize: 11.5, cursor: "pointer",
+                      boxShadow: "0 4px 14px rgba(0,212,170,0.18)",
+                    }}
+                  ><Icons.Bell size={11}/> Open inbound</button>
+                )}
               </div>
             )}
             {visible.map((l, i) => {
               const c = l.elapsed < 30 ? "var(--accent-money)" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
+              // Row click opens the lead in the pipeline detail slide-out.
+              // Pipeline row ids in "mine" tab look like "p-<uuid>" because
+              // we prefix them on line 24; strip back to the raw id.
+              const pipelineId = l._pipelineId || (typeof l.id === "string" && l.id.startsWith("p-") ? l.id.slice(2) : l.id);
+              const openInPipeline = () => {
+                if (window.gotoPage) window.gotoPage("pipeline");
+                setTimeout(() => window.dispatchEvent(new CustomEvent("pipeline:openLead", { detail: { id: pipelineId } })), 50);
+              };
               return (
-                <div key={l.id} className="row" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px" }}>
+                <div
+                  key={l.id}
+                  className="row"
+                  style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px", cursor: "pointer" }}
+                  onClick={(e) => {
+                    // Don't open detail when the click came from an action
+                    // button — buttons handle their own clicks + stopPropagation.
+                    if (e.target.closest("button")) return;
+                    openInPipeline();
+                  }}
+                  title="Open in pipeline"
+                >
                   <span className="dot" style={{ background: c }}></span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <strong style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.lead}</strong>
-                    <span title="LeadiD verified" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: 999, background: "color-mix(in oklch, var(--accent-money) 18%, transparent)", color: "var(--accent-money)", fontSize: 9, fontWeight: 700, flex: "0 0 auto" }}>✓</span>
+                    <span title="LeadiD verified" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: 999, background: "rgba(0,212,170,0.18)", color: "#00d4aa", fontSize: 9, fontWeight: 700, flex: "0 0 auto" }}>✓</span>
                   </div>
                   <div className="tabular" style={{ color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{l.age} · {l.state}</div>
                   <div style={{ color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.source}</div>
                   <div style={{ minWidth: 0 }}><span className="chip" style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>{l.product}</span></div>
-                  <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
+                  <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "#00d4aa" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
                       title={l.phone ? `Dial ${l.phone}` : "No phone on file — add one in lead detail"}
                       disabled={!l.phone}
-                      onClick={() => {
-                        // Was: i === 0 bypassed the phone check and called
-                        // onCall() — which opened the dialer with no number,
-                        // dialing nothing. Now: every row requires a phone;
-                        // the first one routes through onCall (so the dialer
-                        // overlay still opens) only when a phone is present.
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (!l.phone) { window.toast && window.toast("No phone on file — add one in lead detail", "warn"); return; }
                         if (i === 0 && onCall) { onCall(l); return; }
                         window.repflowCall && window.repflowCall(l.phone, l.lead);
@@ -129,11 +162,11 @@ function DialQueueView({ onCall }) {
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
                       title={l.phone ? `Send SMS to ${l.phone}` : "No phone on file"}
                       disabled={!l.phone}
-                      onClick={() => l.phone && window.smsCompose && window.smsCompose(l, l.phone)}>
+                      onClick={(e) => { e.stopPropagation(); if (l.phone && window.smsCompose) window.smsCompose(l, l.phone); }}>
                       <Icons.MessageSquare size={12}/>
                     </button>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }} title="Schedule SOA"
-                      onClick={() => window.scheduleSOA && window.scheduleSOA(l)}>
+                      onClick={(e) => { e.stopPropagation(); if (window.scheduleSOA) window.scheduleSOA(l); }}>
                       <Icons.Calendar size={12}/>
                     </button>
                   </div>
