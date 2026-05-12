@@ -1,8 +1,20 @@
-/* Demo data for Repflow */
+/* Repflow data layer.
+ *
+ * Hard rule (sovereign loop pass 6, 2026-05-11):
+ *   The hardcoded *_SEED arrays below are NEVER assigned to AppData on initial
+ *   render. They are only used by window.loadDemoSeed() when the operator
+ *   chooses "Skip → Continue with demo data" on the login screen, or when the
+ *   active agency has is_demo=true. A signed-in real agency with no data
+ *   sees [] across the board and pages render their empty states with
+ *   import / add CTAs — not Marcus / Cheryl / Atlas IMO.
+ *
+ * The Supabase hydrate path always overwrites (even with []) so that a
+ * tenant that returns 0 rows clears any stale seed, instead of leaving demo
+ * data leaking through page-manager, page-pipeline, etc. */
 const TIERS = ["bronze", "silver", "gold", "platinum", "diamond"];
 const TIER_LABELS = { bronze: "BRONZE", silver: "SILVER", gold: "GOLD", platinum: "PLAT", diamond: "DIAMOND" };
 
-const REPS = [
+const REPS_SEED = [
   { id: "marc", name: "Marcus Avila", handle: "@marc", tier: "platinum", mtd: 42310, today: 2840, streak: 18, dials: 87, presence: "live", appts: 4, color: "linear-gradient(135deg,#5b86e5,#36d1dc)" },
   { id: "dani", name: "Dani Rivera", handle: "@dani", tier: "diamond", mtd: 58920, today: 3120, streak: 31, dials: 102, presence: "live", appts: 6, color: "linear-gradient(135deg,#ee0979,#ff6a00)" },
   { id: "tony", name: "Tony Park", handle: "@tony", tier: "gold", mtd: 31480, today: 1240, streak: 9, dials: 64, presence: "live", appts: 3, color: "linear-gradient(135deg,#11998e,#38ef7d)" },
@@ -14,7 +26,7 @@ const REPS = [
   { id: "alex", name: "Alex Bauer", handle: "@alex", tier: "bronze", mtd: 8940, today: 220, streak: 0, dials: 22, presence: "idle", appts: 0, color: "linear-gradient(135deg,#a18cd1,#fbc2eb)" },
 ];
 
-const PIPELINE = [
+const PIPELINE_SEED = [
   { id: 1, lead: "Cheryl Hampton", age: 67, state: "TX", stage: "Quoted", product: "Med Supp Plan G", ap: 1840, days: 1, last: "Today, 11:14a", next: "SOA scheduled", source: "FB Lead Form", owner: "marc", consent: "verified", heat: "hot" },
   { id: 2, lead: "Robert Mendez", age: 71, state: "FL", stage: "App In", product: "Final Expense $15K", ap: 1320, days: 2, last: "Today, 9:02a", next: "Carrier review", source: "Inbound call", owner: "dani", consent: "verified", heat: "hot" },
   { id: 3, lead: "Linda Cho", age: 64, state: "NV", stage: "Contacted", product: "Med Supp Plan N", ap: 1610, days: 0, last: "8m ago", next: "Quote send", source: "T65 list", owner: "marc", consent: "verified", heat: "fresh" },
@@ -29,7 +41,7 @@ const PIPELINE = [
   { id: 12, lead: "Ed Yamamoto", age: 65, state: "WA", stage: "Issued", product: "Med Supp Plan G", ap: 1820, days: 9, last: "Last week", next: "30-day check", source: "T65 list", owner: "jada", consent: "verified", heat: "cold" },
 ];
 
-const QUEUE = [
+const QUEUE_SEED = [
   { id: "q1", lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", elapsed: 14, score: 92 },
   { id: "q2", lead: "Jamal Wright", age: 58, state: "GA", source: "FB Lead Form", product: "Final Expense", elapsed: 47, score: 88 },
   { id: "q3", lead: "Anita Boswell", age: 66, state: "NC", source: "Inbound", product: "Med Supp", elapsed: 12, score: 95 },
@@ -38,20 +50,20 @@ const QUEUE = [
   { id: "q6", lead: "Travis Heller", age: 65, state: "CA", source: "Referral", product: "Med Supp", elapsed: 156, score: 81 },
 ];
 
-const COURSES = [
+const COURSES_SEED = [
   { id: "c1", title: "Final Expense Closing 101", track: "FE", durMin: 28, status: "complete" },
   { id: "c2", title: "TPMO Disclaimer Mastery", track: "Compliance", durMin: 12, status: "due" },
   { id: "c3", title: "Med Supp Plan G vs N — when to switch", track: "Med Supp", durMin: 22, status: "in-progress" },
   { id: "c4", title: "AEP Surge Playbook 2026", track: "AEP", durMin: 45, status: "assigned" },
 ];
 
-const RECORDINGS = [
+const RECORDINGS_SEED = [
   { id: "r1", lead: "Cheryl Hampton", date: "Today, 11:14a", durSec: 1842, talkRatio: 38, openQ: 11, ai: "Strong rapport. Closed-ended on 'how do you spend your days now' — try open phrasing.", flags: { tpmo: "ok", soa: "scheduled" }, score: 87 },
   { id: "r2", lead: "Robert Mendez", date: "Today, 9:02a", durSec: 1206, talkRatio: 58, openQ: 4, ai: "Talk ratio too high. Robert tried twice to share medication concern — re-direct rebuttal hurt rapport.", flags: { tpmo: "ok", soa: "captured" }, score: 64 },
   { id: "r3", lead: "Linda Cho", date: "Yesterday, 4:42p", durSec: 920, talkRatio: 42, openQ: 8, ai: "Good price-anchor sequence. Missed cross-sell to Plan F → N alternative.", flags: { tpmo: "ok", soa: "n/a" }, score: 78 },
 ];
 
-const CONNECTIONS = [
+const CONNECTIONS_SEED = [
   { id: "twilio", name: "Twilio", category: "Comms", status: "ok", meta: "A2P 10DLC verified · 4 numbers" },
   { id: "convoso", name: "Convoso", category: "Dialer", status: "ok", meta: "Auto-dial · 124 dials/hr avg" },
   { id: "vapi", name: "Vapi", category: "Voice AI", status: "ok", meta: "3 agents deployed" },
@@ -66,14 +78,14 @@ const CONNECTIONS = [
   { id: "mailgun", name: "Mailgun", category: "Comms", status: "ok", meta: "98.2% deliverability" },
 ];
 
-const HARDWARE = [
+const HARDWARE_SEED = [
   { id: "h1", name: "Office Mac Mini — Atlanta", kind: "Mac Mini M4", status: "ok", uptime: "47d 6h", load: 22, agents: 3, last: "12s ago" },
   { id: "h2", name: "Office Mac Mini — Tampa", kind: "Mac Mini M4", status: "ok", uptime: "12d 2h", load: 18, agents: 2, last: "8s ago" },
   { id: "h3", name: "VPS — us-east-1", kind: "Hetzner CCX23", status: "ok", uptime: "92d 14h", load: 31, agents: 4, last: "4s ago" },
   { id: "h4", name: "VPS — us-west-2", kind: "Hetzner CCX23", status: "warn", uptime: "12h", load: 64, agents: 4, last: "2s ago" },
 ];
 
-const AGENTS = [
+const AGENTS_SEED = [
   { id: "a1", name: "Lead Enricher", host: "VPS-east", reqs: "1.2k/d", success: 99.4, last: "now", desc: "Pulls property, household, prior policy from carrier APIs." },
   { id: "a2", name: "Speed-to-Lead Dispatcher", host: "VPS-east", reqs: "847/d", success: 99.9, last: "now", desc: "Routes inbound FB leads to producer queue under 60s." },
   { id: "a3", name: "TPMO Compliance Scanner", host: "Mac Mini ATL", reqs: "402/d", success: 100, last: "1m", desc: "Listens to all calls, flags missing disclaimer or scope drift." },
@@ -82,14 +94,50 @@ const AGENTS = [
   { id: "a6", name: "Persistency Predictor", host: "VPS-east", reqs: "44/d", success: 96.2, last: "12m", desc: "Predicts lapse risk on 12-mo cohort; surfaces save-the-policy actions." },
 ];
 
-const WORKFLOWS = [
+const WORKFLOWS_SEED = [
   { id: "w1", name: "FB Lead → Med Supp queue (T65, < 60s)", runs: "412/d", lastRun: "23s ago" },
   { id: "w2", name: "Final Expense intake → app-ready", runs: "118/d", lastRun: "2m ago" },
   { id: "w3", name: "Post-call SOA capture & vault", runs: "204/d", lastRun: "1m ago" },
   { id: "w4", name: "Cross-sell: FE issued → Med Supp 60d", runs: "12/d", lastRun: "3h ago" },
 ];
 
-window.AppData = { TIERS, TIER_LABELS, REPS, PIPELINE, QUEUE, COURSES, RECORDINGS, CONNECTIONS, HARDWARE, AGENTS, WORKFLOWS, LIVE: false };
+// AppData ships EMPTY on first paint. The Supabase hydrate or a deliberate
+// loadDemoSeed() call (demo-skip / is_demo agency) is what populates these.
+// This prevents Marcus / Cheryl / Atlas IMO from bleeding into a real
+// agency's empty manager view (sovereign loop pass 6, 2026-05-11).
+window.AppData = {
+  TIERS, TIER_LABELS,
+  REPS: [], PIPELINE: [], QUEUE: [], COURSES: [], RECORDINGS: [],
+  CONNECTIONS: [], HARDWARE: [], AGENTS: [], WORKFLOWS: [],
+  LIVE: false,
+};
+
+// loadDemoSeed — explicitly chosen by the user (Skip → Continue with demo
+// data) OR by an is_demo agency. Called from page-auth.jsx (skip flow) and
+// from the post-hydrate guard below. Idempotent.
+window.loadDemoSeed = function () {
+  if (window.AppData.__demoSeedLoaded) return;
+  window.AppData.__demoSeedLoaded = true;
+  window.AppData.REPS = REPS_SEED.slice();
+  window.AppData.PIPELINE = PIPELINE_SEED.slice();
+  window.AppData.QUEUE = QUEUE_SEED.slice();
+  window.AppData.COURSES = COURSES_SEED.slice();
+  window.AppData.RECORDINGS = RECORDINGS_SEED.slice();
+  window.AppData.CONNECTIONS = CONNECTIONS_SEED.slice();
+  window.AppData.HARDWARE = HARDWARE_SEED.slice();
+  window.AppData.AGENTS = AGENTS_SEED.slice();
+  window.AppData.WORKFLOWS = WORKFLOWS_SEED.slice();
+  try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (_e) {}
+};
+
+// If the demo-skip flag was set before this script evaluated (sessionStorage
+// "repflow.demo" === "1"), or the URL has ?demo=1, seed immediately so the
+// app renders with sample content for the prototype-only path.
+try {
+  const inDemo = sessionStorage.getItem("repflow.demo") === "1"
+              || /[?&]demo=1\b/.test(window.location.search || "");
+  if (inDemo) { window.__demoSkip = true; window.loadDemoSeed(); }
+} catch (_e) {}
 
 // ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
 // Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
@@ -208,7 +256,12 @@ window.hydrateFromSupabase = async function () {
       scope(sb.from("workflows").select("*")),
     ]);
 
-    if (reps.data?.length) {
+    // GATE CHANGE (sovereign pass 6, 2026-05-11):
+    //   Was: `if (data?.length)` → empty agency left the demo fixtures in place.
+    //   Now: `if (Array.isArray(data))` → 0 rows assigns [] and the page
+    //   renders its empty state (manager card "No producers visible at your
+    //   scope. Invite reps."), instead of fake Atlas / Marcus rows.
+    if (Array.isArray(reps.data)) {
       window.AppData.REPS = reps.data.map(r => ({
         id: r.id, name: r.name, handle: r.handle, tier: r.tier,
         mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
@@ -216,7 +269,7 @@ window.hydrateFromSupabase = async function () {
         appts: r.appts, color: r.color
       }));
     }
-    if (pipeline.data?.length) {
+    if (Array.isArray(pipeline.data)) {
       window.AppData.PIPELINE = pipeline.data.map(p => ({
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
@@ -225,7 +278,7 @@ window.hydrateFromSupabase = async function () {
         phone: p.phone || null, email: p.email || null,
       }));
     }
-    if (queue.data?.length) {
+    if (Array.isArray(queue.data)) {
       window.AppData.QUEUE = queue.data.map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
         product: q.product, elapsed: q.elapsed_seconds, score: q.score,
@@ -233,12 +286,12 @@ window.hydrateFromSupabase = async function () {
         assignedRepId: q.assigned_rep_id || null,
       }));
     }
-    if (courses.data?.length) {
+    if (Array.isArray(courses.data)) {
       window.AppData.COURSES = courses.data.map(c => ({
         id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
       }));
     }
-    if (recordings.data?.length) {
+    if (Array.isArray(recordings.data)) {
       window.AppData.RECORDINGS = recordings.data.map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
@@ -246,24 +299,24 @@ window.hydrateFromSupabase = async function () {
         ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
       }));
     }
-    if (connections.data?.length) {
+    if (Array.isArray(connections.data)) {
       window.AppData.CONNECTIONS = connections.data.map(c => ({
         id: c.id, name: c.name, category: c.category, status: c.status, meta: c.meta
       }));
     }
-    if (hardware.data?.length) {
+    if (Array.isArray(hardware.data)) {
       window.AppData.HARDWARE = hardware.data.map(h => ({
         id: h.id, name: h.name, kind: h.kind, status: h.status, uptime: h.uptime_text,
         load: h.load_pct, agents: h.agent_count, last: "live"
       }));
     }
-    if (agents.data?.length) {
+    if (Array.isArray(agents.data)) {
       window.AppData.AGENTS = agents.data.map(a => ({
         id: a.id, name: a.name, host: a.host_id, reqs: a.reqs_per_day,
         success: parseFloat(a.success_rate), last: "live", desc: a.description
       }));
     }
-    if (workflows.data?.length) {
+    if (Array.isArray(workflows.data)) {
       window.AppData.WORKFLOWS = workflows.data.map(w => ({
         id: w.id, name: w.name, runs: w.runs_per_day,
         lastRun: w.last_run ? new Date(w.last_run).toLocaleString() : "—"
@@ -639,6 +692,23 @@ window.hydrateFromSupabase = async function () {
     }
 
     window.AppData.LIVE = true;
+
+    // Demo-agency fallback: if the active agency carries is_demo=true but
+    // has no rows yet (fresh provision), seed it locally so the prototype
+    // surface still looks alive. Real agencies (is_demo=false) stay empty
+    // and render proper empty states with import/add CTAs.
+    try {
+      const meIdent = window.me && window.me();
+      const isDemoFromActive = !!(window.__activeAgency && window.__activeAgency.is_demo);
+      const isDemoFromMe     = !!(meIdent && meIdent.is_demo === true);
+      const allEmpty = (window.AppData.REPS.length === 0)
+                    && (window.AppData.PIPELINE.length === 0)
+                    && (window.AppData.QUEUE.length === 0);
+      if (allEmpty && (isDemoFromActive || isDemoFromMe || window.__demoSkip)) {
+        window.loadDemoSeed && window.loadDemoSeed();
+      }
+    } catch (_e) {}
+
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
   } catch (err) {
