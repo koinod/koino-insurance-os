@@ -38,7 +38,9 @@
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=74"></script>
 <script type="text/babel" src="page-pipeline.jsx?v=79"></script>
 <script type="text/babel" src="page-queue.jsx?v=80"></script>
-<script type="text/babel" src="page-manager.jsx?v=79"></script>
+<script type="text/babel" src="page-manager.jsx?v=80"></script>
+<script type="text/babel" src="page-tree.jsx?v=81"></script>
+<script type="text/babel" src="page-leaddrip.jsx?v=81"></script>
 <script type="text/babel" src="page-owner.jsx?v=79"></script>
 <script type="text/babel" src="page-ops.jsx?v=76"></script>
 <script type="text/babel" src="page-extras.jsx?v=79"></script>
@@ -248,6 +250,8 @@ function App() {
       case "system":      return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="system"/>   : null; })();
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
+      case "downline":    return (() => { const P = window.PageTree;        return P ? <P/> : null; })();
+      case "leaddrip":    return (() => { const P = window.PageLeadDrip;   return P ? <P/> : null; })();
 
       // Consolidated NAV aliases (NAV restructure 2026-05-05).
       // Old routes (vault/tree/performance/attribution/training/resources/
