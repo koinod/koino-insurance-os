@@ -3186,19 +3186,64 @@ function SettingsRouting() {
   );
 }
 
+/* Settings → Notifications
+ * Loads existing prefs from public.notification_prefs (keyed on auth user id),
+ * persists toggles back through AppData.mutate.notificationPrefsSave. Was
+ * previously saving under the literal string "me" which RLS rejected, so
+ * no toggle ever persisted across sessions.
+ *
+ * Overlaps intentionally with SettingsProfile.notification_prefs — that one
+ * targets the JSON column on public.profiles; this one targets the legacy
+ * notification_prefs row. Both will converge once the profile JSON becomes
+ * the canonical source; until then this panel saves to both so a manager who
+ * doesn't open Profile still gets their toggles persisted. */
 function SettingsNotifications() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
+  const DEFAULTS = {
+    leadNew: true, leadStuck: true, dealIssued: true, nigo: true,
+    coachingNew: false, recruitingNew: true, dailyDigest: true,
+  };
+  const [prefs, setPrefs]   = React.useState(DEFAULTS);
+  const [userId, setUserId] = React.useState(null);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { setLoaded(true); return; }
+      try {
+        const s = await sb.auth.getSession();
+        const uid = s?.data?.session?.user?.id;
+        if (!uid) { setLoaded(true); return; }
+        if (!cancelled) setUserId(uid);
+        const { data } = await sb.from("notification_prefs")
+          .select("prefs")
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (!cancelled && data && data.prefs && typeof data.prefs === "object") {
+          setPrefs({ ...DEFAULTS, ...data.prefs });
+        }
+      } catch (_e) {}
+      finally { if (!cancelled) setLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const update = (k, v) => {
     const next = { ...prefs, [k]: v };
     setPrefs(next);
-    window.AppData.mutate.notificationPrefsSave("me", next).catch(() => {});
+    if (!userId) {
+      window.toast && window.toast("Sign in to save notification preferences", "warn");
+      return;
+    }
+    window.AppData.mutate.notificationPrefsSave(userId, next)
+      .then(() => window.toast && window.toast("Notification prefs saved", "success"))
+      .catch((e) => window.toast && window.toast(`Save failed: ${e?.message || e}`, "error"));
   };
   const t = (k, l, sub) => (
     <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
       <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => update(k, e.target.checked)}/>
+        <input type="checkbox" checked={!!prefs[k]} disabled={!loaded} onChange={(e) => update(k, e.target.checked)}/>
       </span>
       <div>
         <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
@@ -3210,37 +3255,9 @@ function SettingsNotifications() {
   return (
     <div className="panel" style={{ padding: 16 }}>
       <h3 style={{ margin: 0 }}>Notifications</h3>
-      <div style={{ marginTop: 8 }}>
-        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
-        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
-        {t("dealIssued",    "Deal issued",                   "Push immediately")}
-        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
-        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
-        {t("recruitingNew", "New applicant in funnel",        "Daily")}
-        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, marginBottom: 8 }}>
+        Saved to your account · used by the bell, the morning digest, and SMS / email fan-out when configured.
       </div>
-    </div>
-  );
-}
-function SettingsNotifications_OLD() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
-  const t = (k, l, sub) => (
-    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
-      <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => setPrefs({ ...prefs, [k]: e.target.checked })}/>
-      </span>
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
-      </div>
-      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
-    </label>
-  );
-  return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0 }}>Notifications</h3>
       <div style={{ marginTop: 8 }}>
         {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
         {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}

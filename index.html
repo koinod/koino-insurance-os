@@ -36,12 +36,13 @@
 <script type="text/babel" src="shared.jsx?v=77"></script>
 <script type="text/babel" src="page-today.jsx?v=77"></script>
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=76"></script>
-<script type="text/babel" src="page-pipeline.jsx?v=76"></script>
+<script type="text/babel" src="page-pipeline.jsx?v=77"></script>
 <script type="text/babel" src="page-queue.jsx?v=76"></script>
-<script type="text/babel" src="page-manager.jsx?v=76"></script>
+<script type="text/babel" src="page-manager.jsx?v=77"></script>
 <script type="text/babel" src="page-owner.jsx?v=77"></script>
-<script type="text/babel" src="page-ops.jsx?v=76"></script>
-<script type="text/babel" src="page-extras.jsx?v=82"></script>
+<script type="text/babel" src="page-ops.jsx?v=77"></script>
+<script type="text/babel" src="page-extras.jsx?v=83"></script>
+<script type="text/babel" src="page-leaderboard.jsx?v=77"></script>
 <script type="text/babel" src="page-expenses.jsx?v=76"></script>
 <script type="text/babel" src="page-invite-team.jsx?v=76"></script>
 <script type="text/babel" src="page-recruiting.jsx?v=76"></script>
@@ -225,9 +226,14 @@ function App() {
       case "pipeline":    return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="pipeline"/>;
       case "queue":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
       case "leaderboard": return (() => {
-        // page-leaderboard.jsx was removed — fall through to Performance for
-        // owners, or a stub message for non-owner roles.
+        // Owner gets the combined Performance view (leaderboard + tiering +
+        // forecast). Manager + rep get PageLeaderboard, which scopes to the
+        // viewer's downline via window.scopeRepIds(). Falls through to
+        // Performance if PageLeaderboard isn't loaded.
+        const L = window.PageLeaderboard;
         const P = window.PagePerformance;
+        if (role === "owner" && P) return <P/>;
+        if (L) return <L role={role}/>;
         if (P) return <P/>;
         return <div style={{ padding: 30, color: "var(--text-tertiary)", fontSize: 13 }}>Leaderboard view not available — open P&L → Performance instead.</div>;
       })();
