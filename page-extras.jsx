@@ -2629,6 +2629,18 @@ function PageSettings({ role = "owner" }) {
   })();
   const [tab, setTab] = React.useState(initialTab);
 
+  // Allow any descendant to switch tabs by dispatching a `settings:tab`
+  // CustomEvent (used by, e.g., the Products → Carriers redirect). Falls
+  // back gracefully if the requested tab isn't allowed for this role.
+  React.useEffect(() => {
+    const onJump = (e) => {
+      const k = e.detail;
+      if (typeof k === "string" && tabs.includes(k)) setTab(k);
+    };
+    window.addEventListener("settings:tab", onJump);
+    return () => window.removeEventListener("settings:tab", onJump);
+  }, [tabs]);
+
   // Group tabs by section for the rail header.
   const grouped = React.useMemo(() => {
     const groups = {};
@@ -3075,14 +3087,17 @@ function SettingsIntegrations() {
   }
 
   if (loading) {
-    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading connector catalog…</div>;
+    return <div className="ks-empty">Loading connector catalog…</div>;
   }
   if (loadErr) {
     return (
-      <div className="panel" style={{ padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load connectors</div>
-        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{loadErr}</div>
-        <button className="btn" onClick={refresh}>Try again</button>
+      <div className="ks-denied">
+        <Icons.AlertTriangle size={16}/>
+        <div>
+          <strong>Couldn't load connectors</strong>
+          <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{loadErr}</div>
+          <button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button>
+        </div>
       </div>
     );
   }
@@ -4156,20 +4171,23 @@ function SettingsBranding() {
  * which ones reps see in the quote engine. Read-only for managers. */
 function SettingsProducts({ canEdit }) {
   const sb = window.getSupabase && window.getSupabase();
-  const [rows, setRows]       = React.useState([]);
+  const [rows,    setRows]    = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [err,     setErr]     = React.useState(null);
   const [busyId,  setBusyId]  = React.useState(null);
+  const [lineFilter, setLineFilter] = React.useState("all");
 
   const refresh = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
-      const { data } = await sb.from("products")
+      const { data, error } = await sb.from("products")
         .select("id, carrier_id, line, name, status, commission_pct, updated_at")
         .order("line").limit(200);
+      if (error) throw error;
       setRows(Array.isArray(data) ? data : []);
-    } catch (_e) {}
-    finally { setLoading(false); }
+    } catch (e) { setErr(String(e?.message || e)); }
+    finally    { setLoading(false); }
   }, [sb]);
   React.useEffect(() => { refresh(); }, [refresh]);
 
@@ -4188,20 +4206,43 @@ function SettingsProducts({ canEdit }) {
   };
 
   if (loading) return <div className="ks-empty">Loading products…</div>;
+  if (err) {
+    return (
+      <div className="ks-denied">
+        <Icons.AlertTriangle size={16}/>
+        <div>
+          <strong>Couldn't load products</strong>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="mono">{err}</div>
+          <button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={refresh}><Icons.RefreshCw size={11}/> Retry</button>
+        </div>
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
       <div className="ks-empty">
         <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No products mapped to this agency yet</div>
         <div style={{ marginTop: 4 }}>Add carrier appointments first (Carriers tab), then publish their product catalog.</div>
-        <button className="btn" style={{ marginTop: 10 }} onClick={() => { try { sessionStorage.setItem("repflow.settings.tab","carriers"); } catch{}; window.location.reload(); }}>Open Carriers</button>
+        <button className="btn" style={{ marginTop: 10 }} onClick={() => {
+          try { sessionStorage.setItem("repflow.settings.tab", "carriers"); } catch {}
+          window.dispatchEvent(new CustomEvent("settings:tab", { detail: "carriers" }));
+        }}>Open Carriers</button>
       </div>
     );
   }
+  const lines = Array.from(new Set(rows.map(r => r.line || "Other"))).sort();
+  const filtered = lineFilter === "all" ? rows : rows.filter(r => (r.line || "Other") === lineFilter);
 
-  const byLine = rows.reduce((m, r) => { (m[r.line || "Other"] = m[r.line || "Other"] || []).push(r); return m; }, {});
+  const byLine = filtered.reduce((m, r) => { (m[r.line || "Other"] = m[r.line || "Other"] || []).push(r); return m; }, {});
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="ks-section-label" style={{ padding: 0 }}>Products</div>
+        <span className="chip">{rows.filter(r => r.status === "active").length}/{rows.length} active</span>
+        <Shared.Select value={lineFilter} onChange={setLineFilter} options={[{ v: "all", l: "All lines" }, ...lines.map(l => ({ v: l, l }))]}/>
+        <button className="btn btn-ghost" onClick={refresh} style={{ marginLeft: "auto" }}><Icons.RefreshCw size={11}/> Refresh</button>
+      </div>
       {Object.entries(byLine).map(([line, items]) => (
         <div className="panel" key={line}>
           <div className="panel-h">
