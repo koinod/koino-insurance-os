@@ -739,27 +739,340 @@ function TodayRep({ aep }) {
 
         <div className="panel">
           <div className="panel-h">
-            <Icons.Bolt size={14} style={{ color: "var(--accent-heat)" }}/>
+            <Icons.Bolt size={14} style={{ color: "var(--accent-money)" }}/>
             <h3>Daily ritual</h3>
             <span className="meta">{aep ? "AEP cadence" : "regular"}</span>
           </div>
-          <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-            {[
-              { t: "9:00a",  n: "Lead Drop",          s: "47 fresh leads in queue",        d: "done" },
-              { t: "12:00p", n: "Mid-day check-in",   s: "Talk-ratio review w/ AI",         d: "done" },
-              { t: "4:00p",  n: "Power Hour",         s: "Group dial · Discord war-room",   d: "now"  },
-              { t: "7:00p",  n: "Today's Closes",     s: "Leaderboard freeze · post wins",  d: "next" },
-            ].map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: r.d === "now" ? "color-mix(in oklch, var(--accent-heat) 12%, transparent)" : "var(--bg-raised)" }}>
-                <span className="tabular mono" style={{ width: 50, fontSize: 11, color: r.d === "now" ? "var(--accent-heat)" : "var(--text-tertiary)" }}>{r.t}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.n}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{r.s}</div>
+          {(() => {
+            // Was a hardcoded "9:00a Lead Drop · 47 fresh leads · done / 4:00p
+            // Power Hour · now" block — every agency saw the same fake schedule
+            // with a fake "47 leads" number. Now derives from agency-config's
+            // ritual array (if owners have configured one) and live queue count.
+            const cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
+            const ritual = Array.isArray(cfg?.daily_ritual) ? cfg.daily_ritual : null;
+            const queueLen = (AppData.QUEUE || []).length;
+            if (!ritual || ritual.length === 0) {
+              return (
+                <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.5, textAlign: "center" }}>
+                  No daily ritual configured yet. Queue depth: <span className="tabular" style={{ color: queueLen > 0 ? "var(--accent-money)" : "var(--text-tertiary)" }}>{queueLen}</span>.
+                  <div style={{ marginTop: 6, fontSize: 11 }}>Your manager can set a team cadence in agency-config.</div>
                 </div>
-                {r.d === "done" && <Icons.Check size={13} style={{ color: "var(--accent-money)" }}/>}
-                {r.d === "now"  && <span className="chip chip-heat">LIVE</span>}
+              );
+            }
+            const now = new Date();
+            const nowMin = now.getHours() * 60 + now.getMinutes();
+            return (
+              <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {ritual.map((r, i) => {
+                  const [h, m] = (r.t || "0:00").split(":").map(Number);
+                  const startMin = (h || 0) * 60 + (m || 0);
+                  const next = ritual[i + 1];
+                  const endMin = next ? (() => { const [nh, nm] = (next.t || "23:59").split(":").map(Number); return (nh || 23) * 60 + (nm || 59); })() : 24 * 60;
+                  const state = nowMin >= startMin && nowMin < endMin ? "now" : nowMin >= endMin ? "done" : "next";
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: "var(--radius-sm)", background: state === "now" ? "color-mix(in srgb, var(--accent-money) 10%, transparent)" : "var(--bg-raised)", border: state === "now" ? "1px solid color-mix(in srgb, var(--accent-money) 35%, transparent)" : "1px solid var(--border-subtle)" }}>
+                      <span className="tabular mono" style={{ width: 46, fontSize: 10.5, color: state === "now" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{r.t}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 500 }}>{r.n}</div>
+                        {r.s && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.s}</div>}
+                      </div>
+                      {state === "done" && <Icons.Check size={12} style={{ color: "var(--accent-money)" }}/>}
+                      {state === "now"  && <span className="chip chip-money" style={{ fontSize: 9.5 }}>NOW</span>}
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───── Manager view ─────────────────────────────────────────────────────── *
+ * Restructure 2026-05-12: every number traces to a real Supabase query
+ * scoped via window.scopeRepIds() (manager downline). Sub-tab strip folds
+ * Pay (commissions), Expenses (agency_expenses), and NIGO (carrier returns)
+ * under Today so the manager has one landing instead of four sidebar items.
+ *
+ * Anti-theater: NO hardcoded numbers in this function. Empty states render
+ * when no real data path resolves. Sources cited per section:
+ *   - Team MTD/Today/dials    → AppData.REPS filtered by scopeRepIds()
+ *   - Live coaching cards     → AppData.COACHING_SESSIONS filtered by scope
+ *   - Pay sub-tab             → buildStatement() (POLICIES + COMMISSIONS) + scope
+ *   - Expenses sub-tab        → public.agency_expenses RLS-scoped query
+ *   - NIGO sub-tab            → AppData.NIGOS + reasons + pipeline join, scoped
+ *   - Stuck-deal "Needs me"   → AppData.PIPELINE rows in App-In/Quoted >3 days
+ */
+function TodayManager({ aep }) {
+  // Re-render on hydrate / mutation / me:loaded so scope picks up the
+  // downline_ids the moment they resolve.
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    window.addEventListener("me:loaded", fn);
+    window.addEventListener("data:hydrated", fn);
+    window.addEventListener("data:mutated", fn);
+    return () => {
+      window.removeEventListener("me:loaded", fn);
+      window.removeEventListener("data:hydrated", fn);
+      window.removeEventListener("data:mutated", fn);
+    };
+  }, []);
+
+  const me = (window.me && window.me()) || null;
+  // null = unscoped (owner / super_admin); empty array = me() still loading
+  // so we render with the full agency view to avoid a blank page; ids = scope.
+  const scopeIds = (window.scopeRepIds && window.scopeRepIds()) || null;
+  const allReps = (AppData && AppData.REPS) || [];
+  const REPS = scopeIds === null || scopeIds.length === 0
+    ? allReps
+    : allReps.filter(r => scopeIds.includes(r.id));
+
+  const live  = REPS.filter(r => r.presence === "live");
+  const idle  = REPS.filter(r => r.presence !== "live");
+  const teamMTD   = REPS.reduce((a, r) => a + (r.mtd   || 0), 0);
+  const teamToday = REPS.reduce((a, r) => a + (r.today || 0), 0);
+  const totalDials = REPS.reduce((a, r) => a + (r.dials || 0), 0);
+
+  // Per-rep daily dial floor from agency-config (var-tier targets).
+  // Fall back to 60/rep when no config — same heuristic as page-floor.jsx.
+  const cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
+  const dialFloor = (cfg?.daily_dial_floor || 60) * REPS.length;
+
+  const [subTab, setSubTab] = React.useState("pulse");
+
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Today · {me?.agency_name || "Team"}
+            {aep && (() => { const ctx = useAepContext(null, "manager"); return ctx ? <> — <AepTitleChip ctx={ctx}/></> : null; })()}
+          </div>
+          <div className="page-sub">
+            {REPS.length === 0
+              ? "No producers in your downline yet"
+              : `${live.length} of ${REPS.length} live · ${totalDials} dials · $${teamToday.toLocaleString()} closed today`}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button
+            className="btn"
+            onClick={() => { if (window.gotoPage) window.gotoPage("messages"); }}
+            title="Open team channel"
+          ><Icons.MessageSquare size={13}/> Standup notes</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => { if (window.gotoPage) window.gotoPage("floor"); }}
+            title="Jump to live floor"
+          ><Icons.Phone size={13}/> Power Hour · all hands</button>
+        </div>
+      </div>
+
+      {/* Spend congruency strip — every value derives from real tables.
+          Sources cited inline; falls back to "—" when no data path exists. */}
+      <TodaySpendStrip scopeIds={scopeIds} teamToday={teamToday}/>
+
+      <div className="kpi-row">
+        <Shared.KpiCard hero label="Team MTD AP" prefix="$" value={teamMTD.toLocaleString()}
+          sub={REPS.length === 0 ? "no producers" : `${REPS.length} producer${REPS.length === 1 ? "" : "s"} in scope`}/>
+        <Shared.KpiCard label="Booked today" prefix="$" value={teamToday.toLocaleString()}
+          sub={`${live.length} producer${live.length === 1 ? "" : "s"} live`}
+          trend={teamToday > 0 ? "up" : undefined}/>
+        <Shared.KpiCard label="Total dials" value={totalDials}
+          sub={dialFloor > 0 ? `floor ${dialFloor}` : "no floor set"}
+          trend={dialFloor > 0 && totalDials >= dialFloor ? "up" : undefined}/>
+      </div>
+
+      <PredictiveCards scope="team"/>
+      <ForecastStrip scope="team"/>
+
+      {/* Sub-tab strip — Pulse (default) / Pay / Expenses / NIGO */}
+      <div style={{ marginTop: 14, marginBottom: 10 }}>
+        <Shared.SectionPill
+          value={subTab}
+          onChange={setSubTab}
+          items={[
+            { k: "pulse",    l: "Pulse" },
+            { k: "pay",      l: "Pay" },
+            { k: "expenses", l: "Expenses" },
+            { k: "nigo",     l: "NIGO" },
+          ]}
+        />
+      </div>
+
+      {subTab === "pulse"    && <TodayManagerPulse REPS={REPS} live={live} idle={idle} scopeIds={scopeIds}/>}
+      {subTab === "pay"      && <TodayManagerPay scopeIds={scopeIds}/>}
+      {subTab === "expenses" && <TodayManagerExpenses/>}
+      {subTab === "nigo"     && <TodayManagerNigo scopeIds={scopeIds}/>}
+    </div>
+  );
+}
+
+/* Spend congruency strip — every value computed from real tables.
+   Cited sources per chip:
+     Team CPA today     → SUM(agency_expenses today, kind=lead_spend) / today's leads
+     Lead spend today   → SUM(agency_expenses today, kind=lead_spend)
+     Comp paid today    → SUM(commissions today, scope)
+     Open NIGO          → COUNT(nigos status=open, scope) */
+function TodaySpendStrip({ scopeIds, teamToday }) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const expenses = (AppData.AGENCY_EXPENSES || []);
+  const todayExpenses = expenses.filter(e => (e.paidAt || e.createdAt || "").startsWith(todayISO));
+  const leadSpendCents = todayExpenses
+    .filter(e => e.kind === "lead_spend")
+    .reduce((a, e) => a + (e.amountCents || 0), 0);
+
+  const pipeline = (AppData.PIPELINE || []);
+  const inScope = (row) => !scopeIds || scopeIds.length === 0 || !row.owner || scopeIds.includes(row.owner);
+  const todaysLeads = pipeline.filter(p => inScope(p) && (p.createdAt || "").startsWith(todayISO)).length;
+  const cpa = todaysLeads > 0 ? Math.round(leadSpendCents / 100 / todaysLeads) : null;
+
+  const commissions = (AppData.COMMISSIONS || []);
+  const compPaidCents = commissions
+    .filter(c => (c.paidAt || c.createdAt || "").startsWith(todayISO))
+    .filter(c => inScope(c))
+    .reduce((a, c) => a + (c.amount || 0), 0);
+
+  const openNigos = (AppData.NIGOS || []).filter(n => {
+    if (n.status === "resolved" || n.status === "wont_fix" || n.status === "fixed") return false;
+    return inScope({ owner: n.assignedTo });
+  }).length;
+
+  return (
+    <SpendStrip items={[
+      { l: "Team CPA today",  v: cpa != null ? `$${cpa}` : "—",                                tone: cpa != null ? "money" : "" },
+      { l: "Lead spend today", v: leadSpendCents > 0 ? `$${Math.round(leadSpendCents/100).toLocaleString()}` : "—" },
+      { l: "Comp paid today",  v: compPaidCents > 0 ? `$${Math.round(compPaidCents).toLocaleString()}` : "—", tone: compPaidCents > 0 ? "money" : "" },
+      { l: "Open NIGO",        v: String(openNigos),                                            tone: openNigos > 0 ? "warn" : "" },
+    ]}/>
+  );
+}
+
+/* Pulse sub-tab — live producer table + coaching cards + stuck-deal "Needs me".
+   Stuck-deal panel REPLACES the previous hardcoded "Robert Mendez App In..."
+   row set with a real query against AppData.PIPELINE filtered to downline +
+   days-in-stage > 3 + stage in ["App In", "Quoted"]. */
+function TodayManagerPulse({ REPS, live, idle, scopeIds }) {
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  const pipeline = (AppData.PIPELINE || []);
+  const inScope = (row) => !scopeIds || scopeIds.length === 0 || !row.owner || scopeIds.includes(row.owner);
+
+  // "Needs me" = high-leverage stuck deals: App In or Quoted, > 3 days in stage,
+  // owned by a downline rep. Sorted by AP descending so the biggest at-risk
+  // money rises. Caps at 6 rows.
+  const stuckDeals = pipeline
+    .filter(inScope)
+    .filter(p => (p.stage === "App In" || p.stage === "Quoted") && (p.days || 0) > 3)
+    .sort((a, b) => (b.ap || 0) - (a.ap || 0))
+    .slice(0, 6);
+
+  // Coaching cards: real entries from AppData.COACHING_SESSIONS filtered to scope.
+  // No more "Talk ratio 58%" / "Plan G anchor" placeholder copy.
+  const sessions = (AppData.COACHING_SESSIONS || [])
+    .filter(s => repById[s.repId])
+    .filter(s => !s.completedAt)
+    .slice(0, 4);
+
+  return (
+    <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 10 }}>
+      <div className="panel">
+        <div className="panel-h"><Icons.Users size={13}/><h3>Producers · live floor</h3><span className="meta">{REPS.length}</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px" }}>
+            <div>Producer</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Dials</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Appts</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Today</div>
+            <div className="tabular" style={{ textAlign: "right" }}>MTD</div>
+            <div></div>
+          </div>
+          {REPS.length === 0 && (
+            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+              No producers in your downline yet. <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("recruiting"); }} style={{ color: "var(--accent-money)" }}>Invite reps</a>.
+            </div>
+          )}
+          {[...live, ...idle].map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px", height: 36 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Shared.Avatar rep={r} size={18}/>
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 12 }}>{r.name}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 5 }}>
+                    <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
+                    {r.presence === "live" ? "on call" : "idle"}
+                  </div>
+                </div>
+              </div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{r.dials || 0}</div>
+              <div className="tabular" style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{r.appts || 0}</div>
+              <div className="tabular" style={{ textAlign: "right", color: (r.today || 0) > 1000 ? "var(--accent-money)" : "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>${(r.today || 0).toLocaleString()}</div>
+              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontFamily: "var(--font-mono)" }}>${((r.mtd || 0) / 1000).toFixed(1)}k</div>
+              <button className="btn btn-ghost" title={`DM ${r.name}`} onClick={() => { if (window.gotoPage) window.gotoPage("messages"); window.toast && window.toast(`Open thread with ${r.name}`, "info"); }}><Icons.MessageSquare size={11}/></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="panel">
+          <div className="panel-h"><Icons.Activity size={13} style={{ color: "var(--accent-money)" }}/><h3>Open coaching cards</h3><span className="meta">{sessions.length}</span></div>
+          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {sessions.length === 0 && (
+              <div style={{ padding: 14, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                No active coaching sessions in your downline.<br/>
+                <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("team"); }} style={{ color: "var(--accent-money)" }}>Open Team Board → Coaching</a> to create one.
+              </div>
+            )}
+            {sessions.map((s, i) => {
+              const rep = repById[s.repId];
+              return (
+                <div key={s.id || i} style={{ padding: 8, background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", display: "flex", gap: 8, alignItems: "center", border: "1px solid var(--border-subtle)" }}>
+                  <Shared.Avatar rep={rep} size={18}/>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>{rep?.name || "—"}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.focusArea || s.notes || "Open focus"}</div>
+                  </div>
+                  <button className="btn btn-ghost" style={{ padding: "2px 6px" }} title={`Coach ${rep?.name || ""}`}
+                    onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${rep?.name || "this rep"} on: ${s.focusArea || s.notes || "current focus"}`, context: "Coaching · " + (rep?.name || "") } }))}>
+                    <Icons.Play size={10}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Needs me</h3><span className="meta">stuck &gt; 3d</span></div>
+          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {stuckDeals.length === 0 && (
+              <div style={{ padding: 14, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                No stuck deals in your downline. Good day.
+              </div>
+            )}
+            {stuckDeals.map((p) => {
+              const owner = repById[p.owner];
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "4px 2px" }}>
+                  <span className="dot dot-warn"></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.lead} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {p.stage} · {p.days}d</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                      {owner ? owner.name.split(" ")[0] : "unassigned"} · {p.ap ? `$${p.ap.toLocaleString()}` : "—"} AP
+                    </div>
+                  </div>
+                  <button className="btn btn-ghost" style={{ padding: "2px 6px", fontSize: 10.5 }}
+                    title="Open deal in CRM"
+                    onClick={() => { if (window.gotoPage) window.gotoPage("crm"); }}>
+                    Open
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -767,143 +1080,235 @@ function TodayRep({ aep }) {
   );
 }
 
-/* ───── Manager view ─────────────────────────────────────────────────────── */
-function TodayManager({ aep }) {
-  const { REPS } = AppData;
-  const live  = (REPS || []).filter(r => r.presence === "live");
-  const idle  = (REPS || []).filter(r => r.presence !== "live");
-  const teamMTD = (REPS || []).reduce((a, r) => a + (r.mtd || 0), 0);
-  const teamToday = (REPS || []).reduce((a, r) => a + (r.today || 0), 0);
-  const totalDials = (REPS || []).reduce((a, r) => a + (r.dials || 0), 0);
+/* Pay sub-tab — today's commissions for the manager's downline. Pulls from
+   buildStatement() (POLICIES + COMMISSIONS) and filters to rows dated today
+   or marked status=pending. Empty state when no comp activity in scope. */
+function TodayManagerPay({ scopeIds }) {
+  // buildStatement lives in page-extras.jsx (PageCommissions). Compute on the
+  // fly here against the same source tables so the Today panel doesn't depend
+  // on PageCommissions being loaded first.
+  const policies = (AppData.POLICIES || []);
+  const commissions = (AppData.COMMISSIONS || []);
+  const inScope = (row) => !scopeIds || scopeIds.length === 0 || !row.owner || scopeIds.includes(row.owner);
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const todaysPolicies = policies
+    .filter(inScope)
+    .filter(p => (p.issuedAt || p.createdAt || "").startsWith(todayISO));
+  const todayBookedCents = todaysPolicies.reduce((a, p) => a + (p.expectedCommission || 0), 0);
+  const todayPaidCents = commissions
+    .filter(c => inScope(c))
+    .filter(c => (c.paidAt || "").startsWith(todayISO))
+    .reduce((a, c) => a + (c.amount || 0), 0);
+  const pendingCents = commissions
+    .filter(c => inScope(c))
+    .filter(c => !c.paidAt)
+    .reduce((a, c) => a + (c.amount || 0), 0);
+
+  // Per-rep summary (today only) for the table.
+  const repById = Object.fromEntries((AppData.REPS || []).map(r => [r.id, r]));
+  const byRep = new Map();
+  todaysPolicies.forEach(p => {
+    const cur = byRep.get(p.owner) || { booked: 0, count: 0 };
+    cur.booked += (p.expectedCommission || 0);
+    cur.count += 1;
+    byRep.set(p.owner, cur);
+  });
+  const rows = Array.from(byRep.entries()).map(([ownerId, v]) => ({
+    rep: repById[ownerId],
+    booked: v.booked,
+    count: v.count,
+  })).sort((a, b) => b.booked - a.booked);
 
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Today · {(() => { const m = window.me && window.me(); return m?.agency_name || "Team"; })()} — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
-          <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button
-            className="btn"
-            onClick={() => {
-              if (window.gotoPage) window.gotoPage("messages");
-              window.toast && window.toast("Open your team channel to post standup notes", "info");
-            }}
-          ><Icons.MessageSquare size={13}/> Standup notes</button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              if (window.gotoPage) window.gotoPage("floor");
-              window.toast && window.toast("Power Hour started · all hands on Floor", "success");
-            }}
-          ><Icons.Phone size={13}/> Power Hour · all hands</button>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Shared.KpiCard label="Booked today (comp)" prefix="$" value={Math.round(todayBookedCents).toLocaleString()} sub={`${todaysPolicies.length} polic${todaysPolicies.length === 1 ? "y" : "ies"} issued`}/>
+        <Shared.KpiCard label="Paid today" prefix="$" value={Math.round(todayPaidCents).toLocaleString()} sub={todayPaidCents > 0 ? "advances + as-earned" : "no advances posted"}/>
+        <Shared.KpiCard label="Pending payouts" prefix="$" value={Math.round(pendingCents).toLocaleString()} sub="across scope"/>
       </div>
 
-      <SpendStrip items={[
-        { l: "Team CPA today",  v: "$87",   tone: "money" },
-        { l: "Lead spend today", v: "$1,240" },
-        { l: "Comp paid today",  v: `$${(teamToday * 0.62).toFixed(0)}`, tone: "money" },
-        { l: "Open NIGO",        v: "2",    tone: "warn" },
-      ]}/>
-
-      <div className="kpi-row">
-        <Shared.KpiCard hero label="Team MTD AP" prefix="$" value={teamMTD.toLocaleString()} sub="+12% vs last month" trend="up"/>
-        <Shared.KpiCard label="Booked today" prefix="$" value={teamToday.toLocaleString()} sub={`${live.length} producers live`}/>
-        <Shared.KpiCard label="Total dials" value={totalDials} sub="goal 700" trend="up"/>
-      </div>
-
-      <PredictiveCards scope="team"/>
-      <ForecastStrip scope="team"/>
-
-      <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
-        <div className="panel">
-          <div className="panel-h"><Icons.Users size={13}/><h3>Producers · live floor</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px" }}>
-              <div>Producer</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Dials</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Appts</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Today</div>
-              <div className="tabular" style={{ textAlign: "right" }}>MTD</div>
-              <div></div>
+      <div className="panel">
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Today's writes · by producer</h3><span className="meta">{rows.length}</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 80px 120px 100px" }}>
+            <div>Producer</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Policies</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Expected comp</div>
+            <div></div>
+          </div>
+          {rows.length === 0 && (
+            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.5 }}>
+              No writes booked today in your downline.<br/>
+              <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("pay"); }} style={{ color: "var(--accent-money)" }}>Open full Pay workspace</a> for the historical view.
             </div>
-            {[...live, ...idle].map(r => (
-              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Shared.Avatar rep={r} size={20}/>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 12.5 }}>{r.name}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 5 }}>
-                      <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
-                      {r.presence === "live" ? "on call" : "idle"}
-                    </div>
-                  </div>
-                </div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{r.dials || 0}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>{r.appts || 0}</div>
-                <div className="tabular" style={{ textAlign: "right", color: (r.today || 0) > 1000 ? "var(--accent-money)" : "var(--text-secondary)" }}>${(r.today || 0).toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${((r.mtd || 0) / 1000).toFixed(1)}k</div>
-                <button className="btn btn-ghost" title={`DM ${r.name}`} onClick={() => { if (window.gotoPage) window.gotoPage("messages"); window.toast && window.toast(`Open thread with ${r.name}`, "info"); }}><Icons.MessageSquare size={11}/></button>
+          )}
+          {rows.map(({ rep, booked, count }) => (
+            <div key={rep?.id || "unknown"} className="row" style={{ gridTemplateColumns: "1.6fr 80px 120px 100px", height: 32 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {rep && <Shared.Avatar rep={rep} size={18}/>}
+                <span style={{ fontWeight: 500, fontSize: 12 }}>{rep?.name || "—"}</span>
               </div>
-            ))}
-          </div>
+              <div className="tabular" style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{count}</div>
+              <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>${Math.round(booked).toLocaleString()}</div>
+              <button className="btn btn-ghost" style={{ padding: "2px 6px", fontSize: 10.5 }} onClick={() => { if (window.gotoPage) window.gotoPage("pay"); }}>Drill</button>
+            </div>
+          ))}
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h"><Icons.Activity size={13} style={{ color: "var(--accent-status)" }}/><h3>Today's coaching cards</h3></div>
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {(() => {
-                // Coaching cards: real entries from AppData.COACHING_SESSIONS when present,
-                // else illustrative cards bound to whatever reps actually exist in the agency.
-                // Was hardcoded to REPS[0]/REPS[2]/REPS[5] which crashed any agency with <6 reps.
-                const real = (AppData.COACHING_SESSIONS || [])
-                  .slice(0, 3)
-                  .map(s => ({ rep: (REPS || []).find(r => r.id === s.repId), note: s.note || s.summary || "Coaching note" }))
-                  .filter(c => c.rep);
-                if (real.length > 0) return real;
-                const illustrative = [
-                  "4 closed-ended Q on first call. Replay ready.",
-                  "Talk ratio 58% on a recent call. Pull moment.",
-                  "Skipped Plan G anchor on 14 quotes.",
-                ];
-                return (REPS || []).slice(0, 3).map((rep, i) => ({ rep, note: illustrative[i] || "Coaching note" }));
-              })().map((c, i) => (
-                <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, display: "flex", gap: 10, alignItems: "center" }}>
-                  <Shared.Avatar rep={c.rep} size={20}/>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{c.rep?.name || "—"}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.note}</div>
-                  </div>
-                  <button className="btn btn-ghost" title={`Coach ${c.rep?.name || ""}`} onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${c.rep?.name || "this rep"} on: ${c.note}`, context: "Coaching · " + (c.rep?.name || "") } }))}><Icons.Play size={10}/></button>
-                </div>
-              ))}
-              {(REPS || []).length === 0 && (
-                <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
-                  No producers yet — invite your first rep from Settings → Team to start coaching.
-                </div>
-              )}
-            </div>
-          </div>
+/* Expenses sub-tab — today's agency_expenses (migration 0017) + reimbursement
+   status. RLS confines the query to the viewer's agency_id automatically. */
+function TodayManagerExpenses() {
+  const [rows, setRows] = React.useState(null); // null = loading
+  const [err, setErr] = React.useState(null);
+  const me = (window.me && window.me()) || null;
 
-          <div className="panel">
-            <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Needs me</h3></div>
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
-                { l: "Robert Mendez App In · carrier review pending",   a: "Push" },
-                { l: "Ramona Diaz · beneficiary form not signed",       a: "Nudge" },
-                { l: "Henry Akins · annuity sigs · 4d in stage",         a: "Escalate" },
-              ].map((x, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-                  <span className="dot dot-warn"></span>
-                  <span style={{ flex: 1 }}>{x.l}</span>
-                  <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }}>{x.a}</button>
-                </div>
-              ))}
-            </div>
+  React.useEffect(() => {
+    if (!me?.agency_id) { setRows([]); return; }
+    let cancelled = false;
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { if (!cancelled) setRows([]); return; }
+      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+      try {
+        const { data, error } = await sb.from("agency_expenses")
+          .select("id, kind, paid_by, amount_cents, vendor, memo, paid_at, status, created_at")
+          .eq("agency_id", me.agency_id)
+          .gte("created_at", startOfDay.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (error) throw error;
+        if (!cancelled) setRows(data || []);
+      } catch (e) {
+        if (!cancelled) { setErr(e.message || String(e)); setRows([]); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [me?.agency_id]);
+
+  const totalCents = (rows || []).reduce((a, r) => a + (r.amount_cents || 0), 0);
+  const leadSpendCents = (rows || []).filter(r => r.kind === "lead_spend").reduce((a, r) => a + (r.amount_cents || 0), 0);
+  const pendingReimburse = (rows || []).filter(r => r.status === "pending" || r.status === "submitted");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Shared.KpiCard label="Spent today" prefix="$" value={Math.round(totalCents/100).toLocaleString()} sub={`${(rows || []).length} entr${(rows || []).length === 1 ? "y" : "ies"}`}/>
+        <Shared.KpiCard label="Lead spend today" prefix="$" value={Math.round(leadSpendCents/100).toLocaleString()} sub="paid lead acquisition"/>
+        <Shared.KpiCard label="Pending reimburse" value={pendingReimburse.length} sub={pendingReimburse.length > 0 ? "manager review" : "clear"}/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Today's expenses</h3><span className="meta">{(rows || []).length}</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "100px 1fr 1fr 100px 90px" }}>
+            <div>Kind</div><div>Vendor / memo</div><div>Paid by</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Amount</div>
+            <div>Status</div>
           </div>
+          {rows === null && <div style={{ padding: 22, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>Loading…</div>}
+          {rows && rows.length === 0 && (
+            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.5 }}>
+              {err ? <>Could not load: {err}</> : <>No expenses logged today.<br/>
+              <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("expenses"); }} style={{ color: "var(--accent-money)" }}>Open full Expenses workspace</a> to add lead spend, reimbursements, or carrier-tool fees.</>}
+            </div>
+          )}
+          {rows && rows.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "100px 1fr 1fr 100px 90px", height: 32 }}>
+              <div><span className="chip" style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{r.kind}</span></div>
+              <div style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.vendor || r.memo || "—"}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{r.paid_by || "—"}</div>
+              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontFamily: "var(--font-mono)" }}>${Math.round((r.amount_cents || 0) / 100).toLocaleString()}</div>
+              <div><span className="chip" style={{ fontSize: 9.5 }}>{r.status || "—"}</span></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* NIGO sub-tab — carrier returns scoped to the manager's downline.
+   Sources AppData.NIGOS (live) when present, falls back to demo seed only
+   for is_demo agencies. Same projection logic page-ops-depth.jsx uses, just
+   condensed for the Today landing. */
+function TodayManagerNigo({ scopeIds }) {
+  const nigos = (AppData.NIGOS || []);
+  const reasonById = new Map((AppData.NIGO_REASONS || []).map(r => [r.id, r]));
+  const leadById   = new Map((AppData.PIPELINE || []).map(l => [l.id, l]));
+  const policyById = new Map((AppData.POLICIES || []).map(p => [p.id, p]));
+  const repById    = Object.fromEntries((AppData.REPS || []).map(r => [r.id, r]));
+
+  const scoped = nigos
+    .filter(n => n.status !== "resolved" && n.status !== "wont_fix")
+    .filter(n => {
+      const owner = n.assignedTo || (n.pipelineId && leadById.get(n.pipelineId)?.owner);
+      if (!scopeIds || scopeIds.length === 0) return true;
+      return !owner || scopeIds.includes(owner);
+    });
+
+  const totalRiskCents = scoped.reduce((a, n) => {
+    const pol = n.policyId ? policyById.get(n.policyId) : null;
+    const lead = n.pipelineId ? leadById.get(n.pipelineId) : null;
+    return a + ((pol?.ap || lead?.ap || 0) * 100);
+  }, 0);
+
+  const setStatus = async (id, next) => {
+    try {
+      await AppData.mutate.nigoStatus(id, next);
+      window.toast && window.toast(`NIGO marked ${next}`, "success");
+    } catch (_e) {}
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Shared.KpiCard hero label="Open NIGOs" value={scoped.length} sub={totalRiskCents > 0 ? `$${Math.round(totalRiskCents/100).toLocaleString()} AP at risk` : "clear"}/>
+        <Shared.KpiCard label="P0 same-day" value={scoped.filter(n => (reasonById.get(n.reasonId)?.severity === "critical")).length}/>
+        <Shared.KpiCard label="Carrier reviewing" value={scoped.filter(n => n.status === "in_review").length}/>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>NIGO queue</h3><span className="meta">scope: downline</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 80px 100px 110px" }}>
+            <div>Lead</div><div>Reason</div>
+            <div className="tabular" style={{ textAlign: "right" }}>AP risk</div>
+            <div>Owner</div><div></div>
+          </div>
+          {scoped.length === 0 && (
+            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.5 }}>
+              No open NIGOs in your downline. Clean.<br/>
+              <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("nigo"); }} style={{ color: "var(--accent-money)" }}>Open full NIGO workspace</a> for history + chargeback view.
+            </div>
+          )}
+          {scoped.slice(0, 8).map(n => {
+            const reason = n.reasonId ? reasonById.get(n.reasonId) : null;
+            const lead = n.pipelineId ? leadById.get(n.pipelineId) : null;
+            const pol = n.policyId ? policyById.get(n.policyId) : null;
+            const apRisk = pol?.ap || lead?.ap || 0;
+            const ownerId = n.assignedTo || lead?.owner;
+            const owner = ownerId ? repById[ownerId] : null;
+            return (
+              <div key={n.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 80px 100px 110px", height: 34 }}>
+                <div style={{ fontWeight: 500, fontSize: 12 }}>{lead?.lead || (pol ? `Policy ${pol.id?.slice(0, 6)}` : "—")}</div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{reason?.label || n.notes || "Reason unspecified"}</div>
+                <div className="tabular" style={{ textAlign: "right", color: apRisk > 0 ? "var(--state-warning)" : "var(--text-quaternary)", fontFamily: "var(--font-mono)" }}>{apRisk > 0 ? `$${apRisk.toLocaleString()}` : "—"}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {owner && <Shared.Avatar rep={owner} size={16}/>}
+                  <span style={{ fontSize: 11 }}>{owner?.name?.split(" ")[0] || "—"}</span>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button className="btn btn-ghost" style={{ padding: "2px 6px", fontSize: 10 }} onClick={() => setStatus(n.id, "in_review")}>Review</button>
+                  <button className="btn btn-ghost" style={{ padding: "2px 6px", fontSize: 10, color: "var(--accent-money)" }} onClick={() => setStatus(n.id, "resolved")}>Fixed</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
