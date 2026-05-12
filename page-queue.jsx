@@ -13,8 +13,12 @@ function DialQueueView({ onCall }) {
   // funnel is one click away via the "Inbound (all)" tab so nobody loses
   // speed-to-lead access. Manager + owner views (DispatchView / Floor's
   // role-aware queue) already see fleet-wide.
+  // GAP-REP1 — never fall through to REPS[0]?.id on a fresh agency. The
+  // seeded demo Marcus row is REPS[0] in demo mode; a real signed-in rep
+  // whose me() hasn't resolved should match nothing rather than render
+  // Marcus's pipeline as "mine".
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
+  const myRepId = meIdent?.rep_id || "__unresolved_rep__";
 
   const [tab, setTab] = React.useState("mine");
 
@@ -45,12 +49,26 @@ function DialQueueView({ onCall }) {
         </div>
       </div>
 
-      <SpendStrip items={[
-        { l: "Cost / dial",     v: "$2.40" },
-        { l: "Comp / dial",      v: "$32.6", tone: "money" },
-        { l: "Connect rate",     v: "38%",   tone: "money" },
-        { l: "Quote rate",       v: "11%" },
-      ]}/>
+      {(() => {
+        // Spend strip values must reflect the rep's own behaviour, not
+        // borrow Atlas demo numbers. We can derive coarse buckets from
+        // RECORDINGS (dial count) + COMMISSIONS (pay / dial). Real per-
+        // metric attribution lands when the rep performance view ships.
+        const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+        const myDials = (AppData.RECORDINGS || []).filter(r =>
+          (r.repId === myRepId || r.rep_id === myRepId)
+        ).length;
+        const myComm = (AppData.COMMISSIONS || []).filter(c => c.repId === myRepId).reduce((s, c) => s + (c.amount || 0), 0);
+        const compPerDial = myDials > 0 ? `$${(myComm / myDials).toFixed(2)}` : (isDemo ? "$32.60" : "—");
+        return (
+          <SpendStrip items={[
+            { l: "My dials",         v: String(myDials || (isDemo ? "—" : 0)) },
+            { l: "Comp / dial",      v: compPerDial, tone: "money" },
+            { l: "Connect rate",     v: isDemo ? "38%" : "—",   tone: "money" },
+            { l: "Quote rate",       v: isDemo ? "11%" : "—" },
+          ]}/>
+        );
+      })()}
 
       <Shared.SectionPill
         items={[
@@ -95,10 +113,15 @@ function DialQueueView({ onCall }) {
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
                       title={l.phone ? `Dial ${l.phone}` : "No phone on file — add one in lead detail"}
-                      disabled={!l.phone && i !== 0}
+                      disabled={!l.phone}
                       onClick={() => {
-                        if (i === 0) { onCall && onCall(); return; }
+                        // Was: i === 0 bypassed the phone check and called
+                        // onCall() — which opened the dialer with no number,
+                        // dialing nothing. Now: every row requires a phone;
+                        // the first one routes through onCall (so the dialer
+                        // overlay still opens) only when a phone is present.
                         if (!l.phone) { window.toast && window.toast("No phone on file — add one in lead detail", "warn"); return; }
+                        if (i === 0 && onCall) { onCall(l); return; }
                         window.repflowCall && window.repflowCall(l.phone, l.lead);
                       }}>
                       <Icons.Phone size={12}/>
@@ -124,17 +147,26 @@ function DialQueueView({ onCall }) {
           <div className="panel">
             <div className="panel-h"><h3>Queue health</h3></div>
             <div style={{ padding: "12px 14px" }}>
-              {[
-                { l: "< 30s SLA",       v: "23", c: "var(--accent-money)" },
-                { l: "30 – 60s",         v: "12", c: "var(--accent-status)" },
-                { l: "60 – 120s",        v:  "8", c: "var(--state-warning)" },
-                { l: "> 120s breach",   v:  "4", c: "var(--state-danger)" },
-              ].map((r, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}><span className="dot" style={{ background: r.c, marginRight: 8 }}></span>{r.l}</span>
-                  <span className="tabular" style={{ fontWeight: 500 }}>{r.v}</span>
-                </div>
-              ))}
+              {(() => {
+                // Buckets derived from the visible queue's elapsed seconds.
+                // Was hardcoded 23 / 12 / 8 / 4 even when QUEUE was empty.
+                const all = visible || [];
+                const b1 = all.filter(l => l.elapsed < 30).length;
+                const b2 = all.filter(l => l.elapsed >= 30 && l.elapsed < 60).length;
+                const b3 = all.filter(l => l.elapsed >= 60 && l.elapsed < 120).length;
+                const b4 = all.filter(l => l.elapsed >= 120).length;
+                return [
+                  { l: "< 30s SLA",       v: b1, c: "var(--accent-money)" },
+                  { l: "30 – 60s",         v: b2, c: "var(--accent-status)" },
+                  { l: "60 – 120s",        v: b3, c: "var(--state-warning)" },
+                  { l: "> 120s breach",   v: b4, c: "var(--state-danger)" },
+                ].map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? "1px solid var(--border-subtle)" : 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}><span className="dot" style={{ background: r.c, marginRight: 8 }}></span>{r.l}</span>
+                    <span className="tabular" style={{ fontWeight: 500 }}>{r.v}</span>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
           <div className="panel">
@@ -143,7 +175,22 @@ function DialQueueView({ onCall }) {
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>TPMO disclaimer</span><span className="chip chip-money">Auto · 60s</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>SOA on Med Supp</span><span className="chip chip-status">Pre-call gate</span></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>Recording</span><span className="chip chip-money">All calls · 10y</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>State licenses</span><span className="chip">12 active</span></div>
+              {(() => {
+                // Pull from me().licensed_states when present; falls back to
+                // the demo "12 active" only when isDemoAgency() so the chip
+                // doesn't lie to a real rep about their license footprint.
+                const myStates = (meIdent?.licensed_states && Array.isArray(meIdent.licensed_states)) ? meIdent.licensed_states.length : null;
+                const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+                const label = myStates != null
+                  ? (myStates === 0 ? "none on file" : `${myStates} active`)
+                  : (isDemo ? "12 active" : "set in Profile");
+                return (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>State licenses</span>
+                    <span className="chip" style={{ cursor: "pointer" }} onClick={() => window.gotoPage && window.gotoPage("settings")}>{label}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
