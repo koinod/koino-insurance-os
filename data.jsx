@@ -1140,6 +1140,68 @@ window.AppData.mutate = {
     _emitMutation("sequence_enrollments", "insert", leadId);
   },
 
+  // Sequence CRUD — backs Pipeline -> Sequences inline editor.
+  async sequenceSave(sequence) {
+    // sequence: { id, name, description, steps[], active }
+    // steps[]: [{ day, ch, template, condition? }]
+    const payload = {
+      name: sequence.name,
+      description: sequence.description || null,
+      steps: sequence.steps || [],
+      is_active: sequence.active !== false,
+    };
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        if (sequence.id && !String(sequence.id).startsWith("tmp-")) {
+          const { error } = await sb.from("sequences").update(payload).eq("id", sequence.id);
+          if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        } else {
+          const { data, error } = await sb.from("sequences").insert(payload).select().single();
+          if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+          if (data) sequence.id = data.id;
+        }
+      }
+    }
+    // Optimistically update in-memory AppData.SEQUENCES so the next render
+    // shows the change before realtime catches up.
+    const list = (window.AppData.SEQUENCES = window.AppData.SEQUENCES || []);
+    const idx = list.findIndex(s => s.id === sequence.id);
+    if (idx >= 0) list[idx] = { ...list[idx], ...payload, id: sequence.id, active: payload.is_active };
+    else list.unshift({ ...payload, id: sequence.id || ("tmp-" + Date.now()), active: payload.is_active });
+    _emitMutation("sequences", "upsert", sequence.id);
+    return sequence;
+  },
+
+  async sequenceToggleActive(sequenceId, active) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("sequences").update({ is_active: !!active }).eq("id", sequenceId);
+        if (error) { window.toast && window.toast(`Toggle failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+    const list = (window.AppData.SEQUENCES || []);
+    const row = list.find(s => s.id === sequenceId);
+    if (row) row.active = !!active;
+    _emitMutation("sequences", "toggle", sequenceId);
+  },
+
+  async enrollmentStatus(enrollmentId, status) {
+    // status: active | paused | complete
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("sequence_enrollments").update({ status }).eq("id", enrollmentId);
+        if (error) { window.toast && window.toast(`Update failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+    const list = (window.AppData.SEQUENCE_ENROLLMENTS || []);
+    const row = list.find(e => e.id === enrollmentId);
+    if (row) row.status = status;
+    _emitMutation("sequence_enrollments", "update", enrollmentId);
+  },
+
   /* ── Settings & profile ─────────────────────────────────────────────── */
   async orgSettingsSave(patch) {
     // patch: object of key/value pairs to upsert into org_settings

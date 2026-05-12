@@ -158,28 +158,78 @@ function PipelineSequences({ role = "owner" }) {
     );
   }
 
+  // Working copy of the active sequence's steps. Hydrates from the live
+  // SEQ row but holds in-flight edits (text, channel, condition, day,
+  // add / delete) until the operator hits Save -> sequenceSave RPC.
   const seq = SEQ.find(s => s.id === activeId) || SEQ[0];
+  const [draft, setDraft] = React.useState(null);
+  React.useEffect(() => {
+    setDraft({
+      name: seq.name,
+      channel: seq.channel,
+      active: seq.activeFlag !== false,  // sequences.is_active hydrated as s.active inside _liveSeqList
+      steps: (seq.steps || []).map(s => ({ ...s })),
+    });
+  }, [seq.id]);
+  const [saving, setSaving] = React.useState(false);
+  const [newSeqOpen, setNewSeqOpen] = React.useState(false);
+
   const enrolled = _liveEnrolledList(seq.id);
 
-  const updateStep = (i, body) => setEdits({ ...edits, [seq.id]: { ...(edits[seq.id] || {}), [i]: body } });
+  if (!draft) return null;
+
+  const updateStep = (i, patch) => {
+    setDraft(d => {
+      const next = { ...d, steps: d.steps.map((s, idx) => idx === i ? { ...s, ...patch } : s) };
+      // Auto-recompute channel hint when a single step's channel changes
+      const chans = new Set(next.steps.map(st => (st.ch || "").toLowerCase()).filter(Boolean));
+      next.channel = chans.size === 0 ? "sms_email" : chans.size === 1 ? Array.from(chans)[0] : "sms_email";
+      return next;
+    });
+  };
+  const addStep = () => setDraft(d => ({
+    ...d,
+    steps: [...d.steps, { day: (d.steps[d.steps.length - 1]?.day || 0) + 1, ch: "SMS", template: "", condition: "any" }],
+  }));
+  const deleteStep = (i) => setDraft(d => ({ ...d, steps: d.steps.filter((_, idx) => idx !== i) }));
+  const save = async () => {
+    setSaving(true);
+    try {
+      await AppData.mutate.sequenceSave({
+        id: seq.id, name: draft.name,
+        steps: draft.steps, active: draft.active,
+      });
+      window.toast && window.toast(`Saved: ${draft.name}${AppData.LIVE ? "" : " (demo)"}`, "success");
+    } catch (_e) {} finally { setSaving(false); }
+  };
+  const togglePaused = async () => {
+    const next = !draft.active;
+    setDraft(d => ({ ...d, active: next }));
+    try {
+      await AppData.mutate.sequenceToggleActive(seq.id, next);
+      window.toast && window.toast(next ? "Sequence resumed" : "Sequence paused", "info");
+    } catch (_e) { setDraft(d => ({ ...d, active: !next })); }
+  };
 
   return (
     <div className="seq-grid" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 14 }}>
       <div className="panel">
         <div className="panel-h"><h3>Sequences</h3>
-          <button className="btn btn-ghost" style={{ marginLeft: "auto" }}><Icons.Plus size={11}/></button>
+          <button
+            className="btn btn-ghost"
+            style={{ marginLeft: "auto" }}
+            title="Create new sequence"
+            onClick={() => setNewSeqOpen(true)}
+          ><Icons.Plus size={11}/></button>
         </div>
         <div style={{ padding: 6 }}>
           {SEQ.map(s => {
-            // s.active was already counted by _liveSeqList; the sidebar
-            // pulled it from ENROLLED (the demo array) before, which broke
-            // for any agency that wasn't the demo seed cohort.
             const en = s.active || 0;
             return (
               <button key={s.id} onClick={() => setActiveId(s.id)} className="btn btn-ghost" style={{ width: "100%", padding: 10, marginBottom: 4, justifyContent: "stretch", flexDirection: "column", alignItems: "stretch", gap: 4, background: activeId === s.id ? "var(--bg-overlay)" : "transparent" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <strong style={{ fontSize: 12.5 }}>{s.name}</strong>
-                  <span className="tabular" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.steps.length} · {s.days}d</span>
+                  <span className="tabular" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(s.steps || []).length} · {s.days}d</span>
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
                   <span className="chip" style={{ fontSize: 10 }}>{s.channel}</span>
@@ -194,54 +244,121 @@ function PipelineSequences({ role = "owner" }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div className="panel">
           <div className="panel-h">
-            <h3>{seq.name}</h3>
-            <span className="chip">{seq.channel}</span>
-            <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>· {seq.active} leads in flight</span>
+            <input
+              className="text-input"
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              style={{ background: "transparent", border: 0, fontSize: 14, fontWeight: 600, color: "var(--text-primary)", padding: 0, width: 280 }}
+              placeholder="Sequence name"
+            />
+            <span className="chip">{draft.channel}</span>
+            <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>
+              · {enrolled.filter(e => e.status === "active").length} leads in flight
+              {!draft.active && <span style={{ color: "var(--state-warning)", marginLeft: 6 }}>· paused</span>}
+            </span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="btn btn-ghost"><Icons.Pause size={11}/> Pause</button>
-              <button className="btn btn-primary"><Icons.Check size={11}/> Save</button>
+              <button className="btn btn-ghost" onClick={togglePaused} title={draft.active ? "Pause this sequence" : "Resume this sequence"}>
+                {draft.active ? <><Icons.Pause size={11}/> Pause</> : <><Icons.Play size={11}/> Resume</>}
+              </button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>
+                <Icons.Check size={11}/> {saving ? "Saving…" : "Save"}
+              </button>
             </div>
           </div>
           <div style={{ padding: 12 }}>
-            {seq.steps.map((s, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 14, padding: "12px 0", borderBottom: i < seq.steps.length - 1 ? "1px solid var(--border-subtle)" : 0 }}>
+            {draft.steps.length === 0 && (
+              <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                No steps yet. Add the first one to define when and what to send.
+              </div>
+            )}
+            {draft.steps.map((s, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "60px 1fr 30px", gap: 14, padding: "12px 0", borderBottom: i < draft.steps.length - 1 ? "1px solid var(--border-subtle)" : 0 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--bg-raised)", border: "1px solid var(--border-strong)", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 600 }}>{i + 1}</div>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--text-tertiary)" }}>D+{s.day}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={s.day || 0}
+                    onChange={(e) => updateStep(i, { day: Math.max(0, +e.target.value || 0) })}
+                    style={{ width: 50, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: 10.5, background: "transparent", color: "var(--text-tertiary)", border: 0, padding: 0 }}
+                    title="Days after enrollment"
+                  />
                 </div>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <span className="chip">{s.ch}</span>
-                    <Shared.Select value="any" onChange={() => {}} options={[{ v: "any", l: "Send to anyone" }, { v: "no_reply", l: "Only if no reply" }, { v: "no_book", l: "Only if not closed" }]}/>
+                    <Shared.Select
+                      value={String(s.ch || "SMS").toLowerCase()}
+                      onChange={(v) => updateStep(i, { ch: v.toUpperCase() })}
+                      options={[{ v: "sms", l: "SMS" }, { v: "email", l: "Email" }, { v: "call", l: "Call task" }]}
+                    />
+                    <Shared.Select
+                      value={s.condition || "any"}
+                      onChange={(v) => updateStep(i, { condition: v })}
+                      options={[
+                        { v: "any",       l: "Send to anyone" },
+                        { v: "no_reply",  l: "Only if no reply" },
+                        { v: "no_book",   l: "Only if not closed" },
+                        { v: "no_open",   l: "Only if email unopened" },
+                      ]}
+                    />
                   </div>
-                  <textarea className="text-input" rows={s.template.length > 80 ? 4 : 2} defaultValue={(edits[seq.id] && edits[seq.id][i]) ?? s.template} onChange={(e) => updateStep(i, e.target.value)} style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-ui)" }}/>
+                  <textarea
+                    className="text-input"
+                    rows={(s.template || "").length > 80 ? 4 : 2}
+                    value={s.template || ""}
+                    onChange={(e) => updateStep(i, { template: e.target.value })}
+                    style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-ui)" }}
+                    placeholder="Hi {{first}}, this is {{rep}} from {{agency}}…"
+                  />
                   <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
-                    <span>Vars: {`{{first}}`} {`{{rep}}`} {`{{state}}`} {`{{ap}}`} {`{{sig_url}}`}</span>
+                    <span>Vars: {`{{first}}`} {`{{rep}}`} {`{{state}}`} {`{{ap}}`} {`{{sig_url}}`} {`{{agency}}`}</span>
                   </div>
                 </div>
+                <button
+                  className="icon-btn"
+                  onClick={() => deleteStep(i)}
+                  title="Delete step"
+                  style={{ alignSelf: "start", color: "var(--state-danger)" }}
+                ><Icons.X size={12}/></button>
               </div>
             ))}
-            <button className="btn btn-ghost" style={{ marginTop: 10 }}><Icons.Plus size={11}/> Add step</button>
+            <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={addStep}>
+              <Icons.Plus size={11}/> Add step
+            </button>
           </div>
         </div>
 
         <div className="panel">
           <div className="panel-h"><Icons.Users size={13}/><h3>Enrolled leads · {enrolled.length}</h3></div>
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 80px 80px 100px 90px 100px" }}>
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 70px 80px 90px 80px 100px 80px" }}>
               <div>Lead</div>
               <div className="tabular" style={{ textAlign: "right" }}>Step</div>
               <div>Status</div>
               <div>Next send</div>
               <div>Last reply</div>
               <div>Owner</div>
+              <div></div>
             </div>
+            {enrolled.length === 0 && (
+              <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+                No leads enrolled yet. Enroll from any lead's detail rail.
+              </div>
+            )}
             {enrolled.map(e => {
-              const owner = AppData.REPS.find(r => r.id === e.owner);
+              const owner = (AppData.REPS || []).find(r => r.id === e.owner);
+              const toggle = async () => {
+                const next = e.status === "active" ? "paused" : "active";
+                try {
+                  await AppData.mutate.enrollmentStatus(e.id, next);
+                  window.toast && window.toast(`${e.lead}: ${next}${AppData.LIVE ? " · saved" : ""}`, "info");
+                } catch (_e) {}
+              };
               return (
-                <div key={e.id} className="row" style={{ gridTemplateColumns: "1.4fr 80px 80px 100px 90px 100px" }}>
+                <div key={e.id} className="row" style={{ gridTemplateColumns: "1.4fr 70px 80px 90px 80px 100px 80px" }}>
                   <div style={{ fontWeight: 500 }}>{e.lead}</div>
-                  <div className="tabular" style={{ textAlign: "right" }}>{e.step + 1} / {seq.steps.length}</div>
+                  <div className="tabular" style={{ textAlign: "right" }}>{(e.step || 0) + 1} / {draft.steps.length || (seq.steps || []).length}</div>
                   <div><span className={`chip ${e.status === "active" ? "chip-money" : e.status === "paused" ? "chip-status" : ""}`}>{e.status}</span></div>
                   <div className="tabular" style={{ color: e.nextSendIn === "now" ? "var(--accent-money)" : "var(--text-tertiary)", fontSize: 11.5 }}>{e.nextSendIn}</div>
                   <div style={{ color: e.lastReply !== "—" ? "var(--accent-status)" : "var(--text-quaternary)", fontSize: 11.5 }}>{e.lastReply}</div>
@@ -249,13 +366,62 @@ function PipelineSequences({ role = "owner" }) {
                     {owner && <Shared.Avatar rep={owner} size={16}/>}
                     <span>{owner?.name?.split(" ")[0] || "—"}</span>
                   </div>
+                  <div style={{ textAlign: "right" }}>
+                    {e.status !== "complete" && (
+                      <button className="btn btn-ghost" style={{ padding: "3px 6px", fontSize: 10.5 }} onClick={toggle} title={e.status === "active" ? "Pause this enrollment" : "Resume this enrollment"}>
+                        {e.status === "active" ? "Pause" : "Resume"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
       </div>
+
+      {newSeqOpen && (
+        <NewSequenceModal onClose={() => setNewSeqOpen(false)} onCreated={(id) => { setNewSeqOpen(false); setActiveId(id); }}/>
+      )}
     </div>
+  );
+}
+
+// Inline modal that creates a sequence skeleton (a "name + first step"
+// shell). Once saved, the operator edits it inline. Was: the "+" button
+// did nothing.
+function NewSequenceModal({ onClose, onCreated }) {
+  const [name, setName] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const submit = async () => {
+    if (!name.trim()) { window.toast && window.toast("Name required", "warn"); return; }
+    setBusy(true);
+    try {
+      const created = await AppData.mutate.sequenceSave({
+        name: name.trim(),
+        active: true,
+        steps: [{ day: 0, ch: "SMS", template: "Hi {{first}}, this is {{rep}} from {{agency}}…", condition: "any" }],
+      });
+      window.toast && window.toast(`Created: ${name}${AppData.LIVE ? "" : " (demo)"}`, "success");
+      onCreated && onCreated(created.id);
+    } catch (_e) {} finally { setBusy(false); }
+  };
+  return (
+    <Shared.Modal title="New sequence" width={460} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !name.trim()}>
+          <Icons.Plus size={11}/> {busy ? "Creating…" : "Create sequence"}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10, lineHeight: 1.55 }}>
+        Creates a sequence with one starter SMS step on day 0. Edit the steps + add more after it's created.
+      </div>
+      <Shared.Field label="Sequence name">
+        <input className="text-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Quote follow-up · Med Supp" autoFocus/>
+      </Shared.Field>
+    </Shared.Modal>
   );
 }
 
