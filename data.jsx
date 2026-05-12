@@ -1444,10 +1444,17 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
-        const { data, error } = await sb.from("coaching_notes").insert({
-          session_id: sessionId, rep_id: repId, body,
-          created_by: me?.handle || null,
-        }).select().single();
+        // Set agency_id explicitly when the table carries it (sweep policy in
+        // 0015_tenant_isolation adds the column + RLS). Tolerant: drop the key
+        // and retry if the column doesn't exist in this deployment.
+        const row = { session_id: sessionId, rep_id: repId, body, created_by: me?.handle || null };
+        if (me?.agency_id) row.agency_id = me.agency_id;
+        let resp = await sb.from("coaching_notes").insert(row).select().single();
+        if (resp.error && /column.*agency_id.*does not exist/i.test(resp.error.message || "")) {
+          delete row.agency_id;
+          resp = await sb.from("coaching_notes").insert(row).select().single();
+        }
+        const { data, error } = resp;
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
         if (data) note.id = data.id;
       }
@@ -1477,7 +1484,12 @@ window.AppData.mutate = {
     _emitMutation("coaching_sessions", "update", id);
   },
 
-  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ── */
+  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ──
+     repId here is the TARGET rep — the one who should see this in their bell.
+     Persists onto agency_notifications.recipient_rep_id (migration 0011) so
+     the per-rep policy in the SELECT path actually routes it. Leaving that
+     column null = agency-wide broadcast. Was previously broken: every alert
+     was sent as a broadcast because we only set ref_id, never recipient_rep_id. */
   async notificationCreate({ repId = null, recipientHandle = null, kind = "focus", severity = "info", title, body, pageLink = null }) {
     const note = {
       id: "tmp-" + Date.now(),
@@ -1489,17 +1501,24 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
+        const me = window.me && window.me();
         // Prefer the create_notification RPC when available (it does fan-out + audit)
         const rpc = await sb.rpc("create_notification", {
           p_kind: kind, p_severity: severity,
           p_title: title, p_body: body,
           p_page_link: pageLink, p_ref_id: repId,
+          p_recipient_rep_id: repId,
         }).then(r => r).catch(() => ({ error: { message: "rpc_unavailable" } }));
         if (rpc?.error) {
-          // Fallback: direct insert
-          const { data, error } = await sb.from("agency_notifications").insert({
-            kind, severity, title, body, page_link: pageLink, ref_id: repId,
-          }).select().single();
+          // Fallback: direct insert. agency_id is set explicitly so the row
+          // lands in the right tenant even if no default trigger is wired.
+          const row = {
+            kind, severity, title, body, page_link: pageLink,
+            ref_id: repId,
+            recipient_rep_id: repId,
+          };
+          if (me?.agency_id) row.agency_id = me.agency_id;
+          const { data, error } = await sb.from("agency_notifications").insert(row).select().single();
           if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
           if (data) note.id = data.id;
         } else if (rpc.data) {
