@@ -799,29 +799,85 @@ function InviteMemberModal({ agencies, onClose, onMinted }) {
 }
 
 // ─── 4. Billing roll-up ─────────────────────────────────────────────────────
+// Plan-based MRR fallback — used when agency_subscriptions either doesn't
+// exist or has no row for an agency yet (e.g. Stripe webhooks haven't fired
+// for a trial-only operator).
+const PLAN_MRR = {
+  trial: 0, rep_solo: 9700, agency_setup: 99700,
+  starter: 49700, growth: 99700, scale: 249700,
+};
+
 function BillingTab({ fleet }) {
   const { agencies, memberCounts, loading } = fleet;
-  const PLAN_MRR = {
-    trial: 0, rep_solo: 9700, agency_setup: 99700,
-    starter: 49700, growth: 99700, scale: 249700,
+  const [subs, setSubs] = React.useState({});         // agency_id → subscription row
+  const [drillAgency, setDrillAgency] = React.useState(null);
+  const [subErr, setSubErr] = React.useState(null);
+
+  // Try to load real subscription rows. The table is created by a remote
+  // migration; envs that haven't run it will surface PGRST205 and we fall
+  // back to the plan-based estimate.
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || agencies.length === 0) return;
+    const ids = agencies.map(a => a.id);
+    sb.from("agency_subscriptions")
+      .select("agency_id, status, monthly_price_cents, current_period_end, trial_ends_at, stripe_customer_id, stripe_subscription_id")
+      .in("agency_id", ids)
+      .then(({ data, error }) => {
+        if (error) {
+          // Don't pop a toast — just downgrade to estimate-only mode.
+          if (/does not exist/i.test(error.message || "") || error.code === "PGRST205") {
+            setSubErr("agency_subscriptions table not found — Stripe webhooks not yet wired");
+          } else {
+            setSubErr(error.message);
+          }
+          return;
+        }
+        const map = {};
+        for (const row of (data || [])) map[row.agency_id] = row;
+        setSubs(map);
+      });
+  }, [agencies]);
+
+  // Resolve effective MRR for an agency: real row > plan-based estimate.
+  const mrrFor = (a) => {
+    const s = subs[a.id];
+    if (s && s.status === "active" && Number(s.monthly_price_cents) > 0) return Number(s.monthly_price_cents);
+    return PLAN_MRR[a.plan || "trial"] || 0;
   };
+  const isReal = (a) => !!(subs[a.id] && subs[a.id].monthly_price_cents);
+
   const byPlan = {};
   let mrrCents = 0;
+  let realCount = 0;
   for (const a of agencies) {
     const p = a.plan || "trial";
     byPlan[p] = (byPlan[p] || 0) + 1;
-    mrrCents += PLAN_MRR[p] || 0;
+    mrrCents += mrrFor(a);
+    if (isReal(a)) realCount += 1;
   }
   const totalMembers = Object.values(memberCounts).reduce((a, b) => a + b, 0);
   const paying = agencies.filter(a => a.plan && a.plan !== "trial").length;
 
   return (
+    <>
     <div className="k-stack">
-      <div className="k-kpis" style={{ gridTemplateColumns:"repeat(3, minmax(0, 1fr))" }}>
-        <Kpi hero label="Est. MRR" value={fmtMoney(mrrCents)} sub="from agency plan tiers"/>
+      <div className="k-kpis" style={{ gridTemplateColumns:"repeat(4, minmax(0, 1fr))" }}>
+        <Kpi hero label={realCount > 0 ? "MRR (real + est.)" : "MRR (estimate)"} value={fmtMoney(mrrCents)} sub={realCount > 0 ? `${realCount} from Stripe · ${agencies.length - realCount} from plan tier` : "from agency plan tiers"}/>
         <Kpi label="Paying agencies" value={paying} sub={`${agencies.length - paying} on trial`}/>
+        <Kpi label="Stripe-wired" value={realCount} sub={`${agencies.length - realCount} pending webhook`}/>
         <Kpi label="Members billed" value={totalMembers} sub="across all sub-agencies"/>
       </div>
+
+      {subErr && (
+        <div className="k-card">
+          <div className="k-card-h"><h3 style={{ color:"var(--k-warn)" }}>Stripe not wired</h3></div>
+          <div className="k-card-body" style={{ fontSize:"0.78rem", color:"var(--k-t2)", lineHeight:1.6 }}>
+            {subErr}.<br/>
+            <span className="k-mono" style={{ fontSize:"0.72rem", color:"var(--k-t3)" }}>Wire <strong style={{ color:"var(--k-t)" }}>STRIPE_SECRET_KEY</strong> + <strong style={{ color:"var(--k-t)" }}>STRIPE_WEBHOOK_SECRET</strong> in Vercel env, then deploy the agency_subscriptions migration. Numbers below fall back to plan-tier estimates until webhooks fire.</span>
+          </div>
+        </div>
+      )}
 
       <div className="k-card">
         <div className="k-card-h"><h3>By plan</h3></div>
@@ -841,21 +897,84 @@ function BillingTab({ fleet }) {
       </div>
 
       <div className="k-card">
-        <div className="k-card-h"><h3>Per sub-agency</h3></div>
+        <div className="k-card-h">
+          <h3>Per sub-agency</h3>
+          <span className="k-meta">click row to drill into Stripe state</span>
+        </div>
         <div className="k-table">
-          <div className="k-tr k-head" style={{ gridTemplateColumns:"1.6fr 90px 80px 100px" }}>
-            <div>Agency</div><div>Plan</div><div>Members</div><div>Est. MRR</div>
+          <div className="k-tr k-head" style={{ gridTemplateColumns:"1.6fr 80px 70px 110px 90px 80px" }}>
+            <div>Agency</div><div>Plan</div><div>Members</div><div>MRR</div><div>Stripe</div><div></div>
           </div>
-          {agencies.map(a => (
-            <div key={a.id} className="k-tr k-body" style={{ gridTemplateColumns:"1.6fr 90px 80px 100px" }}>
-              <div className="k-cell-name">{a.name}{isDemoRow(a) && <span style={{ marginLeft:6 }}><StatusChip kind="demo">demo</StatusChip></span>}</div>
-              <div style={{ color:"var(--k-t2)" }}>{a.plan || "trial"}</div>
-              <div className="k-num">{memberCounts[a.id] || 0}</div>
-              <div className="k-num">{fmtMoney(PLAN_MRR[a.plan || "trial"] || 0)}</div>
-            </div>
-          ))}
+          {agencies.map(a => {
+            const s = subs[a.id];
+            const realMrr = isReal(a);
+            return (
+              <div key={a.id} className="k-tr k-body" style={{ gridTemplateColumns:"1.6fr 80px 70px 110px 90px 80px", cursor:"pointer" }} onClick={() => setDrillAgency(a)}>
+                <div className="k-cell-name">{a.name}{isDemoRow(a) && <span style={{ marginLeft:6 }}><StatusChip kind="demo">demo</StatusChip></span>}</div>
+                <div style={{ color:"var(--k-t2)" }}>{a.plan || "trial"}</div>
+                <div className="k-num">{memberCounts[a.id] || 0}</div>
+                <div className="k-num">{fmtMoney(mrrFor(a))}{!realMrr && <span style={{ color:"var(--k-t3)", marginLeft:4, fontSize:"0.65rem" }}>est</span>}</div>
+                <div>
+                  {s
+                    ? <StatusChip kind={s.status === "active" ? "live" : s.status === "trialing" ? "warn" : "danger"}>{s.status}</StatusChip>
+                    : <span className="k-mono" style={{ fontSize:"0.65rem", color:"var(--k-t3)" }}>—</span>}
+                </div>
+                <div><button className="k-btn k-btn-ghost" onClick={(e) => { e.stopPropagation(); setDrillAgency(a); }}>Drill →</button></div>
+              </div>
+            );
+          })}
         </div>
       </div>
+    </div>
+
+    {drillAgency && <BillingDrillModal agency={drillAgency} sub={subs[drillAgency.id]} onClose={() => setDrillAgency(null)}/>}
+    </>
+  );
+}
+
+// ─── BillingDrillModal — per-agency Stripe state + open in Stripe ──────────
+function BillingDrillModal({ agency, sub, onClose }) {
+  const stripeUrl = sub?.stripe_customer_id
+    ? `https://dashboard.stripe.com/customers/${sub.stripe_customer_id}`
+    : null;
+  return (
+    <Shared.Modal title={`Billing · ${agency.name}`} width={520} onClose={onClose}>
+      <div className="koino-skin" style={{ background:"transparent", color:"inherit" }}>
+        {!sub && (
+          <div className="k-empty" style={{ background:"var(--k-s2)", border:"1px solid var(--k-b)", borderRadius:6 }}>
+            No agency_subscriptions row for this sub-agency.<br/>
+            <span style={{ fontSize:"0.72rem" }}>Either Stripe webhooks haven't fired yet, or the agency is on the trial plan. MRR shown elsewhere is a <strong style={{ color:"var(--k-t)" }}>plan-tier estimate</strong> only.</span>
+          </div>
+        )}
+        {sub && (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <Row k="Status"          v={<StatusChip kind={sub.status === "active" ? "live" : sub.status === "trialing" ? "warn" : "danger"}>{sub.status}</StatusChip>}/>
+            <Row k="Monthly price"   v={fmtMoney(sub.monthly_price_cents) || "—"}/>
+            <Row k="Current period end" v={sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : "—"}/>
+            <Row k="Trial ends"      v={sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString() : "no trial"}/>
+            <Row k="Stripe customer" v={<span className="k-mono" style={{ fontSize:"0.72rem" }}>{sub.stripe_customer_id || "—"}</span>}/>
+            <Row k="Subscription"    v={<span className="k-mono" style={{ fontSize:"0.72rem" }}>{sub.stripe_subscription_id || "—"}</span>}/>
+          </div>
+        )}
+        <div style={{ marginTop:14, padding:10, background:"var(--k-s2)", border:"1px solid var(--k-b)", borderRadius:6, fontSize:"0.72rem", color:"var(--k-t3)", lineHeight:1.5 }}>
+          <span className="k-mono">plan:</span> <span className="k-mono" style={{ color:"var(--k-t2)" }}>{agency.plan || "trial"}</span> ·
+          <span className="k-mono"> est. MRR:</span> <span className="k-mono" style={{ color:"var(--k-t2)" }}>{fmtMoney(PLAN_MRR[agency.plan || "trial"] || 0)}</span>
+        </div>
+        <div style={{ marginTop:14, display:"flex", gap:8 }}>
+          {stripeUrl && (
+            <a className="k-btn k-btn-primary" href={stripeUrl} target="_blank" rel="noopener noreferrer">Open in Stripe ↗</a>
+          )}
+          <button className="k-btn k-btn-ghost" onClick={onClose} style={{ marginLeft:"auto" }}>Close</button>
+        </div>
+      </div>
+    </Shared.Modal>
+  );
+}
+function Row({ k, v }) {
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"160px 1fr", gap:10, padding:"6px 10px", background:"var(--k-s2)", borderRadius:6, alignItems:"center" }}>
+      <div style={{ fontFamily:"var(--k-mono)", fontSize:"0.65rem", color:"var(--k-t3)", textTransform:"uppercase", letterSpacing:"0.06em" }}>{k}</div>
+      <div style={{ fontSize:"0.82rem", color:"var(--k-t)" }}>{v}</div>
     </div>
   );
 }
