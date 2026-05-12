@@ -2748,14 +2748,22 @@ function SettingsIntegrations() {
   const test = async (key, label) => {
     setTesting(key);
     try {
+      // api/connector/test.js reads body.connector_id (not connector_key);
+      // sending the wrong field name made every Test button fail with
+      // "unknown connector". Send both for forward-compat.
       const r = await fetch("/api/connector/test", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ connector_key: key }),
+        body: JSON.stringify({ connector_id: key, connector_key: key }),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok && (j?.ok || j?.status === "ok")) window.toast && window.toast(`${label}: healthy`, "success");
-      else window.toast && window.toast(`${label}: ${j?.error || "test failed"}`, "warn");
+      const ok = r.ok && (j?.ok || j?.status === "ok");
+      if (ok) {
+        window.toast && window.toast(`${label}: ${j?.detail || "healthy"}`, "success");
+      } else {
+        const reason = j?.detail || j?.error || (j?.missing_env ? `missing env: ${j.missing_env.join(", ")}` : "test failed");
+        window.toast && window.toast(`${label}: ${reason}`, "warn");
+      }
     } catch (_e) {
       window.toast && window.toast(`${label}: test endpoint unreachable`, "warn");
     } finally {
