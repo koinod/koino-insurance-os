@@ -5,6 +5,7 @@ Window: ~4-hour sovereign pass against the backend that landed today.
 Push: **NOT** pushed to remote — Ian to review locally then push.
 
 ```
+dd73e60 fix(auth): close the onboarding routing gap for new users           (P9)
 b2e399d chore(aep): archive AEP/Surge UI surface (backend preserved)       (P8)
 3136e73 feat(profile): Edit Profile entry point + role-gated licensing +
          avatar preview                                                     (P7)
@@ -18,7 +19,7 @@ daf77b9 docs: OVERNIGHT_HANDOFF_2026-05-11 — sovereign pass 6 summary
 370b9c2 fix(data): empty AppData by default, hardcoded seed only on demo skip (P1)
 ```
 
-10 commits. Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
+12 commits (P1–P9 + 3 doc commits). Zero `main` touches. Zero remote pushes. Zero Stripe live-product changes.
 
 ---
 
@@ -181,6 +182,71 @@ in `page-extras.jsx`.
 - Empty `role_agent_defaults` seed → friendly empty state.
 
 **Files touched**: `page-extras.jsx`, `index.html` (cache bump).
+
+---
+
+### P9 — `dd73e60` — Close the new-user onboarding routing gap
+
+A latent bug we caught reviewing the AuthGate flow. The "resume wizard"
+branch in `page-auth.jsx` checks
+`tenant.agency.onboarding_complete === false`, but `loadTenant` in
+`page-tenant.jsx` was never selecting that column. So
+`tenant.agency.onboarding_complete` was always `undefined`, the strict
+`!== false` test always failed, and a fresh agency owner whose
+magic-link landed them mid-wizard sailed past the wizard into the main
+app — empty pipeline, empty manager view, no idea why.
+
+**Fix, two parts**:
+
+1. **`page-tenant.jsx::loadTenant`** —
+   - Now selects `onboarding_complete` from `agencies` and `joined_at`
+     from `agency_members`. Tolerant pattern (same one `data.jsx`
+     uses for the pipeline `phone/email` columns): tries the rich
+     select first, retries with the legacy shape if PostgREST returns
+     `"column does not exist"`. Old schemas don't strand the user on
+     the recovery screen.
+   - Members are now **sorted by role rank** (super_admin > owner >
+     imo_owner > admin > manager > rep, tie on `joined_at` ASC) before
+     picking the primary. Matches the 2026-05-11 `current_agency_id()`
+     RPC ranking and the index.html role-sync from P5. A user who's
+     owner of one agency and rep of another now deterministically
+     lands on the owner side.
+
+2. **`page-auth.jsx` AuthGate gate** —
+   - The owner check now accepts `owner | imo_owner | super_admin`.
+     Previously only `owner` triggered the wizard, so `imo_owners`
+     with a freshly-provisioned sub-agency were silently routed to
+     the main app while their setup sat at step 1 of 9.
+   - Comment clarifies the contract: `undefined onboarding_complete`
+     means "legacy agency, skip" — preserves the pre-2026-05-11
+     behaviour for tenants that pre-date the wizard schema.
+
+**The full new-user routing matrix is now**:
+
+| User state                              | AuthGate routes to       |
+|------------------------------------------|---------------------------|
+| signed-in, no membership                | StartPicker (Start / Join / Solo) |
+| signed-in, owner mid-wizard             | resume from `next_pending` step |
+| signed-in, imo_owner mid-wizard         | resume from `next_pending` step |
+| signed-in, super_admin mid-wizard       | resume from `next_pending` step |
+| signed-in, member + no `rep_id`         | producer profile wizard |
+| signed-in, agency `onboarding_complete=true` | main app |
+| signed-in, agency `onboarding_complete=undefined` (legacy) | main app |
+| signed-in, demo-skip                    | main app with seed |
+
+**Cache busters**: `page-tenant.jsx?v=78`, `page-auth.jsx?v=78`.
+
+**Verify**:
+1. Sign up a brand-new email via magic link → land on **StartPicker**.
+2. Click *Start a new agency*, name it, submit → `provision_sub_agency`
+   fires, `start_agency_onboarding` seeds rows, you land on the
+   **Profile** step (step 1 of 9).
+3. Close the tab, click the magic link again from a fresh session →
+   AuthGate runs `loadTenant`, sees `onboarding_complete=false`, and
+   you land **back at the next pending step** — not the main app.
+4. Walk through to the end → `complete_onboarding_step` flips the
+   last row, `v_agency_onboarding_status.onboarding_complete` returns
+   true, AuthGate routes you into Repflow proper.
 
 ---
 
