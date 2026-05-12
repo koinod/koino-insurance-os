@@ -314,7 +314,16 @@ function PageWorkflows() {
                     onClick={() => window.AppData.mutate.workflowToggle(w.id, !active).then(() => window.toast && window.toast(`${active ? "Paused" : "Resumed"} ${w.name}`, "success")).catch(() => {})}>
                     {active ? <><Icons.Pause size={11}/> Pause</> : <><Icons.Play size={11}/> Run</>}
                   </button>
-                  <button className="icon-btn"><Icons.ChevronRight size={12}/></button>
+                  <button
+                    className="icon-btn"
+                    title="Ask the AI co-pilot about this workflow"
+                    onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: {
+                      prompt: `Explain workflow "${w.name}" — what it does, what it runs against, and one specific change I should consider this week.`,
+                      context: "Ops · workflow drill-down",
+                    }}))}
+                  >
+                    <Icons.ChevronRight size={12}/>
+                  </button>
                 </div>
               );
             })}
