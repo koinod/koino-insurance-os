@@ -2499,11 +2499,14 @@ function PageBook() {
       sections, rep sees only their profile.
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
+  // For reps, Profile is the primary surface (identity, licensing, NPN,
+  // notification prefs) — it should be the default landing tab, not the
+  // Agents catalog. The prominent "Edit Profile" button mirrors this.
   const TABS = role === "owner"
     ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-      : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
+      : [["profile","Profile"],["notifications","Notifications"],["calling","Calling"],["agents","Agents"]];
   // Allow other pages to deeplink into a specific tab via sessionStorage
   // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
   const initialTab = (() => {
@@ -3187,18 +3190,47 @@ function SettingsRouting() {
 }
 
 function SettingsNotifications() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
+  const DEFAULTS = {
+    leadNew: true, leadStuck: true, dealIssued: true, nigo: true,
+    coachingNew: false, recruitingNew: true, dailyDigest: true,
+  };
+  const [prefs, setPrefs] = React.useState(DEFAULTS);
+  const [loaded, setLoaded] = React.useState(false);
+  // Was: prefs initialised to DEFAULTS and never reconciled with the
+  // backend. First toggle overwrote whatever the user previously saved
+  // with the seven-key all-true default. Now: load from get_my_profile
+  // (notification_prefs is part of public.profiles) on mount, then
+  // toggles save deltas via save_profile.
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setLoaded(true); return; }
+    (async () => {
+      try {
+        const r = await sb.rpc("get_my_profile");
+        const b = (typeof r?.data === "string") ? JSON.parse(r.data) : (r?.data || {});
+        const saved = b?.profile?.notification_prefs;
+        if (saved && typeof saved === "object") {
+          setPrefs({ ...DEFAULTS, ...saved });
+        }
+      } catch (_e) {} finally { setLoaded(true); }
+    })();
+  }, []);
   const update = (k, v) => {
     const next = { ...prefs, [k]: v };
     setPrefs(next);
-    window.AppData.mutate.notificationPrefsSave("me", next).catch(() => {});
+    const sb = window.getSupabase && window.getSupabase();
+    if (sb) {
+      // Persist via save_profile minimal-patch — preserves any other
+      // keys in the profile row.
+      sb.rpc("save_profile", { p: { notification_prefs: next } }).catch(() => {});
+    } else if (window.AppData?.mutate?.notificationPrefsSave) {
+      window.AppData.mutate.notificationPrefsSave("me", next).catch(() => {});
+    }
   };
   const t = (k, l, sub) => (
     <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
       <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => update(k, e.target.checked)}/>
+        <input type="checkbox" checked={!!prefs[k]} disabled={!loaded} onChange={(e) => update(k, e.target.checked)}/>
       </span>
       <div>
         <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
@@ -3210,37 +3242,7 @@ function SettingsNotifications() {
   return (
     <div className="panel" style={{ padding: 16 }}>
       <h3 style={{ margin: 0 }}>Notifications</h3>
-      <div style={{ marginTop: 8 }}>
-        {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
-        {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
-        {t("dealIssued",    "Deal issued",                   "Push immediately")}
-        {t("nigo",          "NIGO returned",                  "Push + email + escalate to mgr")}
-        {t("coachingNew",   "New coaching card for me",      "Daily digest")}
-        {t("recruitingNew", "New applicant in funnel",        "Daily")}
-        {t("dailyDigest",   "Daily digest",                    "8am · weekdays")}
-      </div>
-    </div>
-  );
-}
-function SettingsNotifications_OLD() {
-  const [prefs, setPrefs] = React.useState({
-    leadNew: true, leadStuck: true, dealIssued: true, nigo: true, coachingNew: false, recruitingNew: true, dailyDigest: true,
-  });
-  const t = (k, l, sub) => (
-    <label style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border-subtle)", alignItems: "center" }}>
-      <span style={{ display: "inline-block", width: 32 }}>
-        <input type="checkbox" checked={prefs[k]} onChange={(e) => setPrefs({ ...prefs, [k]: e.target.checked })}/>
-      </span>
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13 }}>{l}</div>
-        <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 1 }}>{sub}</div>
-      </div>
-      <span style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: 11.5 }}>{prefs[k] ? "Email + push" : "off"}</span>
-    </label>
-  );
-  return (
-    <div className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: 0 }}>Notifications</h3>
+      {!loaded && <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text-tertiary)" }}>Loading your preferences…</div>}
       <div style={{ marginTop: 8 }}>
         {t("leadNew",       "New lead in my queue",         "Push within 30s of routing")}
         {t("leadStuck",     "Lead stuck > 3 days in stage", "Daily")}
