@@ -10,8 +10,11 @@ function MobileRep() {
   const startRef = React.useRef(null);
 
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const myRepId = meIdent?.rep_id || (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id);
-  const myFirst = (meIdent?.full_name || (AppData.REPS && AppData.REPS[0]?.name) || "your producer").split(" ")[0];
+  // Same Marcus-leak guard as desktop pages: don't fall through to
+  // REPS[0]?.id (demo seed). Sentinel matches no pipeline row.
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+  const myRepId = meIdent?.rep_id || (isDemo ? (AppData.REPS?.[0]?.id) : "__unresolved_rep__");
+  const myFirst = (meIdent?.full_name || (isDemo ? AppData.REPS?.[0]?.name : null) || "your producer").split(" ")[0];
 
   // Build "my queue" — own pipeline (New + Contacted) merged with the global
   // unassigned inbound queue, scored highest-heat first. Mirrors the GAP-D2
@@ -104,7 +107,14 @@ function MobileRep() {
     <div className="mobile-stage">
       <div className="mobile-frame">
         <div className="m-statusbar">
-          <span>9:41</span>
+          <span>{(() => {
+            // Was hardcoded "9:41" — keep this honest to the rep's clock.
+            const d = new Date();
+            const h = d.getHours();
+            const m = d.getMinutes();
+            const h12 = ((h + 11) % 12) + 1;
+            return `${h12}:${String(m).padStart(2, "0")}`;
+          })()}</span>
           <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <Icons.Bolt size={11}/> <Icons.Volume size={11}/>
           </span>
@@ -118,11 +128,20 @@ function MobileRep() {
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Dial Queue</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{cards.length} fresh · swipe → dial · ← skip · ↑ SMS · ↓ later</div>
                 </div>
-                <div className="lb-pill" style={{ padding: "3px 8px" }}>
-                  <Icons.Trophy size={11} style={{ color: "var(--accent-status)" }}/>
-                  <span className="rank tabular">#3</span>
-                  <span className="delta-up tabular"><Icons.ArrowUp size={9}/>2</span>
-                </div>
+                {(() => {
+                  // Real rank computed from REPS sorted by MTD AP. If me()
+                  // isn't on the leaderboard (empty agency / unresolved
+                  // session), suppress the pill rather than show #3 +2.
+                  const ranked = [...(AppData.REPS || [])].sort((a, b) => (b.mtd || 0) - (a.mtd || 0));
+                  const myIdx  = ranked.findIndex(r => r.id === myRepId);
+                  if (myIdx < 0) return null;
+                  return (
+                    <div className="lb-pill" style={{ padding: "3px 8px" }}>
+                      <Icons.Trophy size={11} style={{ color: "var(--accent-status)" }}/>
+                      <span className="rank tabular">#{myIdx + 1}</span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="cardstack">
@@ -140,7 +159,6 @@ function MobileRep() {
                   const transform = isTop
                     ? `translate(${drag.x}px, ${drag.y}px) rotate(${drag.x * 0.04}deg)`
                     : `translateY(${offset * 8}px) scale(${1 - offset * 0.04})`;
-                  const phone = "+1512555" + String(c.id || "").replace(/\D/g, "").padStart(4, "0").slice(0, 4);
                   return (
                     <div key={c.id} className="swipe-card" style={{ transform, zIndex: idx, transition: isTop && !startRef.current ? "transform 200ms var(--ease-spring)" : "none" }}
                          onPointerDown={isTop ? onPtrDown : undefined}
@@ -193,29 +211,50 @@ function MobileRep() {
             </>
           )}
 
-          {tab === "pipe" && window.MScreenPipeline && (() => { const C = window.MScreenPipeline; return <C onNav={(n) => setTab(n === "queue" ? "dial" : n)} onLead={(l) => { window.repflowDial && window.repflowDial("+15125550" + (l.id || "100"), l.lead); }}/>; })()}
+          {tab === "pipe" && window.MScreenPipeline && (() => {
+            const C = window.MScreenPipeline;
+            return <C
+              onNav={(n) => setTab(n === "queue" ? "dial" : n)}
+              onLead={(l) => {
+                // Never synthesize a phone number — dialing a fake number
+                // is worse than no-op. If the pipeline row has no phone,
+                // toast and let the rep open lead detail instead.
+                if (!l.phone) { window.toast && window.toast(`No phone on file for ${l.lead}`, "warn"); return; }
+                window.repflowDial && window.repflowDial(l.phone, l.lead);
+              }}
+            />;
+          })()}
 
-          {tab === "lb" && (
-            <>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", margin: "4px 0 4px" }}>Leaderboard</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 14 }}>Atlas · MTD · live</div>
-              <div className="panel">
-                {[...AppData.REPS].sort((a,b) => b.mtd - a.mtd).slice(0, 6).map((r, i) => (
-                  <div key={r.id} className="row" style={{ gridTemplateColumns: "24px 1fr 80px", height: 50, padding: "0 12px" }}>
-                    <span className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Shared.Avatar rep={r} size={24}/>
-                      <div>
-                        <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}</div>
-                        <Shared.TierChip tier={r.tier} compact/>
-                      </div>
+          {tab === "lb" && (() => {
+            const ranked = [...(AppData.REPS || [])].sort((a,b) => (b.mtd || 0) - (a.mtd || 0)).slice(0, 6);
+            const agencyName = meIdent?.agency_name || (isDemo ? "Atlas" : "Agency");
+            return (
+              <>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", margin: "4px 0 4px" }}>Leaderboard</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 14 }}>{agencyName} · MTD · live</div>
+                <div className="panel">
+                  {ranked.length === 0 && (
+                    <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                      No producers on the board yet.
                     </div>
-                    <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontSize: 13 }}>${(r.mtd/1000).toFixed(1)}k</div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+                  )}
+                  {ranked.map((r, i) => (
+                    <div key={r.id} className="row" style={{ gridTemplateColumns: "24px 1fr 80px", height: 50, padding: "0 12px" }}>
+                      <span className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-status)" : "var(--text-tertiary)" }}>{i + 1}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Shared.Avatar rep={r} size={24}/>
+                        <div>
+                          <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}</div>
+                          <Shared.TierChip tier={r.tier} compact/>
+                        </div>
+                      </div>
+                      <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontSize: 13 }}>${((r.mtd || 0)/1000).toFixed(1)}k</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
 
           {tab === "vault" && window.MScreenVault && (() => { const C = window.MScreenVault; return <C onNav={setTab}/>; })()}
 
@@ -239,9 +278,19 @@ function MobileRep() {
                 <Shared.TierChip tier={displayTier}/>
                 <div className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 600, letterSpacing: "-0.03em", marginTop: 16 }}>${mtd.toLocaleString()}</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>MTD · keep going</div>
-                <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, mtd / 600)}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
-                </div>
+                {(() => {
+                  // Bar progresses against the tier's threshold (or the next
+                  // tier's bar for top-of-tier reps). Was: width = mtd / 600.
+                  const tt = { bronze: 12000, silver: 20000, gold: 35000, platinum: 50000, diamond: 60000 };
+                  const tier = (displayTier || "bronze").toLowerCase();
+                  const target = tt[tier] || 12000;
+                  const pct = Math.min(100, (mtd / Math.max(1, target)) * 100);
+                  return (
+                    <div style={{ width: "100%", height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, var(--tier-platinum), var(--tier-diamond))" }}></div>
+                    </div>
+                  );
+                })()}
               </div>
               <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 16, color: "var(--state-danger)" }} onClick={() => window.signOut && window.signOut()}>Sign out</button>
             </>
