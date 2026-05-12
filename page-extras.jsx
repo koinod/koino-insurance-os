@@ -1415,7 +1415,7 @@ function ScriptsLibrary() {
           </Shared.Field>
           <Shared.Field label="Body">
             <textarea className="text-input" rows={10} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })}
-              placeholder={`Hi {{lead_name}}, this is {{rep_first}} with Atlas...`}
+              placeholder={`Hi {{lead_name}}, this is {{rep_first}} with {{agency_name}}...`}
               style={{ width: "100%", lineHeight: 1.6, fontFamily: "var(--font-ui)" }}/>
           </Shared.Field>
           <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
@@ -1623,8 +1623,9 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
       <div className="kpi-row">
         <Shared.KpiCard label="Required remaining" value={requiredOpen} sub={requiredOpen === 0 ? "onboarding complete" : "must finish"}/>
         <Shared.KpiCard label="Active courses" value={activeCount}/>
-        <Shared.KpiCard label="Cert progress" value="62%" sub="AEP 2026 cert" trend="up"/>
-        <Shared.KpiCard label="CE hours · YTD" value="14.5"/>
+        {/* Cert progress / CE hours were hardcoded "62%" / "14.5" — every
+            agency saw the same fake numbers. Removed until v_user_metrics or
+            an equivalent view surfaces real cert + CE counts. */}
       </div>
 
       {tab === "courses" && (
@@ -3104,63 +3105,145 @@ function SettingsApi() {
   );
 }
 
+/* Settings → Routing rules
+ *
+ * Was: pure local React state — setRules() updated the array in memory, the
+ * "Rule added" toast fired, the user closed the modal, then on the next
+ * refresh every rule was gone. Zero persistence. Same demo seed every time.
+ *
+ * Now: load existing rules from public.routing_rules on mount, persist every
+ * add/edit/delete/weight-drag through AppData.mutate.routingRuleSave /
+ * routingRuleDelete (the same path the page-manager RoutingRulesModal uses,
+ * so both surfaces edit the same row set). */
 function SettingsRouting() {
   const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
-  const [rules, setRules] = React.useState(isDemo ? [
-    { id: 1, src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60 },
-    { id: 2, src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90 },
-    { id: 3, src: "Annuity",             route: "Certified producer",    weight: 100 },
-    { id: 4, src: "Spanish",             route: "Bilingual round-robin", weight: 50 },
-  ] : []);
+  const [rules, setRules]     = React.useState([]);
+  const [loaded, setLoaded]   = React.useState(false);
   const [editing, setEditing] = React.useState(null); // null = closed, {} = new, {id...} = edit existing
-  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50 });
+  const [busy, setBusy]       = React.useState(false);
+
+  // Load existing rules. In demo mode keep the in-memory seed so the sandbox
+  // tour still has something to look at.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb && window.AppData?.LIVE) {
+        try {
+          const { data } = await sb.from("routing_rules").select("*").order("created_at", { ascending: false });
+          if (!cancelled && Array.isArray(data)) {
+            setRules(data.map(r => ({
+              id: r.id,
+              src: r.source,
+              route: r.route_to,
+              weight: r.weight ?? 50,
+              active: r.active !== false,
+            })));
+          }
+        } catch (_e) {}
+      } else if (isDemo) {
+        setRules([
+          { id: "demo-1", src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60, active: true },
+          { id: "demo-2", src: "Inbound < 30s",      route: "Tier ≥ Gold",          weight: 90, active: true },
+          { id: "demo-3", src: "Annuity",             route: "Certified producer",    weight: 100, active: true },
+          { id: "demo-4", src: "Spanish",             route: "Bilingual round-robin", weight: 50, active: true },
+        ]);
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [isDemo]);
+
+  const addRule = () => setEditing({ id: null, src: "", route: "", weight: 50, active: true });
   const editRule = (r) => setEditing({ ...r });
-  const deleteRule = (id) => {
+
+  const deleteRule = async (id) => {
     setRules(rs => rs.filter(x => x.id !== id));
-    window.toast && window.toast("Rule removed", "success");
+    try {
+      if (!String(id).startsWith("demo-")) {
+        await window.AppData.mutate.routingRuleDelete(id);
+      }
+      window.toast && window.toast("Rule removed", "success");
+    } catch (e) { window.toast && window.toast(`Delete failed: ${e?.message || e}`, "error"); }
   };
-  const saveRule = () => {
+
+  const saveRule = async () => {
     if (!editing.src.trim() || !editing.route.trim()) {
       window.toast && window.toast("Source and route are required", "error");
       return;
     }
-    if (editing.id == null) {
-      const nextId = rules.length === 0 ? 1 : Math.max(...rules.map(r => r.id || 0)) + 1;
-      setRules(rs => [...rs, { ...editing, id: nextId }]);
-      window.toast && window.toast("Rule added", "success");
-    } else {
-      setRules(rs => rs.map(x => x.id === editing.id ? editing : x));
-      window.toast && window.toast("Rule updated", "success");
-    }
-    setEditing(null);
+    setBusy(true);
+    try {
+      const payload = {
+        id: editing.id || undefined,
+        source: editing.src.trim(),
+        route_to: editing.route.trim(),
+        weight: editing.weight,
+        active: editing.active !== false,
+      };
+      await window.AppData.mutate.routingRuleSave(payload);
+      // Optimistic local update. Real id comes from realtime/refresh.
+      const localRow = {
+        id: editing.id || ("tmp-" + Date.now()),
+        src: payload.source,
+        route: payload.route_to,
+        weight: payload.weight,
+        active: payload.active,
+      };
+      setRules(rs => editing.id
+        ? rs.map(x => x.id === editing.id ? localRow : x)
+        : [localRow, ...rs]);
+      window.toast && window.toast(editing.id ? "Rule updated" : "Rule added", "success");
+      setEditing(null);
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
   };
+
+  // Weight drag: persist on commit (mouseup / blur), not every tick.
+  const commitWeight = async (rule, weight) => {
+    if (String(rule.id).startsWith("demo-")) return;
+    try {
+      await window.AppData.mutate.routingRuleSave({
+        id: rule.id, source: rule.src, route_to: rule.route, weight, active: rule.active !== false,
+      });
+    } catch (e) { window.toast && window.toast(`Save failed: ${e?.message || e}`, "error"); }
+  };
+
   return (
-    <div className="panel" style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h3 style={{ margin: 0 }}>Routing rules</h3>
-        <button className="btn btn-primary" onClick={addRule}><Icons.Plus size={12}/> New rule</button>
+    <div className="panel" style={{ padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Routing rules</h3>
+        <button className="btn btn-primary" onClick={addRule}><Icons.Plus size={11}/> New rule</button>
       </div>
       <div className="list">
         <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
           <div>Source / trigger</div><div>Route to</div><div>Priority</div><div></div>
         </div>
         {rules.map(r => (
-          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px" }}>
-            <div style={{ fontWeight: 500 }}>{r.src}</div>
-            <div style={{ color: "var(--text-secondary)" }}>{r.route}</div>
+          <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1fr 90px", height: 36 }}>
+            <div style={{ fontWeight: 500, fontSize: 12 }}>{r.src}</div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{r.route}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="range" min={0} max={100} value={r.weight} onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))} style={{ flex: 1 }}/>
-              <span className="tabular" style={{ width: 30, fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.weight}</span>
+              <input
+                type="range" min={0} max={100} value={r.weight}
+                onChange={(e) => setRules(rs => rs.map(x => x.id === r.id ? { ...x, weight: +e.target.value } : x))}
+                onMouseUp={(e) => commitWeight(r, +e.target.value)}
+                onTouchEnd={(e) => commitWeight(r, +e.target.value)}
+                style={{ flex: 1, accentColor: "var(--accent-money)" }}
+              />
+              <span className="tabular" style={{ width: 26, fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{r.weight}</span>
             </div>
             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 8px" }} onClick={() => editRule(r)}>Edit</button>
-              <button className="btn btn-ghost" onClick={() => deleteRule(r.id)} title="Delete rule"><Icons.X size={11}/></button>
+              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 6px" }} onClick={() => editRule(r)}>Edit</button>
+              <button className="btn btn-ghost" style={{ color: "var(--state-danger)" }} onClick={() => deleteRule(r.id)} title="Delete rule"><Icons.X size={11}/></button>
             </div>
           </div>
         ))}
-        {rules.length === 0 && (
-          <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-            No routing rules yet. Add one to control which producer gets which lead source.
+        {loaded && rules.length === 0 && (
+          <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.55 }}>
+            No routing rules yet. Add one to control which producer gets which lead source. <br/>
+            <span style={{ fontSize: 11 }}>Manager view: edit rules here or in <em>Team Board → Routing rules</em>; both edit the same set.</span>
           </div>
         )}
       </div>
@@ -3168,7 +3251,7 @@ function SettingsRouting() {
         <Shared.Modal title={editing.id == null ? "New routing rule" : "Edit routing rule"} width={460} onClose={() => setEditing(null)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveRule}><Icons.Check size={11}/> Save</button>
+            <button className="btn btn-primary" onClick={saveRule} disabled={busy}><Icons.Check size={11}/> {busy ? "Saving…" : "Save"}</button>
           </>
         }>
           <Shared.Field label="Source / trigger">
@@ -3178,7 +3261,7 @@ function SettingsRouting() {
             <input className="text-input" value={editing.route} onChange={(e) => setEditing({ ...editing, route: e.target.value })} placeholder="e.g. Med Supp specialists"/>
           </Shared.Field>
           <Shared.Field label={`Priority weight · ${editing.weight}`}>
-            <input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%" }}/>
+            <input type="range" min={0} max={100} value={editing.weight} onChange={(e) => setEditing({ ...editing, weight: +e.target.value })} style={{ width: "100%", accentColor: "var(--accent-money)" }}/>
           </Shared.Field>
         </Shared.Modal>
       )}
