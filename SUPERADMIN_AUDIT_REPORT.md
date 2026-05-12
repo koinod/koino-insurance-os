@@ -224,9 +224,10 @@ Single screen, no scroll bait. Six panel groups, top-to-bottom:
    Live = green dot; stale (>5min) = amber.
 2. **Per-agency revenue strip** — sparkline-per-agency, hover shows
    plan + MRR + last-30 commissions, click = act-as.
-3. **Agent / OMNI / OCI / SailorsBot1 status** — reads
-   `agent_install_tokens.used_for_id` heartbeats grouped by host_id.
-   Each agent shows last-heartbeat-age + agent_count. Cross-agency.
+3. **Agent fleet status** — reads `public.hardware` joined to
+   `public.ai_agents` (enrolled via `agent_install_tokens.used_for_id`
+   heartbeats). Per-host: kind, load %, agent count, last-heartbeat age
+   with live (<5min) / stale (<1h) / dead (>1h) chip. Cross-agency.
 4. **BLOCKERS card** — items from `agency_audit_log` with
    `kind='blocker_on_operator'` (new kind). Surfaces things the
    automation flagged that need Ian-as-operator action. Each row has
@@ -351,13 +352,11 @@ Did the new platform-admin surface leak anything to non-super_admin?
   agency-level Stripe metadata only. Real Stripe API aggregation
   (per-customer subscription + invoice history across agencies) needs
   a server-side fan-out — tracked separately.
-- **Per-host agent fleet status.** OMNI/OCI/SailorsBot1 nodes feed
-  `koino_agents` rows on a separate Supabase project (`koino-os`,
-  ref `qxwixqnbgpnuvbuntygw`). Pulling that into the Repflow
-  super-admin HQ requires a cross-project read which we don't want to
-  set up just yet. For now the HQ shows agents enrolled via
-  `agent_install_tokens` on **this** project — fine for the immediate
-  Cody / Sailors / Repflow fleet, expand later.
+- **Agent fleet panel.** Reads Repflow's own `public.hardware` +
+  `public.ai_agents` via the new `platform_fleet_status()` RPC. Shows
+  every host enrolled through Repflow's host-enrollment flow
+  (page-platform.jsx → Hardware → Enroll). No external agent pools are
+  pulled — this surface is Repflow-scoped, full stop.
 - **Granular flag rollout** (% rollouts, cohort assignments). Flags
   shipped here are boolean. Add cohort logic when the second flag
   needs it.
@@ -419,15 +418,15 @@ element, with the fix applied.
 | Resolve btn | STUB (not present)                | WIRED — `resolve_blocker(id, note)` RPC. Writes resolution row + marks original `metadata.resolved=true`. Audit-trailed. |
 | Drill-in    | STUB                              | WIRED — row click → act-as that agency + route to relevant page from `metadata.deep_link` if present |
 
-### F4 Agent / OMNI / OCI / SailorsBot1 status
+### F4 Agent fleet status (Repflow hosts + agents)
 
-| Element       | Before                          | After                                              |
-|---------------|---------------------------------|----------------------------------------------------|
-| Whole panel   | MISSING (only capability probe) | NEW `<AgentFleetPanel/>` on HQ + dedicated subpage |
+| Element       | Before                          | After                                                                |
+|---------------|---------------------------------|----------------------------------------------------------------------|
+| Whole panel   | MISSING (only capability probe) | NEW `<AgentFleetPanel/>` on HQ right column                          |
 | Hardware list | n/a                             | WIRED — reads `public.hardware` (kind/status/uptime/load/last_heartbeat) |
-| Agent list    | n/a                             | WIRED — reads `public.ai_agents` + `public.agent_deployments` joined to hardware |
-| Heartbeat age | n/a                             | WIRED — computed client-side from `last_heartbeat`. Stale chip when >5min, dead when >1h |
-| Cross-project | DEFERRED                        | DEFERRED (still — OMNI/OCI/SailorsBot1 telemetry lives on the koino-os Supabase project; bridging is a separate task) |
+| Agent list    | n/a                             | WIRED — reads `public.ai_agents` joined to hardware via host_id      |
+| Heartbeat age | n/a                             | WIRED — computed client-side from `last_heartbeat`. Live (<5min) / stale (<1h) / dead (>1h) chip |
+| Scope         | n/a                             | Repflow agent infra only. Hosts enrolled via page-platform.jsx → Hardware → Enroll → `agent_install_tokens` flow. No external agent fleets surfaced. |
 
 ### F5 Act-as agency
 
