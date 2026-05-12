@@ -25,6 +25,19 @@ function PagePipeline({ role = "owner" }) {
     window.addEventListener("data:hydrated", onHydrate);
     return () => window.removeEventListener("data:hydrated", onHydrate);
   }, []);
+  // Deep-link from elsewhere (Today's tasks panel, notifications) →
+  // open the matching lead's detail slide-out. dispatcher already
+  // routes via gotoPage("pipeline"); we just need to honour the event.
+  React.useEffect(() => {
+    const onOpen = (e) => {
+      const id = e?.detail?.id;
+      if (!id) return;
+      const match = (window.AppData.PIPELINE || []).find(p => p.id === id);
+      if (match) setOpenLead(match);
+    };
+    window.addEventListener("pipeline:openLead", onOpen);
+    return () => window.removeEventListener("pipeline:openLead", onOpen);
+  }, []);
   const [drag, setDrag] = React.useState(null);
   const [openLead, setOpenLead] = React.useState(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
@@ -379,10 +392,36 @@ function PagePipeline({ role = "owner" }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Shared.Field label="Age"><input className="text-input" type="number" min={18} max={110} value={newRow.age} onChange={(e) => setNewRow({ ...newRow, age: e.target.value })}/></Shared.Field>
-            <Shared.Field label="State"><Shared.Select value={newRow.state} onChange={(v) => setNewRow({ ...newRow, state: v })} options={["TX","FL","CA","NY","GA","NV","AZ","OH","PA","MI","NC","WI","WA"].map(s => ({ v: s, l: s }))}/></Shared.Field>
+            {(() => {
+              // For reps, scope the state dropdown to their licensed states so
+              // they can't create leads they're not appointed in. Falls back
+              // to the 13-state legacy list when me() carries no licenses.
+              const ALL = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+              const repStates = (meIdent?.licensed_states && Array.isArray(meIdent.licensed_states) && meIdent.licensed_states.length > 0)
+                ? meIdent.licensed_states.slice().sort()
+                : null;
+              const stateOpts = role === "rep" && repStates ? repStates : ALL;
+              return (
+                <Shared.Field label={role === "rep" && repStates ? `State (${repStates.length} licensed)` : "State"}>
+                  <Shared.Select value={newRow.state} onChange={(v) => setNewRow({ ...newRow, state: v })} options={stateOpts.map(s => ({ v: s, l: s }))}/>
+                </Shared.Field>
+              );
+            })()}
           </div>
           <Shared.Field label="Product"><Shared.Select value={newRow.product} onChange={(v) => setNewRow({ ...newRow, product: v })} options={["Med Supp Plan G","Med Supp Plan N","Final Expense $10K","Final Expense $15K","Final Expense $20K","Final Expense $25K","Annuity $50K"].map(s => ({ v: s, l: s }))}/></Shared.Field>
-          <Shared.Field label="Source"><Shared.Select value={newRow.source} onChange={(v) => setNewRow({ ...newRow, source: v })} options={["FB Lead Form","Inbound call","T65 list","Referral","Cross-sell"].map(s => ({ v: s, l: s }))}/></Shared.Field>
+          {(() => {
+            // Source options: derive from LEAD_SOURCES catalog when present
+            // (so agency-defined sources show up), with the legacy 5 as a
+            // floor when the table is empty.
+            const cat = (AppData.LEAD_SOURCES || []).map(s => s.name).filter(Boolean);
+            const legacy = ["FB Lead Form","Inbound call","T65 list","Referral","Cross-sell"];
+            const opts = cat.length > 0 ? cat : legacy;
+            return (
+              <Shared.Field label="Source">
+                <Shared.Select value={newRow.source} onChange={(v) => setNewRow({ ...newRow, source: v })} options={opts.map(s => ({ v: s, l: s }))}/>
+              </Shared.Field>
+            );
+          })()}
           {role !== "rep" && <Shared.Field label="Owner"><Shared.Select value={newRow.owner} onChange={(v) => setNewRow({ ...newRow, owner: v })} options={REPS.map(r => ({ v: r.id, l: r.name }))}/></Shared.Field>}
           <div style={{ marginTop: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
             Phone is optional but required to dial / SMS this lead. You can add it later from the lead detail drawer.
@@ -395,17 +434,41 @@ function PagePipeline({ role = "owner" }) {
       {csvOpen && (() => { const C = window.CSVImport; return C ? <C onClose={() => setCsvOpen(false)}/> : null; })()}
 
       {bulkOpen && (
-        <Shared.Modal title={`Bulk action · ${sel.size} leads`} onClose={() => setBulkOpen(false)} actions={
+        <Shared.Modal title={`Bulk action · ${sel.size} lead${sel.size === 1 ? "" : "s"}`} onClose={() => setBulkOpen(false)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setBulkOpen(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={applyBulk}><Icons.Check size={11}/> Apply to {sel.size}</button>
+            <button
+              onClick={applyBulk}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 14px",
+                background: "#00d4aa", color: "#000",
+                border: "none", borderRadius: 8,
+                fontWeight: 700, fontSize: 12,
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(0,212,170,0.22)",
+              }}
+            ><Icons.Check size={11}/> Apply to {sel.size}</button>
           </>
         }>
           <Shared.Field label="Action">
-            <Shared.Select value={bulkAction} onChange={(v) => { setBulkAction(v); setBulkValue(v === "stage" ? "Contacted" : (REPS[0]?.id || "")); }} options={[{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}/>
+            <Shared.Select
+              value={bulkAction}
+              onChange={(v) => {
+                setBulkAction(v);
+                // When switching from owner→stage or vice-versa, pick a
+                // safe default. For "owner", default to ME for the rep
+                // role (was REPS[0]?.id = Marcus on demo seed).
+                if (v === "stage") setBulkValue("Contacted");
+                else setBulkValue(role === "rep" ? meId : (REPS[0]?.id || ""));
+              }}
+              options={role === "rep"
+                ? [{ v: "stage", l: "Move to stage" }]
+                : [{ v: "stage", l: "Move to stage" }, { v: "owner", l: "Reassign to producer" }]}
+            />
           </Shared.Field>
           <Shared.Field label="Value">
-            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : REPS.map(r => ({ v: r.id, l: r.name }))}/>
+            <Shared.Select value={bulkValue} onChange={setBulkValue} options={bulkAction === "stage" ? stages.map(s => ({ v: s, l: s })) : (REPS || []).map(r => ({ v: r.id, l: r.name }))}/>
           </Shared.Field>
         </Shared.Modal>
       )}
@@ -564,18 +627,55 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
 
           <div className="field-l">Activity</div>
           <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-            {[
-              lead.last && lead.next        ? { d: lead.last, t: "Last touch", s: lead.next } : null,
-              lead.days != null && lead.source ? { d: (lead.days || 0) + "d ago", t: "Form filled", s: [lead.source, lead.state].filter(Boolean).join(" · ") } : null,
-            ].filter(Boolean).map((a, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 8, fontSize: 12.5 }}>
-                <span style={{ color: "var(--text-tertiary)" }}>{a.d}</span>
-                <div><strong>{a.t}</strong><div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.s}</div></div>
-              </div>
-            ))}
-            {!lead.last && !lead.source && (
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>No activity logged yet.</div>
-            )}
+            {(() => {
+              // Prefer real TOUCHPOINTS rows scoped to this lead when the
+              // table is populated; fall back to the lead's last/next/source
+              // summary chips. Was always falling back even when touchpoints
+              // existed.
+              const fmtRel = (iso) => {
+                if (!iso) return "—";
+                const ms = Date.now() - new Date(iso).getTime();
+                const m = Math.round(ms / 60000);
+                if (m < 1) return "just now";
+                if (m < 60) return `${m}m ago`;
+                const h = Math.round(m / 60);
+                if (h < 24) return `${h}h ago`;
+                const d = Math.round(h / 24);
+                return `${d}d ago`;
+              };
+              const touches = (AppData.TOUCHPOINTS || [])
+                .filter(t => t.leadId === lead.id || t.lead_pipeline_id === lead.id)
+                .slice(0, 8);
+              if (touches.length > 0) {
+                return touches.map((t, i) => (
+                  <div key={t.id || i} style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 8, fontSize: 12.5 }}>
+                    <span style={{ color: "var(--text-tertiary)" }}>{fmtRel(t.occurredAt || t.occurred_at)}</span>
+                    <div>
+                      <strong>{t.kind || "Touch"}</strong>
+                      {(t.summary || t.body) && <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{t.summary || t.body}</div>}
+                    </div>
+                  </div>
+                ));
+              }
+              const fallback = [
+                lead.last && lead.next        ? { d: lead.last, t: "Last touch", s: lead.next } : null,
+                lead.days != null && lead.source ? { d: (lead.days || 0) + "d ago", t: "Form filled", s: [lead.source, lead.state].filter(Boolean).join(" · ") } : null,
+              ].filter(Boolean);
+              if (fallback.length === 0) {
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// no activity</span>
+                    <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Once you dial or message this lead, the timeline lands here.</span>
+                  </div>
+                );
+              }
+              return fallback.map((a, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 8, fontSize: 12.5 }}>
+                  <span style={{ color: "var(--text-tertiary)" }}>{a.d}</span>
+                  <div><strong>{a.t}</strong><div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.s}</div></div>
+                </div>
+              ));
+            })()}
           </div>
         </div>
 
@@ -595,9 +695,21 @@ function LeadDetail({ lead, role, onClose, onMove, onReassign }) {
             const agencyName = meIdent?.agency_name || "your agency";
             window.generateSOAPdf && window.generateSOAPdf(lead, agencyName);
           }}><Icons.Shield size={12}/> SOA</button>
-          <button className="btn btn-primary" disabled={!phone.trim()}
+          <button
+            disabled={!phone.trim()}
             title={phone.trim() ? `Call ${phone}` : "Add phone first"}
-            onClick={() => phone.trim() && window.repflowCall && window.repflowCall(phone.trim(), lead.lead)}>
+            onClick={() => phone.trim() && window.repflowCall && window.repflowCall(phone.trim(), lead.lead)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px",
+              background: phone.trim() ? "#00d4aa" : "var(--bg-raised)",
+              color: phone.trim() ? "#000" : "var(--text-tertiary)",
+              border: "none", borderRadius: 8,
+              fontWeight: 700, fontSize: 12,
+              cursor: phone.trim() ? "pointer" : "not-allowed",
+              boxShadow: phone.trim() ? "0 4px 14px rgba(0,212,170,0.22)" : "none",
+            }}
+          >
             <Icons.Phone size={12}/> Call now
           </button>
         </div>
