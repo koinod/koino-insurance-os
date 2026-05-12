@@ -15,40 +15,91 @@ const MI = {
 /* ── Pipeline mobile ──────────────────────────────────────────────────── */
 function MScreenPipeline({ onNav, onLead }) {
   const STAGES = ["New", "Contacted", "Quoted", "App In", "Issued"];
-  const [stage, setStage] = React.useState("Quoted");
-  const items = (AppData.PIPELINE || []).filter(p => p.stage === stage);
+  // Scope to the signed-in rep when me() is resolved. Was: every rep saw
+  // the entire agency pipeline (manager-grade scope on a rep surface).
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const isDemo  = !!(window.isDemoAgency && window.isDemoAgency());
+  const myId    = meIdent?.rep_id || (isDemo ? AppData.REPS?.[0]?.id : null);
+  const myPipeline = (AppData.PIPELINE || []).filter(p =>
+    !myId || p.owner === myId
+  );
+  // Default to the stage with the most rep-owned rows (was "Quoted"
+  // regardless of where the rep's pipeline actually sat).
+  const stageCounts = STAGES.map(s => ({ s, n: myPipeline.filter(p => p.stage === s).length }));
+  const defaultStage = stageCounts.find(c => c.n > 0)?.s || "New";
+  const [stage, setStage] = React.useState(defaultStage);
+  const items = myPipeline.filter(p => p.stage === stage);
   return (
     <div className="m-screen">
       <div className="m-header">
         <div style={{ flex: 1 }}>
           <div className="m-title" style={{ fontSize: 24 }}>Pipeline</div>
-          <div className="m-sub">{(AppData.PIPELINE || []).length} active leads</div>
+          <div className="m-sub">{myPipeline.length} active{myPipeline.length === 0 ? "" : " · your leads"}</div>
         </div>
       </div>
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6, overflowX: "auto" }}>
         {STAGES.map(s => {
-          const n = (AppData.PIPELINE || []).filter(p => p.stage === s).length;
+          const n = myPipeline.filter(p => p.stage === s).length;
           const active = stage === s;
           return (
-            <span key={s} className="m-chip" onClick={() => setStage(s)} style={{ height: 28, padding: "0 12px", fontSize: 12, fontWeight: active ? 600 : 500, background: active ? "var(--text-primary)" : undefined, color: active ? "var(--bg-base)" : undefined, borderColor: active ? "var(--text-primary)" : undefined, cursor: "pointer" }}>{s} <span style={{ opacity: 0.6, marginLeft: 4 }}>{n}</span></span>
+            <button
+              key={s}
+              onClick={() => setStage(s)}
+              className="m-chip"
+              style={{
+                height: 28, padding: "0 12px", fontSize: 12,
+                fontWeight: active ? 700 : 500,
+                background: active ? "#00d4aa" : undefined,
+                color: active ? "#000" : undefined,
+                borderColor: active ? "#00d4aa" : undefined,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >{s} <span style={{ opacity: 0.7, marginLeft: 4 }}>{n}</span></button>
           );
         })}
       </div>
       <div className="m-scroll">
         {items.map(p => (
-          <div key={p.id} className="m-card" style={{ padding: 12, marginBottom: 8 }} onClick={() => onLead && onLead(p)}>
+          <div key={p.id} className="m-card" style={{ padding: 12, marginBottom: 8, cursor: "pointer" }} onClick={() => onLead && onLead(p)}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <strong style={{ fontSize: 14 }}>{p.lead}</strong>
-              <span className="tabular" style={{ fontSize: 12, color: "var(--accent-money)" }}>${(p.ap || 0).toLocaleString()}</span>
+              <span className="tabular" style={{ fontSize: 12, color: "#00d4aa", fontWeight: 600 }}>${(p.ap || 0).toLocaleString()}</span>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>{p.age} · {p.state} · {p.product}</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
               <span className="m-chip">{p.stage}</span>
-              <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{p.last} · next: {p.next}</span>
+              {(p.last || p.next) && (
+                <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                  {p.last || ""}{p.last && p.next ? " · next: " : ""}{p.next || ""}
+                </span>
+              )}
+              {!p.phone && (
+                <span className="m-chip warn" style={{ fontSize: 10 }}>no phone</span>
+              )}
             </div>
           </div>
         ))}
-        {items.length === 0 && <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No leads in this stage.</div>}
+        {items.length === 0 && (
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.7rem", color: "#00d4aa", letterSpacing: "0.1em", textTransform: "uppercase" }}>// {stage.toLowerCase()} · empty</span>
+            <span>{myPipeline.length === 0 ? "No leads in your pipeline yet." : `No leads in "${stage}" stage.`}</span>
+            {myPipeline.length === 0 && onNav && (
+              <button
+                onClick={() => onNav("queue")}
+                style={{
+                  marginTop: 4,
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "6px 14px",
+                  background: "#00d4aa", color: "#000",
+                  border: "none", borderRadius: 8,
+                  fontWeight: 700, fontSize: 11.5, cursor: "pointer",
+                  boxShadow: "0 4px 14px rgba(0,212,170,0.18)",
+                }}
+              >Pull from queue</button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
