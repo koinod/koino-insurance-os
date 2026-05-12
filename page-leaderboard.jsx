@@ -31,9 +31,26 @@ function PageLeaderboard({ role = "rep" }) {
   const scopedReps = scopeIds === null || scopeIds.length === 0
     ? allReps
     : allReps.filter(r => scopeIds.includes(r.id));
-  const sorted = [...scopedReps].sort((a, b) => (b.mtd || 0) - (a.mtd || 0));
-  const max = sorted[0]?.mtd || 1;
   const [period, setPeriod] = React.useState("MTD");
+  // GAP-ML2 — period switcher was previously dead: setPeriod flipped state
+  // but sorted always read .mtd. Now the sort field tracks the active period.
+  //   Today → r.today   · WTD → derived from policies issued this week
+  //   MTD   → r.mtd     · YTD → derived from policies issued this year
+  const periodValue = React.useCallback((rep) => {
+    if (period === "Today") return rep.today || 0;
+    if (period === "MTD")   return rep.mtd   || 0;
+    if (period === "WTD") {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - start.getDay());
+      const sliced = (AppData.POLICIES || [])
+        .filter(p => p.owner === rep.id && (p.status === "issued" || p.status === "active") && p.issuedAt && new Date(p.issuedAt) >= start);
+      return sliced.reduce((a, p) => a + (p.ap || 0), 0);
+    }
+    return rep.mtd || 0;
+  }, [period]);
+  const sorted = [...scopedReps].sort((a, b) => periodValue(b) - periodValue(a));
+  const max = periodValue(sorted[0] || {}) || 1;
 
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const myId = meIdent?.rep_id || (sorted[0] && sorted[0].id);
@@ -51,7 +68,7 @@ function PageLeaderboard({ role = "rep" }) {
   };
   const displayMtd = (r, rank) => (masksOthers && r.id !== myId)
     ? bandFor(rank, sorted.length).label
-    : formatMoney(r.mtd);
+    : formatMoney(periodValue(r));
   const displayMtdTone = (r, rank) => (masksOthers && r.id !== myId)
     ? bandFor(rank, sorted.length).tone
     : "var(--text-primary)";
@@ -71,16 +88,16 @@ function PageLeaderboard({ role = "rep" }) {
           </div>
           {!masksOthers && (
             <button className="btn" onClick={() => window.AppData.exportCsv(
-              sorted.map((r, i) => ({ ...r, rank: i + 1 })),
+              sorted.map((r, i) => ({ ...r, rank: i + 1, periodAp: periodValue(r) })),
               `leaderboard-${period.toLowerCase()}`,
               [
-                { k: "rank",   l: "Rank" },
-                { k: "name",   l: "Producer" },
-                { k: "handle", l: "Handle" },
-                { k: "tier",   l: "Tier" },
-                { k: "mtd",    l: "MTD AP",     fmt: (v) => "$" + (v || 0) },
-                { k: "streak", l: "Streak (d)" },
-                { k: "dials",  l: "Dials today" },
+                { k: "rank",     l: "Rank" },
+                { k: "name",     l: "Producer" },
+                { k: "handle",   l: "Handle" },
+                { k: "tier",     l: "Tier" },
+                { k: "periodAp", l: `${period} AP`, fmt: (v) => "$" + (v || 0) },
+                { k: "streak",   l: "Streak (d)" },
+                { k: "dials",    l: "Dials today" },
               ])}>
               <Icons.ArrowDown size={13}/> Export
             </button>
@@ -144,29 +161,26 @@ function PageLeaderboard({ role = "rep" }) {
           <span className="meta">click rep for scorecard</span>
         </div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "40px 1.4fr 100px 110px 70px 70px 1fr" }}>
-            <div>#</div><div>Rep</div><div>Tier</div><div style={{textAlign:"right"}}>MTD AP</div><div style={{textAlign:"right"}}>Streak</div><div style={{textAlign:"right"}}>Δ</div><div>Bar</div>
+          <div className="list-h" style={{ gridTemplateColumns: "32px 1.4fr 90px 110px 60px 1fr" }}>
+            <div>#</div><div>Rep</div><div>Tier</div><div style={{textAlign:"right"}}>{period} AP</div><div style={{textAlign:"right"}}>Streak</div><div></div>
           </div>
           {sorted.map((r, i) => (
-            <div key={r.id} className="row" style={{ gridTemplateColumns: "32px 1.4fr 100px 110px 70px 70px 1fr", height: 36 }}>
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "32px 1.4fr 90px 110px 60px 1fr", height: 32 }}>
               <div className="tabular" style={{ fontWeight: 600, color: i < 3 ? "var(--accent-money)" : "var(--text-tertiary)" }}>{i + 1}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Shared.Avatar rep={r} size={20}/>
+                <Shared.Avatar rep={r} size={18}/>
                 <div>
-                  <div style={{ fontWeight: 500, fontSize: 12.5 }}>{r.name} {r.id === myId && <span className="chip chip-money" style={{ marginLeft: 4, fontSize: 9.5 }}>YOU</span>}</div>
+                  <div style={{ fontWeight: 500, fontSize: 12 }}>{r.name} {r.id === myId && <span className="chip chip-money" style={{ marginLeft: 4, fontSize: 9 }}>YOU</span>}</div>
                   <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{r.handle} · {r.dials} dials today</div>
                 </div>
               </div>
-              <div><Shared.TierChip tier={r.tier}/></div>
-              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
-              <div className="tabular" style={{ textAlign: "right", color: r.streak > 0 ? "var(--accent-heat)" : "var(--text-quaternary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
-                {r.streak > 0 && <Icons.Flame size={11}/>}{r.streak}d
+              <div><Shared.TierChip tier={r.tier} compact/></div>
+              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontFamily: "var(--font-mono)", color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
+              <div className="tabular" style={{ textAlign: "right", color: r.streak > 0 ? "var(--accent-heat)" : "var(--text-quaternary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3, fontFamily: "var(--font-mono)" }}>
+                {r.streak > 0 && <Icons.Flame size={10}/>}{r.streak}d
               </div>
-              <div className="tabular" style={{ textAlign: "right", color: i < 3 ? "var(--accent-money)" : i > 5 ? "var(--state-danger)" : "var(--text-tertiary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
-                {i < 3 ? <Icons.ArrowUp size={11}/> : i > 5 ? <Icons.ArrowDown size={11}/> : "—"}{i < 3 ? `${3 - i}` : i > 5 ? `${i - 5}` : ""}
-              </div>
-              <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden", margin: "0 8px" }}>
-                <div style={{ width: `${(r.mtd / max) * 100}%`, height: "100%", background: i < 3 ? "linear-gradient(90deg, var(--accent-status), var(--accent-money))" : "var(--accent-money-dim)" }}></div>
+              <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden", margin: "0 8px" }}>
+                <div style={{ width: `${(periodValue(r) / max) * 100}%`, height: "100%", background: i < 3 ? "var(--accent-money)" : "var(--accent-money-dim)" }}></div>
               </div>
             </div>
           ))}
