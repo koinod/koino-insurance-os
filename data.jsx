@@ -21,6 +21,11 @@ window.AppData = {
   AGENTS: [],
   WORKFLOWS: [],
   ORG_SETTINGS: {},
+  // Product-training surface — populated from supabase (migration 0019).
+  // Empty until hydrate runs; ProductTraining falls back to localStorage.
+  TRAINING_COURSES: [],
+  TRAINING_ASSIGNMENTS: [],
+  TRAINING_PROGRESS: {},
   LIVE: true // Default to true; hydrate will check supabase availability
 };
 
@@ -330,7 +335,7 @@ window.hydrateFromSupabase = async function () {
         // Tenant-specific:
         scope(sb.from("sequence_enrollments").select("*").order("enrolled_at", { ascending: false }).limit(200)),
         scope(sb.from("tiering_overrides").select("*")),
-        scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
+        scope(sb.from("agent_deployments").select("*").order("deployed_at", { ascending: false }).limit(50)),
         scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
       ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
       // ↑ Resilience: any single query that throws is converted into `{ data: [],
@@ -563,7 +568,7 @@ window.hydrateFromSupabase = async function () {
       }));
       window.AppData.DEPLOYMENTS = mapRows(agentDeploymentsR, d => ({
         id: d.id, agentId: d.agent_id, hostId: d.host_id, status: d.status,
-        manifest: d.manifest, lastHeartbeat: d.last_heartbeat, startedAt: d.started_at
+        manifest: d.manifest, lastHeartbeat: d.last_heartbeat, deployedAt: d.deployed_at
       }));
       window.AppData.AGENT_RUNS = mapRows(agentRunsR, r => ({
         id: r.id, agentId: r.agent_id, hostId: r.host_id,
