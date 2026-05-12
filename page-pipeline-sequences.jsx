@@ -175,7 +175,10 @@ function PipelineSequences({ role = "owner" }) {
         </div>
         <div style={{ padding: 6 }}>
           {SEQ.map(s => {
-            const en = ENROLLED.filter(e => e.seq === s.id && e.status === "active").length;
+            // s.active was already counted by _liveSeqList; the sidebar
+            // pulled it from ENROLLED (the demo array) before, which broke
+            // for any agency that wasn't the demo seed cohort.
+            const en = s.active || 0;
             return (
               <button key={s.id} onClick={() => setActiveId(s.id)} className="btn btn-ghost" style={{ width: "100%", padding: 10, marginBottom: 4, justifyContent: "stretch", flexDirection: "column", alignItems: "stretch", gap: 4, background: activeId === s.id ? "var(--bg-overlay)" : "transparent" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
