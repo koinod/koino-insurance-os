@@ -11,8 +11,6 @@
 
 (function () {
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
-
 /* ─── Tenant context ───────────────────────────────────────────────────── */
 async function loadTenant() {
   // EVERY exit path returns a defined object — never throws to the caller.
