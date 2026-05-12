@@ -85,6 +85,7 @@ const NAV = {
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "crm",         label: "CRM",          icon: "Users" },
+    { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "team",        label: "Team",         icon: "Users" },
     { id: "library",     label: "Library",      icon: "Book" },

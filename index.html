@@ -33,7 +33,7 @@
 <script type="text/babel" src="tweaks-panel.jsx?v=76"></script>
 <script type="text/babel" src="data.jsx?v=78"></script>
 <script type="text/babel" src="icons.jsx?v=75"></script>
-<script type="text/babel" src="shared.jsx?v=78"></script>
+<script type="text/babel" src="shared.jsx?v=79"></script>
 <script type="text/babel" src="page-today.jsx?v=80"></script>
 <script type="text/babel" src="page-pipeline-sequences.jsx?v=76"></script>
 <script type="text/babel" src="page-pipeline.jsx?v=78"></script>
@@ -51,6 +51,7 @@
 <script type="text/babel" src="page-performance.jsx?v=75"></script>
 <script type="text/babel" src="page-resources.jsx?v=76"></script>
 <script type="text/babel" src="page-crm.jsx?v=78"></script>
+<script type="text/babel" src="page-client-book.jsx?v=1"></script>
 <script type="text/babel" src="page-messages.jsx?v=76"></script>
 <script type="text/babel" src="page-library.jsx?v=76"></script>
 <script type="text/babel" src="page-platform.jsx?v=76"></script>
@@ -252,7 +253,16 @@ function App() {
       case "messages":    return (() => { const P = window.PageMessages;    return P ? <P role={role}/> : null; })();
       case "quote":       return (() => { const P = window.PageQuote;       return P ? <P role={role}/> : null; })();
       case "auto-quoter": return (() => { const P = window.PageAutoQuoter;  return P ? <P role={role}/> : null; })();
-      case "book":        return <PageBook/>;
+      case "book":        return (() => {
+        // Manager restructure 2026-05-12: managers get the new client-list
+        // Book (page-client-book.jsx) scoped to their downline. Owner keeps
+        // the carrier-mix PageBook (book-by-carrier rollup).
+        if (role === "manager") {
+          const P = window.PageClientBook;
+          if (P) return <P role={role}/>;
+        }
+        return <PageBook/>;
+      })();
       case "recruiting":  return (() => {
         // Manager restructure 2026-05-12: recruiting is now a CRM sub-tab
         // for managers. Owner + rep keep the standalone view.
