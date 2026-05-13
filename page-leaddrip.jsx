@@ -710,7 +710,7 @@ function MessagingTab({ outbox }) {
 }
 
 /* ─── Main page ───────────────────────────────────────────────────────── */
-function PageLeadDrip() {
+function PageLeadDrip({ role = "owner" }) {
   useDripReady();
   const outbox = useSmsOutbox();
   const [inner,    setInner]    = React.useState("sequences");
@@ -725,11 +725,12 @@ function PageLeadDrip() {
 
   const activeSeq = sequences.find(s => s.id === seqSel) || sequences[0] || null;
 
+  // role==="owner": full vendor admin tab. role==="manager": vendors hidden.
   const innerTabs = [
     { k: "sequences", l: "Sequences" },
     { k: "outbox",    l: `Outbox${outbox?.length ? ` (${outbox.length})` : ""}` },
     { k: "rules",     l: "Rules" },
-    { k: "vendors",   l: "Vendors" },
+    ...(role === "owner" ? [{ k: "vendors", l: "Vendors" }] : []),
     { k: "messaging", l: "Messaging" },
   ];
 

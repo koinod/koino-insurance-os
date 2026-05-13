@@ -75,40 +75,30 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
-  // Manager nav restructure 2026-05-12:
-  //   Pay + Expenses + NIGO   → folded into Today as sub-tabs
-  //   Recruiting              → folded into CRM as a sub-tab
-  //   Old routes still resolve (deep-link back-compat) but the sidebar
-  //   surface now collapses to six items so the manager has one landing
-  //   per workflow instead of nine.
+  // Unified nav 2026-05-13: manager + owner see identical sidebar items.
+  // Role-aware visibility is enforced inside each page component via `role` prop.
+  // manager: Client Book scoped to own team; Lead Drip vendors tab hidden;
+  //          Vault upload button hidden; Floor scoped to own team.
+  // owner: full access to all features across all tabs.
+  // Old sidebar-only routes (pnl, org, pay, expenses, auto-quoter, etc.) still
+  // resolve in app.jsx for deep-link back-compat.
   manager: [
-    { id: "today",       label: "Today",        icon: "Home" },
-    { id: "floor",       label: "Floor",        icon: "Phone" },
-    { id: "crm",         label: "CRM",          icon: "Users" },
-    { id: "book",        label: "Client Book",  icon: "Activity" },
-    { id: "messages",    label: "Messages",     icon: "MessageSquare" },
-    { id: "team",        label: "Team",         icon: "Users" },
-    { id: "downline",    label: "Downline",     icon: "ArrowUpRight" },
-    { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
-    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
-    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
-    { id: "pay",         label: "Pay",          icon: "Wallet" },
-    { id: "library",     label: "Library",      icon: "Book" },
+    { id: "today",    label: "Today",       icon: "Home" },
+    { id: "book",     label: "Client Book", icon: "Activity" },
+    { id: "crm",      label: "CRM",         icon: "Users" },
+    { id: "leaddrip", label: "Lead Drip",   icon: "Zap" },
+    { id: "quote",    label: "Quote Tool",  icon: "Sparkles" },
+    { id: "vault",    label: "Vault",       icon: "Folder" },
+    { id: "floor",    label: "Floor",       icon: "Phone" },
   ],
   owner: [
-    { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
-    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
-    { id: "org",         label: "Org",          icon: "Users" },
-    { id: "team",        label: "Team",         icon: "Users" },
-    { id: "book",        label: "Book",         icon: "Activity" },
-    { id: "floor",       label: "Floor",        icon: "Phone" },
-    { id: "crm",         label: "CRM",          icon: "Users" },
-    { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
-    { id: "auto-quoter", label: "Auto Quoter",  icon: "Bolt" },
-    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
-    { id: "compliance",  label: "Compliance",   icon: "Shield" },
-    { id: "resources",   label: "Resources",    icon: "Folder" },
-    { id: "library",     label: "Training",     icon: "Book" },
+    { id: "today",    label: "Today",       icon: "Home" },
+    { id: "book",     label: "Client Book", icon: "Activity" },
+    { id: "crm",      label: "CRM",         icon: "Users" },
+    { id: "leaddrip", label: "Lead Drip",   icon: "Zap" },
+    { id: "quote",    label: "Quote Tool",  icon: "Sparkles" },
+    { id: "vault",    label: "Vault",       icon: "Folder" },
+    { id: "floor",    label: "Floor",       icon: "Phone" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },

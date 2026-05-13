@@ -74,7 +74,8 @@ function PageVault({ role = "owner" }) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
-          <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>
+          {/* role==="owner": full edit. role==="manager": read-only, upload hidden. */}
+          {role === "owner" && <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>}
           <button className="btn" onClick={() => {
             const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
             const orgName = meIdent?.agency_name || "Your agency";
