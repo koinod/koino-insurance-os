@@ -110,21 +110,19 @@ const NAV = {
     { id: "resources",   label: "Resources",    icon: "Folder" },
     { id: "library",     label: "Training",     icon: "Book" },
   ],
-  // Internal team / super-admin — Ian, Repflow developers. Sees every IMO,
-  // every agency (real + demo), every user, plus internal-only views.
-  super_admin: [
-    { id: "platform",    label: "Internal HQ",     icon: "Shield" },
-    { id: "agencies",    label: "All agencies",    icon: "Building" },
-    { id: "users",       label: "All users",       icon: "Users" },
-    { id: "billing",     label: "Repflow MRR",     icon: "Wallet" },
-    { id: "audit",       label: "Global audit",    icon: "Activity" },
-    { id: "system",      label: "Env + health",    icon: "Bolt" },
-    { id: "platform-imo",label: "All IMOs",        icon: "Building" },
-  ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
   ],
 };
+
+// ─── admin / imo_owner / super_admin all collapse onto the owner experience.
+// The dedicated admin / platform-admin surfaces were decommissioned in 34dcba4
+// (kill admin/imo, merge owner+manager). Internal team (super_admin) operates
+// from owner nav too — RLS in Supabase grants cross-agency reads when the
+// row is is_platform_admin, no separate UI is needed.
+NAV.admin       = NAV.owner;
+NAV.imo_owner   = NAV.owner;
+NAV.super_admin = NAV.owner;
 
 const SidebarBrand = () => {
   const [, force] = useState(0);
@@ -164,9 +162,9 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
       {(window.isSuperAdmin() || window.isDemoAgency()) && (
         <div className="role-switch">
-          {["rep","manager","owner","super_admin"].map(r => (
+          {["rep","manager","owner"].map(r => (
             <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : "Super"}
+              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Owner"}
             </button>
           ))}
         </div>

@@ -55,8 +55,12 @@
 <script src="dist/page-tenant.js?v=79"></script>
 <script src="dist/page-onboarding.js?v=78"></script>
 <script src="dist/page-first-run.js?v=78"></script>
-<script src="dist/page-admin.js?v=74"></script>
-<script src="dist/page-platform-admin.js?v=78"></script>
+<!-- page-admin.js + page-platform-admin.js dropped 2026-05-13: admin surface
+     decommissioned (see app.jsx case "admin" stub, NAV.admin merged onto
+     NAV.owner in shared.jsx). page-platform-admin.jsx source was deleted in
+     34dcba4 so the dist build can no longer produce that file — leaving the
+     <script> tag in returned a 404 on every page load. page-admin.jsx source
+     is preserved for reversibility but no longer mounted. -->
 <script src="dist/page-billing.js?v=74"></script>
 <script src="dist/page-autodialer.js?v=74"></script>
 <script src="dist/page-deal-write.js?v=78"></script>

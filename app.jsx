@@ -59,10 +59,10 @@ function App() {
   }, [role]);
 
   // When the user signs in (real Supabase session, not demo), pull their real
-  // role from me() and switch the UI to it. Specifically: platform admins
-  // (role='admin') get the admin dashboard automatically — no role-switcher
-  // hack required. The Tweaks panel still allows manual role switching for
-  // testing every persona.
+  // role from me() and switch the UI to it. admin / imo_owner / super_admin
+  // are collapsed onto the owner experience (the dedicated admin surface was
+  // decommissioned in 34dcba4) — RLS in Supabase still grants the extra
+  // cross-agency reads when applicable; no separate UI is needed.
   useEffect(() => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
@@ -78,14 +78,14 @@ function App() {
           .order("joined_at", { ascending: false })
           .limit(1).single();
         if (cancelled) return;
-        if (meRow?.role && meRow.role !== role) {
-          window.__authRole = meRow.role;
-          setTweak("role", meRow.role);
-          // Land platform admins on the overview page
-          if (meRow.role === "admin") {
-            setTweak("page", "platform");
-            // Suppress the welcome-tour for signed-in admins
-            try { localStorage.setItem("repflow.tour.dismissed", "1"); } catch {}
+        if (meRow?.role) {
+          // Collapse retired roles onto owner so DB rows with role='admin' /
+          // 'imo_owner' / 'super_admin' don't ghost-mount the killed surface.
+          const RETIRED = new Set(["admin", "imo_owner", "super_admin"]);
+          const effective = RETIRED.has(meRow.role) ? "owner" : meRow.role;
+          if (effective !== role) {
+            window.__authRole = effective;
+            setTweak("role", effective);
           }
         }
       } catch (_e) {}
@@ -155,23 +155,16 @@ function App() {
       case "book":        return <PageBook/>;
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
-      case "admin":       return (() => {
-        // Only platform-admin (and super_admin via NAV.super_admin) gets an
-        // admin surface. The single-agency PageAdmin is disabled across the
-        // agency hierarchy (owner/manager) and the demo hierarchy.
-        if (role === "admin" || role === "super_admin") {
-          const P = window.PagePlatformAdmin;
-          return P ? <P subpage="platform"/> : null;
-        }
-        return <PageStub title="Page" sub=""/>;
-      })();
-      // Admin-only sub-pages (only reachable from NAV.admin)
-      case "platform":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="platform"/> : null; })();
-      case "agencies":    return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="agencies"/> : null; })();
-      case "users":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="users"/>    : null; })();
-      case "billing":     return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="billing"/>  : null; })();
-      case "audit":       return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="audit"/>    : null; })();
-      case "system":      return (() => { const P = window.PagePlatformAdmin; return P ? <P subpage="system"/>   : null; })();
+      // admin surfaces decommissioned — all 7 routes fall through to the
+      // owner P&L page so deep links from old emails/notifications don't 404.
+      // Removed: PagePlatformAdmin, NAV.admin, NAV.imo_owner.
+      case "admin":
+      case "platform":
+      case "agencies":
+      case "users":
+      case "billing":
+      case "audit":
+      case "system":      return (() => { const P = window.PagePnL; return P ? <P/> : <PageStub title="Page" sub=""/>; })();
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
 
@@ -248,7 +241,7 @@ function App() {
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="View"/>
-        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"},{value:"admin",label:"Admin"},{value:"super_admin",label:"Super"}]} onChange={(v) => setTweak("role", v)}/>
+        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"}]} onChange={(v) => setTweak("role", v)}/>
         <TweakSelect label="Page" value={page} options={[
           ...Shared.NAV[role].map(i => ({ value: i.id, label: i.label })),
           ...Shared.NAV.ops.map(i => ({ value: i.id, label: `Ops · ${i.label}` }))
