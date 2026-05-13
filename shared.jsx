@@ -88,7 +88,6 @@ const NAV = {
     { id: "library",     label: "Library",      icon: "Book" },
   ],
   owner: [
-    { id: "admin",       label: "Admin",        icon: "Shield" },
     { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
     { id: "expenses",    label: "Expenses",     icon: "Wallet" },
     { id: "org",         label: "Org",          icon: "Users" },
@@ -440,7 +439,6 @@ const CMD_ITEMS = {
     { label: "Lead Vendors · ROI", icon: "Wallet",       nav: "attribution" },
     { label: "NIGO Queue",         icon: "Bell",         nav: "nigo" },
     { label: "Connections",        icon: "Plug",         nav: "connections" },
-    { label: "Admin",              icon: "Shield",       nav: "admin" },
     { label: "Settings",           icon: "Settings",     nav: "settings" },
   ],
   "Ask Repflow": [

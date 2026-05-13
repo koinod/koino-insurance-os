@@ -1,0 +1,11 @@
+{
+  "name": "koino-insurance-os",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-jsx.mjs",
+    "vercel-build": "node scripts/build-jsx.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  }
+}

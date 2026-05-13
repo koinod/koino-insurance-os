@@ -88,12 +88,10 @@ window.AppData.exportCsv = function (rows, filename, columns) {
    Pages all read from window.AppData; on hydrate we mutate in place + fire a
    "data:hydrated" event so any mounted component can re-render via state pump.
    ──────────────────────────────────────────────────────────────────────────── */
-// Supabase URL + anon key are now centralized in lib/supabase-config.js (loaded
-// as the first script in index.html and mobile.html). If they're not yet set
-// at the time data.jsx evaluates (script ordering edge case), fall back to
-// safe defaults so the rest of the file still parses.
-window.SUPABASE_URL  = window.SUPABASE_URL  || "https://jfphwmzwteermalzwojp.supabase.co";
-window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+// Supabase URL + anon key are centralized in lib/supabase-config.js, which the
+// <script> ordering in index.html and mobile.html guarantees runs before this
+// file. Do not duplicate the literals here — change them in supabase-config.js
+// (or inject window.__ENV before that script) so there's exactly one source.
 
 // Restore demo-skip flag across reloads so isDemoAgency() reads true after a
 // signOut+reload when the user never created an account.

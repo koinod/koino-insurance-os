@@ -1,5 +1,5 @@
 -- Repflow V2 schema — operator-grade for life & health distribution
--- Drops the prior sailorsbot-style schema (all tables empty as of 2026-04-29)
+-- Drops the prior placeholder schema (all tables empty as of 2026-04-29)
 -- and rebuilds around the data shapes in data.jsx.
 --
 -- Design notes:
