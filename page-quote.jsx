@@ -146,6 +146,42 @@
       };
     }, []);
 
+    // Carrier selection — null means "all appointed carriers for this product"
+    const [selectedCarrierIds, setSelectedCarrierIds] = useState(null);
+    // Agent request tracking
+    const [agentReqId, setAgentReqId]     = useState(null);
+    const [agentResults, setAgentResults] = useState({});
+    // idle | queued | running | done
+    const [agentRunStatus, setAgentRunStatus] = useState("idle");
+
+    // Poll auto_quote_results for the active agent request
+    useEffect(() => {
+      if (!agentReqId) return;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !window.AppData?.LIVE) return;
+      let cancelled = false;
+      const poll = async () => {
+        try {
+          const { data } = await sb
+            .from("auto_quote_results")
+            .select("*")
+            .eq("request_id", agentReqId);
+          if (cancelled || !data) return;
+          const map = {};
+          data.forEach(r => { map[r.carrier_id] = r; });
+          setAgentResults(map);
+          if (data.length > 0 &&
+              data.every(r => ["ok","decline","error","no_creds","no_scraper"].includes(r.status))) {
+            setAgentRunStatus("done");
+          }
+        } catch (_) {}
+      };
+      setAgentRunStatus("running");
+      poll();
+      const iv = setInterval(poll, 3000);
+      return () => { cancelled = true; clearInterval(iv); };
+    }, [agentReqId]);
+
     const set = (patch) => setProfile(p => ({ ...p, ...patch }));
     const setHealth = (patch) => setProfile(p => ({ ...p, healthDetail: { ...p.healthDetail, ...patch } }));
 
@@ -175,16 +211,74 @@
       return ids;
     }, [niches.length, window.AppData?.CARRIERS?.length]);
 
+    // Carriers eligible for this product after appointment filter — drives checkboxes
+    const eligibleForProduct = useMemo(() => {
+      const eligible = niches.filter(c => c.products.includes(profile.product));
+      return appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
+    }, [profile.product, niches.length, appointedIds]);
+
+    const toggleCarrierSelection = (carrierId) => {
+      setSelectedCarrierIds(prev => {
+        const base = prev || new Set(eligibleForProduct.map(c => c.id));
+        const next = new Set(base);
+        next.has(carrierId) ? next.delete(carrierId) : next.add(carrierId);
+        return next.size === eligibleForProduct.length ? null : next;
+      });
+    };
+
+    const runQuoteAgent = async () => {
+      const toRun = quoteResults.quoted.map(r => r.carrier.id);
+      if (toRun.length === 0) {
+        window.toast && window.toast("No quoted carriers to run agent against", "warn");
+        return;
+      }
+      const sb = window.getSupabase && window.getSupabase();
+      const me = window.me && window.me();
+      if (!sb || !me?.rep_id || !window.AppData?.LIVE) {
+        window.toast && window.toast(
+          window.AppData?.LIVE
+            ? "Not signed in — connect to Supabase to dispatch the agent"
+            : "Demo mode — agent request row still inserted when you go live",
+          "warn"
+        );
+        return;
+      }
+      try {
+        setAgentRunStatus("queued");
+        setAgentResults({});
+        const { data, error } = await sb.from("auto_quote_requests").insert({
+          rep_id: me.rep_id,
+          profile: profileForEngine,
+          carriers: toRun,
+          status: "queued",
+          request_type: "quote",
+        }).select("id").single();
+        if (error) throw error;
+        setAgentReqId(data.id);
+        window.toast && window.toast(
+          `Agent queued · ${toRun.length} carrier${toRun.length === 1 ? "" : "s"} · RBA picks up when running`,
+          "info"
+        );
+      } catch (e) {
+        setAgentRunStatus("idle");
+        window.toast && window.toast("Queue failed: " + (e.message || e), "error");
+      }
+    };
+
     const totalInches = (profile.heightFeet || 0) * 12 + (profile.heightInches || 0);
     const bmi = window.RateEngine?.bmiFrom?.(totalInches, profile.weightLbs);
     const profileForEngine = { ...profile, heightInches: totalInches, bmi };
 
-    // Run rate engine across appointed carriers that sell this product.
+    // Run rate engine across appointed + user-selected carriers for this product.
     const quoteResults = useMemo(() => {
       if (!window.RateEngine) return { quoted: [], declined: [] };
       const productKey = profile.product;
       const eligible = niches.filter(c => c.products.includes(productKey));
-      const filtered = appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
+      const appointed = appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
+      // User-narrowed selection — null means all appointed
+      const filtered = selectedCarrierIds === null
+        ? appointed
+        : appointed.filter(c => selectedCarrierIds.has(c.id));
 
       const results = filtered.map(carrier => {
         if (productKey === "annuity") {
@@ -224,7 +318,8 @@
       });
       const declined = results.filter(r => r.decline);
       return { quoted, declined };
-    }, [JSON.stringify(profileForEngine), niches.length, appointedIds]);
+    }, [JSON.stringify(profileForEngine), niches.length, appointedIds,
+        selectedCarrierIds === null ? "" : [...selectedCarrierIds].sort().join(",")]);
 
     const best = quoteResults.quoted[0];
 
@@ -537,6 +632,38 @@
               </span>
             </div>
 
+            {/* Carrier selection chips — deselect to narrow quote comparison */}
+            {eligibleForProduct.length > 0 && (
+              <div style={{
+                padding: "7px 10px",
+                borderBottom: "1px solid var(--border-subtle)",
+                display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center",
+              }}>
+                <span style={{ fontSize: 10, color: "var(--text-quaternary)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 2 }}>Quote:</span>
+                {eligibleForProduct.map(c => {
+                  const sel = selectedCarrierIds === null || selectedCarrierIds.has(c.id);
+                  return (
+                    <button key={c.id} onClick={() => toggleCarrierSelection(c.id)}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontSize: 10.5, padding: "3px 8px", borderRadius: 4, cursor: "pointer",
+                        fontWeight: sel ? 600 : 400,
+                        background: sel ? "color-mix(in oklch, var(--accent-money) 14%, transparent)" : "var(--bg-raised)",
+                        color: sel ? "var(--accent-money)" : "var(--text-tertiary)",
+                        border: sel ? "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)" : "1px solid var(--border-subtle)",
+                      }}>
+                      {sel && <span style={{ fontSize: 9 }}>✓</span>}
+                      {c.name}
+                    </button>
+                  );
+                })}
+                {selectedCarrierIds !== null && (
+                  <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 6px" }}
+                    onClick={() => setSelectedCarrierIds(null)}>All</button>
+                )}
+              </div>
+            )}
+
             {/* Best Pick recommendation banner — explains WHY citing producer guide */}
             {best && profile.product !== "annuity" && (
               <div className="quote-pick">
@@ -599,11 +726,37 @@
                     <div key={c.id} className={"quote-row" + (i === 0 ? " is-best" : "")}>
                       <div>
                         <div className="qr-name">{c.name}
-                          {i === 0 && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>cheapest</span>}
+                          {i === 0 && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>best match</span>}
+                          {/* Live agent result badge */}
+                          {agentResults[c.id] && (() => {
+                            const ar = agentResults[c.id];
+                            if (ar.status === "ok") return (
+                              <span className="chip chip-money" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px" }}>
+                                live ${Math.round((ar.premium_cents || 0) / 100)}/mo
+                              </span>
+                            );
+                            if (ar.status === "decline") return (
+                              <span className="chip chip-danger" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px" }}>live: decline</span>
+                            );
+                            if (ar.status === "no_creds") return (
+                              <span className="chip" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", color: "var(--state-warning)" }}>no creds</span>
+                            );
+                            return (
+                              <span className="chip" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", color: "var(--text-tertiary)" }}>
+                                {ar.status}
+                              </span>
+                            );
+                          })()}
+                          {/* Pending agent indicator */}
+                          {agentReqId && !agentResults[c.id] && agentRunStatus !== "done" && agentRunStatus !== "idle" && (
+                            <span className="chip" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", color: "var(--text-tertiary)" }}>
+                              <span className="dot dot-live" style={{ width: 4, height: 4, marginRight: 3 }}/>agent…
+                            </span>
+                          )}
                         </div>
                         <div className="qr-meta">
                           {uw.tobaccoRateUpPct != null && <span>tob+{uw.tobaccoRateUpPct}% · </span>}
-                          {Array.isArray(uw.uwClasses) && <span>{uw.uwClasses.length}-class</span>}
+                          {Array.isArray(uw.uwClasses) && <span>{uw.uwClasses.length}-class UW</span>}
                           {r.confidence && <span> · {r.confidence} confidence</span>}
                         </div>
                       </div>
@@ -634,7 +787,53 @@
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  Premiums calculated by <code style={{ fontSize: 10.5 }}>window.RateEngine</code> against carrier-specific producer guides loaded from <code style={{ fontSize: 10.5 }}>/lib/carrier-underwriting.json</code> (Humana GNHHNV6EN, Cigna ARLIC, Aetna CGFLP04359, AIG AGLC101638, Lumico LUM-SIFE-UWGuide, Mutual of Omaha Living Promise UW Guide). Base rates from medicare.gov Plan Finder. Hover any reason cell for the full calculation chain.
+                  Engine estimates from <code style={{ fontSize: 10.5 }}>window.RateEngine</code> + producer guides (<code style={{ fontSize: 10.5 }}>/lib/carrier-underwriting.json</code>). Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
+                </div>
+
+                {/* Run Quote Agent — inserts into auto_quote_requests; RBA picks up */}
+                <div style={{
+                  marginTop: 10, padding: "10px 12px",
+                  background: "color-mix(in oklch, var(--accent-money) 5%, var(--bg-elevated))",
+                  border: "1px solid color-mix(in oklch, var(--accent-money) 20%, var(--border-subtle))",
+                  borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={runQuoteAgent}
+                    disabled={quoteResults.quoted.length === 0 || agentRunStatus === "queued" || agentRunStatus === "running"}
+                    style={{ padding: "8px 14px", fontSize: 12.5 }}
+                  >
+                    <Icons.Sparkles size={13}/>
+                    Run Quote Agent
+                    {(agentRunStatus === "queued" || agentRunStatus === "running") && (
+                      <span style={{ marginLeft: 6, fontSize: 10.5, opacity: 0.75 }}>{agentRunStatus}…</span>
+                    )}
+                  </button>
+
+                  {agentRunStatus === "done" && (() => {
+                    const liveOk = Object.values(agentResults).filter(r => r.status === "ok").length;
+                    const liveFail = Object.values(agentResults).filter(r => !["ok"].includes(r.status)).length;
+                    return (
+                      <span style={{ fontSize: 11.5, color: "var(--accent-money)" }}>
+                        {liveOk} live quote{liveOk !== 1 ? "s" : ""} returned
+                        {liveFail > 0 && <span style={{ color: "var(--text-tertiary)", marginLeft: 6 }}>· {liveFail} need manual</span>}
+                      </span>
+                    );
+                  })()}
+
+                  {agentRunStatus === "idle" && (
+                    <span style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
+                      Inserts into <code style={{ fontSize: 10 }}>auto_quote_requests</code> ·
+                      your local RBA (Playwright agent) picks up the row, navigates each carrier portal,
+                      and streams results back here.
+                    </span>
+                  )}
+
+                  {agentRunStatus !== "idle" && agentReqId && (
+                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                      req {agentReqId.slice(0, 8)}…
+                    </span>
+                  )}
                 </div>
               </div>
             )}
