@@ -110,6 +110,9 @@ function LoginScreen() {
   const skip = () => {
     sessionStorage.setItem("repflow.demo", "1");
     window.__demoSkip = true;
+    // Populate AppData with the in-memory seed so the prototype surface has
+    // content. (Real signed-in agencies never call this path.)
+    if (window.loadDemoSeed) window.loadDemoSeed();
     window.dispatchEvent(new CustomEvent("auth:skip"));
     if (window.hydrateFromSupabase) window.hydrateFromSupabase();
   };

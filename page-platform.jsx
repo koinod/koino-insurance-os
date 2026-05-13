@@ -33,7 +33,7 @@ function EnrollHostModal({ onClose }) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
     const id = setInterval(async () => {
-      const { data } = await sb.from("agent_install_tokens").select("used_for_id").eq("token", token).single();
+      const { data } = await sb.from("agent_install_tokens").select("used_for_id").eq("token", token).maybeSingle();
       if (data?.used_for_id) { setStage("done"); clearInterval(id); window.toast && window.toast(`Host enrolled · ${data.used_for_id}`, "success"); window.hydrateFromSupabase && window.hydrateFromSupabase(); }
     }, 4000);
     return () => clearInterval(id);

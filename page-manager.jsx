@@ -174,9 +174,9 @@ function PageTeam() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
           {orderedReps.length === 0 && (
-            <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            <div className="panel" style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12 }}>
               No producers visible at your scope. Invite reps from <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "recruiting" } })); }} style={{ color: "var(--accent-money)" }}>Recruiting</a>.
             </div>
           )}
@@ -201,78 +201,78 @@ function PageTeam() {
                 }}
                 style={{
                   borderColor: drop === r.id ? "var(--accent-money)"
-                              : isRisk ? "color-mix(in oklch, var(--state-danger) 35%, transparent)"
-                              : isBreak ? "color-mix(in oklch, var(--accent-money) 35%, transparent)"
+                              : isRisk ? "color-mix(in srgb, var(--state-danger) 35%, transparent)"
+                              : isBreak ? "color-mix(in srgb, var(--accent-money) 35%, transparent)"
                               : undefined,
-                  background: drop === r.id ? "color-mix(in oklch, var(--accent-money) 6%, var(--bg-elevated))" : undefined,
+                  background: drop === r.id ? "color-mix(in srgb, var(--accent-money) 6%, var(--bg-elevated))" : undefined,
                   cursor: "pointer"
                 }}
                 onClick={(e) => { if (e.target.closest("button")) return; setRepDrill(r); }}>
                 <div className="panel-h">
-                  <Shared.Avatar rep={r} size={22}/>
+                  <Shared.Avatar rep={r} size={20}/>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>{r.name}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6 }}>
                       <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
                       {r.presence === "live" ? "on call" : "idle"} · {r.appts} appts
                     </div>
                   </div>
                   <Shared.TierChip tier={r.tier} compact/>
                 </div>
-                <div style={{ padding: 10 }}>
+                <div style={{ padding: "8px 10px 10px" }}>
                   {(isRisk || isBreak) && (
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
                       {isRisk && (
                         <span className="chip" title="At-risk score from RETAINER heuristic" style={{
                           color: "var(--state-danger)",
-                          borderColor: "color-mix(in oklch, var(--state-danger) 35%, transparent)",
-                          background: "color-mix(in oklch, var(--state-danger) 10%, transparent)",
-                          fontSize: 10.5
+                          borderColor: "color-mix(in srgb, var(--state-danger) 35%, transparent)",
+                          background: "color-mix(in srgb, var(--state-danger) 10%, transparent)",
+                          fontSize: 10
                         }}><Icons.AlertTriangle size={10}/> at-risk · {risk}</span>
                       )}
                       {isBreak && (
                         <span className="chip" title="Breakout score from CLOSER heuristic" style={{
                           color: "var(--accent-money)",
-                          borderColor: "color-mix(in oklch, var(--accent-money) 35%, transparent)",
-                          background: "color-mix(in oklch, var(--accent-money) 10%, transparent)",
-                          fontSize: 10.5
+                          borderColor: "color-mix(in srgb, var(--accent-money) 35%, transparent)",
+                          background: "color-mix(in srgb, var(--accent-money) 10%, transparent)",
+                          fontSize: 10
                         }}><Icons.TrendingUp size={10}/> breakout · {brk}</span>
                       )}
                     </div>
                   )}
 
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)" }}>
-                    <span>MTD</span>
-                    <span className="tabular" style={{ color: "var(--text-primary)", fontWeight: 500 }}>${(r.mtd || 0).toLocaleString()} <span style={{ color: "var(--text-quaternary)" }}>/ ${target.toLocaleString()}</span></span>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "var(--font-mono)" }}>MTD</span>
+                    <span className="tabular" style={{ color: "var(--text-primary)", fontWeight: 500, fontFamily: "var(--font-mono)" }}>${(r.mtd || 0).toLocaleString()} <span style={{ color: "var(--text-quaternary)" }}>/ ${target.toLocaleString()}</span></span>
                   </div>
-                  <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
+                  <div style={{ height: 3, background: "var(--bg-raised)", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
                     <div style={{ width: `${Math.min(100, ((r.mtd || 0) / target) * 100)}%`, height: "100%", background: isRisk ? "var(--state-danger)" : "var(--accent-money)" }}></div>
                   </div>
 
-                  <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Today</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "var(--font-mono)" }}>Today</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 3 }}>
                     {Object.entries(assigned).filter(([_, rep]) => rep === r.id)?.map(([qid]) => {
                       const q = QUEUE.find(x => x.id === qid);
                       if (!q) return null;
                       return (
-                        <div key={qid} style={{ padding: "4px 8px", background: "var(--bg-raised)", borderRadius: 4, fontSize: 11.5, display: "flex", justifyContent: "space-between" }}>
+                        <div key={qid} style={{ padding: "3px 6px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", fontSize: 11, display: "flex", justifyContent: "space-between" }}>
                           <span>{q.lead}</span>
-                          <span className="chip chip-money" style={{ fontSize: 9.5 }}>NEW</span>
+                          <span className="chip chip-money" style={{ fontSize: 9 }}>NEW</span>
                         </div>
                       );
                     })}
                     {!Object.values(assigned).includes(r.id) && drag && (
-                      <div style={{ padding: 8, border: "1px dashed var(--border-strong)", borderRadius: 4, color: "var(--text-tertiary)", fontSize: 11, textAlign: "center" }}>Drop to assign</div>
+                      <div style={{ padding: 6, border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-sm)", color: "var(--text-tertiary)", fontSize: 10.5, textAlign: "center" }}>Drop to assign</div>
                     )}
                   </div>
 
-                  {/* Inline manager actions */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
-                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setNoteFor(r); }} title="Coaching note">
-                      <Icons.MessageSquare size={11}/> Note
+                  {/* GAP-MC1/MC2 — inline manager actions */}
+                  <div style={{ display: "flex", gap: 4, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-subtle)" }}>
+                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 10.5, padding: "3px 6px" }} onClick={(e) => { e.stopPropagation(); setNoteFor(r); }} title="Coaching note (GAP-MC1)">
+                      <Icons.MessageSquare size={10}/> Note
                     </button>
-                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setAlertFor(r); }} title="Send focus alert">
-                      <Icons.Bell size={11}/> Alert
+                    <button className="btn btn-ghost" style={{ flex: 1, fontSize: 10.5, padding: "3px 6px" }} onClick={(e) => { e.stopPropagation(); setAlertFor(r); }} title="Send focus alert (GAP-MC2)">
+                      <Icons.Bell size={10}/> Alert
                     </button>
                   </div>
                 </div>
@@ -630,21 +630,19 @@ function CoachingManager() {
 }
 
 function ReplayMomentModal({ card, onClose }) {
-  // If a recording is linked to the session, pull its AI summary; otherwise synthesize a transcript snippet.
+  // If a recording is linked to the session, pull its AI summary. Otherwise
+  // surface an empty-state pointing at the coaching focus instead of fake
+  // dialogue — previously this rendered a hardcoded Atlas-style transcript
+  // that leaked into every agency's view.
   const linkedRecording = card?.recordingId
     ? (AppData.RECORDINGS || []).find(r => r.id === card.recordingId)
     : null;
   const transcript = linkedRecording
     ? [
         { who: "AI", t: "—", body: linkedRecording.ai || "No AI summary." },
-        { who: "Lead", t: "—", body: `Call duration ${Math.round((linkedRecording.durSec || 0) / 60)}m · talk ratio ${linkedRecording.talkRatio || 0}% · ${linkedRecording.openQ || 0} open questions.` },
+        { who: "Stats", t: "—", body: `Duration ${Math.round((linkedRecording.durSec || 0) / 60)}m · talk ratio ${linkedRecording.talkRatio || 0}% · ${linkedRecording.openQ || 0} open questions.` },
       ]
-    : [
-        { who: "You",      t: "00:42", body: "So, do you take any medications?" },
-        { who: card?.rep?.name?.split(" ")[0] || "Lead", t: "00:46", body: "Uh, yes, a few — metformin, blood pressure, and..." },
-        { who: "You",      t: "00:51", body: "Got it. Well, our Plan G also covers the donut hole, so..." },
-        { who: card?.rep?.name?.split(" ")[0] || "Lead", t: "01:02", body: "Wait, I was about to say something — sorry." },
-      ];
+    : null;
   const markPracticed = async () => {
     if (card?.sessionId && !String(card.sessionId).startsWith("seed-")) {
       try { await AppData.mutate.coachingSessionResolve(card.sessionId, "practiced", null, "Replay reviewed by manager"); } catch (_e) {}
@@ -659,23 +657,35 @@ function ReplayMomentModal({ card, onClose }) {
         <button className="btn btn-primary" onClick={markPracticed}><Icons.Check size={11}/> Mark practiced</button>
       </>
     }>
-      <div style={{ padding: 12, background: "color-mix(in oklch, var(--accent-status) 8%, transparent)", borderRadius: 6, fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.55 }}>
-        <strong style={{ color: "var(--accent-status)" }}>Focus —</strong> {card?.focus}
+      <div style={{ padding: 10, background: "color-mix(in srgb, var(--accent-money) 8%, transparent)", borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5, border: "1px solid color-mix(in srgb, var(--accent-money) 25%, transparent)" }}>
+        <strong style={{ color: "var(--accent-money)" }}>Focus —</strong> {card?.focus}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {transcript.map((m, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: 10, alignItems: "start" }}>
-            <span className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{m.t}</span>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 500, color: m.who === "You" ? "var(--accent-money)" : "var(--text-secondary)" }}>{m.who}</div>
-              <div style={{ fontSize: 13, color: "var(--text-primary)" }}>{m.body}</div>
+      {transcript ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {transcript.map((m, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "56px 1fr", gap: 8, alignItems: "start" }}>
+              <span className="mono" style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.t}</span>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 500, color: m.who === "AI" ? "var(--accent-money)" : "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.who}</div>
+                <div style={{ fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.5 }}>{m.body}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ marginTop: 14, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-        <strong style={{ color: "var(--text-primary)" }}>What to try next time:</strong> "Walk me through what your morning looks like with those medications." Open-ended → fewer interruptions → richer discovery.
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ padding: 14, background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5, textAlign: "center" }}>
+          No call recording linked to this card yet. Once a recording is attached the AI summary, talk ratio, and open-question count surface here.
+          <button
+            className="btn btn-ghost"
+            style={{ marginTop: 10, fontSize: 11 }}
+            onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: {
+              prompt: `Coaching focus: "${card?.focus}". Suggest 3 specific phrases or open-ended questions ${card?.rep?.name?.split(" ")[0] || "the rep"} can try on their next call to move this focus area forward.`,
+              context: "Coaching · suggest next-call phrasing",
+            }}))}>
+            <Icons.Sparkles size={11}/> Ask AI for next-call phrasing
+          </button>
+        </div>
+      )}
     </Shared.Modal>
   );
 }
@@ -953,9 +963,9 @@ function RoutingRulesModal({ onClose }) {
               {!r.active && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>paused</div>}
             </div>
             <button className="icon-btn" title={r.active ? "Pause" : "Activate"} onClick={() => toggle(r)}>
-              {r.active ? <Icons.Check size={12}/> : <Icons.X size={12}/>}
+              {r.active ? <Icons.Pause size={12}/> : <Icons.Play size={12}/>}
             </button>
-            <button className="icon-btn" title="Delete" onClick={() => remove(r.id)}><Icons.X size={12}/></button>
+            <button className="icon-btn" title="Delete" onClick={() => remove(r.id)} style={{ color: "var(--state-danger)" }}><Icons.X size={12}/></button>
           </div>
         ))}
       </div>
@@ -970,8 +980,45 @@ function RepDrillSlideout({ rep, onClose, onAddNote }) {
   const repNotes = (AppData.COACHING_NOTES || []).filter(n => n.repId === rep.id).slice(0, 3);
   const risk = mgrRiskScore(rep);
   const brk = mgrBreakoutScore(rep);
-  const sendCheckIn = () => window.toast && window.toast(`Check-in sent to ${rep.name.split(" ")[0]}`, "success");
-  const callRep = () => window.repflowCall && window.repflowCall("+15125550" + rep.id.slice(0, 3), rep.name);
+  // GAP-MD5 — Check-in was a toast-only stub. Now actually sends an in-app
+  // notification routed to this rep specifically (uses the same path as the
+  // Alert modal but with severity="info" and a fixed copy).
+  const sendCheckIn = async () => {
+    try {
+      await AppData.mutate.notificationCreate({
+        repId: rep.id,
+        recipientHandle: rep.handle,
+        kind: "checkin",
+        severity: "info",
+        title: "Quick check-in",
+        body: "Your manager dropped in. Reply with what you need — block, lead, or just a thumbs-up.",
+        pageLink: "today",
+      });
+      window.toast && window.toast(`Check-in sent to ${rep.name.split(" ")[0]}`, "success");
+    } catch (_e) { /* toast already fired by mutate */ }
+  };
+  // GAP-MD6 — phone number was hardcoded to a demo number ("+15125550" + slice).
+  // Try the rep's stored phone first; if none, dispatch an in-app "call me back"
+  // notification instead of dialing into a fake number.
+  const callRep = async () => {
+    const phone = rep.phone || rep.cell || rep.mobile;
+    if (phone && window.repflowCall) {
+      window.repflowCall(phone, rep.name);
+      return;
+    }
+    try {
+      await AppData.mutate.notificationCreate({
+        repId: rep.id,
+        recipientHandle: rep.handle,
+        kind: "call_request",
+        severity: "warning",
+        title: "Your manager wants to talk",
+        body: "Tap to call back when you're free — no phone on file for direct dial.",
+        pageLink: "today",
+      });
+      window.toast && window.toast(`No phone on file — call-back ping sent to ${rep.name.split(" ")[0]}`, "info");
+    } catch (_e) {}
+  };
   return (
     <div className="slideout-overlay" onClick={onClose}>
       <aside className="slideout" onClick={(e) => e.stopPropagation()} style={{ width: 460 }}>

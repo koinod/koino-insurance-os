@@ -98,7 +98,21 @@ function deriveSources(useSample) {
 
 function PageCrm({ role = "owner" }) {
   useAppDataTick();
-  const [tab, setTab]             = React.useState("inbox");
+  // Default sub-tab from sessionStorage so a deep-link can land on
+  // "recruiting" / "leads" / "pipeline". 2026-05-12: "inbox" was renamed to
+  // "leads" — alias the old key so existing deep-links still resolve.
+  const initialTab = (() => {
+    try {
+      const stash = sessionStorage.getItem("repflow.crm.tab");
+      if (stash) {
+        sessionStorage.removeItem("repflow.crm.tab");
+        if (stash === "inbox") return "leads";
+        if (["leads", "pipeline", "sources", "recruiting", "lifecycle"].includes(stash)) return stash;
+      }
+    } catch {}
+    return "leads";
+  })();
+  const [tab, setTab]             = React.useState(initialTab);
   // Default sample mode ON only for the demo agency. Real tenants start
   // empty so they're not confronted with Atlas IMO / Lead Heroes seed rows.
   const [useSample, setUseSample] = React.useState(() => !!(window.isDemoAgency && window.isDemoAgency()));
@@ -120,8 +134,21 @@ function PageCrm({ role = "owner" }) {
   }, []);
 
   const sources  = deriveSources(useSample);
-  const pipeline = (window.AppData && window.AppData.PIPELINE) || [];
-  const reps     = (window.AppData && window.AppData.REPS)     || [];
+  const rawPipeline = (window.AppData && window.AppData.PIPELINE) || [];
+  const rawReps     = (window.AppData && window.AppData.REPS)     || [];
+
+  // Team scope (session 1 directive): manager view filters pipeline + reps
+  // via window.scopeRepIds(). Owner / admin → null (no filter). Manager →
+  // downline_ids. Rep → self only. Empty array (me() loading) falls through
+  // to full lists so the page renders.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const inScopeRep = (id) => scopeIds === null || scopeIds.length === 0 || !id || scopeIds.includes(id);
+  const pipeline = scopeIds === null || scopeIds.length === 0
+    ? rawPipeline
+    : rawPipeline.filter(p => !p.owner || scopeIds.includes(p.owner));
+  const reps = scopeIds === null || scopeIds.length === 0
+    ? rawReps
+    : rawReps.filter(r => scopeIds.includes(r.id));
 
   const realDataAvailable = (window.AppData && window.AppData.LEAD_SOURCES) ? window.AppData.LEAD_SOURCES.length > 0 : false;
 
@@ -204,11 +231,25 @@ function PageCrm({ role = "owner" }) {
     window.toast && window.toast(`Exported ${filteredLeads.length} leads`, "success");
   };
 
+  // Recruiting tab folds in the PageRecruiting workspace (was a separate
+  // sidebar item). Restructure 2026-05-12: keep CRM as the single lifecycle
+  // hub for "people we're trying to onboard" — leads (consumers) + recruits
+  // (producers). Badge count = active recruiting applicants when loaded.
+  const recruitingApplicants = (window.AppData && window.AppData.RECRUITING_APPLICANTS) || [];
+  const activeApplicants = recruitingApplicants.filter(a => a.status !== "dropped" && a.status !== "producing").length;
+
+  // CRM tab order — daily-work tabs first, configuration tabs last.
+  // Leads     → fresh inbound, stage = New / lead, scoped to team.
+  // Pipeline  → kanban for the whole team funnel (Contacted → Issued).
+  // Recruiting → producer applicants (separate funnel, same shape).
+  // Sources / Lifecycle → configuration + reporting at the back.
+  const newLeadsCount = pipeline.filter(p => p.stage === "New" || p.stage === "lead").length;
   const TABS = [
-    { k: "inbox",     l: "Inbox",     icon: "Bell",     badge: filteredLeads.length },
-    { k: "sources",   l: "Sources",   icon: "Plug",     badge: sources.length },
-    { k: "pipeline",  l: "Pipeline",  icon: "Pipeline" },
-    { k: "lifecycle", l: "Lifecycle", icon: "Activity" },
+    { k: "leads",       l: "Leads",       icon: "Bell",         badge: newLeadsCount },
+    { k: "pipeline",    l: "Pipeline",    icon: "Pipeline",     badge: pipeline.length },
+    { k: "recruiting",  l: "Recruiting",  icon: "ArrowUpRight", badge: activeApplicants },
+    { k: "sources",     l: "Sources",     icon: "Plug",         badge: sources.length },
+    { k: "lifecycle",   l: "Lifecycle",   icon: "Activity" },
   ];
 
   return (
@@ -216,7 +257,7 @@ function PageCrm({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">CRM</div>
-          <div className="page-sub">Lead inbox · sources · pipeline · lifecycle — one screen for the whole funnel</div>
+          <div className="page-sub">Leads · pipeline · sources · recruiting · lifecycle — one screen for everyone you're trying to onboard</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           {!realDataAvailable && <span className="chip" style={{ fontSize: 10.5, color: "var(--state-warning)" }}>sample mode</span>}
@@ -251,10 +292,26 @@ function PageCrm({ role = "owner" }) {
 
       <Shared.SectionPill items={TABS} value={tab} onChange={setTab}/>
 
-      {tab === "inbox"     && <InboxSection {...{ leads: filteredLeads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }}/>}
-      {tab === "sources"   && <SourcesSection {...{ sources, setConnectOpen }}/>}
-      {tab === "pipeline"  && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
-      {tab === "lifecycle" && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
+      {tab === "leads"      && (() => {
+        // Leads tab = fresh inbound only. Default-filters to stage="New" or
+        // "lead" so the manager sees what needs first-touch, distinct from
+        // the full Pipeline kanban. The existing filter row still lets you
+        // expand to other stages.
+        const leadsOnly = filteredLeads.filter(p => stageFilter !== "all" ? true : (p.stage === "New" || p.stage === "lead"));
+        return <InboxSection {...{ leads: leadsOnly, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }}/>;
+      })()}
+      {tab === "sources"    && <SourcesSection {...{ sources, setConnectOpen }}/>}
+      {tab === "pipeline"   && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
+      {tab === "recruiting" && (() => {
+        // Embed PageRecruiting here. The component takes a role prop and
+        // self-scopes via window.scopeRepIds() so the manager view is already
+        // downline-restricted. Render in a "nested" mode by suppressing its
+        // own page-h via a wrapper class.
+        const PR = window.PageRecruiting;
+        if (!PR) return <div className="panel" style={{ padding: 22, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>Recruiting workspace not loaded — refresh the page.</div>;
+        return <div className="crm-nested-recruiting"><PR role={role}/></div>;
+      })()}
+      {tab === "lifecycle"  && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
       {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}

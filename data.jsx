@@ -1,57 +1,147 @@
-/* ────────────────────────────────────────────────────────────────────────────
-   Data Store — central reactive state for the Repflow frontend.
-   Loads from Supabase by default, falls back to empty arrays.
-   Fires "data:hydrated" and "data:mutated" events for UI re-renders.
-──────────────────────────────────────────────────────────────────────────── */
-
+/* Repflow data layer.
+ *
+ * Hard rule (sovereign loop pass 6, 2026-05-11):
+ *   The hardcoded *_SEED arrays below are NEVER assigned to AppData on initial
+ *   render. They are only used by window.loadDemoSeed() when the operator
+ *   chooses "Skip → Continue with demo data" on the login screen, or when the
+ *   active agency has is_demo=true. A signed-in real agency with no data
+ *   sees [] across the board and pages render their empty states with
+ *   import / add CTAs — not Marcus / Cheryl / Atlas IMO.
+ *
+ * The Supabase hydrate path always overwrites (even with []) so that a
+ * tenant that returns 0 rows clears any stale seed, instead of leaving demo
+ * data leaking through page-manager, page-pipeline, etc. */
 const TIERS = ["bronze", "silver", "gold", "platinum", "diamond"];
 const TIER_LABELS = { bronze: "BRONZE", silver: "SILVER", gold: "GOLD", platinum: "PLAT", diamond: "DIAMOND" };
 
-// Initialize with empty arrays. Data will be populated via hydrateFromSupabase().
+const REPS_SEED = [
+  { id: "marc", name: "Marcus Avila", handle: "@marc", tier: "platinum", mtd: 42310, today: 2840, streak: 18, dials: 87, presence: "live", appts: 4, color: "linear-gradient(135deg,#5b86e5,#36d1dc)" },
+  { id: "dani", name: "Dani Rivera", handle: "@dani", tier: "diamond", mtd: 58920, today: 3120, streak: 31, dials: 102, presence: "live", appts: 6, color: "linear-gradient(135deg,#ee0979,#ff6a00)" },
+  { id: "tony", name: "Tony Park", handle: "@tony", tier: "gold", mtd: 31480, today: 1240, streak: 9, dials: 64, presence: "live", appts: 3, color: "linear-gradient(135deg,#11998e,#38ef7d)" },
+  { id: "kira", name: "Kira Walsh", handle: "@kira", tier: "platinum", mtd: 38770, today: 2010, streak: 14, dials: 71, presence: "idle", appts: 2, color: "linear-gradient(135deg,#f7971e,#ffd200)" },
+  { id: "jada", name: "Jada Brooks", handle: "@jada", tier: "gold", mtd: 27340, today: 980, streak: 6, dials: 58, presence: "live", appts: 2, color: "linear-gradient(135deg,#fc466b,#3f5efb)" },
+  { id: "luis", name: "Luis Ortiz", handle: "@luis", tier: "silver", mtd: 18620, today: 540, streak: 4, dials: 42, presence: "idle", appts: 1, color: "linear-gradient(135deg,#7f00ff,#e100ff)" },
+  { id: "sade", name: "Sade Okafor", handle: "@sade", tier: "gold", mtd: 24180, today: 720, streak: 11, dials: 49, presence: "live", appts: 2, color: "linear-gradient(135deg,#00b09b,#96c93d)" },
+  { id: "remy", name: "Remy Chen", handle: "@remy", tier: "silver", mtd: 14920, today: 360, streak: 0, dials: 31, presence: "idle", appts: 0, color: "linear-gradient(135deg,#fa709a,#fee140)" },
+  { id: "alex", name: "Alex Bauer", handle: "@alex", tier: "bronze", mtd: 8940, today: 220, streak: 0, dials: 22, presence: "idle", appts: 0, color: "linear-gradient(135deg,#a18cd1,#fbc2eb)" },
+];
+
+const PIPELINE_SEED = [
+  { id: 1, lead: "Cheryl Hampton", age: 67, state: "TX", stage: "Quoted", product: "Med Supp Plan G", ap: 1840, days: 1, last: "Today, 11:14a", next: "SOA scheduled", source: "FB Lead Form", owner: "marc", consent: "verified", heat: "hot" },
+  { id: 2, lead: "Robert Mendez", age: 71, state: "FL", stage: "App In", product: "Final Expense $15K", ap: 1320, days: 2, last: "Today, 9:02a", next: "Carrier review", source: "Inbound call", owner: "dani", consent: "verified", heat: "hot" },
+  { id: 3, lead: "Linda Cho", age: 64, state: "NV", stage: "Contacted", product: "Med Supp Plan N", ap: 1610, days: 0, last: "8m ago", next: "Quote send", source: "T65 list", owner: "marc", consent: "verified", heat: "fresh" },
+  { id: 4, lead: "Jamal Wright", age: 58, state: "GA", stage: "New", product: "Final Expense $25K", ap: 0, days: 0, last: "47s ago", next: "First dial", source: "FB Lead Form", owner: "tony", consent: "verified", heat: "fresh" },
+  { id: 5, lead: "Patricia Volker", age: 69, state: "AZ", stage: "Quoted", product: "Med Supp Plan G", ap: 2120, days: 3, last: "Yesterday", next: "Follow-up call", source: "Referral", owner: "kira", consent: "verified", heat: "warm" },
+  { id: 6, lead: "Henry Akins", age: 73, state: "OH", stage: "App In", product: "Annuity $50K", ap: 4250, days: 4, last: "2d ago", next: "Carrier sigs", source: "Cross-sell", owner: "dani", consent: "verified", heat: "warm" },
+  { id: 7, lead: "Naomi Reese", age: 65, state: "PA", stage: "Issued", product: "Med Supp Plan G", ap: 1780, days: 7, last: "5d ago", next: "Welcome call", source: "T65 list", owner: "jada", consent: "verified", heat: "cold" },
+  { id: 8, lead: "Don Phelps", age: 70, state: "MI", stage: "Contacted", product: "Final Expense $10K", ap: 0, days: 1, last: "Today, 8:41a", next: "Re-dial 4p", source: "FB Lead Form", owner: "sade", consent: "verified", heat: "warm" },
+  { id: 9, lead: "Anita Boswell", age: 66, state: "NC", stage: "New", product: "Med Supp Plan G", ap: 0, days: 0, last: "12s ago", next: "First dial", source: "Inbound call", owner: "marc", consent: "verified", heat: "fresh" },
+  { id: 10, lead: "Carl Greavy", age: 68, state: "WI", stage: "Quoted", product: "Med Supp Plan N", ap: 1490, days: 2, last: "Today, 10:22a", next: "SOA Thursday", source: "Referral", owner: "tony", consent: "verified", heat: "warm" },
+  { id: 11, lead: "Ramona Diaz", age: 72, state: "CA", stage: "App In", product: "Final Expense $20K", ap: 1660, days: 1, last: "Today, 12:08p", next: "Beneficiary form", source: "FB Lead Form", owner: "kira", consent: "verified", heat: "hot" },
+  { id: 12, lead: "Ed Yamamoto", age: 65, state: "WA", stage: "Issued", product: "Med Supp Plan G", ap: 1820, days: 9, last: "Last week", next: "30-day check", source: "T65 list", owner: "jada", consent: "verified", heat: "cold" },
+];
+
+const QUEUE_SEED = [
+  { id: "q1", lead: "Cheryl Hampton", age: 67, state: "TX", source: "FB Lead Form", product: "Med Supp", elapsed: 14, score: 92 },
+  { id: "q2", lead: "Jamal Wright", age: 58, state: "GA", source: "FB Lead Form", product: "Final Expense", elapsed: 47, score: 88 },
+  { id: "q3", lead: "Anita Boswell", age: 66, state: "NC", source: "Inbound", product: "Med Supp", elapsed: 12, score: 95 },
+  { id: "q4", lead: "Mike Castelli", age: 64, state: "TX", source: "T65 List", product: "Med Supp", elapsed: 102, score: 78 },
+  { id: "q5", lead: "Vivian Pak", age: 70, state: "FL", source: "FB Lead Form", product: "Final Expense", elapsed: 28, score: 84 },
+  { id: "q6", lead: "Travis Heller", age: 65, state: "CA", source: "Referral", product: "Med Supp", elapsed: 156, score: 81 },
+];
+
+const COURSES_SEED = [
+  { id: "c1", title: "Final Expense Closing 101", track: "FE", durMin: 28, status: "complete" },
+  { id: "c2", title: "TPMO Disclaimer Mastery", track: "Compliance", durMin: 12, status: "due" },
+  { id: "c3", title: "Med Supp Plan G vs N — when to switch", track: "Med Supp", durMin: 22, status: "in-progress" },
+  { id: "c4", title: "AEP Surge Playbook 2026", track: "AEP", durMin: 45, status: "assigned" },
+];
+
+const RECORDINGS_SEED = [
+  { id: "r1", lead: "Cheryl Hampton", date: "Today, 11:14a", durSec: 1842, talkRatio: 38, openQ: 11, ai: "Strong rapport. Closed-ended on 'how do you spend your days now' — try open phrasing.", flags: { tpmo: "ok", soa: "scheduled" }, score: 87 },
+  { id: "r2", lead: "Robert Mendez", date: "Today, 9:02a", durSec: 1206, talkRatio: 58, openQ: 4, ai: "Talk ratio too high. Robert tried twice to share medication concern — re-direct rebuttal hurt rapport.", flags: { tpmo: "ok", soa: "captured" }, score: 64 },
+  { id: "r3", lead: "Linda Cho", date: "Yesterday, 4:42p", durSec: 920, talkRatio: 42, openQ: 8, ai: "Good price-anchor sequence. Missed cross-sell to Plan F → N alternative.", flags: { tpmo: "ok", soa: "n/a" }, score: 78 },
+];
+
+const CONNECTIONS_SEED = [
+  { id: "twilio", name: "Twilio", category: "Comms", status: "ok", meta: "A2P 10DLC verified · 4 numbers" },
+  { id: "convoso", name: "Convoso", category: "Dialer", status: "ok", meta: "Auto-dial · 124 dials/hr avg" },
+  { id: "vapi", name: "Vapi", category: "Voice AI", status: "ok", meta: "3 agents deployed" },
+  { id: "ipipe", name: "iPipeline iGO", category: "E-app", status: "ok", meta: "Last sync 2m ago" },
+  { id: "fire", name: "Firelight", category: "E-app", status: "warn", meta: "Token refresh required" },
+  { id: "uhc", name: "UHC Producer", category: "Carrier", status: "ok", meta: "47 appointments active" },
+  { id: "humana", name: "Humana Vantage", category: "Carrier", status: "ok", meta: "32 appointments active" },
+  { id: "aetna", name: "Aetna SRC", category: "Carrier", status: "ok", meta: "29 appointments active" },
+  { id: "stripe", name: "Stripe", category: "Payments", status: "ok", meta: "Override payouts · monthly" },
+  { id: "jornaya", name: "Jornaya", category: "Compliance", status: "ok", meta: "LeadiD on 100% of inbound" },
+  { id: "trusted", name: "TrustedForm", category: "Compliance", status: "ok", meta: "Certificates retained 13mo" },
+  { id: "mailgun", name: "Mailgun", category: "Comms", status: "ok", meta: "98.2% deliverability" },
+];
+
+const HARDWARE_SEED = [
+  { id: "h1", name: "Office Mac Mini — Atlanta", kind: "Mac Mini M4", status: "ok", uptime: "47d 6h", load: 22, agents: 3, last: "12s ago" },
+  { id: "h2", name: "Office Mac Mini — Tampa", kind: "Mac Mini M4", status: "ok", uptime: "12d 2h", load: 18, agents: 2, last: "8s ago" },
+  { id: "h3", name: "VPS — us-east-1", kind: "Hetzner CCX23", status: "ok", uptime: "92d 14h", load: 31, agents: 4, last: "4s ago" },
+  { id: "h4", name: "VPS — us-west-2", kind: "Hetzner CCX23", status: "warn", uptime: "12h", load: 64, agents: 4, last: "2s ago" },
+];
+
+const AGENTS_SEED = [
+  { id: "a1", name: "Lead Enricher", host: "VPS-east", reqs: "1.2k/d", success: 99.4, last: "now", desc: "Pulls property, household, prior policy from carrier APIs." },
+  { id: "a2", name: "Speed-to-Lead Dispatcher", host: "VPS-east", reqs: "847/d", success: 99.9, last: "now", desc: "Routes inbound FB leads to producer queue under 60s." },
+  { id: "a3", name: "TPMO Compliance Scanner", host: "Mac Mini ATL", reqs: "402/d", success: 100, last: "1m", desc: "Listens to all calls, flags missing disclaimer or scope drift." },
+  { id: "a4", name: "Vapi Rebuttal Voice", host: "VPS-west", reqs: "2.1k/d", success: 98.6, last: "now", desc: "On-demand objection rebuttal voice clips during live calls." },
+  { id: "a5", name: "SOA Vault Archiver", host: "Mac Mini TPA", reqs: "183/d", success: 100, last: "3m", desc: "Captures, signs, and archives Scope-of-Appointment artifacts." },
+  { id: "a6", name: "Persistency Predictor", host: "VPS-east", reqs: "44/d", success: 96.2, last: "12m", desc: "Predicts lapse risk on 12-mo cohort; surfaces save-the-policy actions." },
+];
+
+const WORKFLOWS_SEED = [
+  { id: "w1", name: "FB Lead → Med Supp queue (T65, < 60s)", runs: "412/d", lastRun: "23s ago" },
+  { id: "w2", name: "Final Expense intake → app-ready", runs: "118/d", lastRun: "2m ago" },
+  { id: "w3", name: "Post-call SOA capture & vault", runs: "204/d", lastRun: "1m ago" },
+  { id: "w4", name: "Cross-sell: FE issued → Med Supp 60d", runs: "12/d", lastRun: "3h ago" },
+];
+
+// AppData ships EMPTY on first paint. The Supabase hydrate or a deliberate
+// loadDemoSeed() call (demo-skip / is_demo agency) is what populates these.
+// This prevents Marcus / Cheryl / Atlas IMO from bleeding into a real
+// agency's empty manager view (sovereign loop pass 6, 2026-05-11).
 window.AppData = {
-  TIERS,
-  TIER_LABELS,
-  REPS: [],
-  PIPELINE: [],
-  QUEUE: [],
-  COURSES: [],
-  RECORDINGS: [],
-  CONNECTIONS: [],
-  HARDWARE: [],
-  AGENTS: [],
-  WORKFLOWS: [],
+  TIERS, TIER_LABELS,
+  REPS: [], PIPELINE: [], QUEUE: [], COURSES: [], RECORDINGS: [],
+  CONNECTIONS: [], HARDWARE: [], AGENTS: [], WORKFLOWS: [],
   ORG_SETTINGS: {},
-  // Product-training surface — populated from supabase (migration 0019).
-  // Empty until hydrate runs; ProductTraining falls back to localStorage.
-  TRAINING_COURSES: [],
-  TRAINING_ASSIGNMENTS: [],
-  TRAINING_PROGRESS: {},
-  LIVE: true // Default to true; hydrate will check supabase availability
+  TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
+  LIVE: false,
 };
 
-/**
- * window.loadMockData() — manually populates AppData with static seed data.
- * Useful for development and UI/UX testing without a database connection.
- */
-window.loadMockData = function () {
-  const mockReps = [
-    { id: "marc", name: "Marcus Avila", handle: "@marc", tier: "platinum", mtd: 42310, today: 2840, streak: 18, dials: 87, presence: "live", appts: 4, color: "linear-gradient(135deg,#5b86e5,#36d1dc)" },
-    { id: "dani", name: "Dani Rivera", handle: "@dani", tier: "diamond", mtd: 58920, today: 3120, streak: 31, dials: 102, presence: "live", appts: 6, color: "linear-gradient(135deg,#ee0979,#ff6a00)" },
-    { id: "tony", name: "Tony Park", handle: "@tony", tier: "gold", mtd: 31480, today: 1240, streak: 9, dials: 64, presence: "live", appts: 3, color: "linear-gradient(135deg,#11998e,#38ef7d)" },
-  ];
-  const mockPipeline = [
-    { id: 1, lead: "Cheryl Hampton", age: 67, state: "TX", stage: "Quoted", product: "Med Supp Plan G", ap: 1840, days: 1, last: "Today, 11:14a", next: "SOA scheduled", source: "FB Lead Form", owner: "marc", consent: "verified", heat: "hot" },
-    { id: 2, lead: "Robert Mendez", age: 71, state: "FL", stage: "App In", product: "Final Expense $15K", ap: 1320, days: 2, last: "Today, 9:02a", next: "Carrier review", source: "Inbound call", owner: "dani", consent: "verified", heat: "hot" },
-  ];
-  
-  window.AppData.REPS = mockReps;
-  window.AppData.PIPELINE = mockPipeline;
-  window.AppData.LIVE = false;
-  window.dispatchEvent(new CustomEvent("data:hydrated"));
-  console.log("Mock data loaded into AppData");
+// loadDemoSeed — explicitly chosen by the user (Skip → Continue with demo
+// data) OR by an is_demo agency. Called from page-auth.jsx (skip flow) and
+// from the post-hydrate guard below. Idempotent.
+window.loadDemoSeed = function () {
+  if (window.AppData.__demoSeedLoaded) return;
+  window.AppData.__demoSeedLoaded = true;
+  window.AppData.REPS = REPS_SEED.slice();
+  window.AppData.PIPELINE = PIPELINE_SEED.slice();
+  window.AppData.QUEUE = QUEUE_SEED.slice();
+  window.AppData.COURSES = COURSES_SEED.slice();
+  window.AppData.RECORDINGS = RECORDINGS_SEED.slice();
+  window.AppData.CONNECTIONS = CONNECTIONS_SEED.slice();
+  window.AppData.HARDWARE = HARDWARE_SEED.slice();
+  window.AppData.AGENTS = AGENTS_SEED.slice();
+  window.AppData.WORKFLOWS = WORKFLOWS_SEED.slice();
+  try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (_e) {}
 };
 
-// ─── CSV export helper ───────────────────────────────────────────────────
+// If the demo-skip flag was set before this script evaluated (sessionStorage
+// "repflow.demo" === "1"), or the URL has ?demo=1, seed immediately so the
+// app renders with sample content for the prototype-only path.
+try {
+  const inDemo = sessionStorage.getItem("repflow.demo") === "1"
+              || /[?&]demo=1\b/.test(window.location.search || "");
+  if (inDemo) { window.__demoSkip = true; window.loadDemoSeed(); }
+} catch (_e) {}
+
+// ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
 // Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
 //   window.AppData.exportCsv(rows, "filename", [{k:"name",l:"Name"}, ...])
 // Properly escapes embedded commas, quotes, newlines.
@@ -88,16 +178,12 @@ window.AppData.exportCsv = function (rows, filename, columns) {
    Pages all read from window.AppData; on hydrate we mutate in place + fire a
    "data:hydrated" event so any mounted component can re-render via state pump.
    ──────────────────────────────────────────────────────────────────────────── */
-// Supabase URL + anon key are centralized in lib/supabase-config.js, which the
-// <script> ordering in index.html and mobile.html guarantees runs before this
-// file. Do not duplicate the literals here — change them in supabase-config.js
-// (or inject window.__ENV before that script) so there's exactly one source.
-
-// Restore demo-skip flag across reloads so isDemoAgency() reads true after a
-// signOut+reload when the user never created an account.
-try {
-  if (sessionStorage.getItem("repflow.demo") === "1") window.__demoSkip = true;
-} catch (_e) {}
+// Supabase URL + anon key are now centralized in lib/supabase-config.js (loaded
+// as the first script in index.html and mobile.html). If they're not yet set
+// at the time data.jsx evaluates (script ordering edge case), fall back to
+// safe defaults so the rest of the file still parses.
+window.SUPABASE_URL  = window.SUPABASE_URL  || "https://jfphwmzwteermalzwojp.supabase.co";
+window.SUPABASE_ANON = window.SUPABASE_ANON || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
 
 window.getSupabase = function () {
   if (!window.__supabase && window.supabase?.createClient) {
@@ -109,7 +195,7 @@ window.getSupabase = function () {
 };
 
 window.getActiveAgencyId = function () {
-  // Agency scope priority: explicit switcher → me().agency_id → null.
+  // GAP-X2 — agency scope priority: explicit switcher → me().agency_id → null.
   // null = unscoped (only acceptable on shared reference tables).
   try {
     const explicit = localStorage.getItem("repflow.active_agency");
@@ -135,8 +221,6 @@ window.hydrateFromSupabase = async function () {
     // exist" and the entire hydrate falls over for that promise. Tables
     // without agency_id rely on RLS + FK-joined policies for tenant
     // isolation (e.g. coaching_notes scopes via rep_id → reps.agency_id).
-    // RLS is now locked down (migration 0024) so the older demo-bleed
-    // workaround is no longer needed at the hydrate layer.
     const TABLES_WITH_AGENCY_ID = new Set([
       "reps", "pipeline", "queue", "courses", "recordings", "connections",
       "hardware", "ai_agents", "workflows", "policies", "commissions",
@@ -175,28 +259,27 @@ window.hydrateFromSupabase = async function () {
       scope(sb.from("org_settings").select("*")),
     ]);
 
-    // When the user is signed in (not in demo skip mode), REPLACE arrays
-    // unconditionally — even with empty ones. Otherwise a brand-new agency
-    // (zero reps, zero leads) keeps the demo seed and looks like Atlas with
-    // mock pipeline. The presence of an active scope means we know the
-    // user picked / belongs to a real agency.
-    const hasRealSession = !!activeAgency;
-    
-    if (orgSettings.data || hasRealSession) {
+    if (Array.isArray(orgSettings.data)) {
       const map = {};
-      (orgSettings.data || []).forEach(s => { map[s.key] = s.value; });
+      orgSettings.data.forEach(s => { map[s.key] = s.value; });
       window.AppData.ORG_SETTINGS = map;
     }
-    if (reps.data || hasRealSession) {
-      window.AppData.REPS = (reps.data || []).map(r => ({
+
+    // GATE CHANGE (sovereign pass 6, 2026-05-11):
+    //   Was: `if (data?.length)` → empty agency left the demo fixtures in place.
+    //   Now: `if (Array.isArray(data))` → 0 rows assigns [] and the page
+    //   renders its empty state (manager card "No producers visible at your
+    //   scope. Invite reps."), instead of fake Atlas / Marcus rows.
+    if (Array.isArray(reps.data)) {
+      window.AppData.REPS = reps.data.map(r => ({
         id: r.id, name: r.name, handle: r.handle, tier: r.tier,
         mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
         streak: r.streak_days, dials: r.dials, presence: r.presence,
         appts: r.appts, color: r.color
       }));
     }
-    if (pipeline.data || hasRealSession) {
-      window.AppData.PIPELINE = (pipeline.data || []).map(p => ({
+    if (Array.isArray(pipeline.data)) {
+      window.AppData.PIPELINE = pipeline.data.map(p => ({
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
@@ -204,46 +287,46 @@ window.hydrateFromSupabase = async function () {
         phone: p.phone || null, email: p.email || null,
       }));
     }
-    if (queue.data || hasRealSession) {
-      window.AppData.QUEUE = (queue.data || []).map(q => ({
+    if (Array.isArray(queue.data)) {
+      window.AppData.QUEUE = queue.data.map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
         product: q.product, elapsed: q.elapsed_seconds, score: q.score,
         phone: q.phone || null, email: q.email || null,
         assignedRepId: q.assigned_rep_id || null,
       }));
     }
-    if (courses.data || hasRealSession) {
-      window.AppData.COURSES = (courses.data || []).map(c => ({
+    if (Array.isArray(courses.data)) {
+      window.AppData.COURSES = courses.data.map(c => ({
         id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
       }));
     }
-    if (recordings.data || hasRealSession) {
-      window.AppData.RECORDINGS = (recordings.data || []).map(r => ({
+    if (Array.isArray(recordings.data)) {
+      window.AppData.RECORDINGS = recordings.data.map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
         durSec: r.duration_sec, talkRatio: r.talk_ratio_pct, openQ: r.open_questions,
         ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
       }));
     }
-    if (connections.data || hasRealSession) {
-      window.AppData.CONNECTIONS = (connections.data || []).map(c => ({
+    if (Array.isArray(connections.data)) {
+      window.AppData.CONNECTIONS = connections.data.map(c => ({
         id: c.id, name: c.name, category: c.category, status: c.status, meta: c.meta
       }));
     }
-    if (hardware.data || hasRealSession) {
-      window.AppData.HARDWARE = (hardware.data || []).map(h => ({
+    if (Array.isArray(hardware.data)) {
+      window.AppData.HARDWARE = hardware.data.map(h => ({
         id: h.id, name: h.name, kind: h.kind, status: h.status, uptime: h.uptime_text,
         load: h.load_pct, agents: h.agent_count, last: "live"
       }));
     }
-    if (agents.data || hasRealSession) {
-      window.AppData.AGENTS = (agents.data || []).map(a => ({
+    if (Array.isArray(agents.data)) {
+      window.AppData.AGENTS = agents.data.map(a => ({
         id: a.id, name: a.name, host: a.host_id, reqs: a.reqs_per_day,
         success: parseFloat(a.success_rate), last: "live", desc: a.description
       }));
     }
-    if (workflows.data || hasRealSession) {
-      window.AppData.WORKFLOWS = (workflows.data || []).map(w => ({
+    if (Array.isArray(workflows.data)) {
+      window.AppData.WORKFLOWS = workflows.data.map(w => ({
         id: w.id, name: w.name, runs: w.runs_per_day,
         lastRun: w.last_run ? new Date(w.last_run).toLocaleString() : "—"
       }));
@@ -284,7 +367,7 @@ window.hydrateFromSupabase = async function () {
         sb.from("carriers").select("*").order("name"),
         sb.from("products").select("*"),
         sb.from("carrier_appointments").select("*"),
-        // Tenant-specific tables — scope by viewer's agency_id:
+        // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
         scope(sb.from("policies").select("*").order("issued_at", { ascending: false })),
         scope(sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500)),
         scope(sb.from("payouts").select("*").order("period_end", { ascending: false }).limit(100)),
@@ -333,7 +416,7 @@ window.hydrateFromSupabase = async function () {
         // Tenant-specific:
         scope(sb.from("sequence_enrollments").select("*").order("enrolled_at", { ascending: false }).limit(200)),
         scope(sb.from("tiering_overrides").select("*")),
-        scope(sb.from("agent_deployments").select("*").order("deployed_at", { ascending: false }).limit(50)),
+        scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
         scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
       ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
       // ↑ Resilience: any single query that throws is converted into `{ data: [],
@@ -566,7 +649,7 @@ window.hydrateFromSupabase = async function () {
       }));
       window.AppData.DEPLOYMENTS = mapRows(agentDeploymentsR, d => ({
         id: d.id, agentId: d.agent_id, hostId: d.host_id, status: d.status,
-        manifest: d.manifest, lastHeartbeat: d.last_heartbeat, deployedAt: d.deployed_at
+        manifest: d.manifest, lastHeartbeat: d.last_heartbeat, startedAt: d.started_at
       }));
       window.AppData.AGENT_RUNS = mapRows(agentRunsR, r => ({
         id: r.id, agentId: r.agent_id, hostId: r.host_id,
@@ -617,42 +700,7 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] resources hydrate skipped:", resErr?.message ?? resErr);
     }
 
-    // Cache the active agency object so isDemoAgency() / isSuperAdmin() / UI
-    // banners can read it synchronously.
-    if (activeAgency) {
-      try {
-        const { data: a } = await sb.from("agencies").select("id, slug, name, is_imo, is_demo, imo_id, plan, status").eq("id", activeAgency).single();
-        if (a) window.__activeAgency = a;
-      } catch (_e) { /* ignore */ }
-    }
-
-    // Hydrate expenses → fold into AppData.EXPENSES + LEAD_SPEND_TOTALS so
-    // P&L / Today ROAS / Owner outflow rollups read live data.
-    try {
-      const { data: ex } = await scope(sb.from("agency_expenses").select("*").order("paid_at", { ascending: false }));
-      window.AppData.EXPENSES = ex || [];
-      const now = new Date();
-      const startMtd = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startQtd = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      const startYtd = new Date(now.getFullYear(), 0, 1);
-      const inRange = (e, start) => e.paid_at && new Date(e.paid_at) >= start;
-      const sumLeadSpend = (start) => (ex || [])
-        .filter(e => e.kind === "lead_spend" && inRange(e, start))
-        .reduce((s, e) => s + (e.amount_cents || 0), 0);
-      window.AppData.LEAD_SPEND_TOTALS = {
-        mtd: sumLeadSpend(startMtd),
-        qtd: sumLeadSpend(startQtd),
-        ytd: sumLeadSpend(startYtd),
-      };
-    } catch (_e) {
-      window.AppData.EXPENSES = window.AppData.EXPENSES || [];
-      window.AppData.LEAD_SPEND_TOTALS = window.AppData.LEAD_SPEND_TOTALS || { mtd: 0, qtd: 0, ytd: 0 };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // Training hydrate — migration 0019. Loads training_courses + nested
-    // sections, assignments folded by course, and per-rep lesson progress.
-    // ────────────────────────────────────────────────────────────────────────
+    // Training hydration (migration 0019)
     try {
       const [tcR, taR, tpR] = await Promise.all([
         scope(sb.from("training_courses").select("*")
@@ -664,7 +712,6 @@ window.hydrateFromSupabase = async function () {
       ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
 
       const mapRowsT = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
-
       window.AppData.TRAINING_COURSES = mapRowsT(tcR, r => ({
         id: r.id, slug: r.slug, title: r.title, track: r.track,
         description: r.description, durMin: r.dur_min, required: r.required,
@@ -677,27 +724,18 @@ window.hydrateFromSupabase = async function () {
       const byCourse = new Map();
       for (const r of (Array.isArray(taR?.data) ? taR.data : [])) {
         const k = r.course_id;
-        if (!byCourse.has(k)) byCourse.set(k, {
-          id: `course:${r.course_id}`, courseId: r.course_id, repIds: [],
-          dueDate: r.due_at || null, assignedBy: r.assigned_by, assignedAt: r.assigned_at,
-        });
+        if (!byCourse.has(k)) byCourse.set(k, { id: `course:${r.course_id}`, courseId: r.course_id, repIds: [], dueDate: r.due_at || null, assignedBy: r.assigned_by, assignedAt: r.assigned_at });
         byCourse.get(k).repIds.push(r.rep_id);
-        if (r.due_at && r.due_at > (byCourse.get(k).dueDate || "0000-00-00")) {
-          byCourse.get(k).dueDate = r.due_at;
-        }
+        if (r.due_at && r.due_at > (byCourse.get(k).dueDate || "0000-00-00")) byCourse.get(k).dueDate = r.due_at;
       }
       window.AppData.TRAINING_ASSIGNMENTS = Array.from(byCourse.values());
 
       const progByRep = {};
       for (const r of (Array.isArray(tpR?.data) ? tpR.data : [])) {
-        const repBucket = progByRep[r.rep_id] || (progByRep[r.rep_id] = {});
-        const courseBucket = repBucket[r.course_id] || (repBucket[r.course_id] = {
-          completedLessons: [], completedAt: null,
-        });
-        courseBucket.completedLessons.push(r.lesson_key);
-        if (r.completed_at && r.completed_at > (courseBucket.completedAt || "")) {
-          courseBucket.completedAt = r.completed_at;
-        }
+        const rb = progByRep[r.rep_id] || (progByRep[r.rep_id] = {});
+        const cb = rb[r.course_id] || (rb[r.course_id] = { completedLessons: [], completedAt: null });
+        cb.completedLessons.push(r.lesson_key);
+        if (r.completed_at && r.completed_at > (cb.completedAt || "")) cb.completedAt = r.completed_at;
       }
       window.AppData.TRAINING_PROGRESS = progByRep;
     } catch (trainErr) {
@@ -705,6 +743,23 @@ window.hydrateFromSupabase = async function () {
     }
 
     window.AppData.LIVE = true;
+
+    // Demo-agency fallback: if the active agency carries is_demo=true but
+    // has no rows yet (fresh provision), seed it locally so the prototype
+    // surface still looks alive. Real agencies (is_demo=false) stay empty
+    // and render proper empty states with import/add CTAs.
+    try {
+      const meIdent = window.me && window.me();
+      const isDemoFromActive = !!(window.__activeAgency && window.__activeAgency.is_demo);
+      const isDemoFromMe     = !!(meIdent && meIdent.is_demo === true);
+      const allEmpty = (window.AppData.REPS.length === 0)
+                    && (window.AppData.PIPELINE.length === 0)
+                    && (window.AppData.QUEUE.length === 0);
+      if (allEmpty && (isDemoFromActive || isDemoFromMe || window.__demoSkip)) {
+        window.loadDemoSeed && window.loadDemoSeed();
+      }
+    } catch (_e) {}
+
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
   } catch (err) {
@@ -760,8 +815,7 @@ window.subscribeRealtime = function () {
     // GAP-X5 — notifications + commissions stream so badges and PnL update without refresh
     notifications:      "NOTIFICATIONS",
     commissions:        "COMMISSIONS",
-    // 0019 — training_courses streams as a flat array. Assignments + progress
-    // need shape folding so they get dedicated handlers below.
+    // 0019 — training_courses streams as a flat array
     training_courses:   "TRAINING_COURSES",
   };
 
@@ -782,14 +836,7 @@ window.subscribeRealtime = function () {
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
     if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
-    if (table === "training_courses") return {
-      id: r.id, slug: r.slug, title: r.title, track: r.track,
-      description: r.description, durMin: r.dur_min, required: r.required,
-      sections: Array.isArray(r.sections) ? r.sections : [],
-      targetRoles: r.target_roles || ["owner","manager","rep"],
-      displayOrder: r.display_order, isPublished: r.is_published,
-      createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
-    };
+    if (table === "training_courses") return { id: r.id, slug: r.slug, title: r.title, track: r.track, description: r.description, durMin: r.dur_min, required: r.required, sections: Array.isArray(r.sections) ? r.sections : [], targetRoles: r.target_roles || ["owner","manager","rep"], displayOrder: r.display_order, isPublished: r.is_published, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at };
     return r;
   };
 
@@ -814,16 +861,13 @@ window.subscribeRealtime = function () {
       window.dispatchEvent(new CustomEvent("data:hydrated"));
     });
   });
-  // ── Training assignments — folded by course_id into AppData.TRAINING_ASSIGNMENTS
+  // training_assignments — folded by course_id into AppData.TRAINING_ASSIGNMENTS
   channel.on("postgres_changes", { event: "*", schema: "public", table: "training_assignments" }, (payload) => {
     const arr = window.AppData.TRAINING_ASSIGNMENTS = window.AppData.TRAINING_ASSIGNMENTS || [];
     const { eventType, new: newRow, old: oldRow } = payload;
     const upsertRep = (courseId, repId, dueAt, assignedBy, assignedAt) => {
       let bucket = arr.find(a => a.courseId === courseId);
-      if (!bucket) {
-        bucket = { id: `course:${courseId}`, courseId, repIds: [], dueDate: dueAt || null, assignedBy, assignedAt };
-        arr.push(bucket);
-      }
+      if (!bucket) { bucket = { id: `course:${courseId}`, courseId, repIds: [], dueDate: dueAt || null, assignedBy, assignedAt }; arr.push(bucket); }
       if (!bucket.repIds.includes(repId)) bucket.repIds.push(repId);
       if (dueAt && dueAt > (bucket.dueDate || "0000-00-00")) bucket.dueDate = dueAt;
     };
@@ -833,41 +877,27 @@ window.subscribeRealtime = function () {
       arr[i].repIds = arr[i].repIds.filter(x => x !== repId);
       if (arr[i].repIds.length === 0) arr.splice(i, 1);
     };
-    if (eventType === "INSERT" && newRow) {
-      upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at);
-    } else if (eventType === "UPDATE" && newRow) {
-      if (oldRow && (oldRow.course_id !== newRow.course_id || oldRow.rep_id !== newRow.rep_id)) {
-        removeRep(oldRow.course_id, oldRow.rep_id);
-      }
-      upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at);
-    } else if (eventType === "DELETE" && oldRow) {
-      removeRep(oldRow.course_id, oldRow.rep_id);
-    }
+    if (eventType === "INSERT" && newRow) upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at);
+    else if (eventType === "UPDATE" && newRow) { if (oldRow && (oldRow.course_id !== newRow.course_id || oldRow.rep_id !== newRow.rep_id)) removeRep(oldRow.course_id, oldRow.rep_id); upsertRep(newRow.course_id, newRow.rep_id, newRow.due_at, newRow.assigned_by, newRow.assigned_at); }
+    else if (eventType === "DELETE" && oldRow) removeRep(oldRow.course_id, oldRow.rep_id);
     window.dispatchEvent(new CustomEvent("data:realtime", { detail: { table: "training_assignments", eventType } }));
     window.dispatchEvent(new CustomEvent("data:hydrated"));
   });
 
-  // ── Training progress — folded into AppData.TRAINING_PROGRESS[repId][courseId]
+  // training_progress — folded into AppData.TRAINING_PROGRESS[repId][courseId]
   channel.on("postgres_changes", { event: "*", schema: "public", table: "training_progress" }, (payload) => {
     const prog = window.AppData.TRAINING_PROGRESS = window.AppData.TRAINING_PROGRESS || {};
     const { eventType, new: newRow, old: oldRow } = payload;
     const row = newRow || oldRow;
     if (!row) return;
-    const repBucket = prog[row.rep_id] || (prog[row.rep_id] = {});
-    const courseBucket = repBucket[row.course_id] || (repBucket[row.course_id] = { completedLessons: [], completedAt: null });
+    const rb = prog[row.rep_id] || (prog[row.rep_id] = {});
+    const cb = rb[row.course_id] || (rb[row.course_id] = { completedLessons: [], completedAt: null });
     if (eventType === "INSERT" || eventType === "UPDATE") {
-      if (!courseBucket.completedLessons.includes(row.lesson_key)) {
-        courseBucket.completedLessons.push(row.lesson_key);
-      }
-      if (row.completed_at && row.completed_at > (courseBucket.completedAt || "")) {
-        courseBucket.completedAt = row.completed_at;
-      }
+      if (!cb.completedLessons.includes(row.lesson_key)) cb.completedLessons.push(row.lesson_key);
+      if (row.completed_at && row.completed_at > (cb.completedAt || "")) cb.completedAt = row.completed_at;
     } else if (eventType === "DELETE") {
-      courseBucket.completedLessons = courseBucket.completedLessons.filter(k => k !== row.lesson_key);
-      if (courseBucket.completedLessons.length === 0) {
-        delete repBucket[row.course_id];
-        if (Object.keys(repBucket).length === 0) delete prog[row.rep_id];
-      }
+      cb.completedLessons = cb.completedLessons.filter(k => k !== row.lesson_key);
+      if (cb.completedLessons.length === 0) { delete rb[row.course_id]; if (Object.keys(rb).length === 0) delete prog[row.rep_id]; }
     }
     window.dispatchEvent(new CustomEvent("data:realtime", { detail: { table: "training_progress", eventType } }));
     window.dispatchEvent(new CustomEvent("data:hydrated"));
@@ -884,24 +914,12 @@ window.subscribeRealtime = function () {
 // Auto-subscribe after first hydrate
 window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (_e) {} }, { once: true });
 
-// Audit logger — fire-and-forget Supabase RPC. Never blocks the mutation;
-// any failure is silently swallowed so mutates work in demo mode too.
-async function _writeAudit(action, target, metadata) {
-  try {
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb || !window.AppData.LIVE) return;
-    await sb.rpc("write_audit", { p_action: action, p_target: target || null, p_metadata: metadata || {} });
-  } catch (_e) { /* never block on audit */ }
-}
-
 window.AppData.mutate = {
-  _audit: _writeAudit,
   async pipelineStage(id, stage) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
     const previousStage = row?.stage;
     if (row) { row.stage = stage; row.last = "Just now"; }
     _emitMutation("pipeline", "update", id);
-    _writeAudit("pipeline.stage", row?.lead || id, { from: previousStage, to: stage, lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
@@ -1023,10 +1041,8 @@ window.AppData.mutate = {
 
   async pipelineOwner(id, ownerRepId) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
-    const prev = row?.owner;
     if (row) row.owner = ownerRepId;
     _emitMutation("pipeline", "update", id);
-    _writeAudit("pipeline.assign", row?.lead || id, { from: prev, to: ownerRepId, lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("pipeline").update({ owner_rep_id: ownerRepId }).eq("id", id);
@@ -1057,7 +1073,6 @@ window.AppData.mutate = {
     }
     window.AppData.PIPELINE.unshift(row);
     _emitMutation("pipeline", "insert", row.id);
-    _writeAudit("pipeline.create", row.lead, { product: row.product, ap: row.ap, source: row.source });
   },
 
   async pipelineContact(id, patch) {
@@ -1078,11 +1093,9 @@ window.AppData.mutate = {
   },
 
   async pipelineDelete(id) {
-    const row = window.AppData.PIPELINE.find(p => p.id === id);
     const idx = window.AppData.PIPELINE.findIndex(p => p.id === id);
     if (idx >= 0) window.AppData.PIPELINE.splice(idx, 1);
     _emitMutation("pipeline", "delete", id);
-    _writeAudit("pipeline.delete", row?.lead || id, { lead_id: id });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("pipeline").delete().eq("id", id);
@@ -1123,7 +1136,6 @@ window.AppData.mutate = {
       }
     }
     _emitMutation("tiering_overrides", "upsert", repId);
-    _writeAudit("rep.tier_override", repId, { tier });
   },
 
   async sequenceEnroll(leadId, sequenceId, ownerRepId) {
@@ -1145,17 +1157,8 @@ window.AppData.mutate = {
     // patch: object of key/value pairs to upsert into org_settings
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
-      const me = window.me && window.me();
-      const agencyId = me?.agency_id || window.getActiveAgencyId();
-      if (!agencyId) return;
-      
-      const rows = Object.entries(patch).map(([key, value]) => ({ 
-        agency_id: agencyId,
-        key, 
-        value, 
-        updated_at: new Date().toISOString() 
-      }));
-      const { error } = await sb.from("org_settings").upsert(rows, { onConflict: "agency_id,key" });
+      const rows = Object.entries(patch).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }));
+      const { error } = await sb.from("org_settings").upsert(rows, { onConflict: "key" });
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
     }
     window.AppData.ORG_SETTINGS = { ...(window.AppData.ORG_SETTINGS || {}), ...patch };
@@ -1186,7 +1189,6 @@ window.AppData.mutate = {
     }
     (window.AppData.VAULT_ARTIFACTS = window.AppData.VAULT_ARTIFACTS || []).unshift(artifact);
     _emitMutation("vault_artifacts", "insert", artifact.id);
-    _writeAudit("vault.artifact_added", artifact.lead_name || artifact.kind, { kind: artifact.kind });
   },
 
   async vaultRetentionUpdate(id, retention) {
@@ -1219,7 +1221,6 @@ window.AppData.mutate = {
       if (status === "resolved") row.resolved_at = new Date().toISOString();
       if (detail) row.detail = detail;
     }
-    _writeAudit("nigo.status_change", row?.lead_name || id, { to: status, detail });
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return;
       const patch = { status };
@@ -1497,7 +1498,7 @@ window.AppData.mutate = {
     _emitMutation("connections", "update", id);
   },
 
-  /* ── Queue claim / release ──────────────────────────────────────────────
+  /* ── Queue claim / release (GAP-D2) ─────────────────────────────────────
      Lets a rep claim an unassigned queue lead so peers stop seeing it in
      their "Unassigned" view. Persists locally today; attempts a tolerant
      Supabase write so it starts persisting the moment the migration adds
@@ -1539,10 +1540,17 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
-        const { data, error } = await sb.from("coaching_notes").insert({
-          session_id: sessionId, rep_id: repId, body,
-          created_by: me?.handle || null,
-        }).select().single();
+        // Set agency_id explicitly when the table carries it (sweep policy in
+        // 0015_tenant_isolation adds the column + RLS). Tolerant: drop the key
+        // and retry if the column doesn't exist in this deployment.
+        const row = { session_id: sessionId, rep_id: repId, body, created_by: me?.handle || null };
+        if (me?.agency_id) row.agency_id = me.agency_id;
+        let resp = await sb.from("coaching_notes").insert(row).select().single();
+        if (resp.error && /column.*agency_id.*does not exist/i.test(resp.error.message || "")) {
+          delete row.agency_id;
+          resp = await sb.from("coaching_notes").insert(row).select().single();
+        }
+        const { data, error } = resp;
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
         if (data) note.id = data.id;
       }
@@ -1572,7 +1580,12 @@ window.AppData.mutate = {
     _emitMutation("coaching_sessions", "update", id);
   },
 
-  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ── */
+  /* ── Notifications (manager → rep "focus alert" / broadcast fan-out) ──
+     repId here is the TARGET rep — the one who should see this in their bell.
+     Persists onto agency_notifications.recipient_rep_id (migration 0011) so
+     the per-rep policy in the SELECT path actually routes it. Leaving that
+     column null = agency-wide broadcast. Was previously broken: every alert
+     was sent as a broadcast because we only set ref_id, never recipient_rep_id. */
   async notificationCreate({ repId = null, recipientHandle = null, kind = "focus", severity = "info", title, body, pageLink = null }) {
     const note = {
       id: "tmp-" + Date.now(),
@@ -1584,17 +1597,24 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
+        const me = window.me && window.me();
         // Prefer the create_notification RPC when available (it does fan-out + audit)
         const rpc = await sb.rpc("create_notification", {
           p_kind: kind, p_severity: severity,
           p_title: title, p_body: body,
           p_page_link: pageLink, p_ref_id: repId,
+          p_recipient_rep_id: repId,
         }).then(r => r).catch(() => ({ error: { message: "rpc_unavailable" } }));
         if (rpc?.error) {
-          // Fallback: direct insert
-          const { data, error } = await sb.from("agency_notifications").insert({
-            kind, severity, title, body, page_link: pageLink, ref_id: repId,
-          }).select().single();
+          // Fallback: direct insert. agency_id is set explicitly so the row
+          // lands in the right tenant even if no default trigger is wired.
+          const row = {
+            kind, severity, title, body, page_link: pageLink,
+            ref_id: repId,
+            recipient_rep_id: repId,
+          };
+          if (me?.agency_id) row.agency_id = me.agency_id;
+          const { data, error } = await sb.from("agency_notifications").insert(row).select().single();
           if (error) { window.toast && window.toast(`Send failed: ${error.message}`, "error"); throw error; }
           if (data) note.id = data.id;
         } else if (rpc.data) {
@@ -1690,7 +1710,7 @@ window.AppData.mutate = {
   },
   quickLinkDelete: (id) => window.AppData.mutate._resourceDelete("agency_quick_links", "QUICK_LINKS", id),
 
-  /* ── Messaging — threads + messages ───────────────────────────────────── */
+  /* ── Messaging (GAP-C2) — threads + messages ──────────────────────────── */
   async threadEnsure({ memberHandles, kind = "dm", subject = "", relatedLeadId = null }) {
     // Find an existing dm-kind thread whose membership matches exactly,
     // otherwise create a new one. Idempotent — opening a DM twice between

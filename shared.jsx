@@ -75,16 +75,19 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
+  // Manager nav restructure 2026-05-12:
+  //   Pay + Expenses + NIGO   → folded into Today as sub-tabs
+  //   Recruiting              → folded into CRM as a sub-tab
+  //   Old routes still resolve (deep-link back-compat) but the sidebar
+  //   surface now collapses to six items so the manager has one landing
+  //   per workflow instead of nine.
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
-    { id: "floor",       label: "Floor",        icon: "Phone",  badge: "184" },
+    { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "crm",         label: "CRM",          icon: "Users" },
+    { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "team",        label: "Team",         icon: "Users" },
-    { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
-    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
-    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
-    { id: "pay",         label: "Pay",          icon: "Wallet" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
   owner: [
@@ -381,9 +384,9 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
     <AccountChip/>
     {window.AgencySwitcher && (() => { const A = window.AgencySwitcher; return <A/>; })()}
     <div className="topbar-spacer"/>
-    {aep && (
-      <div className="aep-pill"><span className="dot"></span>AEP SURGE · Day 14 / 54</div>
-    )}
+    {/* AEP SURGE pill removed 2026-05-11 (P8) — feature archived. The
+        `aep` prop continues to be plumbed through (always false now) so
+        re-enabling is one line: restore the original conditional. */}
     <button className="cmdk-trigger" onClick={openCmdK}>
       <Icons.Search size={13}/>
       <span>Search or run a command</span>

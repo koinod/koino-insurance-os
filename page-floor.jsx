@@ -665,10 +665,18 @@
 
     const fire = async (template, lead) => {
       if (!template) return;
-      const phone = lead.phone || "+15125550100";  // demo fallback
+      const phone = lead.phone || lead.phoneNumber || null;
+      if (!phone) {
+        window.toast && window.toast(`Add a phone to ${lead.lead || lead.name} first — dial / SMS will skip this lead`, "warn");
+        return;
+      }
       const leadKey = lead.id || lead.leadId || lead.lead;
-      await AppData.mutate.followupDispatch(template.id, phone, leadKey, repId);
-      window.toast && window.toast(`${template.name} queued for ${lead.lead || lead.name}`, "success");
+      try {
+        await AppData.mutate.followupDispatch(template.id, phone, leadKey, repId);
+        window.toast && window.toast(`${template.name} queued for ${lead.lead || lead.name}`, "success");
+      } catch (e) {
+        window.toast && window.toast(`Queue failed: ${e?.message || e}`, "error");
+      }
     };
 
     return (
