@@ -232,6 +232,7 @@ window.hydrateFromSupabase = async function () {
       "agency_scripts", "agency_videos", "agency_docs", "agency_quick_links",
       "agency_lead_sources", "agency_expenses", "expense_allocations",
       "lead_quotes", "sms_outbox", "agency_notifications",
+      "lead_vendor_webhooks", "drip_log",
     ]);
     const scope = (q) => {
       if (!activeAgency) return q;
@@ -742,6 +743,29 @@ window.hydrateFromSupabase = async function () {
       console.warn("[supabase] training hydrate skipped:", trainErr?.message ?? trainErr);
     }
 
+    // Lead Drip vendor webhooks + drip_log hydration (migration 0025)
+    try {
+      const activeAgency = window.getActiveAgencyId();
+      const [vendorWebhooksR, dripLogR] = await Promise.all([
+        (() => { let q = sb.from("lead_vendor_webhooks").select("*").order("created_at", { ascending: true }); if (activeAgency) q = q.eq("agency_id", activeAgency); return q; })(),
+        (() => { let q = sb.from("drip_log").select("*").order("fired_at", { ascending: false }).limit(200); if (activeAgency) q = q.eq("agency_id", activeAgency); return q; })(),
+      ].map(p => Promise.resolve(p).catch(e => ({ data: [], error: e }))));
+      const _map = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+      window.AppData.VENDOR_WEBHOOKS = _map(vendorWebhooksR, v => ({
+        id: v.id, agencyId: v.agency_id, vendorName: v.vendor_name,
+        slug: v.endpoint_slug, secret: v.hmac_secret,
+        isActive: v.is_active, costPerLead: Math.round((v.cost_per_lead_cents || 0) / 100),
+        notes: v.notes, createdAt: v.created_at,
+      }));
+      window.AppData.DRIP_LOG = _map(dripLogR, r => ({
+        id: r.id, enrollmentId: r.enrollment_id, leadId: r.pipeline_lead_id,
+        step: r.step_index, channel: r.channel, recipient: r.recipient,
+        body: r.body_snapshot, status: r.status, firedAt: r.fired_at,
+      }));
+    } catch (vwErr) {
+      console.warn("[supabase] vendor-webhooks hydrate skipped:", vwErr?.message ?? vwErr);
+    }
+
     window.AppData.LIVE = true;
 
     // Demo-agency fallback: if the active agency carries is_demo=true but
@@ -816,7 +840,9 @@ window.subscribeRealtime = function () {
     notifications:      "NOTIFICATIONS",
     commissions:        "COMMISSIONS",
     // 0019 — training_courses streams as a flat array
-    training_courses:   "TRAINING_COURSES",
+    training_courses:        "TRAINING_COURSES",
+    // 0025 — vendor webhooks config streams so Lead Drip > Vendors updates live
+    lead_vendor_webhooks:    "VENDOR_WEBHOOKS",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -837,6 +863,7 @@ window.subscribeRealtime = function () {
     if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
     if (table === "training_courses") return { id: r.id, slug: r.slug, title: r.title, track: r.track, description: r.description, durMin: r.dur_min, required: r.required, sections: Array.isArray(r.sections) ? r.sections : [], targetRoles: r.target_roles || ["owner","manager","rep"], displayOrder: r.display_order, isPublished: r.is_published, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at };
+    if (table === "lead_vendor_webhooks") return { id: r.id, agencyId: r.agency_id, vendorName: r.vendor_name, slug: r.endpoint_slug, secret: r.hmac_secret, isActive: r.is_active, costPerLead: Math.round((r.cost_per_lead_cents || 0) / 100), notes: r.notes, createdAt: r.created_at };
     return r;
   };
 
