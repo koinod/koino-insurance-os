@@ -1193,13 +1193,13 @@ function CallLibraryPane({ role }) {
 }
 
 function ProductTrainingPane({ role, store, meId, requiredOpen }) {
-  // Management track (own, can author): owner / imo_owner / super_admin → author UI
-  // Manager track (assign + track downline progress): manager / admin → manager UI
-  // Everyone else (rep, viewer, anyone with no explicit role): take courses
-  if (role === "owner" || role === "imo_owner" || role === "super_admin") {
+  // Management track (can author): owner / super_admin → author UI
+  // Manager track (assign + track downline progress): manager → manager UI
+  // Everyone else (rep, viewer): take courses
+  if (role === "owner" || role === "super_admin") {
     return <ProductTrainingOwner store={store}/>;
   }
-  if (role === "manager" || role === "admin") {
+  if (role === "manager") {
     return <ProductTrainingManager store={store}/>;
   }
   return <ProductTrainingRep store={store} meId={meId} requiredOpen={requiredOpen}/>;

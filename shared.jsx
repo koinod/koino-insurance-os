@@ -88,12 +88,18 @@ const NAV = {
     { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "team",        label: "Team",         icon: "Users" },
+    { id: "downline",    label: "Downline",     icon: "ArrowUpRight" },
+    { id: "nigo",        label: "NIGO Queue",   icon: "Bell" },
+    { id: "recruiting",  label: "Recruiting",   icon: "ArrowUpRight" },
+    { id: "expenses",    label: "Expenses",     icon: "Wallet" },
+    { id: "pay",         label: "Pay",          icon: "Wallet" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
   owner: [
     { id: "pnl",         label: "P&L",          icon: "TrendingUp" },
     { id: "expenses",    label: "Expenses",     icon: "Wallet" },
     { id: "org",         label: "Org",          icon: "Users" },
+    { id: "team",        label: "Team",         icon: "Users" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "crm",         label: "CRM",          icon: "Users" },
@@ -103,15 +109,6 @@ const NAV = {
     { id: "compliance",  label: "Compliance",   icon: "Shield" },
     { id: "resources",   label: "Resources",    icon: "Folder" },
     { id: "library",     label: "Training",     icon: "Book" },
-  ],
-  // Platform admin — IMO operator. Sees their own IMO + all child agencies.
-  admin: [
-    { id: "platform",    label: "Platform",     icon: "Shield" },
-    { id: "agencies",    label: "Agencies",     icon: "Building" },
-    { id: "users",       label: "Users",        icon: "Users" },
-    { id: "billing",     label: "Billing",      icon: "Wallet" },
-    { id: "audit",       label: "Audit log",    icon: "Activity" },
-    { id: "system",      label: "System",       icon: "Bolt" },
   ],
   // Internal team / super-admin — Ian, Repflow developers. Sees every IMO,
   // every agency (real + demo), every user, plus internal-only views.
@@ -167,9 +164,9 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
       {(window.isSuperAdmin() || window.isDemoAgency()) && (
         <div className="role-switch">
-          {["rep","manager","owner","admin","super_admin"].map(r => (
+          {["rep","manager","owner","super_admin"].map(r => (
             <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Super"}
+              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : r === "owner" ? "Owner" : "Super"}
             </button>
           ))}
         </div>
