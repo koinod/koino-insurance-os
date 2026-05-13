@@ -892,6 +892,83 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 
 .chip-danger { background: color-mix(in oklch, var(--state-danger) 14%, transparent); color: var(--state-danger); border-color: color-mix(in oklch, var(--state-danger) 30%, transparent); }
 
+/* ── Quote tool: responsive grid helpers ────────────────────────────────── */
+/* Two-column outer (profile | results) — wraps to single column when there
+   isn't room. Uses container-query-style auto-fit so it adapts to the panel
+   width, not the viewport. */
+.quote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 14px;
+}
+/* Auto-fit field row — every field gets a sensible minimum width and the
+   grid reflows when the card narrows. Used inside profile sections. */
+.quote-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.quote-fields--narrow { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.quote-fields--wide   { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.quote-fields .field-wide { grid-column: span 2; }
+@container (max-width: 380px) { .quote-fields .field-wide { grid-column: span 1; } }
+
+/* Recommendation banner — visible "best pick + why" surface */
+.quote-pick {
+  background: color-mix(in oklch, var(--accent-money) 10%, var(--bg-elevated));
+  border: 1px solid color-mix(in oklch, var(--accent-money) 35%, var(--border-subtle));
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 14px;
+}
+.quote-pick-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-money); font-weight: 600; }
+.quote-pick-name { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-top: 2px; }
+.quote-pick-why { font-size: 11.5px; color: var(--text-secondary); line-height: 1.55; margin-top: 6px; }
+.quote-pick-why .reason-row { display: flex; gap: 8px; margin-top: 4px; align-items: baseline; }
+.quote-pick-why .reason-row .reason-tag {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  background: color-mix(in oklch, var(--accent-money) 18%, transparent);
+  color: var(--accent-money); padding: 2px 6px; border-radius: 3px; white-space: nowrap; flex-shrink: 0;
+}
+.quote-pick-price { font-size: 22px; font-weight: 700; color: var(--accent-money); text-align: right; line-height: 1; }
+.quote-pick-class { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; text-align: right; }
+.quote-pick-source { font-size: 10px; color: var(--text-quaternary); margin-top: 8px; grid-column: 1 / -1; font-family: var(--font-mono, monospace); }
+
+/* Carrier result row — wraps cleanly on narrow widths */
+.quote-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  align-items: center;
+  padding: 11px 13px;
+  margin-bottom: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.quote-row.is-best {
+  background: color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised));
+  border-color: color-mix(in oklch, var(--accent-money) 40%, transparent);
+}
+.quote-row.is-decline {
+  border-color: color-mix(in oklch, var(--state-danger) 25%, transparent);
+  opacity: 0.78;
+}
+.quote-row .qr-name { font-weight: 600; font-size: 13px; min-width: 0; }
+.quote-row .qr-meta { font-size: 10.5px; color: var(--text-quaternary); margin-top: 2px; }
+.quote-row .qr-reason { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; min-width: 0; }
+.quote-row .qr-price { font-size: 16px; font-weight: 700; text-align: right; min-width: 110px; }
+.quote-row .qr-price-best { color: var(--accent-money); }
+.quote-row .qr-class { font-size: 10.5px; color: var(--text-tertiary); margin-top: 2px; text-align: right; }
+
+@media (max-width: 720px) {
+  .quote-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 12px; }
+  .quote-row .qr-price, .quote-row .qr-class { text-align: left; min-width: 0; }
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
    Responsive — let the desktop app fold gracefully onto phone widths
    ────────────────────────────────────────────────────────────────────────── */

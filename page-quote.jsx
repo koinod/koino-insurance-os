@@ -2,16 +2,20 @@
  *
  * Builds a detailed lead profile, runs it through window.RateEngine, and
  * returns dollar-denominated monthly premiums per appointed carrier with
- * UW class assignment + decline reasons. Uses the real underwriting
- * guidelines from window.CARRIER_NICHES.
+ * UW class assignment + decline reasons. The recommendation cites the
+ * actual producer-guide rule (from /lib/carrier-underwriting.json) that
+ * drove the pick.
  *
  * Sections:
  *   1. Lead profile  — name + contact + state + age + height/weight (auto BMI)
  *   2. Health profile — tobacco, diabetes type, BP, cholesterol, COPD, sleep
- *                       apnea, cancer lookback, cardiac lookback
+ *                       apnea, cancer/cardiac lookback, plus auto-decline
+ *                       trigger conditions (stroke, AFib, CHF, dialysis,
+ *                       HIV, transplant, dementia, mental-health)
  *   3. Product       — Med Supp (Plan G/N) / FE / Term / IUL / MYGA
- *   4. Carrier match — ranked by monthly premium ascending, with declines
- *   5. Saved quotes  — localStorage persistence, send + convert flow
+ *   4. Best Pick     — top-ranked carrier + WHY (cited from producer guide)
+ *   5. Carrier match — full ranked list with declines + UW reasoning
+ *   6. Saved quotes  — localStorage persistence, send + convert flow
  */
 
 (function () {
@@ -38,62 +42,107 @@
 
   const PRESETS = [
     { id: "t65-clean",  label: "T65 · clean health",
-      patch: { age: 65, tobacco: false, heightInches: 67, weightLbs: 165,
-               healthDetail: { diabetesType: "none", bpHigh: "none", cholesterolHigh: false, sleepApnea: "none", copd: false, cancerWindow: "none", cardiacWindow: "none" }, product: "medsupp" }},
+      patch: { age: 65, tobacco: false, heightFeet: 5, heightInches: 7, weightLbs: 165,
+               healthDetail: emptyHealth({ diabetesType: "none", bpHigh: "none" }), product: "medsupp" }},
     { id: "t65-tobac",  label: "T65 · tobacco user",
-      patch: { age: 65, tobacco: true, heightInches: 70, weightLbs: 180,
-               healthDetail: { diabetesType: "none", bpHigh: "controlled", cholesterolHigh: false, sleepApnea: "none", copd: false, cancerWindow: "none", cardiacWindow: "none" }, product: "medsupp" }},
+      patch: { age: 65, tobacco: true, heightFeet: 5, heightInches: 10, weightLbs: 180,
+               healthDetail: emptyHealth({ diabetesType: "none", bpHigh: "controlled" }), product: "medsupp" }},
     { id: "70-typ2",    label: "70yo · type-2 diabetic",
-      patch: { age: 70, tobacco: false, heightInches: 65, weightLbs: 195,
-               healthDetail: { diabetesType: "type2_oral", bpHigh: "controlled", cholesterolHigh: true, sleepApnea: "cpap", copd: false, cancerWindow: "none", cardiacWindow: "none" }, product: "medsupp" }},
+      patch: { age: 70, tobacco: false, heightFeet: 5, heightInches: 5, weightLbs: 195,
+               healthDetail: emptyHealth({ diabetesType: "type2_oral", bpHigh: "controlled", cholesterolHigh: true, sleepApnea: "cpap" }), product: "medsupp" }},
     { id: "fe-late60",  label: "FE · late-60s avg health",
-      patch: { age: 68, tobacco: false, heightInches: 66, weightLbs: 175,
-               healthDetail: { diabetesType: "none", bpHigh: "controlled", cholesterolHigh: true, sleepApnea: "none", copd: false, cancerWindow: "none", cardiacWindow: "none" }, product: "fe" }},
+      patch: { age: 68, tobacco: false, heightFeet: 5, heightInches: 6, weightLbs: 175,
+               healthDetail: emptyHealth({ bpHigh: "controlled", cholesterolHigh: true }), product: "fe" }},
     { id: "fe-rated",   label: "FE · graded benefit case",
-      patch: { age: 72, tobacco: true, heightInches: 65, weightLbs: 220,
-               healthDetail: { diabetesType: "type2_insulin", bpHigh: "uncontrolled", cholesterolHigh: true, sleepApnea: "cpap", copd: false, cancerWindow: "2-5y", cardiacWindow: "none" }, product: "fe" }},
+      patch: { age: 72, tobacco: true, heightFeet: 5, heightInches: 5, weightLbs: 220,
+               healthDetail: emptyHealth({ diabetesType: "type2_insulin", bpHigh: "uncontrolled", cholesterolHigh: true, sleepApnea: "cpap", cancerWindow: "2-5y" }), product: "fe" }},
     { id: "annuity",    label: "Annuity · 50K rollover",
-      patch: { age: 64, tobacco: false, heightInches: 68, weightLbs: 175,
-               healthDetail: { diabetesType: "none", bpHigh: "none", cholesterolHigh: false, sleepApnea: "none", copd: false, cancerWindow: "none", cardiacWindow: "none" }, product: "annuity" }},
+      patch: { age: 64, tobacco: false, heightFeet: 5, heightInches: 8, weightLbs: 175,
+               healthDetail: emptyHealth(), product: "annuity" }},
   ];
+
+  function emptyHealth(overrides) {
+    return {
+      diabetesType:    "none",
+      a1c:             "",
+      bpHigh:          "none",
+      cholesterolHigh: false,
+      sleepApnea:      "none",
+      copd:            false,
+      cancerWindow:    "none",
+      cardiacWindow:   "none",
+      strokeTia:       false,
+      afib:            false,
+      chf:             false,
+      pacemaker:       false,
+      dialysis:        false,
+      oxygen:          false,
+      hivAids:         false,
+      organTransplant: false,
+      dementia:        false,
+      bipolarSchiz:    false,
+      ...(overrides || {}),
+    };
+  }
 
   // Default lead profile shape
   const DEFAULT_PROFILE = {
     name: "", phone: "", email: "",
     state: "TX", age: 67, gender: "F",
-    heightFeet: 5, heightInches: 5,   // ft + in pair; total resolves at quote time
+    heightFeet: 5, heightInches: 5,
     weightLbs: 145,
     tobacco: false,
     prescriptions: [],
-    healthDetail: {
-      diabetesType:    "none",   // none | type2_oral | type2_insulin | type1
-      bpHigh:          "none",   // none | controlled | uncontrolled
-      cholesterolHigh: false,
-      sleepApnea:      "none",   // none | cpap | untreated
-      copd:            false,
-      cancerWindow:    "none",   // none | 5y+ | 2-5y | <2y | active
-      cardiacWindow:   "none",   // none | >24mo | 12-24mo | <12mo
-    },
+    healthDetail: emptyHealth(),
     product: "medsupp",
-    planVariant: "G",  // Plan G vs Plan N for medsupp
-    face: 15000,       // FE / Term / IUL face amount
-    premium: 50000,    // Annuity premium
+    planVariant: "G",
+    face: 15000,
+    premium: 50000,
   };
+
+  // Friendly product → underwriting-guide key map
+  const RX_SUGGESTIONS = [
+    "metformin", "lisinopril", "atorvastatin", "amlodipine", "metoprolol",
+    "levothyroxine", "omeprazole", "albuterol", "warfarin", "eliquis",
+    "insulin", "trulicity", "ozempic", "plavix", "humira", "prednisone",
+  ];
+
+  // ── Group health flags into UI sections ────────────────────────────────
+  // Each section renders as a flex-wrap row of toggle chips inside the
+  // health panel. Conditions split by impact bucket so reps can scan fast.
+  const AUTO_DECLINE_CHIPS = [
+    { k: "strokeTia",       l: "Stroke / TIA" },
+    { k: "afib",            l: "AFib" },
+    { k: "chf",             l: "CHF / cardiomyopathy" },
+    { k: "pacemaker",       l: "Pacemaker" },
+    { k: "dialysis",        l: "Dialysis / ESRD" },
+    { k: "oxygen",          l: "Home oxygen" },
+    { k: "hivAids",         l: "HIV / AIDS" },
+    { k: "organTransplant", l: "Organ transplant" },
+    { k: "dementia",        l: "Alzheimer's / dementia" },
+    { k: "bipolarSchiz",    l: "Bipolar / schizophrenia" },
+  ];
+  const SECONDARY_CHIPS = [
+    { k: "cholesterolHigh", l: "High cholesterol" },
+    { k: "copd",            l: "COPD" },
+  ];
 
   function PageQuote({ role = "owner" }) {
     const [profile, setProfile] = useState(DEFAULT_PROFILE);
     const [quotes,  setQuotes]  = useState(loadQuotes);
 
-    // Re-render on data:hydrated so CARRIERS / CARRIER_NICHES from Supabase
-    // populate after the page mounts.
+    // Re-render whenever CARRIERS, CARRIER_NICHES or the carrier UW guide
+    // JSON finishes loading.
     const [, force] = useState(0);
     useEffect(() => {
       const h = () => force(n => n + 1);
       window.addEventListener("data:hydrated", h);
       window.addEventListener("data:mutated", h);
+      window.addEventListener("carrier-uw:loaded", h);
       return () => {
         window.removeEventListener("data:hydrated", h);
         window.removeEventListener("data:mutated", h);
+        window.removeEventListener("carrier-uw:loaded", h);
       };
     }, []);
 
@@ -101,16 +150,11 @@
     const setHealth = (patch) => setProfile(p => ({ ...p, healthDetail: { ...p.healthDetail, ...patch } }));
 
     const niches = window.CARRIER_NICHES || [];
-    const productOptions = window.PRODUCT_OPTIONS || Object.entries(PRODUCT_LABELS).map(([v, l]) => ({ v, l }));
 
-    // Filter to agency-appointed carriers. AppData.CARRIERS is hydrated from
-    // Supabase (carrier_appointments × carriers). If no CARRIERS data is
-    // available (demo mode), assume the agency is appointed with all 8 carriers
-    // in the niches table — this lets the demo render meaningfully.
+    // Filter to agency-appointed carriers.
     const appointedIds = useMemo(() => {
       const c = window.AppData?.CARRIERS || [];
-      if (c.length === 0) return null;  // null = no filter
-      // Match niche.id to CARRIERS by name fuzzy match
+      if (c.length === 0) return null;
       const nameToNiche = {
         "uhc":    ["uhc", "united"],
         "humana": ["humana"],
@@ -131,7 +175,6 @@
       return ids;
     }, [niches.length, window.AppData?.CARRIERS?.length]);
 
-    // Resolve total inches from ft+in pair, compute BMI live
     const totalInches = (profile.heightFeet || 0) * 12 + (profile.heightInches || 0);
     const bmi = window.RateEngine?.bmiFrom?.(totalInches, profile.weightLbs);
     const profileForEngine = { ...profile, heightInches: totalInches, bmi };
@@ -140,12 +183,10 @@
     const quoteResults = useMemo(() => {
       if (!window.RateEngine) return { quoted: [], declined: [] };
       const productKey = profile.product;
-      const productNicheKey = profile.product;  // niches use the same key
-      const eligible = niches.filter(c => c.products.includes(productNicheKey));
+      const eligible = niches.filter(c => c.products.includes(productKey));
       const filtered = appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
 
       const results = filtered.map(carrier => {
-        // Annuity has a different rate model
         if (productKey === "annuity") {
           const ann = window.RateEngine.calculateAnnuityYield(carrier, profileForEngine);
           if (!ann) return { carrier, decline: true, reason: "Annuity not offered by this carrier" };
@@ -160,7 +201,10 @@
           };
         }
         const rate = window.RateEngine.calculatePremium(carrier, productKey, profileForEngine);
-        if (rate.decline) return { carrier, decline: true, reason: rate.reason };
+        if (rate.decline) {
+          return { carrier, decline: true, reason: rate.reason, source: rate.source };
+        }
+        const reco = window.RateEngine.recommendReasons?.(carrier, productKey, profileForEngine, rate) || { reasons: [], sources: [] };
         return {
           carrier,
           premium: rate.premium,
@@ -168,6 +212,9 @@
           methodology: rate.methodology,
           displayValue: `$${rate.premium}/mo`,
           displaySub: rate.uwClass,
+          reasons: reco.reasons,
+          sources: reco.sources,
+          confidence: reco.confidence,
         };
       });
 
@@ -178,6 +225,8 @@
       const declined = results.filter(r => r.decline);
       return { quoted, declined };
     }, [JSON.stringify(profileForEngine), niches.length, appointedIds]);
+
+    const best = quoteResults.quoted[0];
 
     const applyPreset = (p) => {
       setProfile(prev => ({ ...prev, ...p.patch }));
@@ -192,12 +241,14 @@
         ranked: quoteResults.quoted.slice(0, 5).map(r => ({
           id: r.carrier.id, name: r.carrier.name, premium: r.premium, uwClass: r.uwClass, displayValue: r.displayValue,
         })),
+        bestReasons: best?.reasons || [],
+        bestSources: best?.sources || [],
         status: "draft",
         sentTo: null,
       };
       const next = [q, ...quotes];
       setQuotes(next); saveQuotes(next);
-      window.toast && window.toast(`Quote saved · best: ${quoteResults.quoted[0]?.carrier.name || "no match"}`, "success");
+      window.toast && window.toast(`Quote saved · best: ${best?.carrier.name || "no match"}`, "success");
     };
 
     const sendQuote = (q) => {
@@ -241,7 +292,7 @@
               {appointedIds === null ? " (demo: all carriers shown)" : ` filtered to your appointments`}
             </div>
           </div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" } }))}>
               <Icons.Folder size={13}/> Carrier appointments
             </button>
@@ -257,8 +308,8 @@
           <Shared.KpiCard label="Quotes sent"  value={quotes.filter(q => q.status === "sent" || q.status === "converted").length} sub="via SMS/email"/>
           <Shared.KpiCard label="Conversion"   value={conversionRate === null ? "—" : `${conversionRate}%`} sub="quoted → policy"/>
           <Shared.KpiCard label="Best quote"
-            value={quoteResults.quoted[0]?.displayValue || "—"}
-            sub={quoteResults.quoted[0]?.carrier.name || "no match"}
+            value={best?.displayValue || "—"}
+            sub={best?.carrier.name || "no match"}
             trend={quoteResults.quoted.length > 0 ? "up" : undefined}/>
         </div>
 
@@ -278,13 +329,15 @@
           </div>
         </div>
 
-        {/* Two-column: profile + ranked quotes */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 420px) minmax(0, 1fr)", gap: 14, marginTop: 14 }}>
+        {/* Two-column: profile + ranked quotes — auto-fit wraps on narrow */}
+        <div className="quote-grid" style={{ marginTop: 14 }}>
           {/* LEFT — Profile */}
-          <div className="panel">
+          <div className="panel" style={{ containerType: "inline-size" }}>
             <div className="panel-h"><Icons.Users size={13}/><h3>Lead profile</h3></div>
-            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+
+              {/* Contact + state */}
+              <div className="quote-fields">
                 <Shared.Field label="Lead name">
                   <input className="text-input" value={profile.name} onChange={(e) => set({ name: e.target.value })} placeholder="Cheryl Hampton"/>
                 </Shared.Field>
@@ -302,17 +355,17 @@
               <div className="divider"></div>
 
               {/* Demographics + build */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr 0.7fr 1fr", gap: 8 }}>
+              <div className="quote-fields quote-fields--narrow">
                 <Shared.Field label="Age">
                   <input className="text-input" type="number" value={profile.age} onChange={(e) => set({ age: +e.target.value })}/>
                 </Shared.Field>
                 <Shared.Field label="Gender">
                   <Shared.Select value={profile.gender} onChange={(v) => set({ gender: v })} options={[{ v: "F", l: "Female" }, { v: "M", l: "Male" }]}/>
                 </Shared.Field>
-                <Shared.Field label="Height (ft)">
+                <Shared.Field label="Height ft">
                   <input className="text-input" type="number" min="3" max="7" value={profile.heightFeet} onChange={(e) => set({ heightFeet: +e.target.value })}/>
                 </Shared.Field>
-                <Shared.Field label={`(in) · ${heightDisplay}`}>
+                <Shared.Field label={`Height in · ${heightDisplay}`}>
                   <input className="text-input" type="number" min="0" max="11" value={profile.heightInches} onChange={(e) => set({ heightInches: +e.target.value })}/>
                 </Shared.Field>
                 <Shared.Field label={`Weight · BMI ${bmi ? bmi.toFixed(1) : "—"}`}>
@@ -321,7 +374,7 @@
               </div>
 
               {/* Product + variant */}
-              <div style={{ display: "grid", gridTemplateColumns: profile.product === "medsupp" ? "2fr 1fr" : "1fr 1fr", gap: 8 }}>
+              <div className="quote-fields">
                 <Shared.Field label="Product">
                   <Shared.Select value={profile.product} onChange={(v) => set({ product: v })} options={Object.entries(PRODUCT_LABELS).map(([v, l]) => ({ v, l }))}/>
                 </Shared.Field>
@@ -344,10 +397,11 @@
 
               <div className="divider"></div>
 
-              {/* Health profile */}
+              {/* Health profile heading */}
               <div className="field-l" style={{ fontWeight: 600 }}>Health profile</div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {/* Tobacco / Diabetes / BP / Sleep apnea / lookbacks */}
+              <div className="quote-fields">
                 <Shared.Field label="Tobacco">
                   <Shared.Select value={profile.tobacco ? "yes" : "no"} onChange={(v) => set({ tobacco: v === "yes" })}
                     options={[{ v: "no", l: "Non-tobacco" }, { v: "yes", l: "Tobacco user" }]}/>
@@ -361,6 +415,13 @@
                       { v: "type1",           l: "Type 1" },
                     ]}/>
                 </Shared.Field>
+                {profile.healthDetail.diabetesType !== "none" && (
+                  <Shared.Field label="A1C (optional)" hint="if known — carriers care above 9">
+                    <input className="text-input" type="number" step="0.1" placeholder="e.g. 7.2"
+                      value={profile.healthDetail.a1c || ""}
+                      onChange={(e) => setHealth({ a1c: e.target.value })}/>
+                  </Shared.Field>
+                )}
                 <Shared.Field label="High blood pressure">
                   <Shared.Select value={profile.healthDetail.bpHigh} onChange={(v) => setHealth({ bpHigh: v })}
                     options={[
@@ -398,18 +459,39 @@
                 </Shared.Field>
               </div>
 
-              {/* Boolean toggles */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                {[
-                  { l: "High cholesterol", v: profile.healthDetail.cholesterolHigh, set: (v) => setHealth({ cholesterolHigh: v }) },
-                  { l: "COPD",             v: profile.healthDetail.copd,            set: (v) => setHealth({ copd: v }) },
-                ].map(t => (
-                  <button key={t.l} onClick={() => t.set(!t.v)} className="btn"
-                    style={{ padding: "5px 10px", fontSize: 11.5, background: t.v ? "var(--accent-heat)" : "var(--bg-raised)", color: t.v ? "white" : "var(--text-secondary)" }}>{t.l}</button>
-                ))}
+              {/* Common quick toggles */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {SECONDARY_CHIPS.map(t => {
+                  const v = profile.healthDetail[t.k];
+                  return (
+                    <button key={t.k} onClick={() => setHealth({ [t.k]: !v })} className="btn"
+                      style={{ padding: "5px 10px", fontSize: 11.5, background: v ? "var(--accent-heat)" : "var(--bg-raised)", color: v ? "white" : "var(--text-secondary)" }}>
+                      {v ? "✓ " : ""}{t.l}
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Prescriptions — used by carriers' Rx underwriting checks */}
+              {/* Auto-decline triggers */}
+              <div className="field-l" style={{ fontWeight: 600, marginTop: 2 }}>
+                Auto-decline triggers
+                <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0 }}>
+                  any one of these knocks out most carriers
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {AUTO_DECLINE_CHIPS.map(t => {
+                  const v = profile.healthDetail[t.k];
+                  return (
+                    <button key={t.k} onClick={() => setHealth({ [t.k]: !v })} className="btn"
+                      style={{ padding: "5px 10px", fontSize: 11.5, background: v ? "var(--state-danger)" : "var(--bg-raised)", color: v ? "white" : "var(--text-secondary)" }}>
+                      {v ? "✓ " : ""}{t.l}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Prescriptions */}
               <Shared.Field label={`Prescriptions${(profile.prescriptions || []).length ? ` · ${profile.prescriptions.length}` : ""}`}>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
                   {(profile.prescriptions || []).map((rx, i) => (
@@ -430,7 +512,7 @@
                     }
                   }}/>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                  {["metformin", "lisinopril", "atorvastatin", "amlodipine", "metoprolol", "levothyroxine", "omeprazole", "albuterol", "warfarin", "eliquis", "insulin", "trulicity"].map(rx => {
+                  {RX_SUGGESTIONS.map(rx => {
                     const has = (profile.prescriptions || []).includes(rx);
                     return (
                       <button key={rx} onClick={() => set({ prescriptions: has ? profile.prescriptions.filter(x => x !== rx) : [...(profile.prescriptions || []), rx] })}
@@ -455,6 +537,52 @@
               </span>
             </div>
 
+            {/* Best Pick recommendation banner — explains WHY citing producer guide */}
+            {best && profile.product !== "annuity" && (
+              <div className="quote-pick">
+                <div>
+                  <div className="quote-pick-h">Best pick · per official underwriting</div>
+                  <div className="quote-pick-name">{best.carrier.name}</div>
+                  <div className="quote-pick-why">
+                    {(best.reasons || []).slice(0, 3).map((r, i) => (
+                      <div key={i} className="reason-row">
+                        <span className="reason-tag">{r.tag}</span>
+                        <span>{r.text}</span>
+                      </div>
+                    ))}
+                    {!best.reasons?.length && (
+                      <div style={{ color: "var(--text-tertiary)" }}>
+                        Cheapest binding carrier for this profile after applying state tier, build chart, and UW class.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="quote-pick-price">{best.displayValue}</div>
+                  <div className="quote-pick-class">{best.uwClass || "—"}</div>
+                </div>
+                {(best.sources || []).length > 0 && (
+                  <div className="quote-pick-source">
+                    Source: {best.sources.join(" · ")}
+                    {best.confidence && <span style={{ marginLeft: 8 }}>· confidence {best.confidence}</span>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {best && profile.product === "annuity" && (
+              <div className="quote-pick">
+                <div>
+                  <div className="quote-pick-h">Best annuity</div>
+                  <div className="quote-pick-name">{best.carrier.name}</div>
+                  <div className="quote-pick-why">{best.displaySub}</div>
+                </div>
+                <div>
+                  <div className="quote-pick-price">{best.displayValue}</div>
+                </div>
+              </div>
+            )}
+
             {quoteResults.quoted.length === 0 && quoteResults.declined.length === 0 ? (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
                 No appointed carriers offer {PRODUCT_LABELS[profile.product]}. Add appointments in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" } })); }} style={{ color: "var(--accent-money)" }}>Resources → Carriers</a>.
@@ -464,37 +592,27 @@
                 {quoteResults.quoted.map((r, i) => {
                   const c = r.carrier;
                   const uw = c.underwriting || {};
+                  const reasonText = (r.reasons || []).slice(0, 2).map(x => x.text).join(" · ")
+                    || (r.methodology || []).slice(-2).join(" · ")
+                    || "—";
                   return (
-                    <div key={c.id} style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1.4fr) 130px 90px",
-                      gap: 10,
-                      alignItems: "center",
-                      padding: "12px 14px",
-                      marginBottom: 6,
-                      background: i === 0 ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)",
-                      border: i === 0 ? "1px solid color-mix(in oklch, var(--accent-money) 40%, transparent)" : "1px solid var(--border-subtle)",
-                      borderRadius: 6,
-                    }}>
+                    <div key={c.id} className={"quote-row" + (i === 0 ? " is-best" : "")}>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}
+                        <div className="qr-name">{c.name}
                           {i === 0 && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>cheapest</span>}
                         </div>
-                        <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginTop: 2 }}>
+                        <div className="qr-meta">
                           {uw.tobaccoRateUpPct != null && <span>tob+{uw.tobaccoRateUpPct}% · </span>}
                           {Array.isArray(uw.uwClasses) && <span>{uw.uwClasses.length}-class</span>}
+                          {r.confidence && <span> · {r.confidence} confidence</span>}
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5 }} title={(r.methodology || []).join("\n")}>
-                        {(r.methodology || []).slice(-2).join(" · ") || "—"}
-                      </div>
+                      <div className="qr-reason" title={(r.methodology || []).join("\n")}>{reasonText}</div>
                       <div>
-                        <span className={`chip ${r.uwClass?.includes("Preferred") ? "chip-money" : r.uwClass?.includes("Standard") ? "" : "chip-status"}`} style={{ fontSize: 10.5 }}>
-                          {r.displaySub || "—"}
-                        </span>
-                      </div>
-                      <div className="tabular" style={{ fontSize: 16, fontWeight: 700, color: i === 0 ? "var(--accent-money)" : "var(--text-primary)", textAlign: "right" }}>
-                        {r.displayValue}
+                        <div className={"qr-price tabular" + (i === 0 ? " qr-price-best" : "")}>
+                          {r.displayValue}
+                        </div>
+                        <div className="qr-class">{r.displaySub || "—"}</div>
                       </div>
                     </div>
                   );
@@ -506,29 +624,17 @@
                       Declined ({quoteResults.declined.length})
                     </div>
                     {quoteResults.declined.map(r => (
-                      <div key={r.carrier.id} style={{
-                        display: "grid",
-                        gridTemplateColumns: "minmax(0, 1fr) 2fr",
-                        gap: 10,
-                        alignItems: "center",
-                        padding: "8px 14px",
-                        marginBottom: 4,
-                        background: "var(--bg-raised)",
-                        border: "1px solid color-mix(in oklch, var(--state-danger) 25%, transparent)",
-                        borderRadius: 6,
-                        opacity: 0.75,
-                      }}>
-                        <div>
-                          <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--text-secondary)", textDecoration: "line-through" }}>{r.carrier.name}</div>
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--state-danger)" }}>{r.reason}</div>
+                      <div key={r.carrier.id} className="quote-row is-decline">
+                        <div className="qr-name" style={{ color: "var(--text-secondary)", textDecoration: "line-through" }}>{r.carrier.name}</div>
+                        <div className="qr-reason" style={{ color: "var(--state-danger)" }}>{r.reason}</div>
+                        <div></div>
                       </div>
                     ))}
                   </>
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  Premiums calculated by <code style={{ fontSize: 10.5 }}>window.RateEngine</code>: base rate sheet (Medicare.gov + AHIP benchmarks) × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart. Hover any methodology cell for the full calculation chain. UW guidelines from <code style={{ fontSize: 10.5 }}>/lib/carrier-underwriting.json</code>.
+                  Premiums calculated by <code style={{ fontSize: 10.5 }}>window.RateEngine</code> against carrier-specific producer guides loaded from <code style={{ fontSize: 10.5 }}>/lib/carrier-underwriting.json</code> (Humana GNHHNV6EN, Cigna ARLIC, Aetna CGFLP04359, AIG AGLC101638, Lumico LUM-SIFE-UWGuide, Mutual of Omaha Living Promise UW Guide). Base rates from medicare.gov Plan Finder. Hover any reason cell for the full calculation chain.
                 </div>
               </div>
             )}
