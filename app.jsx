@@ -2,7 +2,7 @@ const { useState, useEffect, useMemo } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "role": "owner",
-  "page": "pnl",
+  "page": "today",
   "density": "comfortable",
   "aiRail": false,
   "aepMode": true,
@@ -147,6 +147,7 @@ function App() {
       case "commissions": return <PageCommissions role={role}/>;
       case "training":    return <PageTraining role={role}/>;
       case "vault":       return <PageVault role={role}/>;
+      case "leaddrip":    return (() => { const P = window.PageLeadDrip;   return P ? <P role={role}/> : null; })();
       case "resources":   return (() => { const P = window.PageResources;   return P ? <P role={role}/> : null; })();
       case "crm":         return (() => { const P = window.PageCrm;         return P ? <P role={role}/> : null; })();
       case "messages":    return (() => { const P = window.PageMessages;    return P ? <P role={role}/> : null; })();
