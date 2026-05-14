@@ -154,7 +154,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
       <div className="sb-section">Workspace</div>
       <div className="sb-nav">
         {items.map(it => {
-          const Ico = Icons[it.icon];
+          const Ico = Icons[it.icon] || Icons.Circle;
           return (
             <button key={it.id} className={`sb-item ${page === it.id ? "active" : ""}`} onClick={() => setPage(it.id)}>
               <Ico size={15}/>
@@ -168,7 +168,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
       <div className="sb-section">Operations</div>
       <div className="sb-nav">
         {NAV.ops.map(it => {
-          const Ico = Icons[it.icon];
+          const Ico = Icons[it.icon] || Icons.Circle;
           return (
             <button key={it.id} className={`sb-item ${page === it.id ? "active" : ""}`} onClick={() => setPage(it.id)}>
               <Ico size={15}/>
