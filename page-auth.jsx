@@ -264,10 +264,15 @@ function AuthGate({ children }) {
     try {
       setTenantError(null);
       const t = await window.loadTenant();
+      // Refresh me() BEFORE flipping tenant — otherwise AuthGate re-renders
+      // with fresh tenant.member but stale me ({role:"unmapped", needs_onboarding:true})
+      // and `isUnmapped` routes the user back to FirstRun even though they
+      // just created their agency. Awaiting refreshMe makes both sources of
+      // truth consistent at the next render.
+      if (window.refreshMe) {
+        try { await window.refreshMe(); } catch (e) { console.error("refreshMe in refreshTenant:", e); }
+      }
       setTenant(t);
-      // Once tenant is loaded, refresh the global window.me() cache so
-      // header chips, scopeRepIds, etc. immediately use the right identity.
-      if (window.refreshMe) window.refreshMe();
     } catch (e) {
       // Surface the failure instead of leaving the spinner forever.
       console.error("loadTenant failed:", e);
@@ -389,7 +394,13 @@ function AuthGate({ children }) {
   // Handle "unmapped" users who have an auth session but no agency links yet.
   // This covers the specific request to send unmapped accounts through onboarding.
   const me = window.me && window.me();
-  const isUnmapped = !!(session && me && (me.role === "unmapped" || me.needs_onboarding));
+  // tenant.member is the authoritative signal that the user belongs to an
+  // agency. me() is a cached identity lookup that lags by one fetch behind
+  // a fresh signup, so ONLY consult it when tenant has no member. Without
+  // this guard, the moment after agency creation we re-rendered with
+  // tenant.member set but me still "unmapped" → routed back to FirstRun → loop.
+  const isUnmapped = !!(session && me && (me.role === "unmapped" || me.needs_onboarding))
+                     && !(tenant && tenant.member);
 
   // No agency_members row at all OR explicitly unmapped → user-type picker.
   if (session && (isUnmapped || (tenant && !tenant.member)) && window.PageFirstRun) {

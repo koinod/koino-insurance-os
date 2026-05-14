@@ -115,12 +115,12 @@ function StartPicker({ session, onPicked }) {
     try {
       const slug = slugify(name);
       const { data, error } = await sb.rpc("provision_sub_agency", {
-        name: name.trim(),
-        slug,
-        tier: kind === "solo" ? "solo" : "agency",
-        owner_email: session.user.email,
-        primary_state: primaryState || null,
-        plan: "trial",
+        p_name: name.trim(),
+        p_slug: slug,
+        p_tier: kind === "solo" ? "solo" : "agency",
+        p_owner_email: session.user.email,
+        p_primary_state: primaryState || null,
+        p_plan: "trial",
       });
       if (error) throw error;
       // RPC returns either a uuid or jsonb { agency_id } — handle both
