@@ -96,12 +96,12 @@ const NAV = {
 
 // ─── Role aliases & super_admin panel ────────────────────────────────────────
 // "owner" and other legacy roles collapse to manager in the UI.
-// super_admin keeps its own NAV which is manager + an Admin tab.
+// super_admin is a FOCUSED platform-management surface — single Admin tab.
+// To run an agency, super_admin flips to "Mgr" or "Rep" via the role-switch.
 NAV.owner       = NAV.manager;   // back-compat for any DB rows with role='owner'
 NAV.admin       = NAV.manager;
 NAV.imo_owner   = NAV.manager;
 NAV.super_admin = [
-  ...NAV.manager,
   { id: "admin", label: "Admin", icon: "Shield" },
 ];
 
