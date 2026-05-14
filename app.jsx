@@ -63,11 +63,20 @@ function App() {
   // are collapsed onto the owner experience (the dedicated admin surface was
   // decommissioned in 34dcba4) — RLS in Supabase still grants the extra
   // cross-agency reads when applicable; no separate UI is needed.
+  //
+  // Sync runs ONLY on the initial session resolve and explicit SIGNED_IN —
+  // NOT on TOKEN_REFRESHED (fires hourly) or USER_UPDATED. Otherwise a
+  // super_admin who manually picks "Rep" or "Mgr" via the role-switch has
+  // their selection silently reverted to "super_admin" the next time the
+  // Supabase SDK refreshes the access token. We also bail if the operator
+  // has already touched the role tweak this session.
   useEffect(() => {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
     let cancelled = false;
+    let synced = false;
     const sync = async () => {
+      if (synced) return;
       try {
         const { data: { session } } = await sb.auth.getSession();
         if (!session) return;
@@ -83,16 +92,20 @@ function App() {
           // own role so it gets the admin tab in its NAV.
           const RETIRED = new Set(["admin", "imo_owner", "owner"]);
           const effective = RETIRED.has(meRow.role) ? "manager" : meRow.role;
-          if (effective !== role) {
-            window.__authRole = effective;
-            setTweak("role", effective);
-          }
+          window.__authRole = effective;
+          if (effective !== role) setTweak("role", effective);
         }
+        synced = true;
       } catch (_e) {}
     };
     sync();
-    const sub = sb.auth.onAuthStateChange((_event, _sess) => sync());
+    const sub = sb.auth.onAuthStateChange((event, _sess) => {
+      // Only the first sign-in transition triggers a role reset. Token
+      // refreshes and user-metadata updates leave the chosen view alone.
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION") sync();
+    });
     return () => { cancelled = true; sub?.data?.subscription?.unsubscribe?.(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
