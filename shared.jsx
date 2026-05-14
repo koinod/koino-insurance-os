@@ -73,7 +73,7 @@ const NAV = {
     { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
-    { id: "library",     label: "Library",      icon: "Book" },
+    { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   // Single manager role 2026-05-14: "owner" is gone. Managers can have reps
   // and other managers under them (nested tree). Role-aware visibility inside
@@ -409,7 +409,7 @@ const CMD_ITEMS = {
     { label: "Performance · standings + tiering + forecast", icon: "Trophy", nav: "performance" },
     { label: "Commissions",        icon: "Wallet",       nav: "commissions" },
     { label: "Training",           icon: "Book",         nav: "training" },
-    { label: "Compliance Vault",   icon: "Shield",       nav: "vault" },
+    { label: "Vault",              icon: "Folder",       nav: "vault" },
     { label: "Resources · scrub tool + carriers + links", icon: "Folder", nav: "resources" },
     { label: "Recruiting Funnel",  icon: "ArrowUpRight", nav: "recruiting" },
     { label: "P&L",                icon: "TrendingUp",   nav: "pnl" },
@@ -563,7 +563,7 @@ const SUGGESTIONS_BY_PAGE = {
   performance:  ["Who would qualify for Diamond if MTD threshold dropped to $45k?", "Which producers are most at risk of missing tier this month?", "What's our 30-day weighted forecast vs goal?"],
   team:         ["Who's at risk of missing tier this month?", "Which producer needs a coaching nudge today?"],
   coaching:     ["Top 3 issues across all producer calls this week", "Which coaching theme is moving the needle most?"],
-  vault:        ["Are any artifacts approaching retention expiry?", "Audit pack for Aetna SRC — what's missing?"],
+  vault:        ["Find the FE objection-handling script", "Which courses are still incomplete for the team?"],
   resources:    ["Which carrier portal needs the credentials reset this month?", "Add a quick link for the new training URL"],
   recruiting:   ["Which campaign has the lowest cost per producer?", "Draft a follow-up DM for {{handle}} based on their reply"],
   commissions:  ["Where's my biggest variance vs carrier statements this month?"],
