@@ -1202,8 +1202,10 @@ function CommissionsRep() {
 
 function CommissionsManager() {
   const { REPS } = AppData;
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  
   // Aggregate buildStatement per rep — same comp% input flows up
-  const perRep = REPS.map(r => {
+  const perRep = REPS.filter(r => !scopeIds || scopeIds.includes(r.id)).map(r => {
     const rows = buildStatement({ repId: r.id });
     const issued = rows.filter(x => x.status === "paid" || x.status === "pending payout").length;
     const ap     = rows.reduce((a, x) => a + (x.ap || 0), 0);
@@ -1231,7 +1233,7 @@ function CommissionsManager() {
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Team rollup</div>
-          <div className="page-sub">Per-producer ledger · computed from rep-entered comp % at deal-write</div>
+          <div className="page-sub">Per-producer ledger · manager-set base comp rates + recursive debt audit</div>
         </div>
       </div>
 
@@ -1243,37 +1245,44 @@ function CommissionsManager() {
       </div>
 
       <div className="panel">
-        <div className="panel-h"><h3>Producers · this month</h3><span className="meta">click rep to drill</span></div>
+        <div className="panel-h"><h3>Producers · this month</h3><span className="meta">{perRep.length} producers in scope</span></div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 70px 100px 110px 100px 100px" }}>
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 70px 90px 100px 100px 100px 100px" }}>
             <div>Producer</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Base %</div>
             <div className="tabular" style={{ textAlign: "right" }}>Issued</div>
             <div className="tabular" style={{ textAlign: "right" }}>AP</div>
             <div className="tabular" style={{ textAlign: "right" }}>Expected</div>
             <div className="tabular" style={{ textAlign: "right" }}>Paid</div>
-            <div className="tabular" style={{ textAlign: "right" }}>In-clearing</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Debt</div>
           </div>
-          {perRep.map(({ rep, issued, ap, expected, paid, ic }) => {
-            // Synthesize numbers when no real policies yet — DEMO ONLY.
-            const fakeAp = rep.mtd;
-            const fakePaid = Math.round(rep.mtd * 0.62);
-            const showAp = (isEmpty && _isDemoCM) ? fakeAp : ap;
+          {perRep.map(({ rep, issued, ap, expected, paid, ic, charge }) => {
+            const showAp = (isEmpty && _isDemoCM) ? rep.mtd : ap;
             const showExpected = (isEmpty && _isDemoCM) ? Math.round(rep.mtd * 0.5) : expected;
-            const showPaid = (isEmpty && _isDemoCM) ? fakePaid : paid;
-            const showIc = (isEmpty && _isDemoCM) ? Math.max(0, showExpected - showPaid) : ic;
-            const showIssued = (isEmpty && _isDemoCM) ? Math.round(rep.mtd / 1800) : issued;
+            const showPaid = (isEmpty && _isDemoCM) ? Math.round(rep.mtd * 0.3) : paid;
+            const showCharge = (isEmpty && _isDemoCM) ? 0 : charge;
             return (
-              <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.6fr 70px 100px 110px 100px 100px" }}>
+              <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.6fr 70px 90px 100px 100px 100px 100px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <Shared.Avatar rep={rep} size={20}/>
-                  <span style={{ fontWeight: 500 }}>{rep.name}</span>
-                  <Shared.TierChip tier={rep.tier} compact/>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{rep.name}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{rep.handle}</div>
+                  </div>
                 </div>
-                <div className="tabular" style={{ textAlign: "right" }}>{showIssued}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>
+                  <input type="number" step="0.5" className="input-tiny" 
+                    value={rep.baseCompPct || 50} 
+                    onChange={(e) => AppData.mutate.repBaseCompPctSave(rep.id, parseFloat(e.target.value))}
+                    style={{ width: 45, textAlign: "right", padding: "2px 4px", fontSize: 11 }} />
+                </div>
+                <div className="tabular" style={{ textAlign: "right" }}>{issued}</div>
                 <div className="tabular" style={{ textAlign: "right" }}>${showAp.toLocaleString()}</div>
                 <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${showExpected.toLocaleString()}</div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${showPaid.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>${showIc.toLocaleString()}</div>
+                <div className="tabular" style={{ textAlign: "right", color: showCharge < 0 ? "var(--state-danger)" : "var(--text-tertiary)" }}>
+                  {showCharge < 0 ? `-$${Math.abs(showCharge).toLocaleString()}` : "—"}
+                </div>
               </div>
             );
           })}
@@ -1284,37 +1293,28 @@ function CommissionsManager() {
 }
 
 function CommissionsOwner() {
-  // Account-wide pool: union of every rep's deals → producer commissions →
-  // implied override slice. Owner sets the override % below; everything moves.
-  const { REPS } = AppData;
-  const [overridePct, setOverridePct] = React.useState(20);  // owner's slice on top of producer comp
-  const allRows = buildStatement();   // all reps
+  const { REPS, AGENCIES } = AppData;
+  const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const agency = (AGENCIES || []).find(a => a.id === me?.agency_id) || AGENCIES?.[0] || {};
+  
+  const [overridePct, setOverridePct] = React.useState(agency.defaultOverridePct || 20);
+  
+  const handleOverrideSave = (val) => {
+    setOverridePct(val);
+    if (agency.id) AppData.mutate.agencyOverridePctSave(agency.id, val);
+  };
+
+  const allRows = buildStatement();
   const issued = allRows.filter(r => r.status === "paid" || r.status === "pending payout").length;
   const totalAp       = allRows.reduce((a, r) => a + (r.ap || 0), 0);
-  const totalExpected = allRows.reduce((a, r) => a + (r.expected || 0), 0);
   const totalPaid     = allRows.reduce((a, r) => a + Math.max(0, r.paid || 0), 0);
   const overridePool  = Math.round(totalAp * overridePct / 100);
   const isEmpty = totalAp === 0;
 
-  // Region split — rough: first 5 reps = Atlanta, rest = Tampa
-  const regionRows = ["Atlanta region", "Tampa region"].map((name, i) => {
-    const reps = REPS.slice(i === 0 ? 0 : 5, i === 0 ? 5 : undefined);
-    const ids = new Set(reps.map(r => r.id));
-    const rows = allRows.filter(r => {
-      const pol = (AppData.POLICIES || []).find(p => p.id === r.policyId);
-      return pol && ids.has(pol.owner);
-    });
-    const ap = rows.reduce((a, r) => a + (r.ap || 0), 0);
-    const ovr = Math.round(ap * overridePct / 100);
-    return { name, reps: reps.length, ap, ovr };
-  });
-
-  // Fallback display when no real deals
   const display = isEmpty
     ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
     : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
 
-  // GAP-RP1 — CSV export of the per-rep statement powering the override pool
   const exportCommissions = () => {
     const headers = ["Period","Rep","Carrier","Lead","AP","Expected","Paid","Status"];
     const rows = allRows.map(r => {
@@ -1334,7 +1334,7 @@ function CommissionsOwner() {
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Override pool</div>
-          <div className="page-sub">Account-wide rollup · {issued || 14} issues this period · override % set by you below</div>
+          <div className="page-sub">Account-wide rollup · persisted override slice · {issued || 14} issues this period</div>
         </div>
         <button className="btn" onClick={exportCommissions} disabled={isEmpty} title={isEmpty ? "No commission rows to export" : "Download CSV of all commission rows"}>Export CSV</button>
       </div>
@@ -1346,45 +1346,16 @@ function CommissionsOwner() {
       </div>
 
       <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h"><Icons.Calculator size={13}/><h3>Owner override %</h3><span className="meta">applies to all producer AP</span></div>
+        <div className="panel-h"><Icons.Calculator size={13}/><h3>Owner override %</h3><span className="meta">persisted to agency settings</span></div>
         <div style={{ padding: "12px 14px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
             <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Override slice</span>
             <span className="tabular" style={{ fontSize: 14, fontWeight: 600 }}>{overridePct}%</span>
           </div>
-          <input type="range" min={5} max={40} step={1} value={overridePct} onChange={(e) => setOverridePct(+e.target.value)} style={{ width: "100%" }}/>
+          <input type="range" min={5} max={40} step={1} value={overridePct} onChange={(e) => handleOverrideSave(+e.target.value)} style={{ width: "100%" }}/>
           <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-            At {overridePct}%, every $1k of producer AP returns ${(overridePct * 10).toFixed(0)} to the owner pool. Rep comp % is set per-deal at write time.
+            At {overridePct}%, every $1k of producer AP returns ${(overridePct * 10).toFixed(0)} to the owner pool.
           </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-h"><h3>By region</h3></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
-            <div>Region</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Producers</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Total AP</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Override</div>
-            <div></div>
-          </div>
-          {regionRows.map((r, i) => {
-            const showAp  = isEmpty ? [412800, 318200][i] : r.ap;
-            const showOvr = isEmpty ? [92420, 71390][i]   : r.ovr;
-            const max     = Math.max(...regionRows.map(x => isEmpty ? Math.max(92420, 71390) : x.ovr), 1);
-            return (
-              <div key={i} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 110px 1fr" }}>
-                <div style={{ fontWeight: 500 }}>{r.name}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>{r.reps}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${showAp.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>${showOvr.toLocaleString()}</div>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${(showOvr / max) * 100}%`, height: "100%", background: "var(--accent-money)" }}></div>
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
     </div>

@@ -246,7 +246,7 @@ window.hydrateFromSupabase = async function () {
     };
     /* (Older variant of this function below uses unscoped queries; the next
        awaited block applies scope() to every Promise.all entry below.) */
-    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows, orgSettings] = await Promise.all([
+    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows, orgSettings, agencies] = await Promise.all([
       scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
       // Order by created_at desc so freshly-imported leads land at the top.
       // (Was order("days_in_stage") which buried new leads under stale ones.)
@@ -259,7 +259,15 @@ window.hydrateFromSupabase = async function () {
       scope(sb.from("ai_agents").select("*")),
       scope(sb.from("workflows").select("*")),
       scope(sb.from("org_settings").select("*")),
+      sb.from("agencies").select("*"),
     ]);
+
+    if (Array.isArray(agencies.data)) {
+      window.AppData.AGENCIES = agencies.data.map(a => ({
+        id: a.id, name: a.name, slug: a.slug,
+        defaultOverridePct: a.default_override_pct != null ? Number(a.default_override_pct) : 20.0
+      }));
+    }
 
     if (Array.isArray(orgSettings.data)) {
       const map = {};
@@ -277,7 +285,9 @@ window.hydrateFromSupabase = async function () {
         id: r.id, name: r.name, handle: r.handle, tier: r.tier,
         mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
         streak: r.streak_days, dials: r.dials, presence: r.presence,
-        appts: r.appts, color: r.color
+        appts: r.appts, color: r.color,
+        upline_id: r.upline_id,
+        baseCompPct: r.base_comp_pct != null ? Number(r.base_comp_pct) : 50.0
       }));
     }
     if (Array.isArray(pipeline.data)) {
@@ -1506,6 +1516,28 @@ window.AppData.mutate = {
       if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
     }
     _emitMutation("routing_rules", "delete", id);
+  },
+
+  async agencyOverridePctSave(agencyId, pct) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("agencies").update({ default_override_pct: pct }).eq("id", agencyId);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    const a = window.AppData.AGENCIES.find(x => x.id === agencyId);
+    if (a) a.defaultOverridePct = pct;
+    _emitMutation("agencies", "update", agencyId);
+  },
+
+  async repBaseCompPctSave(repId, pct) {
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("reps").update({ base_comp_pct: pct }).eq("id", repId);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    const r = window.AppData.REPS.find(x => x.id === repId);
+    if (r) r.baseCompPct = pct;
+    _emitMutation("reps", "update", repId);
   },
 
   /* ── Saved views ────────────────────────────────────────────────────── */
