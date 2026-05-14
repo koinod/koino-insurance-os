@@ -1,6 +1,7 @@
 /* Page: Dial Queue (rep) / Dispatch (mgr) — role-aware
    Rep view: their dial queue with TPMO + queue-health + compliance side panels.
    Manager (Dispatch) view: routing-style queue with team capacity + spend strip. */
+const SpendStrip = window.SpendStrip;
 function PageQueue({ onCall, role = "rep" }) {
   if (role === "manager") return <DispatchView onCall={onCall}/>;
   return <DialQueueView onCall={onCall}/>;

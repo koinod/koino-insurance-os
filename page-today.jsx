@@ -28,6 +28,7 @@ function SpendStrip({ items }) {
     </div>
   );
 }
+window.SpendStrip = SpendStrip;
 
 /* Single goal column. Bar tinted by progress band. */
 function GoalRow({ label, actual, target, pct }) {
