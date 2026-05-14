@@ -1,190 +1,338 @@
-/* page-admin.jsx — Agency / Admin dashboard for IMO owner + admin team.
-
-   Top-level mission control:
-   - Agency overview (name, plan, region, member counts)
-   - System health (connectors live/warn/down, agents running, NIGO load,
-     recent errors)
-   - Team roster (members + pending invites + last sign-in)
-   - Recent agency-level activity (audit log)
-   - Plan / billing (read-only until Stripe lands)
-   - Danger zone (transfer ownership, delete agency) — owner only
-
-   Owner-only nav. Manager view shows a thinner read-only version. */
+/* page-admin.jsx — Super-admin platform management panel.
+   Only visible to accounts with role = 'super_admin'.
+   Cross-agency: queries hit all rows via is_super_admin() RLS bypass. */
 
 (function () {
 
-function PageAdmin({ role = "owner" }) {
-  const [agency,   setAgency]   = React.useState(null);
-  const [members,  setMembers]  = React.useState([]);
-  const [invites,  setInvites]  = React.useState([]);
-  const [audit,    setAudit]    = React.useState([]);
-  const [loading,  setLoading]  = React.useState(true);
+function PageAdmin() {
+  const [tab, setTab]                     = React.useState("agencies");
+  const [agencies, setAgencies]           = React.useState([]);
+  const [agencyMemCounts, setMemCounts]   = React.useState({});
+  const [agLoading, setAgLoading]         = React.useState(true);
+  const [members, setMembers]             = React.useState([]);
+  const [memberSearch, setMemberSearch]   = React.useState("");
+  const [memLoading, setMemLoading]       = React.useState(false);
+  const [memAgFilter, setMemAgFilter]     = React.useState(null);
+  const [invites, setInvites]             = React.useState([]);
+  const [invLoading, setInvLoading]       = React.useState(false);
+  const [audit, setAudit]                 = React.useState([]);
+  const [auditLoading, setAuditLoading]   = React.useState(false);
   const [broadcastOpen, setBroadcastOpen] = React.useState(false);
 
-  const load = React.useCallback(async () => {
+  const loadAgencies = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
-    if (!sb) { setLoading(false); return; }
-    setLoading(true);
+    if (!sb) { setAgLoading(false); return; }
+    setAgLoading(true);
     try {
-      const { data: ag } = await sb.from("agencies").select("*").limit(1).maybeSingle();
-      if (ag) {
-        setAgency(ag);
-        const [m, i, a] = await Promise.all([
-          sb.from("agency_members").select("agency_id, user_id, role, joined_at, active, rep_id").eq("agency_id", ag.id),
-          sb.from("agency_invites").select("token, role, email_hint, expires_at, used_at").eq("agency_id", ag.id).order("expires_at", { ascending: false }),
-          sb.from("agency_audit_log").select("id, action, actor_role, target, metadata, created_at").eq("agency_id", ag.id).order("created_at", { ascending: false }).limit(40),
-        ]);
-        setMembers(m.data || []);
-        setInvites(i.data || []);
-        setAudit(a.data || []);
-      }
-    } catch (_e) {} finally { setLoading(false); }
+      const [{ data: ags }, { data: mems }] = await Promise.all([
+        sb.from("agencies").select("id,name,slug,plan,state,created_at").order("created_at", { ascending: false }),
+        sb.from("agency_members").select("agency_id").eq("active", true),
+      ]);
+      setAgencies(ags || []);
+      const counts = {};
+      (mems || []).forEach(m => { counts[m.agency_id] = (counts[m.agency_id] || 0) + 1; });
+      setMemCounts(counts);
+    } catch (_e) {
+      window.toast && window.toast("Failed to load agencies", "error");
+    } finally {
+      setAgLoading(false);
+    }
   }, []);
-  React.useEffect(() => { load(); }, [load]);
 
-  // When the real agency hasn't loaded yet, prefer me().agency_name over the
-  // hardcoded Atlas seed so brand-new tenants don't see another agency's name.
-  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-  const liveAgency = agency || {
-    name: meIdent?.agency_name || "Your agency",
-    slug: meIdent?.agency_id ? meIdent.agency_id.slice(0, 8) : "—",
-    plan: "trial",
-    state: "—",
+  const loadMembers = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setMemLoading(true);
+    try {
+      const { data } = await sb
+        .from("agency_members")
+        .select("agency_id,user_id,role,rep_id,joined_at,active")
+        .order("joined_at", { ascending: false });
+      const repsById = Object.fromEntries(
+        ((window.AppData && window.AppData.REPS) || []).map(r => [r.id, r])
+      );
+      setMembers((data || []).map(m => ({ ...m, repName: repsById[m.rep_id]?.name || null })));
+    } finally { setMemLoading(false); }
+  }, []);
+
+  const loadInvites = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setInvLoading(true);
+    try {
+      const { data } = await sb
+        .from("agency_invites")
+        .select("token,agency_id,role,email_hint,expires_at,used_at")
+        .order("expires_at", { ascending: false });
+      setInvites(data || []);
+    } finally { setInvLoading(false); }
+  }, []);
+
+  const loadAudit = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setAuditLoading(true);
+    try {
+      const { data } = await sb
+        .from("agency_audit_log")
+        .select("id,agency_id,action,actor_role,target,metadata,created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      setAudit(data || []);
+    } finally { setAuditLoading(false); }
+  }, []);
+
+  React.useEffect(() => { loadAgencies(); }, [loadAgencies]);
+  React.useEffect(() => {
+    if (tab === "members" && members.length === 0) loadMembers();
+    if (tab === "invites" && invites.length === 0) loadInvites();
+    if (tab === "audit"   && audit.length   === 0) loadAudit();
+  }, [tab]);
+
+  const deleteAgency = async (agencyId, agencyName) => {
+    if (!confirm(`Permanently delete "${agencyName}" and ALL its data?\n\nThis cannot be undone.`)) return;
+    const typed = prompt("Type DELETE to confirm:");
+    if (typed !== "DELETE") { window.toast && window.toast("Cancelled — must type DELETE exactly", "warn"); return; }
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("agencies").delete().eq("id", agencyId);
+    if (error) {
+      window.toast && window.toast(`Delete failed: ${error.message}`, "error");
+    } else {
+      window.toast && window.toast(`Deleted ${agencyName}`, "success");
+      loadAgencies();
+    }
   };
-  const reps = AppData.REPS || [];
-  const conns = AppData.CONNECTIONS || [];
-  const hardware = AppData.HARDWARE || [];
-  const agents = AppData.AGENTS || [];
-  const connHealthy = conns.filter(c => c.status === "ok").length;
-  const connTotal   = conns.length;
-  const hwHealthy   = hardware.filter(h => h.status === "ok").length;
-  const hwTotal     = hardware.length;
 
-  const inviteAccepted = invites.filter(i => i.used_at).length;
-  const invitePending  = invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date()).length;
-  const inviteExpired  = invites.filter(i => !i.used_at && new Date(i.expires_at) <= new Date()).length;
+  const toggleMember = async (m) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("agency_members").update({ active: !m.active })
+      .eq("agency_id", m.agency_id).eq("user_id", m.user_id);
+    if (error) { window.toast && window.toast(`Failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast(m.active ? "Member deactivated" : "Member reactivated", "success");
+    loadMembers();
+  };
 
-  const acceptanceRate = invites.length ? Math.round((inviteAccepted / invites.length) * 100) : 0;
+  const changeRole = async (m, newRole) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("agency_members").update({ role: newRole })
+      .eq("agency_id", m.agency_id).eq("user_id", m.user_id);
+    if (error) { window.toast && window.toast(`Failed: ${error.message}`, "error"); return; }
+    window.toast && window.toast(`Role → ${newRole}`, "success");
+    loadMembers();
+  };
+
+  const totalMembers = Object.values(agencyMemCounts).reduce((a, b) => a + b, 0);
+  const pendingInvites = invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date()).length;
+  const agNameById = Object.fromEntries(agencies.map(a => [a.id, a.name]));
+
+  const TABS = [
+    { k: "agencies", l: "Agencies",   icon: "Building"  },
+    { k: "members",  l: "Members",    icon: "Users"     },
+    { k: "invites",  l: "Invites",    icon: "Bell"      },
+    { k: "audit",    l: "Audit Log",  icon: "Activity"  },
+  ];
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Admin · {liveAgency.name}</div>
-          <div className="page-sub">Mission control for the {liveAgency.plan} plan · {liveAgency.state} · {members.length || reps.length} members · {AppData.LIVE ? "live data" : "demo data"}</div>
+          <div className="page-title">Super Admin</div>
+          <div className="page-sub">Platform management · {agencies.length} agenc{agencies.length === 1 ? "y" : "ies"} · {totalMembers} members</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {broadcastOpen && (
+            <BroadcastModal
+              agencyId={null}
+              reps={(window.AppData && window.AppData.REPS) || []}
+              onClose={() => setBroadcastOpen(false)}
+            />
+          )}
           <button className="btn" onClick={() => setBroadcastOpen(true)}>
             <Icons.MessageSquare size={13}/> Broadcast
           </button>
-          <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" }}))}>
-            <Icons.Settings size={13}/> Settings
-          </button>
-          <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" }}))}>
-            <Icons.Plus size={13}/> Invite producer
+          <button className="btn" onClick={() => { loadAgencies(); if (tab === "members") loadMembers(); if (tab === "invites") loadInvites(); if (tab === "audit") loadAudit(); }}>
+            <Icons.RefreshCw size={13}/> Refresh
           </button>
         </div>
       </div>
-
-      {broadcastOpen && <BroadcastModal agencyId={agency?.id} reps={reps} onClose={() => setBroadcastOpen(false)}/>}
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Producers" value={reps.length} sub={`${reps.filter(r => r.presence === "live").length} live now`} trend="up"/>
-        <Shared.KpiCard      label="Connectors" value={`${connHealthy} / ${connTotal}`} sub={connHealthy === connTotal ? "all healthy" : `${connTotal - connHealthy} need attention`} trend={connHealthy === connTotal ? "up" : undefined}/>
-        <Shared.KpiCard      label="Hosts" value={`${hwHealthy} / ${hwTotal}`} sub={`${agents.length} agents deployed`}/>
-        <Shared.KpiCard      label="Invite acceptance" value={`${acceptanceRate}%`} sub={`${invitePending} pending · ${inviteExpired} expired`}/>
+        <Shared.KpiCard hero label="Agencies" value={agencies.length} sub="total tenants"/>
+        <Shared.KpiCard label="Active members" value={totalMembers} sub="across all agencies"/>
+        <Shared.KpiCard label="Pending invites" value={pendingInvites} sub="not yet redeemed"/>
+        <Shared.KpiCard label="Audit events" value={audit.length || "—"} sub="last 100"/>
       </div>
 
-      <div className="admin-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h"><Icons.Activity size={13}/><h3>System health</h3><span className="meta">live</span></div>
-            <div className="list">
-              <div className="list-h" style={{ gridTemplateColumns: "1.2fr 1fr 1fr 100px" }}>
-                <div>Service</div><div>Category</div><div>Detail</div><div>Status</div>
-              </div>
-              {conns.map(c => (
-                <div key={c.id} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 1fr 100px", cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" }}))}>
-                  <div style={{ fontWeight: 500 }}>{c.name}</div>
-                  <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
-                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{c.meta}</div>
-                  <div><span className={`chip ${c.status === "ok" ? "chip-money" : c.status === "warn" ? "chip-status" : "chip-danger"}`}>{c.status === "ok" ? "Live" : c.status === "warn" ? "Action" : "Down"}</span></div>
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="tab-bar" style={{ marginBottom: 14 }}>
+        {TABS.map(t => {
+          const Ic = Icons[t.icon];
+          return (
+            <button key={t.k} className={`tab ${tab === t.k ? "tab-active" : ""}`} onClick={() => setTab(t.k)}>
+              {Ic && <Ic size={12}/>} {t.l}
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="panel">
-            <div className="panel-h"><Icons.Users size={13}/><h3>Team</h3><span className="meta">{members.length || reps.length} members</span></div>
+      {/* ── Agencies ── */}
+      {tab === "agencies" && (
+        <div className="panel">
+          <div className="panel-h"><Icons.Building size={13}/><h3>All Agencies</h3><span className="meta">{agencies.length} total</span></div>
+          {agLoading ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading…</div>
+          ) : agencies.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No agencies found.</div>
+          ) : (
             <div className="list">
-              <div className="list-h" style={{ gridTemplateColumns: "1fr 100px 100px 100px" }}>
-                <div>Member</div><div>Role</div><div>Joined</div><div>Status</div>
+              <div className="list-h" style={{ gridTemplateColumns: "1.8fr 100px 100px 70px 130px 130px" }}>
+                <div>Agency</div><div>Plan</div><div>State</div><div>Members</div><div>Created</div><div>Actions</div>
               </div>
-              {(members.length > 0 ? members : reps.map(r => ({ user_id: r.id, role: "rep", joined_at: null, active: true, _rep: r }))).map(m => (
-                <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 100px 100px 100px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {m._rep && <Shared.Avatar rep={m._rep} size={20}/>}
-                    <span style={{ fontWeight: 500 }}>{m._rep?.name || (m.user_id || "").slice(0, 8) + "…"}</span>
+              {agencies.map(ag => (
+                <div key={ag.id} className="row" style={{ gridTemplateColumns: "1.8fr 100px 100px 70px 130px 130px" }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{ag.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{ag.slug || ag.id.slice(0, 8)}</div>
                   </div>
-                  <div><span className="chip">{m.role}</span></div>
-                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "demo"}</div>
-                  <div><span className={`chip ${m.active ? "chip-money" : ""}`}>{m.active ? "active" : "off"}</span></div>
-                </div>
-              ))}
-              {(members.length === 0 && reps.length === 0) && (
-                <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No members yet — invite your first producer.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-h"><Icons.Activity size={13}/><h3>Activity</h3><span className="meta">{audit.length} events</span></div>
-            <div className="list">
-              {audit.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No activity yet · audit events appear as your team works.</div>}
-              {audit.map(a => (
-                <div key={a.id} className="row" style={{ gridTemplateColumns: "120px 1.4fr 1fr 100px" }}>
-                  <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{new Date(a.created_at).toLocaleString()}</div>
-                  <div style={{ fontWeight: 500 }}>{a.action}</div>
-                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.target || "—"}</div>
-                  <div><span className="chip">{a.actor_role || "system"}</span></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {(() => { const C = window.AdminPlanCard; return C ? <C agency={agency || liveAgency}/> : (
-            <div className="panel"><div className="panel-h"><h3>Plan</h3></div><div style={{ padding: 14 }}>{liveAgency.plan}</div></div>
-          ); })()}
-
-          <div className="panel">
-            <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Pending invites</h3><span className="meta">{invitePending}</span></div>
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-              {invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date()).slice(0, 5).map(i => (
-                <div key={i.token} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <strong>{i.email_hint || "(no email hint)"}</strong>
-                    <span className="chip">{i.role}</span>
+                  <div><span className="chip">{ag.plan || "trial"}</span></div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{ag.state || "—"}</div>
+                  <div style={{ fontSize: 13 }}>{agencyMemCounts[ag.id] || 0}</div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{new Date(ag.created_at).toLocaleDateString()}</div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }} onClick={() => {
+                      setMemAgFilter(ag.id);
+                      setTab("members");
+                      if (members.length === 0) loadMembers(); else setMembers(prev => prev);
+                    }}>Members</button>
+                    <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11, color: "var(--state-danger)" }} onClick={() => deleteAgency(ag.id, ag.name)}>Delete</button>
                   </div>
-                  <div style={{ color: "var(--text-tertiary)", fontSize: 11, marginTop: 4 }}>expires {new Date(i.expires_at).toLocaleDateString()}</div>
                 </div>
               ))}
-              {invitePending === 0 && <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No invites waiting.</div>}
-            </div>
-          </div>
-
-          {role === "owner" && (
-            <div className="panel" style={{ border: "1px solid color-mix(in oklch, var(--state-danger) 30%, transparent)" }}>
-              <div className="panel-h"><Icons.X size={13} style={{ color: "var(--state-danger)" }}/><h3 style={{ color: "var(--state-danger)" }}>Danger zone</h3></div>
-              <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                <button className="btn btn-ghost" onClick={() => window.toast && window.toast("Transfer ownership flow ships when there's a second owner-eligible member", "info")}>Transfer ownership →</button>
-                <button className="btn btn-ghost" style={{ color: "var(--state-danger)" }} onClick={() => { if (confirm("This will permanently delete the agency and all data. Type DELETE to confirm in the dialog.")) window.toast && window.toast("Use the Supabase project console to drop the agency. UI guard ships in v2.", "warn"); }}>Delete agency →</button>
-              </div>
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* ── Members ── */}
+      {tab === "members" && (
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Users size={13}/><h3>All Members</h3><span className="meta">{members.length} total</span>
+            {memAgFilter && (
+              <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => setMemAgFilter(null)}>
+                Clear filter ×
+              </button>
+            )}
+          </div>
+          <div style={{ padding: "8px 14px 4px" }}>
+            <input className="text-input" placeholder="Search by name or ID…" value={memberSearch} onChange={e => setMemberSearch(e.target.value)} style={{ maxWidth: 320 }}/>
+          </div>
+          {memLoading ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading…</div>
+          ) : (
+            <div className="list" style={{ marginTop: 4 }}>
+              <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 120px 100px 100px 100px" }}>
+                <div>Member</div><div>Agency</div><div>Role</div><div>Joined</div><div>Status</div><div>Actions</div>
+              </div>
+              {members
+                .filter(m => !memAgFilter || m.agency_id === memAgFilter)
+                .filter(m => {
+                  if (!memberSearch) return true;
+                  const q = memberSearch.toLowerCase();
+                  return (m.repName || "").toLowerCase().includes(q)
+                    || (m.user_id || "").toLowerCase().includes(q)
+                    || (m.rep_id  || "").toLowerCase().includes(q);
+                })
+                .map((m, i) => (
+                  <div key={`${m.agency_id}-${m.user_id}-${i}`} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 120px 100px 100px 100px" }}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{m.repName || (m.rep_id || "—").slice(0, 8)}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(m.user_id || "").slice(0, 14)}…</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{agNameById[m.agency_id] || (m.agency_id || "—").slice(0, 8)}</div>
+                    <div>
+                      <select value={m.role} onChange={e => changeRole(m, e.target.value)} style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 4, padding: "2px 6px", fontSize: 11, color: "var(--text-primary)", cursor: "pointer" }}>
+                        <option value="rep">rep</option>
+                        <option value="manager">manager</option>
+                        <option value="super_admin">super_admin</option>
+                      </select>
+                    </div>
+                    <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</div>
+                    <div><span className={`chip ${m.active ? "chip-money" : ""}`}>{m.active ? "active" : "inactive"}</span></div>
+                    <div>
+                      <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }} onClick={() => toggleMember(m)}>
+                        {m.active ? "Deactivate" : "Reactivate"}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              }
+              {members.filter(m => !memAgFilter || m.agency_id === memAgFilter).length === 0 && !memLoading && (
+                <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No members found.</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Invites ── */}
+      {tab === "invites" && (
+        <div className="panel">
+          <div className="panel-h"><Icons.Bell size={13}/><h3>All Invites</h3><span className="meta">{invites.length} total</span></div>
+          {invLoading ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading…</div>
+          ) : (
+            <div className="list">
+              <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.2fr 90px 90px 130px 130px" }}>
+                <div>Email hint</div><div>Agency</div><div>Role</div><div>Status</div><div>Expires</div><div>Used</div>
+              </div>
+              {invites.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No invites found.</div>}
+              {invites.map(inv => {
+                const expired = !inv.used_at && new Date(inv.expires_at) <= new Date();
+                const used    = !!inv.used_at;
+                return (
+                  <div key={inv.token} className="row" style={{ gridTemplateColumns: "1.4fr 1.2fr 90px 90px 130px 130px" }}>
+                    <div style={{ fontWeight: 500, fontSize: 12 }}>{inv.email_hint || "(no hint)"}</div>
+                    <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>{agNameById[inv.agency_id] || (inv.agency_id || "—").slice(0, 8)}</div>
+                    <div><span className="chip">{inv.role}</span></div>
+                    <div><span className={`chip ${used ? "chip-money" : expired ? "chip-danger" : "chip-status"}`}>{used ? "used" : expired ? "expired" : "pending"}</span></div>
+                    <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{new Date(inv.expires_at).toLocaleDateString()}</div>
+                    <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{inv.used_at ? new Date(inv.used_at).toLocaleDateString() : "—"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Audit ── */}
+      {tab === "audit" && (
+        <div className="panel">
+          <div className="panel-h"><Icons.Activity size={13}/><h3>Audit Log</h3><span className="meta">last 100 events · all agencies</span></div>
+          {auditLoading ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading…</div>
+          ) : (
+            <div className="list">
+              <div className="list-h" style={{ gridTemplateColumns: "140px 1.4fr 1.2fr 90px 100px" }}>
+                <div>Time</div><div>Action</div><div>Target</div><div>Actor role</div><div>Agency</div>
+              </div>
+              {audit.length === 0 && <div style={{ padding: 18, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No audit events found.</div>}
+              {audit.map(a => (
+                <div key={a.id} className="row" style={{ gridTemplateColumns: "140px 1.4fr 1.2fr 90px 100px" }}>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{new Date(a.created_at).toLocaleString()}</div>
+                  <div style={{ fontWeight: 500, fontSize: 12 }}>{a.action}</div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.target || "—"}</div>
+                  <div><span className="chip">{a.actor_role || "system"}</span></div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{agNameById[a.agency_id] || (a.agency_id || "—").slice(0, 8)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
