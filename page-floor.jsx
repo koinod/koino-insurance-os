@@ -499,15 +499,26 @@
           </div>
         </div>
 
-        {/* Two-col: queue on the left, redial queue panel on the right */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 14, alignItems: "start" }}>
-          <div>
-            {Queue ? <Queue role={role} onCall={onCall}/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading queue…</div>}
-          </div>
-          <div>
-            {Redial ? <Redial compact/> : null}
-          </div>
-        </div>
+        {/* Rep gets a two-col (queue + redial). Manager/owner views drop the
+            redial column — DispatchView already has its own 320px Producer
+            Insights side panel, and stacking both squeezes the queue list to
+            ~80px wide (header text wraps one letter per line). */}
+        {(() => {
+          const isQueueOwnSidebar = role !== "rep";
+          const cols = isQueueOwnSidebar ? "minmax(0, 1fr)" : "minmax(0, 1fr) 360px";
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: cols, gap: 14, alignItems: "start" }}>
+              <div style={{ minWidth: 0 }}>
+                {Queue ? <Queue role={role} onCall={onCall}/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading queue…</div>}
+              </div>
+              {!isQueueOwnSidebar && (
+                <div>
+                  {Redial ? <Redial compact/> : null}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   }
