@@ -1214,10 +1214,6 @@
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <ModeTabs mode={mode} setMode={setMode}/>
-            {/* Quote tool — extracted from InCall so reps can run carrier rankings without being on a call */}
-            <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("quotetool:open"))} title="Carrier quote tool">
-              <Icons.Calculator size={13}/> Quote tool
-            </button>
           </div>
         </div>
 
