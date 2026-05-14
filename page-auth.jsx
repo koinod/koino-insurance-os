@@ -417,8 +417,16 @@ function AuthGate({ children }) {
     const F = window.PageFirstRun;
     return <F session={session} resumeAgency={tenant.agency} onDone={() => refreshTenant()}/>;
   }
-  // Member exists but no reps row yet → producer/profile wizard (invitees).
-  if (session && tenant && tenant.member && !tenant.member.rep_id && window.ProducerOnboardingWizard) {
+  // Member exists but no reps row yet → producer/profile wizard.
+  // Scope: producer roles ONLY. Managers/owners/admins legitimately may not
+  // have a rep_id (they don't sell), and the wizard collects rep-specific
+  // info (NPN, licensed states, carrier appts) that's nonsensical for them.
+  // Without this guard, any manager whose provision_rep_for_member RPC
+  // silently failed (or who simply never needed a rep_id) got trapped in
+  // an onboarding loop on every login.
+  const memberRole = tenant?.member?.role;
+  const needsProducerProfile = memberRole === "rep" || memberRole === "producer";
+  if (session && tenant && tenant.member && !tenant.member.rep_id && needsProducerProfile && window.ProducerOnboardingWizard) {
     const P = window.ProducerOnboardingWizard;
     return <P tenant={tenant} onComplete={() => refreshTenant()}/>;
   }
