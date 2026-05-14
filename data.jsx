@@ -111,6 +111,7 @@ window.AppData = {
   CONNECTIONS: [], HARDWARE: [], AGENTS: [], WORKFLOWS: [],
   ORG_SETTINGS: {},
   TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
+  SEGMENTS: [],
   LIVE: false,
 };
 
@@ -668,21 +669,24 @@ window.hydrateFromSupabase = async function () {
     // localStorage which means a manager-uploaded video is invisible to reps.
     // ────────────────────────────────────────────────────────────────────────
     try {
-      const [scriptsR, videosR, docsR, linksR] = await Promise.all([
+      const [scriptsR, videosR, docsR, linksR, segmentsR] = await Promise.all([
         scope(sb.from("agency_scripts").select("*").order("updated_at", { ascending: false })),
         scope(sb.from("agency_videos").select("*").order("created_at", { ascending: false })),
         scope(sb.from("agency_docs").select("*").order("created_at", { ascending: false })),
         scope(sb.from("agency_quick_links").select("*").order("sort_order", { ascending: true })),
+        Promise.resolve(scope(sb.from("vault_segments").select("*").order("sort_order", { ascending: true }))).catch(() => ({ data: [] })),
       ]);
       const mapRowsR = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
       window.AppData.SCRIPTS_LIB = mapRowsR(scriptsR, r => ({
         id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body,
+        segmentId: r.segment_id || null,
         createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at,
       }));
       window.AppData.VIDEOS = mapRowsR(videosR, r => ({
         id: r.id, title: r.title, cat: r.cat, src: r.src,
         sourceUrl: r.source_url, sourceLabel: r.source_label,
         thumb: r.thumb, durMin: r.dur_min || 0,
+        segmentId: r.segment_id || null,
         createdBy: r.created_by, createdAt: r.created_at,
       }));
       window.AppData.DOCS = mapRowsR(docsR, r => ({
@@ -690,11 +694,17 @@ window.hydrateFromSupabase = async function () {
         kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext,
         sizeBytes: r.size_bytes, storagePath: r.storage_path,
         text: r.text_excerpt,
+        segmentId: r.segment_id || null,
         createdBy: r.created_by, createdAt: r.created_at,
       }));
       window.AppData.QUICK_LINKS = mapRowsR(linksR, r => ({
         id: r.id, cat: r.cat, label: r.label, url: r.url,
         sortOrder: r.sort_order || 0, createdAt: r.created_at,
+      }));
+      window.AppData.SEGMENTS = mapRowsR(segmentsR, r => ({
+        id: r.id, agencyId: r.agency_id, name: r.name,
+        description: r.description || null, sortOrder: r.sort_order,
+        createdAt: r.created_at,
       }));
     } catch (resErr) {
       // Migration 0010 may not be applied yet — components fall back to seed.
@@ -843,6 +853,8 @@ window.subscribeRealtime = function () {
     training_courses:        "TRAINING_COURSES",
     // 0025 — vendor webhooks config streams so Lead Drip > Vendors updates live
     lead_vendor_webhooks:    "VENDOR_WEBHOOKS",
+    // 0026 — vault segments
+    vault_segments:          "SEGMENTS",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -856,9 +868,10 @@ window.subscribeRealtime = function () {
     if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run ? new Date(r.last_run).toLocaleString() : "—" };
     if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
     if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
-    if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
-    if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, createdBy: r.created_by, createdAt: r.created_at };
-    if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, segmentId: r.segment_id || null, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
+    if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, segmentId: r.segment_id || null, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, segmentId: r.segment_id || null, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "vault_segments")    return { id: r.id, agencyId: r.agency_id, name: r.name, description: r.description || null, sortOrder: r.sort_order, createdAt: r.created_at };
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
     if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };

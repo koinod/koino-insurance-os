@@ -13,209 +13,523 @@ const Money = ({ v, dim }) => (
 );
 
 /* ─────────────────────────────────────────────────────────────────────────
-   1. Compliance Vault — auditable artifact store (recordings, SOAs, consent)
+   1. Vault — useful-stuff hub: Coaching · Courses · Documents · Scripts · Segments
    ───────────────────────────────────────────────────────────────────────── */
 function PageVault({ role = "owner" }) {
-  const { RECORDINGS, REPS } = AppData;
-  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
-  const [tab, setTab] = React.useState("artifacts");
-  const [q, setQ] = React.useState("");
-  const [uploadOpen, setUploadOpen] = React.useState(false);
-  const [extras, setExtras] = React.useState([]);
-  const [retentionEdits, setRetentionEdits] = React.useState({});
+  const [tab, setTab] = React.useState("coaching");
+  const canEdit = role === "owner" || role === "super_admin" || role === "manager";
+  const isOwner = role === "owner" || role === "super_admin";
 
-  const updateRetention = async (id, retention) => {
-    setRetentionEdits(s => ({ ...s, [id]: retention }));
-    try {
-      await AppData.mutate.vaultRetentionUpdate(id, retention);
-      window.toast && window.toast(`Retention updated to ${retention}${AppData.LIVE ? "" : " (demo)"}`, "success");
-    } catch (_e) {}
-  };
+  const TABS = [
+    { k: "coaching",  l: "Coaching",   icon: "Activity" },
+    { k: "courses",   l: "Courses",    icon: "Book"     },
+    { k: "documents", l: "Documents",  icon: "Folder"   },
+    { k: "scripts",   l: "Scripts",    icon: "FileText" },
+    { k: "segments",  l: "Segments",   icon: "Bookmark" },
+  ];
 
-  // Synthesized SOAs + consent receipts to back the page — DEMO ONLY.
-  const _isDemoVault = !!(window.isDemoAgency && window.isDemoAgency());
-  const SEED_ARTIFACTS = _isDemoVault ? [
-    { id: "soa-1", kind: "SOA",        lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "scheduled" },
-    { id: "soa-2", kind: "SOA",        lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "captured"  },
-    { id: "lid-1", kind: "LeadiD",     lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:01a", retention: "13mo", status: "captured"  },
-    { id: "tf-1",  kind: "TrustedForm",lead: "Robert Mendez",  repId: "dani", date: "Today, 8:48a",  retention: "13mo", status: "captured"  },
-    { id: "rec-1", kind: "Recording",  lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "complete"  },
-    { id: "rec-2", kind: "Recording",  lead: "Robert Mendez",  repId: "dani", date: "Today, 9:02a",  retention: "10y",  status: "complete"  },
-    { id: "con-1", kind: "Consent",    lead: "Linda Cho",      repId: "marc", date: "Yesterday",     retention: "13mo", status: "captured"  },
-    { id: "tpmo-1",kind: "TPMO disc.", lead: "Cheryl Hampton", repId: "marc", date: "Today, 11:14a", retention: "10y",  status: "captured"  },
-  ] : [];
-
-  const ARTIFACTS = [...extras, ...SEED_ARTIFACTS].map(a => retentionEdits[a.id] ? { ...a, retention: retentionEdits[a.id] } : a);
-  const filtered = ARTIFACTS.filter(a => !q || (a.lead + " " + a.kind).toLowerCase().includes(q.toLowerCase()));
-
-  const submitUpload = async (form) => {
-    const newRow = {
-      id: "vault-" + Date.now(),
-      kind: form.kind, lead_name: form.lead, lead: form.lead, repId: form.repId, rep_id: form.repId,
-      date: "Just added", retention: form.retention, status: "captured",
-    };
-    try {
-      await AppData.mutate.vaultArtifactInsert({
-        kind: form.kind, lead_name: form.lead, rep_id: form.repId,
-        retention: form.retention, status: "captured"
-      });
-    } catch (_e) {}
-    setExtras(es => [newRow, ...es]);
-    setUploadOpen(false);
-    window.toast && window.toast(`Vault entry added · ${form.kind} for ${form.lead}`, "success");
+  const SUB_LABELS = {
+    coaching:  "Call recordings · coaching notes · sessions",
+    courses:   "Assignable training · progress tracking · cert library",
+    documents: "Agency docs · files · links",
+    scripts:   "Call scripts · templates · objection handling",
+    segments:  "Curated content bundles · onboarding packs · product tracks",
   };
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Compliance Vault</div>
-          <div className="page-sub">Auditor-ready · recordings, SOAs, consent · retention timer per artifact</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <input className="text-input" style={{ width: 220 }} placeholder="Search lead or kind..." value={q} onChange={(e) => setQ(e.target.value)}/>
-          {/* role==="owner": full edit. role==="manager": read-only, upload hidden. */}
-          {role === "owner" && <button className="btn btn-primary" onClick={() => setUploadOpen(true)}><Icons.Plus size={13}/> Upload artifact</button>}
-          <button className="btn" onClick={() => {
-            const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-            const orgName = meIdent?.agency_name || "Your agency";
-            const artifactCount = ARTIFACTS.length;
-            const html = `
-              <h1>Compliance Audit Pack</h1>
-              <div class="meta">${orgName} · Generated ${new Date().toLocaleDateString()}</div>
-              <p><strong>${artifactCount.toLocaleString()} artifact${artifactCount === 1 ? "" : "s"} retained</strong> in the vault.</p>
-              <table>
-                <thead><tr><th>Kind</th><th>Lead</th><th>Producer</th><th>Captured</th><th>Status</th><th>Retention</th></tr></thead>
-                <tbody>
-                ${ARTIFACTS.map(a => { const rep = repById[a.repId]; return `<tr><td>${a.kind}</td><td>${a.lead}</td><td>${rep?.name || ""}</td><td>${a.date}</td><td>${a.status}</td><td>${a.retention}</td></tr>`; }).join("")}
-                </tbody>
-              </table>`;
-            window.exportPDF && window.exportPDF("Compliance Audit Pack", html);
-          }}><Icons.ArrowUpRight size={13}/> Export audit pack</button>
+          <div className="page-title">Vault</div>
+          <div className="page-sub">{SUB_LABELS[tab]}</div>
         </div>
       </div>
-
-      <div className="kpi-row">
-        <Shared.KpiCard label="Artifacts retained" value="14,820" sub="last 13 months"/>
-        <Shared.KpiCard label="SOA capture" value="98.2%" sub="goal 95%" trend="up"/>
-        <Shared.KpiCard label="TPMO compliance" value="100%" sub="zero violations" trend="up"/>
-        <Shared.KpiCard label="Open chargebacks" value="2" sub="docs in review"/>
+      <div className="section-pill" style={{ marginBottom: 18 }}>
+        {TABS.map(t => {
+          const Ic = Icons[t.icon];
+          return (
+            <button key={t.k} className={tab === t.k ? "active" : ""} onClick={() => setTab(t.k)}>
+              {Ic && <Ic size={12} style={{ marginRight: 6, verticalAlign: "middle" }}/>}{t.l}
+            </button>
+          );
+        })}
       </div>
-
-      <div className="panel">
-        <div className="panel-h">
-          <h3>Artifacts</h3>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-            {["artifacts", "policies", "scrub"].map(t => (
-              <button key={t} onClick={() => setTab(t)} className="btn btn-ghost" style={{ padding: "3px 10px", background: tab === t ? "var(--bg-raised)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-tertiary)" }}>
-                {t === "artifacts" ? "Artifacts" : t === "policies" ? "Retention policy" : "Auto-scrub policy"}
-              </button>
-            ))}
-          </div>
-        </div>
-        {tab === "artifacts" && (
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "120px 1fr 1fr 1fr 100px 100px 30px" }}>
-              <div>Kind</div><div>Lead</div><div>Producer</div><div>Captured</div><div>Status</div><div>Retention</div><div></div>
-            </div>
-            {filtered.map(a => (
-              <div key={a.id} className="row" style={{ gridTemplateColumns: "120px 1fr 1fr 1fr 100px 100px 30px" }}>
-                <div><span className="chip">{a.kind}</span></div>
-                <div className="cell-truncate" style={{ fontWeight: 500 }}>{a.lead}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Shared.Avatar rep={repById[a.repId]} size={18}/>
-                  <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[a.repId]?.name.split(" ")[0]}</span>
-                </div>
-                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.date}</div>
-                <div><span className={`chip ${a.status === "captured" || a.status === "complete" ? "chip-money" : "chip-status"}`}>{a.status}</span></div>
-                <div>
-                  <Shared.Select value={a.retention} onChange={(v) => updateRetention(a.id, v)} options={[{ v: "13mo", l: "13mo" }, { v: "10y", l: "10y" }, { v: "indef", l: "indefinite" }]}/>
-                </div>
-                <button className="icon-btn"><Icons.ArrowUpRight size={12}/></button>
-              </div>
-            ))}
-          </div>
-        )}
-        {tab === "policies" && (
-          <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {[
-              { k: "Recording (sales)", v: "10 years post-issue", d: "CMS / state insurance dept aligned" },
-              { k: "SOA",                v: "10 years",            d: "Captured via TwentyHours, vault on issue" },
-              { k: "TPMO disclaimer",    v: "10 years",            d: "Auto-clipped from recording, indexed" },
-              { k: "LeadiD",             v: "13 months",            d: "Jornaya certificate per inbound form" },
-              { k: "TrustedForm",        v: "13 months",            d: "Certificate per outbound or web form" },
-              { k: "Consent receipt",    v: "13 months",            d: "Express consent for telemarketing under TCPA" },
-            ].map((p, i) => (
-              <div key={i} className="panel" style={{ padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{ fontSize: 13 }}>{p.k}</strong>
-                  <span className="chip">{p.v}</span>
-                </div>
-                <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 6 }}>{p.d}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        {tab === "scrub" && (
-          <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {[
-              { k: "DNC scrub",         v: "Every dial",  d: "State + federal DNC + Atlas internal opt-out checked before route" },
-              { k: "License gate",      v: "Realtime",     d: "Producer cannot dial leads in states they're not licensed in" },
-              { k: "Carrier appointment", v: "Realtime",   d: "Validated against the lead's state — pre-qual at the dialer" },
-              { k: "TPMO disclaimer",   v: "Within 8s",    d: "Auto-fires on every Med Supp connect, captured in recording" },
-              { k: "Litigator screen",  v: "Pre-dial",     d: "Known TCPA litigator history blocks the dial" },
-              { k: "Audit log",         v: "All scrubs",   d: "Result + timestamp + producer ID logged for trailing audit" },
-            ].map((p, i) => (
-              <div key={i} className="panel" style={{ padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{ fontSize: 13 }}>{p.k}</strong>
-                  <span className="chip chip-money">{p.v}</span>
-                </div>
-                <div style={{ color: "var(--text-tertiary)", fontSize: 12, marginTop: 6 }}>{p.d}</div>
-              </div>
-            ))}
-            <div style={{ gridColumn: "span 2", padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 10 }}>
-              <Icons.Shield size={14} style={{ color: "var(--accent-money)" }}/>
-              <div style={{ flex: 1 }}>Need to test a specific number, age, or zip? The interactive scrub tool lives in <strong style={{ color: "var(--text-primary)" }}>Resources</strong>.</div>
-              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" }}))}>
-                <Icons.ArrowUpRight size={11}/> Open scrubber
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {uploadOpen && <VaultUploadModal onClose={() => setUploadOpen(false)} onSubmit={submitUpload}/>}
+      {tab === "coaching"  && <VaultCoachingPane role={role}/>}
+      {tab === "courses"   && <ProductTrainingEmbedded role={role}/>}
+      {tab === "documents" && <VaultDocsPane canEdit={canEdit}/>}
+      {tab === "scripts"   && <ScriptsLibrary canEdit={canEdit}/>}
+      {tab === "segments"  && <VaultSegmentsPane isOwner={isOwner}/>}
     </div>
   );
 }
 
-function VaultUploadModal({ onClose, onSubmit }) {
-  const [form, setForm] = React.useState({ kind: "SOA", lead: "", repId: AppData.REPS[0]?.id, retention: "10y" });
-  const valid = form.lead.trim().length > 0;
+/* ── Vault: Coaching pane — recordings / notes / sessions ──────────────── */
+function VaultCoachingPane({ role }) {
+  const [sub, setSub] = React.useState("recordings");
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.addEventListener(e, fn));
+    return () => ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.removeEventListener(e, fn));
+  }, []);
+
+  const meRepId = (window.me && window.me()?.rep_id) || null;
+  const allRecs  = (window.AppData && window.AppData.RECORDINGS) || [];
+  const recordings = role === "rep" && meRepId
+    ? allRecs.filter(r => r.repId === meRepId || r.isCoachingExample)
+    : allRecs;
+  const notes    = (window.AppData && window.AppData.COACHING_NOTES)    || [];
+  const sessions = (window.AppData && window.AppData.COACHING_SESSIONS) || [];
+
+  const SUBS = [["recordings","Call Recordings"],["notes","Coaching Notes"],["sessions","Sessions"]];
   return (
-    <Shared.Modal title="Upload artifact" width={460} onClose={onClose} actions={
-      <>
-        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => valid && onSubmit(form)} disabled={!valid}><Icons.Plus size={11}/> Upload</button>
-      </>
-    }>
-      <Shared.Field label="Kind">
-        <Shared.Select value={form.kind} onChange={(v) => setForm({ ...form, kind: v })} options={["SOA","Recording","LeadiD","TrustedForm","Consent","TPMO disc.","App","Other"].map(k => ({ v: k, l: k }))}/>
-      </Shared.Field>
-      <Shared.Field label="Lead name">
-        <input className="text-input" value={form.lead} onChange={(e) => setForm({ ...form, lead: e.target.value })} placeholder="Lead full name" autoFocus/>
-      </Shared.Field>
-      <Shared.Field label="Producer">
-        <Shared.Select value={form.repId} onChange={(v) => setForm({ ...form, repId: v })} options={AppData.REPS.map(r => ({ v: r.id, l: r.name }))}/>
-      </Shared.Field>
-      <Shared.Field label="Retention">
-        <Shared.Select value={form.retention} onChange={(v) => setForm({ ...form, retention: v })} options={[{ v: "13mo", l: "13mo" }, { v: "10y", l: "10y" }, { v: "indef", l: "indefinite" }]}/>
-      </Shared.Field>
-      <div style={{ padding: 10, border: "1px dashed var(--border-strong)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 11.5, textAlign: "center" }}>
-        File-drop placeholder · binary upload would route to Supabase Storage in the multi-tenant build
+    <div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+        {SUBS.map(([k, l]) => (
+          <button key={k} onClick={() => setSub(k)} className="btn btn-ghost"
+            style={{ fontSize: 12, padding: "4px 12px", background: sub === k ? "var(--bg-raised)" : "transparent", color: sub === k ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+            {l}
+          </button>
+        ))}
       </div>
-    </Shared.Modal>
+      {sub === "recordings" && <VaultRecordingsPane recordings={recordings} role={role}/>}
+      {sub === "notes"      && <VaultNotesPane notes={notes}/>}
+      {sub === "sessions"   && <VaultSessionsPane sessions={sessions}/>}
+    </div>
+  );
+}
+
+function VaultRecordingsPane({ recordings, role }) {
+  const { REPS } = AppData;
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  const [q, setQ]               = React.useState("");
+  const [repFilter, setRepFilter] = React.useState("all");
+  const filtered = recordings.filter(r =>
+    (!q || (r.lead || "").toLowerCase().includes(q.toLowerCase())) &&
+    (repFilter === "all" || r.repId === repFilter)
+  );
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Headset size={13}/>
+        <h3>Call Recordings</h3>
+        <span className="meta">{filtered.length}</span>
+        <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search lead…" value={q} onChange={e => setQ(e.target.value)}/>
+        {role !== "rep" && REPS.length > 0 && (
+          <select className="text-input" style={{ width: 140 }} value={repFilter} onChange={e => setRepFilter(e.target.value)}>
+            <option value="all">All reps</option>
+            {REPS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{ padding: 32, textAlign: "center" }}>
+          <code className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-recordings</code>
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 130px 90px 70px 70px" }}>
+            <div>Lead</div><div>Rep</div><div>Date</div><div>Score</div><div>Duration</div>
+          </div>
+          {filtered.map(r => (
+            <div key={r.id} className="row" style={{ gridTemplateColumns: "1fr 130px 90px 70px 70px" }}>
+              <div style={{ fontWeight: 500, fontSize: 12.5 }}>{r.lead || "—"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Shared.Avatar rep={repById[r.repId]} size={16}/>
+                <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{repById[r.repId]?.name?.split(" ")[0] || "—"}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.date || "—"}</div>
+              <div>
+                {r.score != null
+                  ? <span className={`chip ${r.score >= 80 ? "chip-money" : r.score >= 60 ? "chip-status" : ""}`}>{r.score}</span>
+                  : <span style={{ color: "var(--text-quaternary)", fontSize: 11.5 }}>—</span>}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="mono">
+                {r.durSec ? `${Math.floor(r.durSec/60)}:${String(r.durSec%60).padStart(2,"0")}` : "—"}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VaultNotesPane({ notes }) {
+  return (
+    <div className="panel">
+      <div className="panel-h"><Icons.FileText size={13}/><h3>Coaching Notes</h3><span className="meta">{notes.length}</span></div>
+      {notes.length === 0 ? (
+        <div style={{ padding: 32, textAlign: "center" }}>
+          <code className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-coaching-notes</code>
+        </div>
+      ) : (
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, maxHeight: 480, overflowY: "auto" }}>
+          {notes.map(n => (
+            <div key={n.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>{n.repId || "Rep"}</span>
+                <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{n.createdAt ? new Date(n.createdAt).toLocaleDateString() : "—"}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.55 }}>{n.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VaultSessionsPane({ sessions }) {
+  return (
+    <div className="panel">
+      <div className="panel-h"><Icons.Calendar size={13}/><h3>Coaching Sessions</h3><span className="meta">{sessions.length}</span></div>
+      {sessions.length === 0 ? (
+        <div style={{ padding: 32, textAlign: "center" }}>
+          <code className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-sessions</code>
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 120px 110px 90px" }}>
+            <div>Focus</div><div>Rep</div><div>Scheduled</div><div>Status</div>
+          </div>
+          {sessions.map(s => (
+            <div key={s.id} className="row" style={{ gridTemplateColumns: "1fr 120px 110px 90px" }}>
+              <div style={{ fontWeight: 500, fontSize: 12.5 }}>{s.focusArea || "Coaching session"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{s.repId || "—"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleDateString() : "—"}</div>
+              <div><span className={`chip ${s.outcome === "completed" || s.completedAt ? "chip-money" : ""}`}>{s.completedAt ? "completed" : "scheduled"}</span></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Vault: Documents pane ─────────────────────────────────────────────── */
+function VaultDocsPane({ canEdit }) {
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.addEventListener(e, fn));
+    return () => ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.removeEventListener(e, fn));
+  }, []);
+
+  const docs = (window.AppData && window.AppData.DOCS) || [];
+  const [q, setQ]           = React.useState("");
+  const [catFilter, setCat] = React.useState("All");
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [draft, setDraft]   = React.useState({ title: "", cat: "Internal", url: "" });
+
+  const cats = ["All", ...Array.from(new Set(docs.map(d => d.cat).filter(Boolean)))];
+  const filtered = docs.filter(d =>
+    (catFilter === "All" || d.cat === catFilter) &&
+    (!q || d.title.toLowerCase().includes(q.toLowerCase()))
+  );
+
+  const addDoc = async () => {
+    const title = draft.title.trim();
+    if (!title) return;
+    const raw = draft.url.trim();
+    const safeUrl = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : "";
+    try {
+      await window.AppData.mutate.docUpsert({ title, cat: draft.cat, url: safeUrl, kind: "link" });
+      setDraft({ title: "", cat: "Internal", url: "" });
+      setAddOpen(false);
+      window.toast && window.toast("Document added", "success");
+    } catch (_e) {}
+  };
+
+  const removeDoc = async (id) => {
+    try { await window.AppData.mutate.docDelete(id); window.toast && window.toast("Removed", "info"); }
+    catch (_e) {}
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Folder size={13}/>
+        <h3>Documents</h3>
+        <span className="meta">{filtered.length} of {docs.length}</span>
+        <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search docs…" value={q} onChange={e => setQ(e.target.value)}/>
+        {canEdit && <button className="btn btn-primary" onClick={() => setAddOpen(true)}><Icons.Plus size={12}/> Add doc</button>}
+      </div>
+      <div style={{ padding: "8px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {cats.map(c => (
+          <button key={c} className="btn btn-ghost" onClick={() => setCat(c)}
+            style={{ padding: "4px 10px", fontSize: 11.5, background: catFilter===c ? "var(--bg-raised)" : "transparent", color: catFilter===c ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+            {c}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{ padding: 32, textAlign: "center" }}>
+          <code className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-documents</code>
+          {canEdit && <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>Click <strong style={{ color: "var(--text-secondary)" }}>Add doc</strong> to paste a link or import.</div>}
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 120px 80px 30px" }}>
+            <div>Title</div><div>Category</div><div>Kind</div><div></div>
+          </div>
+          {filtered.map(d => (
+            <div key={d.id} className="row" style={{ gridTemplateColumns: "1fr 120px 80px 30px" }}>
+              <div style={{ fontWeight: 500, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.FileText size={11} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                {d.url
+                  ? <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }} className="cell-truncate">{d.title}</a>
+                  : <span className="cell-truncate">{d.title}</span>}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{d.cat || "—"}</div>
+              <div><span className="chip">{d.kind || "link"}</span></div>
+              {canEdit
+                ? <button className="icon-btn" onClick={() => removeDoc(d.id)} style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                : <div/>}
+            </div>
+          ))}
+        </div>
+      )}
+      {addOpen && (
+        <Shared.Modal title="Add document" width={460} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={addDoc} disabled={!draft.title.trim()}><Icons.Plus size={11}/> Add</button>
+          </>
+        }>
+          <Shared.Field label="Title">
+            <input className="text-input" value={draft.title} onChange={e => setDraft({...draft, title: e.target.value})} placeholder="Employee handbook" autoFocus/>
+          </Shared.Field>
+          <Shared.Field label="Category">
+            <Shared.Select value={draft.cat} onChange={v => setDraft({...draft, cat: v})} options={["Internal","Training","Carrier","Compliance","Other"].map(c => ({v:c,l:c}))}/>
+          </Shared.Field>
+          <Shared.Field label="URL (optional)">
+            <input className="text-input" value={draft.url} onChange={e => setDraft({...draft, url: e.target.value})} placeholder="https://docs.google.com/…"/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+/* ── Vault: Segments pane ──────────────────────────────────────────────── */
+function VaultSegmentsPane({ isOwner }) {
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.addEventListener(e, fn));
+    return () => ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.removeEventListener(e, fn));
+  }, []);
+
+  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
+  const docs     = (window.AppData && window.AppData.DOCS)        || [];
+  const scripts  = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
+  const videos   = (window.AppData && window.AppData.VIDEOS)      || [];
+
+  const [selId, setSelId]   = React.useState(null);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [draft, setDraft]   = React.useState({ name: "", description: "" });
+
+  const sel        = segments.find(s => s.id === selId) || null;
+  const segDocs    = docs.filter(d => d.segmentId === selId);
+  const segScripts = scripts.filter(s => s.segmentId === selId);
+  const segVideos  = videos.filter(v => v.segmentId === selId);
+
+  const createSegment = async () => {
+    if (!draft.name.trim()) return;
+    try {
+      const sb       = window.getSupabase && window.getSupabase();
+      const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (!sb || !agencyId) { window.toast && window.toast("Not connected", "danger"); return; }
+      const { data, error } = await sb.from("vault_segments").insert({
+        agency_id:   agencyId,
+        name:        draft.name.trim(),
+        description: draft.description.trim() || null,
+        sort_order:  segments.length,
+      }).select().single();
+      if (error) throw error;
+      window.AppData.SEGMENTS = [...segments, {
+        id: data.id, agencyId: data.agency_id,
+        name: data.name, description: data.description || null,
+        sortOrder: data.sort_order,
+      }];
+      window.dispatchEvent(new CustomEvent("data:mutated"));
+      setDraft({ name: "", description: "" });
+      setAddOpen(false);
+      setSelId(data.id);
+      window.toast && window.toast("Segment created", "success");
+    } catch (_e) {
+      window.toast && window.toast("Failed to create segment", "danger");
+    }
+  };
+
+  const deleteSegment = async (id) => {
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) await sb.from("vault_segments").delete().eq("id", id);
+      window.AppData.SEGMENTS = segments.filter(s => s.id !== id);
+      window.dispatchEvent(new CustomEvent("data:mutated"));
+      if (selId === id) setSelId(null);
+      window.toast && window.toast("Segment removed", "info");
+    } catch (_e) {}
+  };
+
+  if (segments.length === 0 && !addOpen) {
+    return (
+      <div className="panel" style={{ padding: 40, textAlign: "center" }}>
+        <Icons.Bookmark size={22} style={{ color: "var(--text-quaternary)", marginBottom: 10 }}/>
+        <code className="mono" style={{ display: "block", fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>no-segments</code>
+        {isOwner ? (
+          <>
+            <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginBottom: 14, maxWidth: 400, margin: "0 auto 14px" }}>
+              Segments are curated content bundles. Examples: "AEP Bootcamp", "First 90 Days", "Final Expense Mastery", "Objection Handling Library".
+            </div>
+            <button className="btn btn-primary" onClick={() => setAddOpen(true)}><Icons.Plus size={12}/> Create first segment</button>
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Owner must create segments before they appear here.</div>
+        )}
+        {addOpen && (
+          <Shared.Modal title="New segment" width={440} onClose={() => setAddOpen(false)} actions={
+            <>
+              <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}><Icons.Plus size={11}/> Create</button>
+            </>
+          }>
+            <Shared.Field label="Name">
+              <input className="text-input" value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})} placeholder="AEP Bootcamp" autoFocus/>
+            </Shared.Field>
+            <Shared.Field label="Description (optional)">
+              <input className="text-input" value={draft.description} onChange={e => setDraft({...draft, description: e.target.value})} placeholder="Everything reps need for AEP season"/>
+            </Shared.Field>
+          </Shared.Modal>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 14 }}>
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Bookmark size={13}/>
+          <h3>Segments</h3>
+          {isOwner && (
+            <button className="btn btn-primary" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 11 }} onClick={() => setAddOpen(true)}>
+              <Icons.Plus size={11}/>
+            </button>
+          )}
+        </div>
+        <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {segments.map(s => (
+            <div key={s.id} onClick={() => setSelId(s.id)}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 6, cursor: "pointer",
+                background: selId === s.id ? "var(--bg-overlay)" : "var(--bg-raised)",
+                border: "1px solid var(--border-subtle)" }}>
+              <span style={{ fontWeight: 500, fontSize: 12.5, flex: 1 }}>{s.name}</span>
+              {isOwner && (
+                <button className="icon-btn" onClick={e => { e.stopPropagation(); deleteSegment(s.id); }}
+                  style={{ color: "var(--state-danger)", padding: 2, flexShrink: 0 }}>
+                  <Icons.X size={10}/>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        {!sel ? (
+          <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            Select a segment on the left.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="panel">
+              <div className="panel-h"><h3>{sel.name}</h3></div>
+              {sel.description && <div style={{ padding: "0 14px 12px", fontSize: 12.5, color: "var(--text-secondary)" }}>{sel.description}</div>}
+            </div>
+            {segDocs.length > 0 && (
+              <div className="panel">
+                <div className="panel-h"><Icons.Folder size={13}/><h3>Documents</h3><span className="meta">{segDocs.length}</span></div>
+                <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {segDocs.map(d => (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
+                      <Icons.FileText size={11} style={{ color: "var(--text-tertiary)" }}/>
+                      <span style={{ fontSize: 12.5, flex: 1 }}>{d.title}</span>
+                      {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }}><Icons.ArrowUpRight size={10}/></a>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {segScripts.length > 0 && (
+              <div className="panel">
+                <div className="panel-h"><Icons.FileText size={13}/><h3>Scripts</h3><span className="meta">{segScripts.length}</span></div>
+                <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {segScripts.map(s => (
+                    <div key={s.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <strong style={{ fontSize: 12.5 }}>{s.title}</strong>
+                        <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+                          onClick={() => navigator.clipboard?.writeText(s.body || "").then(() => window.toast && window.toast("Copied", "success"))}>
+                          <Icons.Copy size={10}/> Copy
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                        {(s.body || "").slice(0, 200)}{(s.body || "").length > 200 ? "…" : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {segVideos.length > 0 && (
+              <div className="panel">
+                <div className="panel-h"><Icons.Video size={13}/><h3>Videos</h3><span className="meta">{segVideos.length}</span></div>
+                <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+                  {segVideos.map(v => (
+                    <div key={v.id} style={{ background: "var(--bg-raised)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ position: "relative", paddingTop: "56.25%", background: "var(--bg-overlay)" }}>
+                        {v.thumb && <img src={v.thumb} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}/>}
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icons.Play size={14} style={{ color: "white" }}/>
+                        </div>
+                      </div>
+                      <div style={{ padding: "8px 10px", fontSize: 12 }}>{v.title}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {segDocs.length === 0 && segScripts.length === 0 && segVideos.length === 0 && (
+              <div className="panel" style={{ padding: 32, textAlign: "center" }}>
+                <code className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>segment-empty</code>
+                <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+                  Tag docs, scripts, or videos with this segment to populate it.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {addOpen && (
+        <Shared.Modal title="New segment" width={440} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}><Icons.Plus size={11}/> Create</button>
+          </>
+        }>
+          <Shared.Field label="Name">
+            <input className="text-input" value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})} placeholder="AEP Bootcamp" autoFocus/>
+          </Shared.Field>
+          <Shared.Field label="Description (optional)">
+            <input className="text-input" value={draft.description} onChange={e => setDraft({...draft, description: e.target.value})} placeholder="Everything reps need for AEP season"/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
+    </div>
   );
 }
 
@@ -1429,7 +1743,7 @@ function VideoLibrary({ canEdit = true }) {
   );
 }
 
-function ScriptsLibrary() {
+function ScriptsLibrary({ canEdit = true }) {
   // Agency-shared via AppData.SCRIPTS_LIB (migration 0010); seed fallback for
   // empty agencies so the page renders content immediately.
   const [, force] = React.useState(0);
@@ -1495,7 +1809,7 @@ function ScriptsLibrary() {
         <h3>Scripts library</h3>
         <span className="meta">{filtered.length} of {scripts.length}</span>
         <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search title or body…" value={q} onChange={(e) => setQ(e.target.value)}/>
-        <button className="btn btn-primary" onClick={startNew}><Icons.Plus size={12}/> New</button>
+        {canEdit && <button className="btn btn-primary" onClick={startNew}><Icons.Plus size={12}/> New</button>}
       </div>
       <div style={{ padding: "10px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
         {SCRIPT_CATS.map(c => (
@@ -1521,7 +1835,7 @@ function ScriptsLibrary() {
                 <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBody(s); }} title="Copy">
                   {copyToast === s.id ? <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/> : <Icons.Copy size={11}/>}
                 </button>
-                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>
+                {canEdit && <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>}
               </div>
             </div>
           ))}
@@ -1546,15 +1860,19 @@ function ScriptsLibrary() {
               Variables: <code style={{ fontSize: 11 }}>{`{{lead_name}}`}</code> · <code style={{ fontSize: 11 }}>{`{{rep_first}}`}</code> · <code style={{ fontSize: 11 }}>{`{{n_orgs}}`}</code> are filled at speak-time on the dialer.
             </div>
             <div style={{ marginTop: 14, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost" onClick={() => remove(open.id)} style={{ color: "var(--state-danger)" }}>
-                <Icons.X size={11}/> Delete
-              </button>
+              {canEdit && (
+                <button className="btn btn-ghost" onClick={() => remove(open.id)} style={{ color: "var(--state-danger)" }}>
+                  <Icons.X size={11}/> Delete
+                </button>
+              )}
               <button className="btn" onClick={() => copyBody(open)}>
                 {copyToast === open.id ? <><Icons.Check size={11}/> Copied</> : <><Icons.Copy size={11}/> Copy</>}
               </button>
-              <button className="btn btn-primary" onClick={() => startEdit(open)}>
-                <Icons.Edit size={11}/> Edit
-              </button>
+              {canEdit && (
+                <button className="btn btn-primary" onClick={() => startEdit(open)}>
+                  <Icons.Edit size={11}/> Edit
+                </button>
+              )}
             </div>
           </div>
         )}
