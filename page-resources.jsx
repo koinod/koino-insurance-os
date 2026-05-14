@@ -636,11 +636,13 @@ function CarriersSection({ carriers, phone, setPhone, age, setAge, zip, setZip, 
             </span>
           )}
         </div>
-        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
-          <Shared.Field label="Phone (E.164)"><input className="text-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+15125550199"/></Shared.Field>
-          <Shared.Field label="Age"><input className="text-input" type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="65"/></Shared.Field>
-          <Shared.Field label="Zip"><input className="text-input" value={zip} onChange={(e) => setZip(e.target.value)} placeholder="78704"/></Shared.Field>
-          <button className="btn btn-primary" onClick={runScrub} style={{ height: 32 }}>Run</button>
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="field-row">
+            <Shared.Field label="Phone (E.164)"><input className="text-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+15125550199"/></Shared.Field>
+            <Shared.Field label="Age"><input className="text-input" type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="65"/></Shared.Field>
+            <Shared.Field label="Zip"><input className="text-input" value={zip} onChange={(e) => setZip(e.target.value)} placeholder="78704"/></Shared.Field>
+          </div>
+          <button className="btn btn-primary" onClick={runScrub} style={{ alignSelf: "flex-start" }}>Run scrub</button>
         </div>
         {scrubResults.length > 0 && (
           <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 6 }}>

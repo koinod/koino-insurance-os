@@ -561,6 +561,10 @@ input, textarea { font-family: inherit; color: inherit; }
   border-radius: var(--radius-lg);
   overflow: hidden;
   transition: border-color 120ms var(--ease-out);
+  /* Allow panels to shrink inside multi-column grids — without min-width:0
+     a wide child (input, table row, long word) pushes the panel past its
+     grid track and the rightmost neighbor clips. */
+  min-width: 0;
 }
 .panel:hover { border-color: var(--border-strong); }
 .panel-h {
@@ -871,9 +875,20 @@ input, textarea { font-family: inherit; color: inherit; }
   display: flex; justify-content: flex-end; gap: 8px;
 }
 
-.field { display: flex; flex-direction: column; gap: 5px; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .field-l { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; }
 .field-h { font-size: 11px; color: var(--text-quaternary); }
+
+/* Auto-wrap container for rows of fields. Drop-in replacement for
+   `display: grid; gridTemplateColumns: 1fr 1fr 1fr` etc. — fields stay
+   readable at full width and wrap to fewer columns inside narrow panels
+   instead of clipping the rightmost input. */
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
 
 .text-input {
   background: var(--bg-base);
@@ -885,6 +900,13 @@ input, textarea { font-family: inherit; color: inherit; }
   font-family: var(--font-ui);
   outline: none;
   transition: border-color 120ms;
+  /* Grid/flex children default to min-content sizing — without these two
+     lines, a long placeholder like "+15125550199" pushes the cell wider
+     than its column allocation and clips the next input (the bug Ian hit
+     on the Carriers tab's ZIP field). */
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .text-input:focus { border-color: var(--accent-money); }
 .text-input[type="range"] { padding: 0; background: transparent; border: 0; }
