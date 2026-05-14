@@ -61,15 +61,14 @@
         try {
           const sb = window.getSupabase && window.getSupabase();
           if (!sb) return;
-          // Pull every active member who can serve as an upline (owner or
-          // manager). Then join in the rep name from AppData.REPS for the
-          // dropdown label. Falls back to rep_id when name unknown.
+          // Pull every active manager who can serve as an upline. Reps always
+          // nest under a manager; invited managers can also nest under a manager.
           const { data, error } = await sb
             .from("agency_members")
             .select("rep_id, role")
             .eq("agency_id", me.agency_id)
             .eq("active", true)
-            .in("role", ["owner", "manager"]);
+            .in("role", ["manager", "super_admin"]);
           if (error || cancelled) return;
           const repsById = Object.fromEntries(((window.AppData && window.AppData.REPS) || []).map(r => [r.id, r]));
           setEligibleUplines((data || [])
@@ -86,8 +85,8 @@
 
     React.useEffect(() => {
       if (!me) return;
-      if (role === "rep") setUplineRepId(me.rep_id || "");
-      else if (role === "manager") setUplineRepId(""); // null upline at mint
+      // Both rep and manager invites default upline to the current user.
+      setUplineRepId(me.rep_id || "");
     }, [role, me?.rep_id]);
 
     if (!me) {
@@ -97,7 +96,7 @@
         </div>
       );
     }
-    if (me.role !== "owner" && me.role !== "manager" && me.role !== "admin") {
+    if (me.role !== "manager" && me.role !== "super_admin") {
       return null;
     }
     if (!authedJwt && !me.is_demo) {
@@ -109,7 +108,7 @@
       setBusy(true); setErrMsg(""); setLink(null);
       try {
         const jwt = await getJwt();
-        if (!jwt) throw new Error("Not signed in. Sign in as owner/manager first.");
+        if (!jwt) throw new Error("Not signed in. Sign in as a manager first.");
         const body = {
           agency_id: me.agency_id,
           role,
@@ -142,33 +141,27 @@
         </div>
         {isDemoViewer && (
           <div style={{ margin: "12px 14px 0", padding: 10, background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)", borderRadius: 6, color: "var(--state-warning)", fontSize: 12, lineHeight: 1.5 }}>
-            <Icons.Shield size={12}/> You're viewing as the demo owner — invites won't persist. Sign in with your real email to mint links that actually work.
+            <Icons.Shield size={12}/> You're in demo mode — invites won't persist. Sign in with your real email to mint links that actually work.
           </div>
         )}
-        <div style={{ padding: 14, display: "grid", gridTemplateColumns: me.role === "owner" ? "120px 1fr 1fr 140px" : "120px 1fr 140px", gap: 10, alignItems: "end" }}>
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "120px 1fr 1fr 140px", gap: 10, alignItems: "end" }}>
           <Shared.Field label="Role">
             <Shared.Select
               value={role}
               onChange={setRole}
-              options={
-                me.role === "owner"
-                  ? [{ v: "rep", l: "Producer (Rep)" }, { v: "manager", l: "Manager" }]
-                  : [{ v: "rep", l: "Producer (Rep)" }]
-              }
+              options={[{ v: "rep", l: "Producer (Rep)" }, { v: "manager", l: "Manager" }]}
             />
           </Shared.Field>
-          {me.role === "owner" && role === "rep" && (
-            <Shared.Field label="Upline (manager or owner)">
-              <Shared.Select
-                value={uplineRepId || me.rep_id}
-                onChange={setUplineRepId}
-                options={[
-                  { v: me.rep_id, l: `${me.full_name || "You"} (you · ${me.role})` },
-                  ...eligibleUplines.filter(r => r.id !== me.rep_id).map(r => ({ v: r.id, l: `${r.name} · ${r.role}` })),
-                ]}
-              />
-            </Shared.Field>
-          )}
+          <Shared.Field label="Upline (reports to)">
+            <Shared.Select
+              value={uplineRepId || me.rep_id}
+              onChange={setUplineRepId}
+              options={[
+                { v: me.rep_id, l: `${me.full_name || "You"} (you)` },
+                ...eligibleUplines.filter(r => r.id !== me.rep_id).map(r => ({ v: r.id, l: r.name })),
+              ]}
+            />
+          </Shared.Field>
           <Shared.Field label="Email (optional hint)">
             <input className="text-input" value={emailHint} onChange={(e) => setEmailHint(e.target.value)} placeholder="zay@example.com"/>
           </Shared.Field>
