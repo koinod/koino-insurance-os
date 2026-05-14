@@ -58,6 +58,9 @@ LOG_PATH = CONFIG_DIR / "agent.log"
 POLL_INTERVAL_SEC = 3
 SUPABASE_URL = os.environ.get("KOINO_SUPABASE_URL", "https://jfphwmzwteermalzwojp.supabase.co")
 SUPABASE_ANON = os.environ.get("KOINO_SUPABASE_ANON", "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr")
+# Where /api/carrier-recommend lives. Defaults to the production OS host;
+# override via KOINO_API_BASE for local dev.
+API_BASE = os.environ.get("KOINO_API_BASE", "https://os.koino.capital")
 
 # How long to wait, in seconds, for the human to complete a login during a
 # headed capture. 5 min covers most MFA flows; can be overridden per request
@@ -413,6 +416,51 @@ def inspect_form(carrier_id: str, scraper, settings: dict, payload: dict | None 
             pass
 
 
+# ─── Carrier recommendation ────────────────────────────────────────────────
+
+
+def recommend_carrier_order(case: dict, candidate_carriers: list[str]) -> tuple[list[str], list[str]]:
+    """Call /api/carrier-recommend to get optimal login order for `case`.
+
+    Returns (ordered, declined). `ordered` is the subset of `candidate_carriers`
+    sorted by quote_priority + commission. `declined` are carriers the
+    recommend API said will reject the case (we still log a row so the rep
+    sees why).
+
+    On error or empty response, returns (candidate_carriers, []) — fail open
+    so the autoquoter still runs the rep's enabled list.
+    """
+    try:
+        import requests as _r
+        resp = _r.post(
+            f"{API_BASE}/api/carrier-recommend",
+            headers={"content-type": "application/json"},
+            data=json.dumps(case),
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return candidate_carriers, []
+        data = resp.json()
+    except Exception as e:
+        log(f"recommend call failed: {e} — falling back to full carrier list")
+        return candidate_carriers, []
+
+    candidate_set = set(candidate_carriers)
+    ordered = [
+        r["carrier_id"] for r in (data.get("ranked") or [])
+        if r.get("carrier_id") in candidate_set
+    ]
+    declined = [
+        r["carrier_id"] for r in (data.get("declined") or [])
+        if r.get("carrier_id") in candidate_set
+    ]
+    # Append any candidates not mentioned by the recommender at the tail —
+    # we'd rather over-quote than skip.
+    seen = set(ordered) | set(declined)
+    tail = [c for c in candidate_carriers if c not in seen]
+    return ordered + tail, declined
+
+
 # ─── Quote flow ─────────────────────────────────────────────────────────────
 
 
@@ -423,9 +471,29 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
     headless = bool(settings.get("headless", True))
     rep_id = req.get("rep_id") or settings.get("rep_id")
 
+    # If the request includes a `case_payload` for /api/carrier-recommend,
+    # use it to reorder + prune the carrier list. Skips dead-end logins
+    # entirely and tries best-fit carriers first.
+    case_payload = req.get("case_payload") or profile.get("case_payload")
+    declined_carriers: list[str] = []
+    if case_payload:
+        ordered, declined_carriers = recommend_carrier_order(case_payload, enabled_carriers)
+        if ordered:
+            log(f"QUOTE {req_id}: recommend reordered → {ordered} (declined: {declined_carriers})")
+            enabled_carriers = ordered
+
     log(f"QUOTE {req_id}: profile age={profile.get('age')} state={profile.get('state')} carriers={enabled_carriers}")
 
     supabase_patch("auto_quote_requests", {"status": "running", "started_at": now_iso()}, {"id": f"eq.{req_id}"})
+
+    # Surface recommend-declined carriers as result rows so the rep sees
+    # *why* we skipped them, instead of them silently disappearing.
+    for carrier_id in declined_carriers:
+        supabase_insert("auto_quote_results", {
+            "request_id": req_id, "carrier_id": carrier_id,
+            "status": "decline",
+            "error": "Pre-filtered by carrier-recommend (carrier won't write this risk).",
+        })
 
     for carrier_id in enabled_carriers:
         scraper = scrapers.get(carrier_id)
