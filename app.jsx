@@ -1,7 +1,7 @@
 const { useState, useEffect, useMemo } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "role": "owner",
+  "role": "manager",
   "page": "today",
   "density": "comfortable",
   "aiRail": false,
@@ -79,10 +79,10 @@ function App() {
           .limit(1).single();
         if (cancelled) return;
         if (meRow?.role) {
-          // Collapse retired roles onto owner so DB rows with role='admin' /
-          // 'imo_owner' / 'super_admin' don't ghost-mount the killed surface.
-          const RETIRED = new Set(["admin", "imo_owner", "super_admin"]);
-          const effective = RETIRED.has(meRow.role) ? "owner" : meRow.role;
+          // "owner" and legacy roles collapse to manager. super_admin keeps its
+          // own role so it gets the admin tab in its NAV.
+          const RETIRED = new Set(["admin", "imo_owner", "owner"]);
+          const effective = RETIRED.has(meRow.role) ? "manager" : meRow.role;
           if (effective !== role) {
             window.__authRole = effective;
             setTweak("role", effective);
@@ -156,16 +156,18 @@ function App() {
       case "book":        return <PageBook/>;
       case "recruiting":  return <PageRecruiting role={role}/>;
       case "settings":    return <PageSettings role={role}/>;
-      // admin surfaces decommissioned — all 7 routes fall through to the
-      // owner P&L page so deep links from old emails/notifications don't 404.
-      // Removed: PagePlatformAdmin, NAV.admin, NAV.imo_owner.
-      case "admin":
+      // admin: super_admin gets the real PageAdmin panel; everyone else falls
+      // through to Today so old deep links don't 404.
+      case "admin":       return (() => {
+        if (role === "super_admin") { const P = window.PageAdmin; return P ? <P role={role}/> : <PageStub title="Admin" sub=""/>; }
+        return <PageToday aep={aepMode} role={role}/>;
+      })();
       case "platform":
       case "agencies":
       case "users":
       case "billing":
       case "audit":
-      case "system":      return (() => { const P = window.PagePnL; return P ? <P/> : <PageStub title="Page" sub=""/>; })();
+      case "system":      return <PageToday aep={aepMode} role={role}/>;
       case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
       case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
 
@@ -194,7 +196,7 @@ function App() {
   }, [page, mobile, aepMode, role]);
 
   const crumbs = useMemo(() => {
-    const role_ = { rep: "Rep", manager: "Manager", owner: "Owner" }[role];
+    const role_ = { rep: "Rep", manager: "Manager", super_admin: "Admin" }[role] || "Manager";
     const item = [...Shared.NAV[role], ...Shared.NAV.ops].find(i => i.id === page);
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const agencyName = meIdent?.agency_name || "Agency";
@@ -242,7 +244,7 @@ function App() {
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="View"/>
-        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"owner",label:"Owner"}]} onChange={(v) => setTweak("role", v)}/>
+        <TweakRadio label="Role" value={role} options={[{value:"rep",label:"Rep"},{value:"manager",label:"Mgr"},{value:"super_admin",label:"Admin"}]} onChange={(v) => setTweak("role", v)}/>
         <TweakSelect label="Page" value={page} options={[
           ...Shared.NAV[role].map(i => ({ value: i.id, label: i.label })),
           ...Shared.NAV.ops.map(i => ({ value: i.id, label: `Ops · ${i.label}` }))

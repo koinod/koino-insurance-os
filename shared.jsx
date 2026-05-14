@@ -75,23 +75,12 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "library",     label: "Library",      icon: "Book" },
   ],
-  // Unified nav 2026-05-13: manager + owner see identical sidebar items.
-  // Role-aware visibility is enforced inside each page component via `role` prop.
-  // manager: Client Book scoped to own team; Lead Drip vendors tab hidden;
-  //          Vault upload button hidden; Floor scoped to own team.
-  // owner: full access to all features across all tabs.
-  // Old sidebar-only routes (pnl, org, pay, expenses, auto-quoter, etc.) still
-  // resolve in app.jsx for deep-link back-compat.
+  // Single manager role 2026-05-14: "owner" is gone. Managers can have reps
+  // and other managers under them (nested tree). Role-aware visibility inside
+  // each page component via `role` prop.
+  // Old sidebar-only routes (pnl, org, pay, etc.) still resolve in app.jsx
+  // for deep-link back-compat.
   manager: [
-    { id: "today",    label: "Today",       icon: "Home" },
-    { id: "book",     label: "Client Book", icon: "Activity" },
-    { id: "crm",      label: "CRM",         icon: "Users" },
-    { id: "leaddrip", label: "Lead Drip",   icon: "Bolt" },
-    { id: "quote",    label: "Quote Tool",  icon: "Sparkles" },
-    { id: "vault",    label: "Vault",       icon: "Folder" },
-    { id: "floor",    label: "Floor",       icon: "Phone" },
-  ],
-  owner: [
     { id: "today",    label: "Today",       icon: "Home" },
     { id: "book",     label: "Client Book", icon: "Activity" },
     { id: "crm",      label: "CRM",         icon: "Users" },
@@ -105,14 +94,16 @@ const NAV = {
   ],
 };
 
-// ─── admin / imo_owner / super_admin all collapse onto the owner experience.
-// The dedicated admin / platform-admin surfaces were decommissioned in 34dcba4
-// (kill admin/imo, merge owner+manager). Internal team (super_admin) operates
-// from owner nav too — RLS in Supabase grants cross-agency reads when the
-// row is is_platform_admin, no separate UI is needed.
-NAV.admin       = NAV.owner;
-NAV.imo_owner   = NAV.owner;
-NAV.super_admin = NAV.owner;
+// ─── Role aliases & super_admin panel ────────────────────────────────────────
+// "owner" and other legacy roles collapse to manager in the UI.
+// super_admin keeps its own NAV which is manager + an Admin tab.
+NAV.owner       = NAV.manager;   // back-compat for any DB rows with role='owner'
+NAV.admin       = NAV.manager;
+NAV.imo_owner   = NAV.manager;
+NAV.super_admin = [
+  ...NAV.manager,
+  { id: "admin", label: "Admin", icon: "Shield" },
+];
 
 const SidebarBrand = () => {
   const [, force] = useState(0);
@@ -152,9 +143,9 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
       {(window.isSuperAdmin() || window.isDemoAgency()) && (
         <div className="role-switch">
-          {["rep","manager","owner"].map(r => (
+          {["rep","manager","super_admin"].map(r => (
             <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Owner"}
+              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Admin"}
             </button>
           ))}
         </div>
