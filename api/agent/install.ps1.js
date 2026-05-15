@@ -185,10 +185,8 @@ Start-ScheduledTask -TaskName $taskName
 
 # ── 7. First heartbeat ────────────────────────────────────────────────
 try {
-  Invoke-RestMethod -Uri "$ApiBase/api/agent/heartbeat" -Method POST `
-    -Headers @{ 'x-agent-token' = $redeem.agent_token } `
-    -Body (@{ version = '0.2.0'; status = 'active' } | ConvertTo-Json -Compress) `
-    -ContentType 'application/json' | Out-Null
+  $hbBody = (@{ version = '0.2.0'; status = 'active' } | ConvertTo-Json -Compress)
+  Invoke-RestMethod -Uri "$ApiBase/api/agent/heartbeat" -Method POST -Headers @{ 'x-agent-token' = $redeem.agent_token } -Body $hbBody -ContentType 'application/json' | Out-Null
 } catch {}
 
 Write-Host ""
