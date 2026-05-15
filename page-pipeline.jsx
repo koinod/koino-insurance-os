@@ -621,13 +621,26 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
             const agencyName = meIdent?.agency_name || "your agency";
             window.generateSOAPdf && window.generateSOAPdf(lead, agencyName);
           }}><Icons.Shield size={12}/> SOA</button>
-          <button className="btn btn-primary" disabled={!phone.trim()}
-            title={phone.trim() ? `Call ${phone} via your installed agent` : "Add phone first"}
-            onClick={() => phone.trim() && (window.repflowDialViaAgent
-              ? window.repflowDialViaAgent({ lead_id: lead.id, lead_name: lead.lead, to_number: phone.trim() })
-              : window.repflowCall && window.repflowCall(phone.trim(), lead.lead))}>
-            <Icons.Phone size={12}/> Call now
-          </button>
+          <div style={{ display: "inline-flex", gap: 4, alignItems: "stretch" }}>
+            {window.RepflowDialCountSelect && (() => {
+              const S = window.RepflowDialCountSelect; return <S/>;
+            })()}
+            <button className="btn btn-primary" disabled={!phone.trim()}
+              title={phone.trim() ? `Call ${phone} via your installed agent (uses the N× setting). Stop button appears bottom-right while multi-dial runs.` : "Add phone first"}
+              onClick={() => {
+                if (!phone.trim()) return;
+                const s = window.repflowDialSettings || {};
+                if (window.repflowDialViaAgent) {
+                  return window.repflowDialViaAgent({
+                    lead_id: lead.id, lead_name: lead.lead, to_number: phone.trim(),
+                    dial_count: s.count || 1, dial_interval_seconds: s.intervalSec || 15,
+                  });
+                }
+                return window.repflowCall && window.repflowCall(phone.trim(), lead.lead);
+              }}>
+              <Icons.Phone size={12}/> Call now
+            </button>
+          </div>
         </div>
       </aside>
 

@@ -248,6 +248,7 @@ function App() {
 
       <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
       {(() => { const T = window.ToastHost; return T ? <T/> : null; })()}
+      {(() => { const D = window.RepflowDialMonitor; return D ? <D/> : null; })()}
       {(() => { const O = window.OnboardingTour; return O ? <O/> : null; })()}
       {(() => { const NP = window.PerAgencyNotificationsPanel || NotificationsPanel; return <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>; })()}
       {window.AutoDialBar && (() => { const A = window.AutoDialBar; return <A/>; })()}

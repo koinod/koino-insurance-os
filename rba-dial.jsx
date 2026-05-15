@@ -1,14 +1,29 @@
 /* rba-dial.jsx — global dial-via-agent helper.
  *
- * Exposes window.repflowDialViaAgent({ lead_id, lead_name, to_number, provider? })
- * which:
- *   1. POSTs /api/agent/dispatch-dial with the lead context
- *   2. Toasts the queue state with the typed `code` from the API on failure
- *   3. Polls /api/agent/command-result every 2s until status terminal
- *   4. Toasts the agent's actual response (with method_used, dialed digits, etc.)
+ * Exposes:
+ *   window.repflowDialViaAgent({ lead_id, lead_name, to_number, provider?,
+ *                                 dial_count?, dial_interval_seconds?, method? })
+ *     1. POSTs /api/agent/dispatch-dial with the lead context
+ *     2. Toasts the queue state with the typed `code` from the API on failure
+ *     3. Registers the in-flight dial in window.repflowActiveDials so the
+ *        DialMonitor renders an attempt counter + Stop button
+ *     4. Polls /api/agent/command-result every 2s until status terminal
+ *     5. Toasts the agent's actual response on terminal status
+ *
+ *   window.repflowCancelDial(command_id) — POST /api/agent/dispatch-cancel-dial
+ *     so the agent's multi-dial loop halts mid-sequence.
+ *
+ *   window.repflowDialSettings — { count, intervalSec } default applied when
+ *     a Call surface doesn't specify count/interval. UI controls mutate this.
+ *
+ *   window.repflowActiveDials — Map<command_id, {to_number, lead_name, count,
+ *     interval, attempt, status, started_at}> driving the DialMonitor render.
+ *
+ *   window.RepflowDialMonitor — React component, mount next to ToastHost.
  *
  * Mounted globally from app.jsx (window.RBADialBootstrap component, side-effect
- * registers the helper on first render). No UI of its own — pure plumbing.
+ * registers the helper on first render). No UI of its own — pure plumbing
+ * plus an opt-in monitor component.
  *
  * Replaces the legacy `window.repflowCall(phone, name)` for the LeadDetail
  * Call button. The button falls back to repflowCall if this helper is missing
@@ -18,7 +33,7 @@
 (function () {
 
 const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS  = 5 * 60 * 1000;
+const POLL_TIMEOUT_MS  = 10 * 60 * 1000;   // multi-dial 5×@120s = 10min worst case
 
 const FRIENDLY_CODE = {
   no_auth:                "Sign in first.",
@@ -33,6 +48,35 @@ const FRIENDLY_CODE = {
   lead_not_found:         "Lead not found (try refresh).",
   lead_other_tenant:      "That lead belongs to a different agency.",
 };
+
+// User-mutable defaults for count + interval. The UI Call buttons can read
+// + update these, OR pass per-click overrides to repflowDialViaAgent.
+window.repflowDialSettings = window.repflowDialSettings || { count: 1, intervalSec: 15 };
+
+// Map<command_id, dialState>. dialState shape:
+//   { to_number, lead_name, count, interval, attempt, status,
+//     started_at, error, method_used, last_poll_at }
+// Status: 'queued' | 'claimed' | 'dialing' | 'sleeping' | 'succeeded' | 'failed' | 'expired' | 'cancelling' | 'cancelled' | 'timeout'
+window.repflowActiveDials = window.repflowActiveDials || new Map();
+const dialMonitorListeners = new Set();
+function notifyMonitor() { dialMonitorListeners.forEach(fn => { try { fn(); } catch {} }); }
+
+function setDialState(commandId, patch) {
+  const cur = window.repflowActiveDials.get(commandId) || {};
+  window.repflowActiveDials.set(commandId, { ...cur, ...patch, last_poll_at: Date.now() });
+  notifyMonitor();
+}
+function clearDialState(commandId, finalStatus, lingerMs = 8000) {
+  // Keep terminal entry visible briefly so the user sees the result, then drop.
+  const cur = window.repflowActiveDials.get(commandId);
+  if (!cur) return;
+  window.repflowActiveDials.set(commandId, { ...cur, status: finalStatus, last_poll_at: Date.now() });
+  notifyMonitor();
+  setTimeout(() => {
+    window.repflowActiveDials.delete(commandId);
+    notifyMonitor();
+  }, lingerMs);
+}
 
 async function jwt() {
   const sb = window.getSupabase && window.getSupabase();
@@ -51,9 +95,12 @@ async function dispatch(args) {
     method: "POST",
     headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
     body: JSON.stringify({
-      lead_id: args.lead_id || null,
-      to_number: args.to_number || null,
-      provider: args.provider || null,
+      lead_id:     args.lead_id || null,
+      to_number:   args.to_number || null,
+      provider:    args.provider || null,
+      dial_count:  args.dial_count || undefined,
+      dial_interval_seconds: args.dial_interval_seconds || undefined,
+      method:      args.method || undefined,
     }),
   });
   let body = null;
@@ -78,6 +125,13 @@ async function pollResult(commandId) {
     const body = await r.json();
     const cmd = body?.command;
     if (!cmd) continue;
+    // Update monitor with intermediate progress where we can. The agent
+    // doesn't currently push per-attempt status, but `status` (queued →
+    // claimed → succeeded/failed) is available, and final result has the
+    // attempts[] array.
+    if (cmd.status && cmd.status !== "succeeded" && cmd.status !== "failed" && cmd.status !== "expired") {
+      setDialState(commandId, { status: cmd.status });
+    }
     if (cmd.status === "succeeded" || cmd.status === "failed" || cmd.status === "expired") {
       return cmd;
     }
@@ -85,21 +139,35 @@ async function pollResult(commandId) {
   return { status: "timeout" };
 }
 
+window.repflowCancelDial = async function (commandId) {
+  if (!commandId) return false;
+  const t = await jwt();
+  if (!t) {
+    window.toast && window.toast("Sign in to cancel.", "error");
+    return false;
+  }
+  setDialState(commandId, { status: "cancelling" });
+  const r = await fetch("/api/agent/dispatch-cancel-dial", {
+    method: "POST",
+    headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
+    body: JSON.stringify({ dial_command_id: commandId }),
+  });
+  let body = null; try { body = await r.json(); } catch {}
+  if (!r.ok) {
+    window.toast && window.toast(`Stop: ${body?.error || `HTTP ${r.status}`}`, "error");
+    setDialState(commandId, { status: "claimed" });   // revert visual
+    return false;
+  }
+  window.toast && window.toast(`Stop queued — agent will halt before next attempt.`, "info");
+  return true;
+};
+
 // Hijack the existing global `repflowCall(phone, leadName)` so EVERY surface
 // that already calls it — page-crm modal, page-floor, page-queue, autodialer,
-// owner page, tenant page — automatically routes through the agent dispatch.
-// Original implementation preserved as window.repflowCallLegacy.
-//
-// Three install attempts (defense-in-depth, since other scripts may also
-// (re)define window.repflowCall):
-//   1. Immediately on script load (this script tag is placed AFTER app.js
-//      in index.html so it usually wins).
-//   2. On window.load — catches any module that defines repflowCall after
-//      DOMContentLoaded.
-//   3. Periodic re-check for the first 30s — catches lazy modules.
+// owner page, tenant page — automatically routes through the agent dispatch
+// using window.repflowDialSettings as the count/interval default.
 function installHijack() {
   const cur = window.repflowCall;
-  // Already wrapped — done.
   if (cur && cur.__rbaWrapped) return;
   if (typeof cur === "function") window.repflowCallLegacy = cur;
   function wrapped(phone, leadName, opts) {
@@ -110,11 +178,15 @@ function installHijack() {
       window.toast && window.toast("Dial: agent helper missing.", "error");
       return;
     }
+    const s = window.repflowDialSettings || {};
     return window.repflowDialViaAgent({
       lead_id:   (opts && opts.lead_id)   || null,
       lead_name: leadName,
       to_number: phone,
       provider:  (opts && opts.provider)  || null,
+      dial_count:            (opts && opts.dial_count)            || s.count || 1,
+      dial_interval_seconds: (opts && opts.dial_interval_seconds) || s.intervalSec || 15,
+      method:    (opts && opts.method)    || null,
     });
   }
   wrapped.__rbaWrapped = true;
@@ -126,41 +198,67 @@ if (typeof window !== "undefined") {
   let _ticks = 0;
   const _t = setInterval(() => {
     installHijack();
-    if (++_ticks >= 15) clearInterval(_t);   // 30s of catch-up
+    if (++_ticks >= 15) clearInterval(_t);
   }, 2000);
 }
 
 window.repflowDialViaAgent = async function (args) {
-  // args: { lead_id, lead_name, to_number, provider? }
   const targetLabel = args.lead_name ? ` (${args.lead_name})` : "";
-  window.toast && window.toast(`Queuing dial to ${args.to_number}${targetLabel}…`, "info");
-  const queued = await dispatch(args);
+  const count    = Math.max(1, Math.min(5, parseInt(args.dial_count, 10) || 1));
+  const interval = Math.max(5, Math.min(120, parseInt(args.dial_interval_seconds, 10) || 15));
+  const multiTag = count > 1 ? ` (${count}× every ${interval}s)` : "";
+  window.toast && window.toast(`Queuing dial to ${args.to_number}${targetLabel}${multiTag}…`, "info");
+  const queued = await dispatch({ ...args, dial_count: count, dial_interval_seconds: interval });
   if (!queued) return;
+  // Register in monitor so the DialMonitor renders a Stop button.
+  setDialState(queued.command_id, {
+    to_number:  queued.to_number || args.to_number,
+    lead_name:  args.lead_name || null,
+    count, interval,
+    attempt:    0,
+    status:     "queued",
+    started_at: Date.now(),
+  });
   window.toast && window.toast(
     `Agent received command (${queued.kind}, provider: ${queued.provider}). Waiting for result…`,
     "info"
   );
   const final = await pollResult(queued.command_id);
-  if (!final) return;
+  if (!final) { clearDialState(queued.command_id, "failed"); return; }
   if (final.status === "timeout") {
-    window.toast && window.toast(`Dial: agent didn't respond in 5 min. Check Settings → Agents → device status.`, "warn");
+    window.toast && window.toast(`Dial: agent didn't respond in 10 min. Check Settings → Agents → device status.`, "warn");
+    clearDialState(queued.command_id, "timeout");
     return;
   }
   if (final.status === "failed") {
     const msg = final.error || "agent reported failure";
     window.toast && window.toast(`Dial failed: ${String(msg).slice(0, 200)}`, "error");
+    clearDialState(queued.command_id, "failed");
     return;
   }
   if (final.status === "expired") {
     window.toast && window.toast(`Dial: command expired before agent claimed it (offline?).`, "warn");
+    clearDialState(queued.command_id, "expired");
     return;
   }
   // succeeded
   const r = final.result || {};
   const inner = r.status || "ok";
-  if (inner === "dialed_via_phone_link") {
+  setDialState(queued.command_id, {
+    attempt: (r.attempts && r.attempts.length) || count,
+    method_used: r.method_used,
+    status: r.cancelled ? "cancelled" : inner,
+  });
+  if (inner === "cancelled" || r.cancelled) {
     window.toast && window.toast(
-      `Dialed ${r.to_number || args.to_number} via Phone Link (${r.method_used || "?"}). Check your paired phone.`,
+      `Dial cancelled after ${(r.attempts && r.attempts.length) || 0} of ${count} attempts.`,
+      "info"
+    );
+  } else if (inner === "dialed_via_phone_link") {
+    const n = (r.attempts && r.attempts.length) || 1;
+    const pluralTag = n > 1 ? ` (${n}× attempts)` : "";
+    window.toast && window.toast(
+      `Dialed ${r.to_number || args.to_number} via Phone Link${pluralTag}, method: ${r.method_used || "?"}. Check your paired phone.`,
       "success"
     );
   } else if (inner === "phone_link_window_not_found" || inner === "no_handler" || inner === "uia_failed") {
@@ -170,6 +268,102 @@ window.repflowDialViaAgent = async function (args) {
   } else {
     window.toast && window.toast(`Dial: ${inner}`, "success");
   }
+  clearDialState(queued.command_id, r.cancelled ? "cancelled" : inner);
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   DialMonitor — fixed-position pill stack showing each in-flight dial with
+   attempt counter + Stop button. Mount once at app root.
+   ────────────────────────────────────────────────────────────────────────── */
+window.RepflowDialMonitor = function () {
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    dialMonitorListeners.add(fn);
+    return () => dialMonitorListeners.delete(fn);
+  }, []);
+  const dials = Array.from(window.repflowActiveDials.entries());
+  if (dials.length === 0) return null;
+  const styleHost = {
+    position: "fixed", right: 16, bottom: 16, zIndex: 9999,
+    display: "flex", flexDirection: "column", gap: 6,
+    fontFamily: "ui-sans-serif,system-ui,sans-serif", fontSize: 12,
+  };
+  const stopColor   = { background: "#7f1d1d", color: "#fff" };
+  const goingColor  = { background: "#0f172a", color: "#e2e8f0", borderColor: "#1e293b" };
+  const doneColor   = { background: "#064e3b", color: "#d1fae5", borderColor: "#065f46" };
+  const errColor    = { background: "#7f1d1d", color: "#fee2e2", borderColor: "#991b1b" };
+  return (
+    <div style={styleHost}>
+      {dials.map(([id, d]) => {
+        const isGoing = ["queued","claimed","dialing","sleeping","cancelling"].includes(d.status);
+        const isDone  = ["succeeded","dialed_via_phone_link"].includes(d.status);
+        const isErr   = ["failed","expired","timeout"].includes(d.status);
+        const isCancl = d.status === "cancelled";
+        const palette = isErr ? errColor : isDone ? doneColor : isCancl ? errColor : goingColor;
+        const label   = d.lead_name || d.to_number || "dial";
+        const sub     = `${d.attempt || 0}/${d.count || 1} · ${d.status}`;
+        return (
+          <div key={id} style={{
+            ...palette,
+            padding: "8px 10px", borderRadius: 8, minWidth: 240,
+            border: `1px solid ${palette.borderColor || "#1e293b"}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+          }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {label} · {d.to_number}
+              </div>
+              <div style={{ opacity: 0.7, fontSize: 11 }}>{sub}{d.method_used ? ` · ${d.method_used}` : ""}</div>
+            </div>
+            {isGoing && d.count > 1 && (
+              <button
+                onClick={() => window.repflowCancelDial(id)}
+                disabled={d.status === "cancelling"}
+                style={{
+                  marginLeft: 10, padding: "4px 10px", borderRadius: 6,
+                  border: "1px solid #b91c1c", cursor: d.status === "cancelling" ? "not-allowed" : "pointer",
+                  ...stopColor,
+                  opacity: d.status === "cancelling" ? 0.5 : 1,
+                }}>
+                {d.status === "cancelling" ? "Stopping…" : "Stop"}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   DialCountSelect — small select for "Try N×" alongside Call buttons.
+   Reads/writes window.repflowDialSettings.count globally.
+   ────────────────────────────────────────────────────────────────────────── */
+window.RepflowDialCountSelect = function () {
+  const [n, setN] = React.useState((window.repflowDialSettings && window.repflowDialSettings.count) || 1);
+  React.useEffect(() => {
+    window.repflowDialSettings = window.repflowDialSettings || { count: 1, intervalSec: 15 };
+    window.repflowDialSettings.count = n;
+  }, [n]);
+  return (
+    <select
+      value={n}
+      onChange={(e) => setN(parseInt(e.target.value, 10))}
+      title="How many times should the agent try this number? Click Stop in the bottom-right monitor to halt mid-sequence."
+      style={{
+        padding: "4px 6px", borderRadius: 6, border: "1px solid #334155",
+        background: "#0f172a", color: "#e2e8f0", fontSize: 12, cursor: "pointer",
+      }}
+    >
+      <option value={1}>1×</option>
+      <option value={2}>2×</option>
+      <option value={3}>3×</option>
+      <option value={4}>4×</option>
+      <option value={5}>5×</option>
+    </select>
+  );
 };
 
 })();
