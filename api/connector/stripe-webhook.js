@@ -6,9 +6,28 @@
 //   • invoice.paid                               → automation_fire(payment_succeeded)
 //   • customer.subscription.deleted              → automation_fire(churn)  (future)
 //
-// Match to lead via customer.email. No Stripe signature verification yet
-// (TODO: verify Stripe-Signature header against STRIPE_WEBHOOK_SECRET).
+// Match to lead via customer.email. Verifies Stripe-Signature header
+// against STRIPE_WEBHOOK_SECRET (HMAC-SHA256 of timestamp.body).
 import { SUPA_URL, SERVICE, cors } from "../agent/_lib.js";
+
+// Stripe signs with HMAC-SHA256: t=<unix>,v1=<sig>...
+async function verifyStripeSig(rawBody, header, secret) {
+  if (!secret) return true;  // no secret configured → skip in dev
+  if (!header) return false;
+  const parts = Object.fromEntries(header.split(",").map(kv => kv.split("=", 2)));
+  const t = parts.t; const v1 = parts.v1;
+  if (!t || !v1) return false;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${rawBody}`));
+  const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+  // Constant-time-ish compare
+  if (hex.length !== v1.length) return false;
+  let r = 0;
+  for (let i = 0; i < hex.length; i++) r |= hex.charCodeAt(i) ^ v1.charCodeAt(i);
+  return r === 0;
+}
 
 export const config = { runtime: "edge" };
 
@@ -35,8 +54,14 @@ export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
+  // Stripe requires signature verification on the RAW body — read once.
+  const raw = await req.text();
+  const sig = req.headers.get("stripe-signature");
+  const ok  = await verifyStripeSig(raw, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  if (!ok) return new Response(JSON.stringify({ error: "bad signature" }), { status: 401, headers: cors() });
+
   let event;
-  try { event = await req.json(); }
+  try { event = JSON.parse(raw); }
   catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
 
   const type = event?.type || "";
