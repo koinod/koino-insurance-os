@@ -439,7 +439,30 @@ window.SettingsTeam = SettingsTeam;
    Owner-only (RLS gates the writes server-side via "owner write agency"-style
    policies). Manager + rep see read-only. Hits the public.carriers table that
    the resources page already reads via AppData.CARRIERS. */
-const CARRIER_CATEGORIES = ["Med Supp", "Med Adv", "Final Expense", "Annuity", "Term Life", "IUL", "ACA", "DVH"];
+// Display label → DB enum. carriers_category_check requires one of:
+//   med_supp, medicare_advantage, final_expense, annuity, life, aca, dental,
+//   vision, part_d, other. Don't pass the display string raw — the insert
+//   silently 23514s and the form looks broken.
+const CARRIER_CATEGORIES = [
+  { l: "Med Supp",      v: "med_supp" },
+  { l: "Med Adv",       v: "medicare_advantage" },
+  { l: "Part D",        v: "part_d" },
+  { l: "Final Expense", v: "final_expense" },
+  { l: "Term / Whole",  v: "life" },
+  { l: "IUL",           v: "life" },
+  { l: "Annuity",       v: "annuity" },
+  { l: "ACA",           v: "aca" },
+  { l: "Dental",        v: "dental" },
+  { l: "Vision",        v: "vision" },
+  { l: "Other",         v: "other" },
+];
+// carriers_status_check allows only active/pending/inactive — the UI used to
+// expose paused/terminated which 23514'd on save.
+const CARRIER_STATUSES = [
+  { v: "active",   l: "Active" },
+  { v: "pending",  l: "Pending appointment" },
+  { v: "inactive", l: "Inactive" },
+];
 const CARRIER_PRODUCT_LINES = ["Medicare Supplement", "Medicare Advantage", "Part D", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital Indemnity"];
 
 function SettingsCarriers({ canEdit = true }) {
@@ -489,19 +512,34 @@ function SettingsCarriers({ canEdit = true }) {
     if (!editing?.name?.trim()) return;
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) return;
+    // carriers RLS write policy: agency_id IN viewer's memberships. NULL fails
+    // the IN test, so without an agency context the insert is doomed before
+    // it leaves the client. Surface a real error rather than letting the
+    // generic toast hide it.
+    if (!agencyId) {
+      window.toast && window.toast("Pick an active agency before adding carriers", "error");
+      return;
+    }
+    // Normalize category/status — selects always return one of our enum
+    // values now, but legacy `editing` rows (loaded from existing DB rows or
+    // older edits) may still have display strings.
+    const VALID_CATS = new Set(["med_supp","medicare_advantage","final_expense","annuity","life","aca","dental","vision","part_d","other"]);
+    const VALID_STATUSES = new Set(["active","pending","inactive"]);
+    const cat = VALID_CATS.has(editing.category) ? editing.category : "med_supp";
+    const stat = VALID_STATUSES.has(editing.status) ? editing.status : "active";
     setBusy(true);
     try {
       const row = {
         id: editing.id || (editing.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32) + "-" + Math.random().toString(36).slice(2, 6)),
         name: editing.name.trim(),
-        category: editing.category || "Med Supp",
-        status: editing.status || "active",
+        category: cat,
+        status: stat,
         contact_name:  editing.contact_name  || null,
         contact_phone: editing.contact_phone || null,
         contact_email: editing.contact_email || null,
         product_lines: editing.product_lines || [],
         notes: editing.notes || null,
-        agency_id: agencyId || null,
+        agency_id: agencyId,
       };
       const { error } = editing.id
         ? await sb.from("carriers").update(row).eq("id", editing.id)
@@ -622,10 +660,10 @@ function SettingsCarriers({ canEdit = true }) {
               <input className="text-input" value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="UnitedHealthcare" autoFocus/>
             </Shared.Field>
             <Shared.Field label="Category">
-              <Shared.Select value={editing.category || "Med Supp"} onChange={(v) => setEditing({ ...editing, category: v })} options={CARRIER_CATEGORIES.map(c => ({ v: c, l: c }))}/>
+              <Shared.Select value={editing.category || "med_supp"} onChange={(v) => setEditing({ ...editing, category: v })} options={CARRIER_CATEGORIES}/>
             </Shared.Field>
             <Shared.Field label="Status">
-              <Shared.Select value={editing.status || "active"} onChange={(v) => setEditing({ ...editing, status: v })} options={[{ v: "active", l: "Active" }, { v: "paused", l: "Paused" }, { v: "terminated", l: "Terminated" }]}/>
+              <Shared.Select value={editing.status || "active"} onChange={(v) => setEditing({ ...editing, status: v })} options={CARRIER_STATUSES}/>
             </Shared.Field>
             <Shared.Field label="Contact name">
               <input className="text-input" value={editing.contact_name || ""} onChange={(e) => setEditing({ ...editing, contact_name: e.target.value })} placeholder="Producer rep"/>
