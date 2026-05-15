@@ -33,6 +33,7 @@ const ALLOWED = new Set([
   "runtime/tools/file_review.py",
   "runtime/tools/browser_run.py",
   "runtime/tools/create_lead.py",
+  "runtime/tools/phone_link_dial.py",
   "scrapers/__init__.py",
   "scrapers/_template.py",
   "scrapers/aetna.py",
