@@ -690,7 +690,10 @@ window.hydrateFromSupabase = async function () {
       const mapRowsR = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
       window.AppData.SCRIPTS_LIB = mapRowsR(scriptsR, r => ({
         id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body,
+        description: r.description || null,
         segmentId: r.segment_id || null,
+        targetRoles: r.target_roles || ["owner","manager","rep"],
+        isStarter: !!r.is_starter,
         createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at,
       }));
       window.AppData.VIDEOS = mapRowsR(videosR, r => ({
@@ -706,6 +709,8 @@ window.hydrateFromSupabase = async function () {
         sizeBytes: r.size_bytes, storagePath: r.storage_path,
         text: r.text_excerpt,
         segmentId: r.segment_id || null,
+        targetRoles: r.target_roles || ["owner","manager","rep"],
+        isStarter: !!r.is_starter,
         createdBy: r.created_by, createdAt: r.created_at,
       }));
       window.AppData.QUICK_LINKS = mapRowsR(linksR, r => ({
@@ -715,6 +720,8 @@ window.hydrateFromSupabase = async function () {
       window.AppData.SEGMENTS = mapRowsR(segmentsR, r => ({
         id: r.id, agencyId: r.agency_id, name: r.name,
         description: r.description || null, sortOrder: r.sort_order,
+        filterRules: Array.isArray(r.filter_rules) ? r.filter_rules : [],
+        isStarter: !!r.is_starter,
         createdAt: r.created_at,
       }));
     } catch (resErr) {
@@ -739,6 +746,8 @@ window.hydrateFromSupabase = async function () {
         description: r.description, durMin: r.dur_min, required: r.required,
         sections: Array.isArray(r.sections) ? r.sections : [],
         targetRoles: r.target_roles || ["owner","manager","rep"],
+        coverUrl: r.cover_url || null,
+        isStarter: !!r.is_starter,
         displayOrder: r.display_order, isPublished: r.is_published,
         createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
       }));
@@ -879,14 +888,14 @@ window.subscribeRealtime = function () {
     if (table === "workflows")  return { id: r.id, name: r.name, runs: r.runs_per_day, lastRun: r.last_run ? new Date(r.last_run).toLocaleString() : "—" };
     if (table === "agent_deployments") return { id: r.id, agent_id: r.agent_id, host_id: r.host_id, status: r.status, manifest: r.manifest, deployed_at: r.deployed_at, last_heartbeat: r.last_heartbeat };
     if (table === "agent_runs") return { id: r.id, deployment_id: r.deployment_id, started_at: r.started_at, finished_at: r.finished_at, status: r.status, log: r.log, exit_code: r.exit_code };
-    if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, segmentId: r.segment_id || null, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
+    if (table === "agency_scripts")    return { id: r.id, title: r.title, cat: r.cat, version: r.version, body: r.body, description: r.description || null, segmentId: r.segment_id || null, targetRoles: r.target_roles || ["owner","manager","rep"], isStarter: !!r.is_starter, createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at };
     if (table === "agency_videos")     return { id: r.id, title: r.title, cat: r.cat, src: r.src, sourceUrl: r.source_url, sourceLabel: r.source_label, thumb: r.thumb, durMin: r.dur_min || 0, segmentId: r.segment_id || null, createdBy: r.created_by, createdAt: r.created_at };
-    if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, segmentId: r.segment_id || null, createdBy: r.created_by, createdAt: r.created_at };
-    if (table === "vault_segments")    return { id: r.id, agencyId: r.agency_id, name: r.name, description: r.description || null, sortOrder: r.sort_order, createdAt: r.created_at };
+    if (table === "agency_docs")       return { id: r.id, title: r.title, cat: r.cat, url: r.url, kind: r.kind, gdocKind: r.gdoc_kind, ext: r.ext, sizeBytes: r.size_bytes, storagePath: r.storage_path, text: r.text_excerpt, segmentId: r.segment_id || null, targetRoles: r.target_roles || ["owner","manager","rep"], isStarter: !!r.is_starter, createdBy: r.created_by, createdAt: r.created_at };
+    if (table === "vault_segments")    return { id: r.id, agencyId: r.agency_id, name: r.name, description: r.description || null, sortOrder: r.sort_order, filterRules: Array.isArray(r.filter_rules) ? r.filter_rules : [], isStarter: !!r.is_starter, createdAt: r.created_at };
     if (table === "agency_quick_links") return { id: r.id, cat: r.cat, label: r.label, url: r.url, sortOrder: r.sort_order || 0, createdAt: r.created_at };
     if (table === "notifications") return { id: r.id, recipient: r.recipient_handle, kind: r.kind, title: r.title, body: r.body, link: r.link, severity: r.severity, readAt: r.read_at, createdAt: r.created_at };
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
-    if (table === "training_courses") return { id: r.id, slug: r.slug, title: r.title, track: r.track, description: r.description, durMin: r.dur_min, required: r.required, sections: Array.isArray(r.sections) ? r.sections : [], targetRoles: r.target_roles || ["owner","manager","rep"], displayOrder: r.display_order, isPublished: r.is_published, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at };
+    if (table === "training_courses") return { id: r.id, slug: r.slug, title: r.title, track: r.track, description: r.description, durMin: r.dur_min, required: r.required, sections: Array.isArray(r.sections) ? r.sections : [], targetRoles: r.target_roles || ["owner","manager","rep"], coverUrl: r.cover_url || null, isStarter: !!r.is_starter, displayOrder: r.display_order, isPublished: r.is_published, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at };
     if (table === "lead_vendor_webhooks") return { id: r.id, agencyId: r.agency_id, vendorName: r.vendor_name, slug: r.endpoint_slug, secret: r.hmac_secret, isActive: r.is_active, costPerLead: Math.round((r.cost_per_lead_cents || 0) / 100), notes: r.notes, createdAt: r.created_at };
     return r;
   };
@@ -1736,14 +1745,29 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return jsRow;
       const me = window.me && window.me();
-      const payload = { ...dbRow, agency_id: me && me.agency_id };
-      let resp;
-      if (jsRow.id && !String(jsRow.id).startsWith("tmp-")) {
-        resp = await sb.from(table).update(payload).eq("id", jsRow.id).select().single();
-      } else {
-        resp = await sb.from(table).insert(payload).select().single();
+      // Columns that landed in migration 0034. On a project that hasn't replayed
+      // 0034 yet the INSERT will 400 with "column ... does not exist" — retry
+      // without these so the UI doesn't deadlock waiting on a migration.
+      const POST_0034 = ["target_roles", "is_starter", "description", "filter_rules", "cover_url"];
+      const buildPayload = (includeNewCols) => {
+        const out = { ...dbRow, agency_id: me && me.agency_id };
+        if (!includeNewCols) {
+          for (const k of POST_0034) delete out[k];
+        }
+        return out;
+      };
+      const doWrite = async (includeNewCols) => {
+        const payload = buildPayload(includeNewCols);
+        if (jsRow.id && !String(jsRow.id).startsWith("tmp-")) {
+          return sb.from(table).update(payload).eq("id", jsRow.id).select().single();
+        }
+        return sb.from(table).insert(payload).select().single();
+      };
+      let { data, error } = await doWrite(true);
+      if (error && /column .* does not exist/i.test(error.message || "")) {
+        console.warn(`[supabase] ${table}: post-0034 column missing, retrying without`, error.message);
+        ({ data, error } = await doWrite(false));
       }
-      const { data, error } = resp;
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
       if (data?.id && data.id !== jsRow.id) {
         // swap optimistic id → real one
@@ -1770,10 +1794,16 @@ window.AppData.mutate = {
   scriptUpsert(s) {
     const id = s.id || ("tmp-" + Date.now());
     const updatedAt = new Date().toISOString();
+    const targetRoles = Array.isArray(s.targetRoles) && s.targetRoles.length > 0
+      ? s.targetRoles : ["owner","manager","rep"];
     return window.AppData.mutate._resourceUpsert(
       "agency_scripts", "SCRIPTS_LIB",
-      { id, title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body, updatedAt },
-      { title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body, updated_at: updatedAt },
+      { id, title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body,
+        description: s.description || null, segmentId: s.segmentId || null,
+        targetRoles, isStarter: !!s.isStarter, updatedAt },
+      { title: s.title, cat: s.cat || "Open", version: s.version || "v1.0", body: s.body,
+        description: s.description || null, segment_id: s.segmentId || null,
+        target_roles: targetRoles, is_starter: !!s.isStarter, updated_at: updatedAt },
     );
   },
   scriptDelete: (id) => window.AppData.mutate._resourceDelete("agency_scripts", "SCRIPTS_LIB", id),
@@ -1790,10 +1820,17 @@ window.AppData.mutate = {
 
   docUpsert(d) {
     const id = d.id || ("tmp-" + Date.now());
+    const targetRoles = Array.isArray(d.targetRoles) && d.targetRoles.length > 0
+      ? d.targetRoles : ["owner","manager","rep"];
     return window.AppData.mutate._resourceUpsert(
       "agency_docs", "DOCS",
-      { id, title: d.title, cat: d.cat || "Internal", url: d.url || "", kind: d.kind || "link", gdocKind: d.gdocKind, ext: d.ext, sizeBytes: d.sizeBytes, storagePath: d.storagePath, text: d.text },
-      { title: d.title, cat: d.cat || "Internal", url: d.url || null, kind: d.kind || "link", gdoc_kind: d.gdocKind || null, ext: d.ext || null, size_bytes: d.sizeBytes || null, storage_path: d.storagePath || null, text_excerpt: d.text || null },
+      { id, title: d.title, cat: d.cat || "Internal", url: d.url || "", kind: d.kind || "link",
+        gdocKind: d.gdocKind, ext: d.ext, sizeBytes: d.sizeBytes, storagePath: d.storagePath, text: d.text,
+        segmentId: d.segmentId || null, targetRoles, isStarter: !!d.isStarter },
+      { title: d.title, cat: d.cat || "Internal", url: d.url || null, kind: d.kind || "link",
+        gdoc_kind: d.gdocKind || null, ext: d.ext || null, size_bytes: d.sizeBytes || null,
+        storage_path: d.storagePath || null, text_excerpt: d.text || null,
+        segment_id: d.segmentId || null, target_roles: targetRoles, is_starter: !!d.isStarter },
     );
   },
   docDelete: (id) => window.AppData.mutate._resourceDelete("agency_docs", "DOCS", id),
