@@ -2,12 +2,6 @@
    Sources: AppData.SEQUENCES, SEQUENCE_ENROLLMENTS, FOLLOWUP_TEMPLATES,
             FOLLOWUP_RULES, VENDOR_WEBHOOKS; sms_outbox queried directly. */
 
-const _DRIP_SECTION_ITEMS = [
-  {k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},
-  {k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"},
-  {k:"downline",l:"Tree"},{k:"leaddrip",l:"Lead Drip"},
-];
-
 function useDripReady() {
   const [, force] = React.useState(0);
   React.useEffect(() => {
@@ -751,11 +745,6 @@ function PageLeadDrip({ role = "owner" }) {
         </div>
       </div>
 
-      <Shared.SectionPill
-        items={_DRIP_SECTION_ITEMS}
-        value="leaddrip"
-        onChange={k => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
-      />
 
       {/* Inner tabs */}
       <div style={{ display: "flex", gap: 2, marginBottom: 14, marginTop: 4, borderBottom: "1px solid var(--border-subtle)" }}>
