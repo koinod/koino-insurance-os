@@ -622,8 +622,10 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
             window.generateSOAPdf && window.generateSOAPdf(lead, agencyName);
           }}><Icons.Shield size={12}/> SOA</button>
           <button className="btn btn-primary" disabled={!phone.trim()}
-            title={phone.trim() ? `Call ${phone}` : "Add phone first"}
-            onClick={() => phone.trim() && window.repflowCall && window.repflowCall(phone.trim(), lead.lead)}>
+            title={phone.trim() ? `Call ${phone} via your installed agent` : "Add phone first"}
+            onClick={() => phone.trim() && (window.repflowDialViaAgent
+              ? window.repflowDialViaAgent({ lead_id: lead.id, lead_name: lead.lead, to_number: phone.trim() })
+              : window.repflowCall && window.repflowCall(phone.trim(), lead.lead))}>
             <Icons.Phone size={12}/> Call now
           </button>
         </div>
