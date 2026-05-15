@@ -13,6 +13,62 @@ const Money = ({ v, dim }) => (
 );
 
 /* ─────────────────────────────────────────────────────────────────────────
+   Vault create surface — shared helpers
+   ───────────────────────────────────────────────────────────────────────── */
+const ROLE_CHOICES = [
+  { v: "super_admin", l: "Super admin" },
+  { v: "owner",       l: "Owner"       },
+  { v: "manager",     l: "Manager"     },
+  { v: "rep",         l: "Rep"         },
+];
+
+// Pure helper: does the viewer's role see a row tagged with these target_roles?
+// Empty/null target_roles = everyone (back-compat with rows from before 0034).
+function roleAllowed(viewerRole, targetRoles) {
+  if (!Array.isArray(targetRoles) || targetRoles.length === 0) return true;
+  if (viewerRole === "super_admin" || viewerRole === "owner") return true; // admins see everything
+  return targetRoles.includes(viewerRole);
+}
+
+// Reusable multiselect row of role chips. Used by every Vault create modal.
+function RoleVisibilityField({ value, onChange, label = "Visible to" }) {
+  const arr = Array.isArray(value) ? value : ["owner","manager","rep"];
+  const toggle = (v) => {
+    const next = arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
+    onChange(next);
+  };
+  return (
+    <Shared.Field label={label}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {ROLE_CHOICES.map(opt => {
+          const on = arr.includes(opt.v);
+          return (
+            <button key={opt.v} type="button" onClick={() => toggle(opt.v)}
+              className="chip"
+              style={{
+                cursor: "pointer",
+                background: on ? "rgba(0, 212, 170, 0.14)" : "var(--bg-raised)",
+                color: on ? "var(--accent-money)" : "var(--text-tertiary)",
+                borderColor: on ? "var(--accent-money)" : "var(--border-subtle)",
+                padding: "4px 10px",
+                fontSize: 11.5,
+                fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+              }}>
+              {opt.l}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginTop: 5 }}>
+        {arr.length === 0
+          ? "No roles selected — nobody will see this row. Pick at least one."
+          : `${arr.length} of ${ROLE_CHOICES.length} roles can see this row.`}
+      </div>
+    </Shared.Field>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    1. Vault — upgraded Library: coaching + courses + scripts + videos + docs +
       segments + carriers + quick links, all in one searchable hub.
       Reads from AppData (no mocks). Empty states render `.koino-empty` mono tags.
@@ -40,12 +96,18 @@ function PageVault({ role = "owner" }) {
   const ql = q.trim().toLowerCase();
   const match = (s) => !ql || (s || "").toLowerCase().includes(ql);
 
-  const fScripts  = data.scripts.filter(s => match(s.title) || match(s.body) || match(s.cat));
+  // Role-gated visibility (migration 0034). Reps only see rows whose
+  // target_roles includes 'rep'; owners + super_admin see everything.
+  const visScripts = data.scripts.filter(s => roleAllowed(role, s.targetRoles));
+  const visDocs    = data.docs   .filter(d => roleAllowed(role, d.targetRoles));
+  const visCourses = data.courses.filter(c => roleAllowed(role, c.targetRoles));
+
+  const fScripts  = visScripts.filter(s => match(s.title) || match(s.body) || match(s.cat));
   const fVideos   = data.videos.filter(v => match(v.title) || match(v.cat));
-  const fDocs     = data.docs.filter(d => match(d.title) || match(d.cat) || (d.text && match(d.text)));
+  const fDocs     = visDocs.filter(d => match(d.title) || match(d.cat) || (d.text && match(d.text)));
   const fLinks    = data.links.filter(l => match(l.label) || match(l.cat));
   const fCarriers = data.carriers.filter(c => match(c.name) || match(c.category || ""));
-  const fCourses  = data.courses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
+  const fCourses  = visCourses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
   const fSegments = data.segments.filter(s => match(s.name) || match(s.description || ""));
 
   const totalSearch =
@@ -125,10 +187,10 @@ function PageVault({ role = "owner" }) {
 
       {tab === "coaching" && <VaultCoachingPane role={role}/>}
       {tab === "courses"  && <ProductTrainingEmbedded role={role}/>}
-      {tab === "scripts"  && <VaultScriptsBlock scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx}/>}
+      {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} canEdit={canEdit} role={role}/>}
       {tab === "videos"   && <VaultVideosBlock  videos={fVideos}   onOpen={setOpenVideo}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
-      {tab === "segments" && <VaultSegmentsPane isOwner={isOwner}/>}
+      {tab === "segments" && <VaultSegmentsPane canEdit={canEdit}/>}
       {tab === "carriers" && <VaultCarriersBlock carriers={fCarriers}/>}
       {tab === "links"    && <VaultLinksBlock   links={fLinks}/>}
 
@@ -233,6 +295,138 @@ function VaultScriptsBlock({ scripts, openId, setOpenId, subCtx }) {
   );
 }
 
+/* ── Vault: Scripts pane — block + create modal (Scripts tab) ─────────── */
+const SCRIPT_CATEGORIES = ["Cold","Warm","Voicemail","Objection","Close","Open","Discovery","Cross-sell","Compliance"];
+
+function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role }) {
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [draft, setDraft]     = React.useState(emptyScriptDraft());
+
+  function emptyScriptDraft() {
+    return { title: "", cat: "Cold", body: "", description: "", targetRoles: ["owner","manager","rep"] };
+  }
+
+  const saveScript = async () => {
+    const title = draft.title.trim();
+    const body  = draft.body.trim();
+    if (!title || !body) return;
+    if (!Array.isArray(draft.targetRoles) || draft.targetRoles.length === 0) {
+      window.toast && window.toast("Pick at least one role under Visible to", "danger");
+      return;
+    }
+    try {
+      await window.AppData.mutate.scriptUpsert({
+        title, cat: draft.cat, body,
+        description: draft.description.trim() || null,
+        targetRoles: draft.targetRoles,
+      });
+      setDraft(emptyScriptDraft());
+      setAddOpen(false);
+      window.toast && window.toast("Script saved", "success");
+    } catch (e) {
+      // toast already fired by mutator
+    }
+  };
+
+  const copy = (s) => {
+    try { navigator.clipboard.writeText(vaultSubstitute(s.body, subCtx)); window.toast && window.toast("Script copied", "success"); }
+    catch (_e) {}
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.FileText size={13}/><h3>Scripts</h3><span className="meta">{scripts.length}</span>
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setAddOpen(true)}>
+            <Icons.Plus size={12}/> New script
+          </button>
+        )}
+      </div>
+
+      {scripts.length === 0 ? (
+        <div style={{ padding: 36, textAlign: "center" }}>
+          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-scripts</code>
+          {canEdit && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
+              Click <strong style={{ color: "var(--text-secondary)" }}>New script</strong> to create one.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          {scripts.map(s => {
+            const open = openId === s.id;
+            const Chev = open ? Icons.ChevronDown : Icons.ChevronRight;
+            return (
+              <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer" }} onClick={() => setOpenId(open ? null : s.id)}>
+                  <Chev size={11} style={{ color: "var(--text-tertiary)" }}/>
+                  <span style={{ flex: 1, fontWeight: 500, fontSize: 12 }} className="cell-truncate">{s.title}</span>
+                  {s.isStarter && <span className="chip" style={{ fontSize: 9.5, color: "var(--text-tertiary)" }}>starter</span>}
+                  {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
+                  {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
+                </div>
+                {open && (
+                  <div style={{ padding: "10px 12px 12px 30px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                    {s.description && (
+                      <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--text-tertiary)", fontStyle: "italic" }}>{s.description}</div>
+                    )}
+                    {vaultSubstitute(s.body, subCtx)}
+                    {Array.isArray(s.targetRoles) && s.targetRoles.length > 0 && s.targetRoles.length < 4 && (
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginRight: 4 }}>Visible to:</span>
+                        {s.targetRoles.map(r => <span key={r} className="chip" style={{ fontSize: 9.5 }}>{r}</span>)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {addOpen && (
+        <Shared.Modal title="New script" width={620} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveScript}
+              disabled={!draft.title.trim() || !draft.body.trim() || draft.targetRoles.length === 0}>
+              <Icons.Check size={11}/> Create script
+            </button>
+          </>
+        }>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 12 }}>
+            <Shared.Field label="Title">
+              <input className="text-input" value={draft.title} autoFocus
+                onChange={e => setDraft({ ...draft, title: e.target.value })}
+                placeholder="Cold Open — Final Expense"/>
+            </Shared.Field>
+            <Shared.Field label="Category">
+              <Shared.Select value={draft.cat} onChange={v => setDraft({ ...draft, cat: v })}
+                options={SCRIPT_CATEGORIES.map(c => ({ v: c, l: c }))}/>
+            </Shared.Field>
+          </div>
+          <Shared.Field label="Short description (optional)">
+            <input className="text-input" value={draft.description}
+              onChange={e => setDraft({ ...draft, description: e.target.value })}
+              placeholder="When to use this and what it does"/>
+          </Shared.Field>
+          <Shared.Field label="Body (markdown ok · use {{lead_first}} etc for tokens)">
+            <textarea className="text-input" rows={9} value={draft.body}
+              onChange={e => setDraft({ ...draft, body: e.target.value })}
+              placeholder={`Hi {{lead_first}}, this is {{rep_first}} with {{agency}}...`}
+              style={{ width: "100%", lineHeight: 1.55, fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 12.5 }}/>
+          </Shared.Field>
+          <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
 /* ── Vault: Videos block — thumbnail grid, modal player via parent ── */
 function VaultVideosBlock({ videos, onOpen }) {
   if (!videos.length) {
@@ -323,7 +517,10 @@ function VaultCoursesBlock({ courses, role }) {
       <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
         {courses.map(c => (
           <div key={c.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{c.title}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ flex: 1 }}>{c.title}</span>
+              {c.isStarter && <span className="chip" style={{ fontSize: 9, color: "var(--text-tertiary)" }}>starter</span>}
+            </div>
             {c.track && <div style={{ marginTop: 4 }}><span className="chip" style={{ fontSize: 9.5 }}>{c.track}</span></div>}
             {c.description && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }} className="cell-truncate">{c.description}</div>}
             {c.required && <div style={{ marginTop: 6 }}><span className="chip chip-status" style={{ fontSize: 9.5 }}>required</span></div>}
@@ -577,7 +774,8 @@ function VaultDocsPane({ canEdit }) {
   const [q, setQ]           = React.useState("");
   const [catFilter, setCat] = React.useState("All");
   const [addOpen, setAddOpen] = React.useState(false);
-  const [draft, setDraft]   = React.useState({ title: "", cat: "Internal", url: "" });
+  const emptyDocDraft = () => ({ title: "", cat: "Internal", url: "", targetRoles: ["owner","manager","rep"] });
+  const [draft, setDraft]   = React.useState(emptyDocDraft());
 
   const cats = ["All", ...Array.from(new Set(docs.map(d => d.cat).filter(Boolean)))];
   const filtered = docs.filter(d =>
@@ -588,11 +786,18 @@ function VaultDocsPane({ canEdit }) {
   const addDoc = async () => {
     const title = draft.title.trim();
     if (!title) return;
+    if (!Array.isArray(draft.targetRoles) || draft.targetRoles.length === 0) {
+      window.toast && window.toast("Pick at least one role under Visible to", "danger");
+      return;
+    }
     const raw = draft.url.trim();
     const safeUrl = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : "";
     try {
-      await window.AppData.mutate.docUpsert({ title, cat: draft.cat, url: safeUrl, kind: "link" });
-      setDraft({ title: "", cat: "Internal", url: "" });
+      await window.AppData.mutate.docUpsert({
+        title, cat: draft.cat, url: safeUrl, kind: "link",
+        targetRoles: draft.targetRoles,
+      });
+      setDraft(emptyDocDraft());
       setAddOpen(false);
       window.toast && window.toast("Document added", "success");
     } catch (_e) {}
@@ -648,10 +853,13 @@ function VaultDocsPane({ canEdit }) {
         </div>
       )}
       {addOpen && (
-        <Shared.Modal title="Add document" width={460} onClose={() => setAddOpen(false)} actions={
+        <Shared.Modal title="Add document" width={520} onClose={() => setAddOpen(false)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={addDoc} disabled={!draft.title.trim()}><Icons.Plus size={11}/> Add</button>
+            <button className="btn btn-primary" onClick={addDoc}
+              disabled={!draft.title.trim() || draft.targetRoles.length === 0}>
+              <Icons.Plus size={11}/> Add
+            </button>
           </>
         }>
           <Shared.Field label="Title">
@@ -660,9 +868,10 @@ function VaultDocsPane({ canEdit }) {
           <Shared.Field label="Category">
             <Shared.Select value={draft.cat} onChange={v => setDraft({...draft, cat: v})} options={["Internal","Training","Carrier","Compliance","Other"].map(c => ({v:c,l:c}))}/>
           </Shared.Field>
-          <Shared.Field label="URL (optional)">
+          <Shared.Field label="URL (paste a link — uploads to Storage land later)">
             <input className="text-input" value={draft.url} onChange={e => setDraft({...draft, url: e.target.value})} placeholder="https://docs.google.com/…"/>
           </Shared.Field>
+          <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
         </Shared.Modal>
       )}
     </div>
@@ -670,7 +879,26 @@ function VaultDocsPane({ canEdit }) {
 }
 
 /* ── Vault: Segments pane ──────────────────────────────────────────────── */
-function VaultSegmentsPane({ isOwner }) {
+const SEGMENT_FIELDS = [
+  { v: "state",      l: "State"        },
+  { v: "product",    l: "Product"      },
+  { v: "source",     l: "Lead source"  },
+  { v: "tier",       l: "Lead tier"    },
+  { v: "stage",      l: "Stage"        },
+  { v: "age",        l: "Age"          },
+  { v: "ap_cents",   l: "Annual prem"  },
+  { v: "days",       l: "Days in stage"},
+];
+const SEGMENT_OPS = [
+  { v: "eq",        l: "equals"       },
+  { v: "neq",       l: "not equals"   },
+  { v: "in",        l: "is one of"    },
+  { v: "contains",  l: "contains"     },
+  { v: "gt",        l: "greater than" },
+  { v: "lt",        l: "less than"    },
+];
+
+function VaultSegmentsPane({ canEdit }) {
   const [, force] = React.useState(0);
   React.useEffect(() => {
     const fn = () => force(n => n + 1);
@@ -685,12 +913,17 @@ function VaultSegmentsPane({ isOwner }) {
 
   const [selId, setSelId]   = React.useState(null);
   const [addOpen, setAddOpen] = React.useState(false);
-  const [draft, setDraft]   = React.useState({ name: "", description: "" });
+  const emptySegDraft = () => ({ name: "", description: "", filterRules: [] });
+  const [draft, setDraft]   = React.useState(emptySegDraft());
 
   const sel        = segments.find(s => s.id === selId) || null;
   const segDocs    = docs.filter(d => d.segmentId === selId);
   const segScripts = scripts.filter(s => s.segmentId === selId);
   const segVideos  = videos.filter(v => v.segmentId === selId);
+
+  const addRule    = () => setDraft(d => ({ ...d, filterRules: [...d.filterRules, { field: "state", op: "eq", value: "" }] }));
+  const updateRule = (i, patch) => setDraft(d => ({ ...d, filterRules: d.filterRules.map((r, j) => j === i ? { ...r, ...patch } : r) }));
+  const removeRule = (i) => setDraft(d => ({ ...d, filterRules: d.filterRules.filter((_, j) => j !== i) }));
 
   const createSegment = async () => {
     if (!draft.name.trim()) return;
@@ -698,20 +931,33 @@ function VaultSegmentsPane({ isOwner }) {
       const sb       = window.getSupabase && window.getSupabase();
       const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
       if (!sb || !agencyId) { window.toast && window.toast("Not connected", "danger"); return; }
-      const { data, error } = await sb.from("vault_segments").insert({
+      // Strip empty-value rules so the segment never carries dead filters.
+      const rules = draft.filterRules.filter(r => r.field && r.op && (r.value !== "" && r.value != null));
+      // First attempt: include filter_rules (migration 0034). On column-missing,
+      // retry without — keeps the create flow working pre-migration.
+      const payload = {
         agency_id:   agencyId,
         name:        draft.name.trim(),
         description: draft.description.trim() || null,
         sort_order:  segments.length,
-      }).select().single();
+        filter_rules: rules,
+      };
+      let { data, error } = await sb.from("vault_segments").insert(payload).select().single();
+      if (error && /column .* does not exist/i.test(error.message || "")) {
+        console.warn("[vault] filter_rules column missing — retrying without (apply migration 0034)");
+        delete payload.filter_rules;
+        ({ data, error } = await sb.from("vault_segments").insert(payload).select().single());
+      }
       if (error) throw error;
       window.AppData.SEGMENTS = [...segments, {
         id: data.id, agencyId: data.agency_id,
         name: data.name, description: data.description || null,
         sortOrder: data.sort_order,
+        filterRules: Array.isArray(data.filter_rules) ? data.filter_rules : rules,
+        isStarter: !!data.is_starter,
       }];
       window.dispatchEvent(new CustomEvent("data:mutated"));
-      setDraft({ name: "", description: "" });
+      setDraft(emptySegDraft());
       setAddOpen(false);
       setSelId(data.id);
       window.toast && window.toast("Segment created", "success");
@@ -719,6 +965,53 @@ function VaultSegmentsPane({ isOwner }) {
       window.toast && window.toast("Failed to create segment", "danger");
     }
   };
+
+  // Modal body shared by both empty-state and populated-state Add-segment buttons.
+  const segmentModal = addOpen && (
+    <Shared.Modal title="New segment" width={620} onClose={() => setAddOpen(false)} actions={
+      <>
+        <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+        <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}>
+          <Icons.Plus size={11}/> Create
+        </button>
+      </>
+    }>
+      <Shared.Field label="Name">
+        <input className="text-input" value={draft.name}
+          onChange={e => setDraft({...draft, name: e.target.value})}
+          placeholder="Storm-season Florida warm" autoFocus/>
+      </Shared.Field>
+      <Shared.Field label="Description (optional)">
+        <input className="text-input" value={draft.description}
+          onChange={e => setDraft({...draft, description: e.target.value})}
+          placeholder="What these leads have in common"/>
+      </Shared.Field>
+      <Shared.Field label="Filter rules (used later by Lead Drip to target sequences)">
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {draft.filterRules.length === 0 && (
+            <div style={{ fontSize: 11.5, color: "var(--text-quaternary)", padding: "6px 2px" }}>
+              No rules. Segments without rules behave like static tags — add rules to target dynamically.
+            </div>
+          )}
+          {draft.filterRules.map((r, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr 32px", gap: 6, alignItems: "center" }}>
+              <Shared.Select value={r.field} onChange={v => updateRule(i, { field: v })} options={SEGMENT_FIELDS}/>
+              <Shared.Select value={r.op}    onChange={v => updateRule(i, { op: v })}    options={SEGMENT_OPS}/>
+              <input className="text-input" value={r.value}
+                onChange={e => updateRule(i, { value: e.target.value })}
+                placeholder={r.op === "in" ? "FL, GA, AL" : "value"}/>
+              <button className="icon-btn" onClick={() => removeRule(i)} title="Remove rule" style={{ color: "var(--state-danger)" }}>
+                <Icons.X size={11}/>
+              </button>
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ alignSelf: "flex-start", padding: "4px 10px", fontSize: 11.5 }} onClick={addRule}>
+            <Icons.Plus size={11}/> Add rule
+          </button>
+        </div>
+      </Shared.Field>
+    </Shared.Modal>
+  );
 
   const deleteSegment = async (id) => {
     try {
@@ -731,36 +1024,22 @@ function VaultSegmentsPane({ isOwner }) {
     } catch (_e) {}
   };
 
-  if (segments.length === 0 && !addOpen) {
+  if (segments.length === 0) {
     return (
       <div className="panel" style={{ padding: 40, textAlign: "center" }}>
         <Icons.Bookmark size={22} style={{ color: "var(--text-quaternary)", marginBottom: 10 }}/>
         <code className="mono" style={{ display: "block", fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>no-segments</code>
-        {isOwner ? (
+        {canEdit ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginBottom: 14, maxWidth: 400, margin: "0 auto 14px" }}>
-              Segments are curated content bundles. Examples: "AEP Bootcamp", "First 90 Days", "Final Expense Mastery", "Objection Handling Library".
+            <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginBottom: 14, maxWidth: 420, margin: "0 auto 14px" }}>
+              Segments are saved filters over leads — Lead Drip uses them to target sequences. Examples: "Storm-season Florida warm", "Med Supp T65 cohort", "Cancelled in last 30 days".
             </div>
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}><Icons.Plus size={12}/> Create first segment</button>
           </>
         ) : (
-          <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Owner must create segments before they appear here.</div>
+          <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Owner or manager must create segments before they appear here.</div>
         )}
-        {addOpen && (
-          <Shared.Modal title="New segment" width={440} onClose={() => setAddOpen(false)} actions={
-            <>
-              <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}><Icons.Plus size={11}/> Create</button>
-            </>
-          }>
-            <Shared.Field label="Name">
-              <input className="text-input" value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})} placeholder="AEP Bootcamp" autoFocus/>
-            </Shared.Field>
-            <Shared.Field label="Description (optional)">
-              <input className="text-input" value={draft.description} onChange={e => setDraft({...draft, description: e.target.value})} placeholder="Everything reps need for AEP season"/>
-            </Shared.Field>
-          </Shared.Modal>
-        )}
+        {segmentModal}
       </div>
     );
   }
@@ -771,9 +1050,9 @@ function VaultSegmentsPane({ isOwner }) {
         <div className="panel-h">
           <Icons.Bookmark size={13}/>
           <h3>Segments</h3>
-          {isOwner && (
+          {canEdit && (
             <button className="btn btn-primary" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 11 }} onClick={() => setAddOpen(true)}>
-              <Icons.Plus size={11}/>
+              <Icons.Plus size={11}/> New
             </button>
           )}
         </div>
@@ -784,7 +1063,8 @@ function VaultSegmentsPane({ isOwner }) {
                 background: selId === s.id ? "var(--bg-overlay)" : "var(--bg-raised)",
                 border: "1px solid var(--border-subtle)" }}>
               <span style={{ fontWeight: 500, fontSize: 12.5, flex: 1 }}>{s.name}</span>
-              {isOwner && (
+              {s.isStarter && <span className="chip" style={{ fontSize: 9, color: "var(--text-tertiary)", padding: "1px 6px" }}>starter</span>}
+              {canEdit && (
                 <button className="icon-btn" onClick={e => { e.stopPropagation(); deleteSegment(s.id); }}
                   style={{ color: "var(--state-danger)", padding: 2, flexShrink: 0 }}>
                   <Icons.X size={10}/>
@@ -803,8 +1083,25 @@ function VaultSegmentsPane({ isOwner }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div className="panel">
-              <div className="panel-h"><h3>{sel.name}</h3></div>
+              <div className="panel-h">
+                <h3>{sel.name}</h3>
+                {sel.isStarter && <span className="chip" style={{ marginLeft: 8, fontSize: 9.5, color: "var(--text-tertiary)" }}>starter</span>}
+              </div>
               {sel.description && <div style={{ padding: "0 14px 12px", fontSize: 12.5, color: "var(--text-secondary)" }}>{sel.description}</div>}
+              {Array.isArray(sel.filterRules) && sel.filterRules.length > 0 && (
+                <div style={{ padding: "0 14px 14px" }}>
+                  <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                    Filter rules
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {sel.filterRules.map((r, i) => (
+                      <code key={i} className="mono" style={{ fontSize: 11.5, color: "var(--text-secondary)", padding: "4px 8px", background: "var(--bg-raised)", borderRadius: 4 }}>
+                        {r.field} <span style={{ color: "var(--text-tertiary)" }}>{r.op}</span> {String(r.value)}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             {segDocs.length > 0 && (
               <div className="panel">
@@ -871,21 +1168,7 @@ function VaultSegmentsPane({ isOwner }) {
         )}
       </div>
 
-      {addOpen && (
-        <Shared.Modal title="New segment" width={440} onClose={() => setAddOpen(false)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}><Icons.Plus size={11}/> Create</button>
-          </>
-        }>
-          <Shared.Field label="Name">
-            <input className="text-input" value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})} placeholder="AEP Bootcamp" autoFocus/>
-          </Shared.Field>
-          <Shared.Field label="Description (optional)">
-            <input className="text-input" value={draft.description} onChange={e => setDraft({...draft, description: e.target.value})} placeholder="Everything reps need for AEP season"/>
-          </Shared.Field>
-        </Shared.Modal>
-      )}
+      {segmentModal}
     </div>
   );
 }
@@ -1434,8 +1717,9 @@ const ProductTraining = (() => {
   // Supabase writes (fire-and-forget — UI is mutated optimistically first).
   function sbClient() { return (window.getSupabase && window.getSupabase()) || null; }
   function activeAgencyId() { return (window.getActiveAgencyId && window.getActiveAgencyId()) || null; }
-  function pgCourseRow(c) {
-    return {
+  function pgCourseRow(c, opts) {
+    const o = opts || {};
+    const row = {
       id: c.id, agency_id: activeAgencyId(),
       slug: c.slug || null, title: c.title, track: c.track || null,
       description: c.description || null, dur_min: c.durMin || null,
@@ -1444,12 +1728,22 @@ const ProductTraining = (() => {
       display_order: c.displayOrder || 100,
       is_published: c.isPublished !== false,
     };
+    if (!o.skipPost0034) {
+      // Columns added in migration 0034 — strip and retry if the DB rejects them.
+      row.cover_url = c.coverUrl || null;
+    }
+    return row;
   }
   async function upsertCourse(course) {
     const client = sbClient(); if (!client) return;
-    const row = pgCourseRow(course);
+    let row = pgCourseRow(course);
     if (!row.agency_id) { console.warn("[training] no active agency_id; course not saved"); return; }
-    const { error } = await client.from("training_courses").upsert(row, { onConflict: "id" });
+    let { error } = await client.from("training_courses").upsert(row, { onConflict: "id" });
+    if (error && /column .* does not exist/i.test(error.message || "")) {
+      console.warn("[training] post-0034 cover_url column missing — retrying without (apply migration 0034)");
+      row = pgCourseRow(course, { skipPost0034: true });
+      ({ error } = await client.from("training_courses").upsert(row, { onConflict: "id" }));
+    }
     if (error) console.warn("[training] upsertCourse failed:", error.message);
   }
   async function deleteCourseRow(id) {
@@ -2482,6 +2776,28 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
 function ProductTrainingManager({ store }) {
   const { REPS } = AppData;
   const [showAssign, setShowAssign] = React.useState(false);
+  const [editing, setEditing]       = React.useState(null);
+
+  const newCourse = () => setEditing({
+    id: "c-" + Date.now(),
+    title: "",
+    track: "Onboarding",
+    durMin: 0,
+    status: "assigned",
+    required: false,
+    description: "",
+    sections: [],
+    targetRoles: ["owner","manager","rep"],
+    coverUrl: "",
+    _isNew: true,
+  });
+  const saveCourse = (course) => {
+    const { _isNew, ...c } = course;
+    if (_isNew) store.saveCourses(cs => [...cs, c]);
+    else        store.saveCourses(cs => cs.map(x => x.id === c.id ? c : x));
+    window.toast && window.toast(_isNew ? "Course created" : "Course saved", "success");
+    setEditing(null);
+  };
 
   // Per-rep: # required courses overdue or stuck.
   const atRisk = REPS.map(r => {
@@ -2501,8 +2817,11 @@ function ProductTrainingManager({ store }) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, gap: 6 }}>
+        <button className="btn" onClick={newCourse}><Icons.Plus size={13}/> New course</button>
         <button className="btn btn-primary" onClick={() => setShowAssign(true)}><Icons.Plus size={13}/> Assign course</button>
       </div>
+
+      {editing && <CourseBuilderModal course={editing} setCourse={setEditing} onSave={saveCourse} onCancel={() => setEditing(null)}/>}
 
       {atRisk.length > 0 && (
         <div className="panel" style={{ marginBottom: 12 }}>
@@ -2637,9 +2956,16 @@ function ProductTrainingOwner({ store }) {
     required: false,
     description: "",
     sections: [],
+    targetRoles: ["owner","manager","rep"],
+    coverUrl: "",
     _isNew: true,
   });
-  const editCourse = (c) => setEditing({ ...c, sections: (c.sections || []).map(s => ({ ...s, lessons: [...(s.lessons || [])] })) });
+  const editCourse = (c) => setEditing({
+    ...c,
+    targetRoles: Array.isArray(c.targetRoles) && c.targetRoles.length > 0 ? c.targetRoles : ["owner","manager","rep"],
+    coverUrl: c.coverUrl || "",
+    sections: (c.sections || []).map(s => ({ ...s, lessons: [...(s.lessons || [])] })),
+  });
   const removeCourse = (id) => {
     if (!confirm("Delete this course? This can't be undone.")) return;
     store.saveCourses(cs => cs.filter(c => c.id !== id));
@@ -2688,8 +3014,16 @@ function ProductTrainingOwner({ store }) {
             return (
               <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 90px 90px 110px 100px" }}>
                 <div>
-                  <div style={{ fontWeight: 500 }}>{c.title || <span style={{ color: "var(--text-tertiary)" }}>Untitled</span>}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{lessonCount} lesson{lessonCount === 1 ? "" : "s"}</div>
+                  <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                    {c.title || <span style={{ color: "var(--text-tertiary)" }}>Untitled</span>}
+                    {c.isStarter && <span className="chip" style={{ fontSize: 9, color: "var(--text-tertiary)", padding: "1px 6px" }}>starter</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                    {lessonCount} lesson{lessonCount === 1 ? "" : "s"}
+                    {Array.isArray(c.targetRoles) && c.targetRoles.length > 0 && c.targetRoles.length < 4 && (
+                      <span style={{ color: "var(--text-quaternary)" }}>· {c.targetRoles.join(" · ")}</span>
+                    )}
+                  </div>
                 </div>
                 <div><span className="chip">{c.track}</span></div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{(c.sections || []).length}</div>
@@ -2788,6 +3122,13 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
         <textarea className="text-input" rows={2} value={c.description} onChange={(e) => update({ description: e.target.value })}
           placeholder="What this course teaches and who should take it" style={{ width: "100%", lineHeight: 1.55 }}/>
       </Shared.Field>
+      <Shared.Field label="Cover image URL (optional)">
+        <input className="text-input" value={c.coverUrl || ""}
+          onChange={(e) => update({ coverUrl: e.target.value })}
+          placeholder="https://… (paste an image link to set the course thumbnail)"/>
+      </Shared.Field>
+      <RoleVisibilityField value={c.targetRoles || ["owner","manager","rep"]}
+        onChange={(v) => update({ targetRoles: v })}/>
       <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, alignItems: "center" }}>
         <Shared.Field label="Duration (min)">
           <input className="text-input" type="number" value={c.durMin} onChange={(e) => update({ durMin: +e.target.value || 0 })}/>
