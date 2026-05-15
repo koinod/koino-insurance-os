@@ -4164,6 +4164,16 @@ function AgentSettingsEditor() {
           <Shared.Select value={s.high_risk_channel} onChange={(v) => save({ high_risk_channel: v })}
             options={[{ v: "sms", l: "SMS to your phone" }, { v: "os_push", l: "OS push" }, { v: "web_modal", l: "Web modal only" }, { v: "any", l: "Any" }]}/>
         </Shared.Field>
+        <Shared.Field label="SMS confirmation number (your personal phone)">
+          <input className="text-input" type="tel" defaultValue={(s.config || {}).confirm_sms_number || ""}
+            onBlur={(e) => save({ config: { ...(s.config || {}), confirm_sms_number: e.target.value.trim() || null } })}
+            placeholder="+15551234567"/>
+        </Shared.Field>
+        <Shared.Field label="Bluetooth phone (optional — for paired-phone routing)">
+          <input className="text-input" defaultValue={s.bluetooth_phone_id || ""}
+            onBlur={(e) => save({ bluetooth_phone_id: e.target.value.trim() || null })}
+            placeholder="iPhone 15 Pro"/>
+        </Shared.Field>
       </div>
     </div>
   );

@@ -55,5 +55,56 @@ export default async function handler(req) {
   }, SERVICE);
   if (!r.ok) return new Response(JSON.stringify({ error: r.data?.message || "request failed" }), { status: r.status, headers: cors() });
 
-  return new Response(JSON.stringify({ confirmation_id: r.data }), { status: 200, headers: cors() });
+  const confirmationId = r.data;
+
+  // Fan-out per channel. web_modal is handled by the realtime subscriber
+  // in rba-confirmations.jsx — no server work needed. SMS needs an actual
+  // outbound text to the rep's phone.
+  if (channel === "sms" || channel === "any") {
+    fanoutSmsConfirmation({ inst, confirmationId, description: body.description }).catch(() => {});
+  }
+  // os_push fan-out is a follow-on (requires service worker + push subscription).
+
+  return new Response(JSON.stringify({ confirmation_id: confirmationId, channel }), { status: 200, headers: cors() });
+}
+
+async function fanoutSmsConfirmation({ inst, confirmationId, description }) {
+  // Find rep's confirm_sms_number from agent_settings.config jsonb
+  const sR = await fetch(`${SUPA_URL}/rest/v1/agent_settings?select=config&user_id=eq.${inst.user_id}`,
+    { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } });
+  if (!sR.ok) return;
+  const rows = await sR.json();
+  const phone = rows[0]?.config?.confirm_sms_number;
+  if (!phone) return;
+
+  // Try rep's own Twilio first; fall back to platform Twilio env vars.
+  let sid, tok, from;
+  try {
+    const cv = await fetch(
+      `${SUPA_URL}/rest/v1/connector_vault?select=*&user_id=eq.${inst.user_id}&provider=eq.twilio&status=eq.active&limit=1`,
+      { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
+    );
+    if (cv.ok) {
+      const v = (await cv.json())[0];
+      if (v) {
+        sid  = (v.account_metadata || {}).account_sid;
+        tok  = v.api_key_enc || v.access_token_enc;
+        from = ((v.account_metadata || {}).phone_numbers || [])[0];
+      }
+    }
+  } catch {}
+  if (!sid || !tok || !from) {
+    sid  = process.env.TWILIO_ACCOUNT_SID;
+    tok  = process.env.TWILIO_AUTH_TOKEN;
+    from = process.env.TWILIO_CALLER_ID;
+  }
+  if (!sid || !tok || !from) return;
+
+  const body = `Repflow agent: ${String(description).slice(0, 100)}\n\nReply Y to approve, N to deny.`;
+  const form = new URLSearchParams({ To: phone, From: from, Body: body });
+  await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: { authorization: "Basic " + btoa(`${sid}:${tok}`), "content-type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  }).catch(() => {});
 }
