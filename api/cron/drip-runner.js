@@ -56,10 +56,22 @@ export default async function handler(req) {
   let processed = 0, queued = 0, completed = 0, skipped = 0, errors = 0;
   const errorDetails = [];
 
+  // Read the send-enabled flag. When false, we still process enrollments and
+  // write drip_log rows, but sms_outbox rows are queued with status='dry_run'
+  // so the Phase 2 sms-flush (Twilio sender) skips them. This is what lets
+  // Ian read the queued copy before turning real sends on.
+  let sendEnabled = false;
   try {
-    // ── 1. Due enrollments ──────────────────────────────────────────────────
+    const flagRows = await pg(`/rest/v1/org_settings?key=eq.drip.send_enabled&select=value&limit=1`);
+    sendEnabled = Boolean(Array.isArray(flagRows) && flagRows[0]?.value === true);
+  } catch { /* missing row = default false, which is the safe path */ }
+  const outboxStatus = sendEnabled ? "pending" : "dry_run";
+  const logStatusBase = sendEnabled ? "queued"  : "dry_run";
+
+  try {
+    // ── 1. Due enrollments — column is next_send_at per the schema ──────
     const enrollments = await pg(
-      `/rest/v1/sequence_enrollments?status=eq.active&next_step_at=lte.${encodeURIComponent(now)}&limit=100` +
+      `/rest/v1/sequence_enrollments?status=eq.active&next_send_at=lte.${encodeURIComponent(now)}&limit=100` +
       `&select=id,lead_pipeline_id,sequence_id,current_step,owner_rep_id,agency_id`
     );
     const rows = Array.isArray(enrollments) ? enrollments : [];
@@ -67,9 +79,9 @@ export default async function handler(req) {
     for (const enroll of rows) {
       processed++;
       try {
-        // ── 2. Fetch sequence ───────────────────────────────────────────────
+        // ── 2. Fetch sequence (with audience + agency_id now) ────────────
         const seqs = await pg(
-          `/rest/v1/sequences?id=eq.${encodeURIComponent(enroll.sequence_id)}&select=id,steps,is_active`
+          `/rest/v1/sequences?id=eq.${encodeURIComponent(enroll.sequence_id)}&select=id,steps,is_active,audience`
         );
         const seq = Array.isArray(seqs) ? seqs[0] : null;
         if (!seq || !seq.is_active) { skipped++; continue; }
@@ -78,7 +90,6 @@ export default async function handler(req) {
         const step  = steps[enroll.current_step];
 
         if (!step) {
-          // Past end — mark completed
           await pg(`/rest/v1/sequence_enrollments?id=eq.${enroll.id}`, {
             method:  "PATCH",
             headers: { "prefer": "return=minimal" },
@@ -88,25 +99,60 @@ export default async function handler(req) {
           continue;
         }
 
-        // ── 3. Fetch lead ───────────────────────────────────────────────────
-        const leads = await pg(
-          `/rest/v1/pipeline?id=eq.${encodeURIComponent(enroll.lead_pipeline_id)}&select=id,lead_name,phone,email,agency_id`
-        );
-        const lead = Array.isArray(leads) ? leads[0] : null;
-        const agencyId = enroll.agency_id || lead?.agency_id;
-        if (!lead || !agencyId) { skipped++; continue; }
+        // ── 3. Resolve recipient based on audience ───────────────────────
+        // audience='lead' → use pipeline.phone/email.
+        // audience='rep'  → use reps.phone for owner_rep_id.
+        const audience = seq.audience || "lead";
+        let recipient = null;
+        let leadAgencyId = null;
+        let nameFirst = "there";
+        let nameFull  = "";
 
-        const ch        = step.ch || step.channel || "SMS";
-        const recipient = ch === "Email" ? lead.email : lead.phone;
-        const firstName = (lead.lead_name || "").split(" ")[0] || "there";
-        const body      = (step.template || step.body || "")
-          .replace(/\{\{first\}\}/g,  firstName)
-          .replace(/\{\{name\}\}/g,   lead.lead_name || "")
-          .replace(/\{\{phone\}\}/g,  lead.phone     || "");
+        if (audience === "rep") {
+          if (enroll.owner_rep_id) {
+            const reps = await pg(`/rest/v1/reps?id=eq.${encodeURIComponent(enroll.owner_rep_id)}&select=id,name,phone,agency_id&limit=1`);
+            const rep = Array.isArray(reps) ? reps[0] : null;
+            if (rep) {
+              recipient    = rep.phone;
+              leadAgencyId = rep.agency_id;
+              nameFull     = rep.name || "";
+              nameFirst    = (rep.name || "").split(" ")[0] || "there";
+            }
+          }
+        } else {
+          const leads = await pg(
+            `/rest/v1/pipeline?id=eq.${encodeURIComponent(enroll.lead_pipeline_id)}&select=id,lead_name,phone,email,state,product,age,agency_id&limit=1`
+          );
+          const lead = Array.isArray(leads) ? leads[0] : null;
+          if (lead) {
+            const ch = step.channel || step.ch || "sms";
+            recipient    = ch.toLowerCase() === "email" ? lead.email : lead.phone;
+            leadAgencyId = lead.agency_id;
+            nameFull     = lead.lead_name || "";
+            nameFirst    = (lead.lead_name || "").split(" ")[0] || "there";
+          }
+        }
 
-        // ── 4a. Queue sms_outbox ────────────────────────────────────────────
-        let outStatus = "skipped";
-        if (recipient && ch !== "Email") {
+        const agencyId = enroll.agency_id || leadAgencyId;
+        if (!agencyId) { skipped++; continue; }
+
+        const ch   = (step.channel || step.ch || "sms").toLowerCase();
+        const tmpl = step.body || step.template || "";
+
+        // Template substitution. The migration's seed copy uses {{lead.first_name}},
+        // {{rep.name}}, etc. — support both flat and dotted forms.
+        const body = tmpl
+          .replace(/\{\{\s*lead\.first_name\s*\}\}/g, nameFirst)
+          .replace(/\{\{\s*lead\.name\s*\}\}/g,       nameFull)
+          .replace(/\{\{\s*rep\.first_name\s*\}\}/g,  nameFirst)
+          .replace(/\{\{\s*rep\.name\s*\}\}/g,        nameFull)
+          .replace(/\{\{\s*first\s*\}\}/g,            nameFirst)
+          .replace(/\{\{\s*name\s*\}\}/g,             nameFull)
+          .replace(/\{\{[^}]+\}\}/g, "");   // strip unresolved tokens so we never SMS a literal "{{...}}"
+
+        // ── 4a. Queue sms_outbox (status reflects send_enabled flag) ─────
+        let rowStatus = "skipped";
+        if (recipient && ch !== "email") {
           try {
             await pg("/rest/v1/sms_outbox", {
               method:  "POST",
@@ -116,48 +162,49 @@ export default async function handler(req) {
                 rep_id:           enroll.owner_rep_id || null,
                 to_number:        recipient,
                 body,
-                status:           "pending",
+                status:           outboxStatus,
                 source:           "drip-sequence",
-                related_lead_id:  enroll.lead_pipeline_id,
+                related_lead_id:  audience === "lead" ? enroll.lead_pipeline_id : null,
               }),
             });
             queued++;
-            outStatus = "queued";
+            rowStatus = logStatusBase;
           } catch (e) {
-            outStatus = "failed";
+            rowStatus = "error";
+            errors++;
             errorDetails.push(`sms enroll=${enroll.id}: ${e.message}`);
           }
         }
 
-        // ── 4b. drip_log row ────────────────────────────────────────────────
+        // ── 4b. drip_log row (matches migration 0031 schema) ─────────────
         try {
           await pg("/rest/v1/drip_log", {
             method:  "POST",
             headers: { "prefer": "return=minimal" },
             body: JSON.stringify({
-              agency_id:        agencyId,
-              enrollment_id:    enroll.id,
-              pipeline_lead_id: enroll.lead_pipeline_id,
-              step_index:       enroll.current_step,
-              channel:          ch,
-              recipient:        recipient || null,
-              body_snapshot:    body,
-              status:           outStatus,
-              fired_at:         now,
+              agency_id:     agencyId,
+              enrollment_id: enroll.id,
+              sequence_id:   enroll.sequence_id,
+              step_idx:      enroll.current_step,
+              channel:       ch,
+              audience,
+              to_number:     recipient || null,
+              body,
+              status:        rowStatus,
+              error_text:    null,
             }),
           });
-        } catch { /* drip_log best-effort */ }
+        } catch { /* drip_log is journal-only; never block the runner on it */ }
 
-        // ── 5. Advance enrollment ───────────────────────────────────────────
+        // ── 5. Advance enrollment — column is next_send_at ───────────────
         const nextIdx     = enroll.current_step + 1;
         const nextStepDef = steps[nextIdx];
-        let nextStepAt    = null;
+        let nextSendAt    = null;
         if (nextStepDef) {
-          // step.day is day-offset from enrollment; delta = (nextDay - currentDay) * 24h
           const currentDay = step.day ?? enroll.current_step;
           const nextDay    = nextStepDef.day ?? nextIdx;
           const deltaMs    = Math.max(1, nextDay - currentDay) * 24 * 60 * 60 * 1000;
-          nextStepAt       = new Date(Date.now() + deltaMs).toISOString();
+          nextSendAt       = new Date(Date.now() + deltaMs).toISOString();
         }
 
         await pg(`/rest/v1/sequence_enrollments?id=eq.${enroll.id}`, {
@@ -165,7 +212,7 @@ export default async function handler(req) {
           headers: { "prefer": "return=minimal" },
           body: JSON.stringify({
             current_step: nextIdx,
-            next_step_at: nextStepAt,
+            next_send_at: nextSendAt,
             status:       nextIdx >= steps.length ? "completed" : "active",
           }),
         });
@@ -181,5 +228,10 @@ export default async function handler(req) {
     return jsonResp({ ok: false, error: fatal.message }, 500);
   }
 
-  return jsonResp({ ok: true, processed, queued, completed, skipped, errors, errorDetails, ts: now });
+  return jsonResp({
+    ok: true,
+    mode: sendEnabled ? "live" : "dry_run",
+    processed, queued, completed, skipped, errors, errorDetails,
+    ts: now,
+  });
 }

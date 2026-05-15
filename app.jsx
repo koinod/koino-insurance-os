@@ -136,13 +136,21 @@ function App() {
     // GAP-M1: mobile reps land on Floor (the actual workspace) instead of
     // the legacy MobileRep mock. Manager + owner still get MobileRep — they
     // don't dial from phones.
-    if (mobile && role === "rep") return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
-    if (mobile) return <MobileRep/>;
+    // Every page reference goes through window.* so a per-file IIFE failure or
+    // a stale-cache mismatch (e.g. app.js loaded but page-owner.js didn't
+    // register window.PageTeam) degrades to a Stub instead of crashing the
+    // whole app with "Can't find variable: X".
+    const F = (key, props = {}) => {
+      const P = window[key];
+      return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
+    };
+    if (mobile && role === "rep") return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+    if (mobile) return F("MobileRep");
     switch (page) {
-      case "today":       return <PageToday aep={aepMode} role={role}/>;
-      case "floor":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
-      case "pipeline":    return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="pipeline"/>;
-      case "queue":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="live"/>;
+      case "today":       return F("PageToday", { aep: aepMode, role });
+      case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+      case "pipeline":    return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "pipeline" });
+      case "queue":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
       case "leaderboard": return (() => {
         // page-leaderboard.jsx was removed — fall through to Performance for
         // owners, or a stub message for non-owner roles.
@@ -150,61 +158,58 @@ function App() {
         if (P) return <P/>;
         return <div style={{ padding: 30, color: "var(--text-tertiary)", fontSize: 13 }}>Leaderboard view not available — open P&L → Performance instead.</div>;
       })();
-      case "performance": return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "team":        return <PageTeam/>;
-      case "coaching":    return <PageTraining role={role} defaultTab="coaching"/>;
-      case "pnl":         return <PagePnL/>;
-      case "tree":        return <PageOrgTree/>;
-      case "connections": return <PageConnections/>;
-      case "calls":       return <PageFloor role={role} onCall={() => setCallOpen(true)} defaultMode="history"/>;
-      case "commissions": return <PageCommissions role={role}/>;
-      case "training":    return <PageTraining role={role}/>;
-      case "vault":       return <PageVault role={role}/>;
-      case "leaddrip":    return (() => { const P = window.PageLeadDrip;   return P ? <P role={role}/> : null; })();
-      case "resources":   return (() => { const P = window.PageResources;   return P ? <P role={role}/> : null; })();
-      case "crm":         return (() => { const P = window.PageCrm;         return P ? <P role={role}/> : null; })();
-      case "messages":    return (() => { const P = window.PageMessages;    return P ? <P role={role}/> : null; })();
-      case "quote":       return (() => { const P = window.PageQuote;       return P ? <P role={role}/> : null; })();
-      case "auto-quoter": return (() => { const P = window.PageAutoQuoter;  return P ? <P role={role}/> : null; })();
-      case "book":        return <PageBook/>;
-      case "recruiting":  return <PageRecruiting role={role}/>;
-      case "settings":    return <PageSettings role={role}/>;
+      case "performance": return F("PagePerformance");
+      case "team":        return F("PageTeam");
+      case "coaching":    return F("PageTraining", { role, defaultTab: "coaching" });
+      case "pnl":         return F("PagePnL");
+      case "tree":        return F("PageOrgTree");
+      case "connections": return F("PageConnections");
+      case "calls":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "history" });
+      case "commissions": return F("PageCommissions", { role });
+      case "training":    return F("PageTraining", { role });
+      case "vault":       return F("PageVault", { role });
+      case "leaddrip":    return F("PageLeadDrip",   { role });
+      case "resources":   return F("PageResources",  { role });
+      case "crm":         return F("PageCrm",        { role });
+      case "messages":    return F("PageMessages",   { role });
+      case "quote":       return F("PageQuote",      { role });
+      case "auto-quoter": return F("PageAutoQuoter", { role });
+      case "book":        return F("PageBook");
+      case "recruiting":  return F("PageRecruiting", { role });
+      case "settings":    return F("PageSettings",   { role });
       // admin: super_admin gets the real PageAdmin panel; everyone else falls
       // through to Today so old deep links don't 404.
-      case "admin":       return (() => {
-        if (role === "super_admin") { const P = window.PageAdmin; return P ? <P role={role}/> : <PageStub title="Admin" sub=""/>; }
-        return <PageToday aep={aepMode} role={role}/>;
-      })();
+      case "admin":       return role === "super_admin" ? F("PageAdmin", { role }) : F("PageToday", { aep: aepMode, role });
       case "platform":
       case "agencies":
       case "users":
       case "billing":
       case "audit":
-      case "system":      return <PageToday aep={aepMode} role={role}/>;
-      case "attribution": return (() => { const P = window.PageAttribution; return P ? <P role={role}/> : null; })();
-      case "nigo":        return (() => { const P = window.PageNIGO;        return P ? <P role={role}/> : null; })();
+      case "system":      return F("PageToday", { aep: aepMode, role });
+      case "attribution": return F("PageAttribution", { role });
+      case "nigo":        return F("PageNIGO",        { role });
 
       // Consolidated NAV aliases (NAV restructure 2026-05-05).
       // Old routes (vault/tree/performance/attribution/training/resources/
       // commissions) still have direct case handlers above for deep-link
       // back-compat — these are the new top-level NAV ids.
-      case "library":     return (() => { const P = window.PageLibrary; return P ? <P role={role}/> : <PageTraining role={role}/>; })();
-      case "org":         return <PageOrgTree/>;
-      case "compliance":  return <PageVault role={role}/>;
-      case "pay":         return <PageCommissions role={role}/>;
-      case "expenses":    return (() => { const P = window.PageExpenses;    return P ? <P role={role}/> : null; })();
+      case "library":     return (() => { const P = window.PageLibrary; return P ? <P role={role}/> : F("PageTraining", { role }); })();
+      case "org":         return F("PageOrgTree");
+      case "compliance":  return F("PageVault",       { role });
+      case "pay":         return F("PageCommissions", { role });
+      case "expenses":    return F("PageExpenses",    { role });
 
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
       // earlier owner nav consolidation. They redirect into related pages.
-      case "tiering":     return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "forecast":    return (() => { const P = window.PagePerformance; return P ? <P/> : null; })();
-      case "carriers":    return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
-      case "scrubbers":   return (() => { const P = window.PageResources;   return P ? <P/> : null; })();
-      case "hardware":    return (() => { const P = window.PageHardware;    return P ? <P/> : null; })();
-      case "agents":      return (() => { const P = window.PageAgents;      return P ? <P/> : null; })();
-      case "workflows":   return (() => { const P = window.PageWorkflows;   return P ? <P/> : null; })();
+      case "tiering":     return F("PagePerformance");
+      case "forecast":    return F("PagePerformance");
+      case "carriers":    return F("PageResources");
+      case "scrubbers":   return F("PageResources");
+      case "hardware":    return F("PageHardware");
+      case "agents":      return F("PageAgents");
+      case "workflows":   return F("PageWorkflows");
 
-      default:            return <PageStub title="Page" sub=""/>;
+      default:            return F("PageStub", { title: "Page", sub: "" });
     }
   }, [page, mobile, aepMode, role]);
 
