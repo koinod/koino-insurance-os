@@ -7,6 +7,27 @@ function PageQueue({ onCall, role = "rep" }) {
   return <DialQueueView onCall={onCall}/>;
 }
 
+// Estimated first-year commission for a queue row. Returns null when we
+// don't have enough data to compute. Reps see this next to the lead so they
+// dial the high-comp leads first instead of guessing.
+//   base = lead.targetPremium (IUL) || lead.ap
+//   pct  = AppData.PRODUCTS.compPct for the matched product
+function estCommissionForLead(lead) {
+  if (!lead) return null;
+  const ap = Number(lead.ap || 0);
+  if (!ap) return null;
+  const products = (window.AppData && window.AppData.PRODUCTS) || [];
+  if (products.length === 0) return null;
+  const lp = String(lead.product || "").toLowerCase().trim();
+  if (!lp) return null;
+  const match =
+    products.find(p => p.name && lp === p.name.toLowerCase()) ||
+    products.find(p => p.name && lp.includes(p.name.toLowerCase())) ||
+    products.find(p => p.name && p.name.toLowerCase().includes(lp));
+  if (!match || !match.compPct) return null;
+  return Math.round(ap * Number(match.compPct) / 100);
+}
+
 function DialQueueView({ onCall }) {
   const { QUEUE, PIPELINE } = AppData;
   // Reps see "their" queue by default: their own assigned pipeline
@@ -25,6 +46,7 @@ function DialQueueView({ onCall }) {
       id: "p-" + p.id,
       lead: p.lead, age: p.age, state: p.state,
       source: p.source || "—", product: p.product,
+      ap: p.ap || 0,
       elapsed: typeof p.days === "number" ? p.days * 86400 : 9999,
       score: p.heat === "hot" ? 92 : p.heat === "fresh" ? 88 : p.heat === "warm" ? 78 : 60,
       phone: p.phone || null,
@@ -69,8 +91,8 @@ function DialQueueView({ onCall }) {
             <span className="meta">sort: {tab === "mine" ? "highest-heat first" : "speed-to-lead"}</span>
           </div>
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px" }}>
-              <div></div><div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{textAlign:"right"}}>Score</div><div style={{textAlign:"right"}}>{tab === "mine" ? "Last" : "SLA"}</div><div></div>
+            <div className="list-h" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 70px 64px 72px" }}>
+              <div></div><div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{textAlign:"right"}}>Score</div><div style={{textAlign:"right"}} title="Estimated first-year commission · AP × product comp%">Est $</div><div style={{textAlign:"right"}}>{tab === "mine" ? "Last" : "SLA"}</div><div></div>
             </div>
             {visible.length === 0 && (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
@@ -81,8 +103,9 @@ function DialQueueView({ onCall }) {
             )}
             {visible.map((l, i) => {
               const c = l.elapsed < 30 ? "var(--accent-money)" : l.elapsed < 90 ? "var(--state-warning)" : "var(--state-danger)";
+              const est = estCommissionForLead(l);
               return (
-                <div key={l.id} className="row" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 64px 72px" }}>
+                <div key={l.id} className="row" style={{ gridTemplateColumns: "16px minmax(170px,2.2fr) 64px minmax(110px,1.2fr) minmax(90px,1fr) 56px 70px 64px 72px" }}>
                   <span className="dot" style={{ background: c }}></span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <strong style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.lead}</strong>
@@ -92,6 +115,9 @@ function DialQueueView({ onCall }) {
                   <div style={{ color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.source}</div>
                   <div style={{ minWidth: 0 }}><span className="chip" style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>{l.product}</span></div>
                   <div className="tabular" style={{ textAlign: "right", color: l.score >= 90 ? "var(--accent-money)" : l.score >= 80 ? "var(--accent-status)" : "var(--text-secondary)" }}>{l.score}</div>
+                  <div className="tabular" title={est != null ? `Estimated first-year commission · $${l.ap?.toLocaleString() || "?"} AP` : "Add AP + matching product to see estimated commission"} style={{ textAlign: "right", color: est != null ? "var(--accent-money)" : "var(--text-quaternary)", fontWeight: est != null ? 600 : 400 }}>
+                    {est != null ? `$${est.toLocaleString()}` : "—"}
+                  </div>
                   <div className="tabular" style={{ textAlign: "right", color: c, fontWeight: 500 }}>{l.elapsed}s</div>
                   <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
@@ -1748,6 +1774,19 @@ function InCall({ onClose, lead, autodial }) {
   const onScheduleSOA = () => window.scheduleSOA && window.scheduleSOA(activeLead);
   const onSendAppLink = () => window.sendAppLink && window.sendAppLink(activeLead);
   const onSendSMS     = () => window.smsCompose  && window.smsCompose(activeLead, activeLead.phone);
+  // Stash the active lead's pipeline id, flip Floor into Deals mode, close the
+  // call modal, and navigate. DealsMode reads back from sessionStorage and
+  // pre-selects the lead in DealWriteForm so the rep types AP + comp% only —
+  // not the whole form. Closes the verbal-yes → logged-commission gap.
+  const onWonWriteDeal = () => {
+    const id = activeLead?._pipelineId || activeLead?.leadId || activeLead?.id;
+    try {
+      if (id) sessionStorage.setItem("repflow.dealwrite.leadId", String(id));
+      sessionStorage.setItem("repflow.floor.mode", "deals");
+    } catch {}
+    onClose && onClose();
+    setTimeout(() => { window.gotoPage && window.gotoPage("floor"); }, 60);
+  };
 
   // Outcome dispatchers (only used in autodial mode)
   const fireOutcome = (outcome) => window.dispatchEvent(new CustomEvent("autodial:outcome", { detail: { outcome }}));
@@ -1922,6 +1961,9 @@ function InCall({ onClose, lead, autodial }) {
               <button className="btn" onClick={onSendSMS}><Icons.MessageSquare size={12}/> SMS</button>
               <button className="btn" onClick={onScheduleSOA}><Icons.Calendar size={12}/> Schedule SOA</button>
               <button className="btn" onClick={onSendAppLink}><Icons.Check size={12}/> Send app link</button>
+              <button className="btn btn-primary" onClick={onWonWriteDeal} title="Close → log the deal now, pre-filled with this lead">
+                <Icons.Award size={12}/> Won → Write deal
+              </button>
               <div style={{ flex: 1 }}></div>
               <button className="btn" style={{ background: "var(--state-danger)", color: "white" }} onClick={onClose}>
                 <Icons.Stop size={12}/> {isAutodial ? "Close · keep dialing" : "End call"}

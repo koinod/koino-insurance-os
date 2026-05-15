@@ -540,12 +540,22 @@
     const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
             || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
     const [refreshKey, setRefreshKey] = useState(0);
+    // "Won → Write deal" on the in-call panel stashes the active lead id
+    // before navigating here. Consume + clear so the same lead isn't
+    // re-bound on the next visit.
+    const defaultLeadId = React.useMemo(() => {
+      try {
+        const v = sessionStorage.getItem("repflow.dealwrite.leadId");
+        if (v) sessionStorage.removeItem("repflow.dealwrite.leadId");
+        return v || "";
+      } catch { return ""; }
+    }, [refreshKey]);
     if (!Form || !Recent) {
       return <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading deal-write form…</div>;
     }
     return (
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
-        <Form key={refreshKey} onWritten={() => setRefreshKey(k => k + 1)}/>
+        <Form key={refreshKey + ":" + (defaultLeadId || "")} defaultLeadId={defaultLeadId} onWritten={() => setRefreshKey(k => k + 1)}/>
         <Recent repId={me?.id} key={"recent-" + refreshKey}/>
       </div>
     );

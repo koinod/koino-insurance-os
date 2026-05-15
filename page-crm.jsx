@@ -192,6 +192,15 @@ function PageCrm({ role = "owner" }) {
       if (row) row.stage = stage;
     }
   };
+  const setSourceOf = (leadId, source) => {
+    const mut = window.AppData?.mutate;
+    if (mut?.pipelineUpdate) mut.pipelineUpdate(leadId, { source });
+    else {
+      const row = pipeline.find(p => p.id === leadId);
+      if (row) row.source = source;
+    }
+    window.toast && window.toast(`Source updated to ${source}`, "success");
+  };
 
   // ── Manual lead create + CSV export ─────────────────────────────────────
   const addLead = (form) => {
@@ -298,7 +307,7 @@ function PageCrm({ role = "owner" }) {
         // the full Pipeline kanban. The existing filter row still lets you
         // expand to other stages.
         const leadsOnly = filteredLeads.filter(p => stageFilter !== "all" ? true : (p.stage === "New" || p.stage === "lead"));
-        return <InboxSection {...{ leads: leadsOnly, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }}/>;
+        return <InboxSection {...{ leads: leadsOnly, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }}/>;
       })()}
       {tab === "sources"    && <SourcesSection {...{ sources, setConnectOpen }}/>}
       {tab === "pipeline"   && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
@@ -314,7 +323,7 @@ function PageCrm({ role = "owner" }) {
       {tab === "lifecycle"  && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}
-      {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf}/>}
+      {activeLead    && <LeadDetailModal lead={activeLead} reps={reps} sourceNames={sourceNames} onClose={() => setActiveLead(null)} reassign={reassign} setStageOf={setStageOf} setSourceOf={setSourceOf}/>}
       {addLeadOpen   && <AddLeadModal reps={reps} sourceNames={sourceNames} role={role} onClose={() => setAddLeadOpen(false)} onSave={addLead}/>}
       {csvOpen       && <CsvImportModal reps={reps} onClose={() => setCsvOpen(false)}/>}
     </div>
@@ -612,7 +621,7 @@ function AddLeadModal({ reps, sourceNames, role, onClose, onSave }) {
 }
 
 // ═══ Inbox ════════════════════════════════════════════════════════════════
-function InboxSection({ leads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setActiveLead }) {
+function InboxSection({ leads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }) {
   return (
     <div className="panel">
       <div className="panel-h">
@@ -640,7 +649,16 @@ function InboxSection({ leads, reps, sources, sourceNames, stageFilter, setStage
                 <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{l.state}</span>
               </div>
               <div className="tabular" style={{ color: "var(--text-tertiary)" }}>{l.age}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="cell-truncate">{l.source}</div>
+              <div onClick={(e) => e.stopPropagation()}>
+                <Shared.Select
+                  value={l.source || ""}
+                  onChange={(v) => setSourceOf && setSourceOf(l.id, v)}
+                  options={[
+                    { v: "",  l: "— source —" },
+                    ...sourceNames.map(n => ({ v: n, l: n })),
+                  ]}
+                />
+              </div>
               <div style={{ fontSize: 11.5 }} className="cell-truncate">{l.product}</div>
               <div onClick={(e) => e.stopPropagation()}>
                 <Shared.Select value={l.owner} onChange={(v) => reassign(l.id, v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
@@ -877,14 +895,13 @@ function ConnectModal({ onClose }) {
 }
 
 // ═══ Lead detail modal ════════════════════════════════════════════════════
-function LeadDetailModal({ lead, reps, onClose, reassign, setStageOf }) {
+function LeadDetailModal({ lead, reps, sourceNames = [], onClose, reassign, setStageOf, setSourceOf }) {
   const owner = reps.find(r => r.id === lead.owner);
   return (
     <Shared.Modal title={lead.lead} width={620} onClose={onClose}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Age">{lead.age}</Field>
         <Field label="State">{lead.state}</Field>
-        <Field label="Source">{lead.source}</Field>
         <Field label="Product">{lead.product}</Field>
         <Field label="AP">{lead.ap ? fmtMoney(lead.ap) : "—"}</Field>
         <Field label="Days in pipeline">{lead.days}</Field>
@@ -892,7 +909,17 @@ function LeadDetailModal({ lead, reps, onClose, reassign, setStageOf }) {
         <Field label="Next">{lead.next}</Field>
       </div>
 
-      <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <Shared.Field label="Source">
+          <Shared.Select
+            value={lead.source || ""}
+            onChange={(v) => setSourceOf && setSourceOf(lead.id, v)}
+            options={[
+              { v: "", l: "— source —" },
+              ...sourceNames.map(n => ({ v: n, l: n })),
+            ]}
+          />
+        </Shared.Field>
         <Shared.Field label="Owner">
           <Shared.Select value={lead.owner} onChange={(v) => reassign(lead.id, v)} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
         </Shared.Field>

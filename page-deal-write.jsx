@@ -321,9 +321,11 @@
     const policies = AppData.POLICIES || [];
     const carriers = AppData.CARRIERS || [];
     const carrierById = new Map(carriers.map(c => [c.id, c]));
-    const mine = policies
-      .filter(p => !repId || p.owner === repId)
-      .slice(0, limit);
+    // All my policies, for the totals; only the top `limit` get rendered.
+    const allMine = policies.filter(p => !repId || p.owner === repId);
+    const mine = allMine.slice(0, limit);
+    const expectedTotal = allMine.reduce((a, p) => a + (Number(p.expectedCommission) || 0), 0);
+    const pendingCount  = allMine.filter(p => p.status === "submitted" || p.status === "app_in" || p.status === "active" || p.status === "issued").length;
 
     const statusChip = (s) => {
       const style = s === "issued" || s === "active" ? "chip-money"
@@ -338,7 +340,7 @@
         <div className="panel-h">
           <Icons.Wallet size={14}/>
           <h3>My recent deals</h3>
-          <span className="meta">{mine.length} of {policies.length}</span>
+          <span className="meta">{allMine.length} total · {pendingCount} pending payout · ${Math.round(expectedTotal).toLocaleString()} expected</span>
         </div>
         {mine.length === 0 ? (
           <div style={{ padding: 28, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
