@@ -34,6 +34,7 @@ const ALLOWED = new Set([
   "runtime/tools/browser_run.py",
   "runtime/tools/create_lead.py",
   "runtime/tools/phone_link_dial.py",
+  "runtime/tools/phone_link_inspect.py",
   "scrapers/__init__.py",
   "scrapers/_template.py",
   "scrapers/aetna.py",
