@@ -134,9 +134,9 @@ foreach ($rel in $Files) {
   $destDir = Split-Path $dest -Parent
   if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
   try {
-    Invoke-WebRequest -UseBasicParsing -Uri ($ApiBase + '/' + $rel) -OutFile $dest
+    Invoke-WebRequest -UseBasicParsing -Uri ("$ApiBase/api/agent/runtime-file?path=" + [uri]::EscapeDataString($destRel)) -OutFile $dest
   } catch {
-    Write-Host "[rba] WARN failed to fetch $rel"
+    Write-Host "[rba] WARN failed to fetch $destRel"
   }
 }
 
