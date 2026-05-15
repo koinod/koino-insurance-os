@@ -3,9 +3,11 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build-jsx.mjs",
-    "vercel-build": "node scripts/build-jsx.mjs"
+    "vercel-build": "node scripts/build-jsx.mjs",
+    "smoke": "node tests/smoke.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.25.0"
+    "esbuild": "0.25.0",
+    "playwright": "^1.49.1"
   }
 }
