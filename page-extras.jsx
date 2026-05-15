@@ -301,10 +301,24 @@ const SCRIPT_CATEGORIES = ["Cold","Warm","Voicemail","Objection","Close","Open",
 function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role }) {
   const [addOpen, setAddOpen] = React.useState(false);
   const [draft, setDraft]     = React.useState(emptyScriptDraft());
+  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
 
   function emptyScriptDraft() {
-    return { title: "", cat: "Cold", body: "", description: "", targetRoles: ["owner","manager","rep"] };
+    return { id: null, title: "", cat: "Cold", body: "", description: "",
+             segmentId: null, targetRoles: ["owner","manager","rep"] };
   }
+
+  const openCreate = () => { setDraft(emptyScriptDraft()); setAddOpen(true); };
+  const openEdit   = (s) => {
+    setDraft({
+      id: s.id, title: s.title || "", cat: s.cat || "Cold",
+      body: s.body || "", description: s.description || "",
+      segmentId: s.segmentId || null,
+      targetRoles: Array.isArray(s.targetRoles) && s.targetRoles.length > 0
+        ? s.targetRoles : ["owner","manager","rep"],
+    });
+    setAddOpen(true);
+  };
 
   const saveScript = async () => {
     const title = draft.title.trim();
@@ -316,16 +330,24 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
     }
     try {
       await window.AppData.mutate.scriptUpsert({
+        id: draft.id || undefined,
         title, cat: draft.cat, body,
         description: draft.description.trim() || null,
+        segmentId: draft.segmentId || null,
         targetRoles: draft.targetRoles,
       });
       setDraft(emptyScriptDraft());
       setAddOpen(false);
-      window.toast && window.toast("Script saved", "success");
+      window.toast && window.toast(draft.id ? "Script saved" : "Script created", "success");
     } catch (e) {
       // toast already fired by mutator
     }
+  };
+
+  const removeScript = async (id) => {
+    if (!confirm("Delete this script? This can't be undone.")) return;
+    try { await window.AppData.mutate.scriptDelete(id); window.toast && window.toast("Script removed", "info"); }
+    catch (_e) {}
   };
 
   const copy = (s) => {
@@ -338,7 +360,7 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
       <div className="panel-h">
         <Icons.FileText size={13}/><h3>Scripts</h3><span className="meta">{scripts.length}</span>
         {canEdit && (
-          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setAddOpen(true)}>
+          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
             <Icons.Plus size={12}/> New script
           </button>
         )}
@@ -367,6 +389,12 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
                   {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
                   {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
                   <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
+                  {canEdit && (
+                    <>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); openEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); removeScript(s.id); }} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                    </>
+                  )}
                 </div>
                 {open && (
                   <div style={{ padding: "10px 12px 12px 30px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
@@ -389,12 +417,12 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
       )}
 
       {addOpen && (
-        <Shared.Modal title="New script" width={620} onClose={() => setAddOpen(false)} actions={
+        <Shared.Modal title={draft.id ? "Edit script" : "New script"} width={620} onClose={() => setAddOpen(false)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveScript}
               disabled={!draft.title.trim() || !draft.body.trim() || draft.targetRoles.length === 0}>
-              <Icons.Check size={11}/> Create script
+              <Icons.Check size={11}/> {draft.id ? "Save changes" : "Create script"}
             </button>
           </>
         }>
@@ -419,6 +447,10 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
               onChange={e => setDraft({ ...draft, body: e.target.value })}
               placeholder={`Hi {{lead_first}}, this is {{rep_first}} with {{agency}}...`}
               style={{ width: "100%", lineHeight: 1.55, fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 12.5 }}/>
+          </Shared.Field>
+          <Shared.Field label={`Segment (optional — Lead Drip uses this to route)`}>
+            <Shared.Select value={draft.segmentId || ""} onChange={v => setDraft({ ...draft, segmentId: v || null })}
+              options={[{ v: "", l: "— No segment —" }, ...segments.map(s => ({ v: s.id, l: s.name }))]}/>
           </Shared.Field>
           <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
         </Shared.Modal>
@@ -771,10 +803,11 @@ function VaultDocsPane({ canEdit }) {
   }, []);
 
   const docs = (window.AppData && window.AppData.DOCS) || [];
+  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
   const [q, setQ]           = React.useState("");
   const [catFilter, setCat] = React.useState("All");
   const [addOpen, setAddOpen] = React.useState(false);
-  const emptyDocDraft = () => ({ title: "", cat: "Internal", url: "", targetRoles: ["owner","manager","rep"] });
+  const emptyDocDraft = () => ({ title: "", cat: "Internal", url: "", segmentId: null, targetRoles: ["owner","manager","rep"] });
   const [draft, setDraft]   = React.useState(emptyDocDraft());
 
   const cats = ["All", ...Array.from(new Set(docs.map(d => d.cat).filter(Boolean)))];
@@ -795,6 +828,7 @@ function VaultDocsPane({ canEdit }) {
     try {
       await window.AppData.mutate.docUpsert({
         title, cat: draft.cat, url: safeUrl, kind: "link",
+        segmentId: draft.segmentId || null,
         targetRoles: draft.targetRoles,
       });
       setDraft(emptyDocDraft());
@@ -870,6 +904,10 @@ function VaultDocsPane({ canEdit }) {
           </Shared.Field>
           <Shared.Field label="URL (paste a link — uploads to Storage land later)">
             <input className="text-input" value={draft.url} onChange={e => setDraft({...draft, url: e.target.value})} placeholder="https://docs.google.com/…"/>
+          </Shared.Field>
+          <Shared.Field label="Segment (optional)">
+            <Shared.Select value={draft.segmentId || ""} onChange={v => setDraft({ ...draft, segmentId: v || null })}
+              options={[{ v: "", l: "— No segment —" }, ...segments.map(s => ({ v: s.id, l: s.name }))]}/>
           </Shared.Field>
           <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
         </Shared.Modal>
