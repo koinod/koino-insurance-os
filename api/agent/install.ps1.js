@@ -103,7 +103,7 @@ $VPy = Join-Path $VenvDir 'Scripts\\python.exe'
 # Use python -m pip — pip.exe in a Windows venv refuses self-upgrade.
 & $VPy -m pip install --quiet --upgrade pip wheel 2>&1 | Out-Null
 Write-Host "[rba] installing python deps"
-& $VPy -m pip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright 2>&1 | Out-Null
+& $VPy -m pip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright pywinauto 2>&1 | Out-Null
 & $VPy -m playwright install chromium 2>&1 | Out-Null
 
 # ── 3. Ollama ─────────────────────────────────────────────────────────
