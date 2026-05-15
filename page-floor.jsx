@@ -45,76 +45,159 @@
     return [state, setState];
   }
 
-  function AutodialerPill({ state, setState }) {
-    const { on, paused, ratePerHr } = state;
-    const status = !on ? "off" : paused ? "paused" : "on";
-    const dotColor =
-      status === "on"     ? "var(--accent-money)" :
-      status === "paused" ? "var(--state-warning)" :
-                            "var(--text-tertiary)";
+  // Build the autodial source list. Three sources merge in priority order:
+  //   1. Manual autodial queue (AutodialQueue.list()) — leads the rep pinned
+  //      from CRM / Pipeline / Lead Drip. These dial first.
+  //   2. The rep's own pipeline rows in dialable stages (New + Contacted)
+  //      with a phone number.
+  //   3. Inbound QUEUE leads assigned to the rep or unassigned.
+  // Deduplicated by id. Phoneless leads are dropped so the dialer never
+  // wastes a slot on something it can't ring.
+  function buildAutodialQueue() {
+    const me   = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const myId = me?.rep_id || null;
+    const seen = new Set();
+    const out  = [];
 
-    // FIX: previously the Start/Pause/Stop buttons only flipped localStorage.
-    // Now they actually drive the global AutoDialBar via the autodial:* events
-    // it already listens for. Queue is built from the rep's QUEUE rows.
-    function buildAutodialQueue() {
-      const me = (typeof window !== "undefined" && window.me && window.me()) || null;
-      const myId = me?.rep_id || null;
-      const queue = (AppData.QUEUE || []).slice();
-      const mine = myId
-        ? queue.filter(q => q.assignedRepId === myId || !q.assignedRepId)
-        : queue;
-      mine.sort((a, b) => (a.elapsed - b.elapsed) || (b.score - a.score));
-      return mine.map(q => ({
-        id: q.id, lead: q.lead, age: q.age, state: q.state, source: q.source,
+    const push = (q) => {
+      if (!q || !q.id || seen.has(q.id)) return;
+      if (!q.phone) return;
+      seen.add(q.id);
+      out.push(q);
+    };
+
+    // 1. Manual pinned queue first — explicit user intent wins.
+    const pinned = (window.AutodialQueue && window.AutodialQueue.list()) || [];
+    pinned.forEach(p => push({
+      id: p.id, lead: p.lead, age: p.age, state: p.state, source: p.source || "pinned",
+      product: p.product, ap: p.ap || 0, days: 0,
+      heat: "fresh", phone: p.phone || null, score: p.score || 80,
+    }));
+
+    // 2. My pipeline (New + Contacted).
+    if (myId) {
+      (AppData.PIPELINE || []).forEach(p => {
+        if (p.owner !== myId) return;
+        if (p.stage !== "New" && p.stage !== "Contacted") return;
+        push({
+          id: "p-" + p.id, lead: p.lead, age: p.age, state: p.state, source: p.source || "pipeline",
+          product: p.product, ap: p.ap || 0, days: p.days || 0,
+          heat: p.heat || "warm", phone: p.phone || null,
+          score: p.heat === "hot" ? 92 : p.heat === "fresh" ? 88 : p.heat === "warm" ? 78 : 60,
+        });
+      });
+    }
+
+    // 3. Inbound queue assigned-to-me or unassigned.
+    (AppData.QUEUE || []).forEach(q => {
+      if (myId && q.assignedRepId && q.assignedRepId !== myId) return;
+      push({
+        id: q.id, lead: q.lead, age: q.age, state: q.state, source: q.source || "inbound",
         product: q.product, ap: 0, days: 0,
         heat: q.elapsed < 30 ? "hot" : q.elapsed < 90 ? "fresh" : "warm",
-        phone: q.phone || null,
-      }));
-    }
-    const startAutodial = () => {
-      const queue = buildAutodialQueue();
+        phone: q.phone || null, score: q.score || 75,
+      });
+    });
+
+    out.sort((a, b) => (b.score - a.score));
+    return out;
+  }
+
+  function AutodialBar({ state, setState }) {
+    const { on, paused, ratePerHr } = state;
+    const [, force] = useState(0);
+
+    // Re-render when the manual queue or pipeline mutates so the count stays live.
+    useEffect(() => {
+      const fn = () => force(n => n + 1);
+      ["autodial:queue:changed", "data:hydrated", "data:mutated", "data:realtime"].forEach(e => window.addEventListener(e, fn));
+      return () => ["autodial:queue:changed", "data:hydrated", "data:mutated", "data:realtime"].forEach(e => window.removeEventListener(e, fn));
+    }, []);
+
+    const queue = buildAutodialQueue();
+    const total = queue.length;
+    const status = !on ? "off" : paused ? "paused" : "on";
+
+    const start = () => {
       if (queue.length === 0) {
-        window.toast && window.toast("Queue empty — nothing to autodial", "warn");
+        window.toast && window.toast("No dialable leads — pin some from CRM / Pipeline / Lead Drip first", "warn");
         return;
       }
       setState(s => ({ ...s, on: true, paused: false }));
       window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue } }));
     };
-    const pauseAutodial  = () => { setState(s => ({ ...s, paused: true  })); window.dispatchEvent(new CustomEvent("autodial:pause")); };
-    const resumeAutodial = () => { setState(s => ({ ...s, paused: false })); window.dispatchEvent(new CustomEvent("autodial:resume")); };
-    const stopAutodial   = () => { setState(s => ({ ...s, on: false, paused: false })); window.dispatchEvent(new CustomEvent("autodial:stop")); };
+    const pause  = () => { setState(s => ({ ...s, paused: true  })); window.dispatchEvent(new CustomEvent("autodial:pause")); };
+    const resume = () => { setState(s => ({ ...s, paused: false })); window.dispatchEvent(new CustomEvent("autodial:resume")); };
+    const stop   = () => { setState(s => ({ ...s, on: false, paused: false })); window.dispatchEvent(new CustomEvent("autodial:stop")); };
 
     return (
-      <div style={{
-        display: "flex", alignItems: "center", gap: 10, padding: "6px 12px",
-        border: "1px solid var(--border-subtle)", borderRadius: 999,
-        background: "var(--surface-elev)"
-      }}>
-        <span className="dot" style={{ background: dotColor }}></span>
-        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-          Autodialer · <strong style={{ color: "var(--text-primary)" }}>{status.toUpperCase()}</strong>
-          {on && <span style={{ color: "var(--text-tertiary)" }}> · {ratePerHr}/hr</span>}
-        </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+          <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Autodialer</span>
+          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>{total}</strong> dialable · <strong style={{ color: on ? "var(--accent-money)" : "var(--text-tertiary)" }}>{status.toUpperCase()}</strong>
+            {on && <span style={{ color: "var(--text-tertiary)" }}> · {ratePerHr}/hr</span>}
+          </span>
+        </div>
+
         {!on && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={startAutodial}>
-            Start
+          <button className="btn btn-primary" onClick={start} disabled={total === 0}
+            style={{ background: total === 0 ? "var(--bg-raised)" : "var(--accent-money)", color: total === 0 ? "var(--text-tertiary)" : "#022", fontSize: 13, padding: "8px 16px", fontWeight: 600 }}>
+            <Icons.Phone size={13}/> Start calling{total > 0 ? ` ${total}` : ""}
           </button>
         )}
         {on && !paused && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={pauseAutodial}>
-            Pause
-          </button>
+          <>
+            <button className="btn" onClick={pause} style={{ background: "var(--state-warning)", color: "#022", fontWeight: 600 }}><Icons.Pause size={12}/> Pause</button>
+            <button className="btn" onClick={stop} style={{ color: "var(--state-danger)" }}><Icons.X size={12}/> Stop</button>
+          </>
         )}
         {on && paused && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={resumeAutodial}>
-            Resume
-          </button>
+          <>
+            <button className="btn btn-primary" onClick={resume} style={{ background: "var(--accent-money)", color: "#022", fontWeight: 600 }}><Icons.Play size={12}/> Resume</button>
+            <button className="btn" onClick={stop} style={{ color: "var(--state-danger)" }}><Icons.X size={12}/> Stop</button>
+          </>
         )}
-        {on && (
-          <button className="btn btn-ghost" style={{ padding: "3px 8px", fontSize: 11, color: "var(--state-danger)" }} onClick={stopAutodial}>
-            Stop
-          </button>
-        )}
+      </div>
+    );
+  }
+
+  /* Pinned autodial queue panel — shows what the rep has manually queued up
+     from CRM / Pipeline / Lead Drip with per-row remove + clear-all. */
+  function PinnedAutodialPanel() {
+    const [, force] = useState(0);
+    useEffect(() => {
+      const fn = () => force(n => n + 1);
+      window.addEventListener("autodial:queue:changed", fn);
+      return () => window.removeEventListener("autodial:queue:changed", fn);
+    }, []);
+    const items = (window.AutodialQueue && window.AutodialQueue.list()) || [];
+    if (items.length === 0) return null;
+    return (
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h">
+          <Icons.Phone size={13} style={{ color: "var(--accent-money)" }}/>
+          <h3>Pinned to autodial</h3>
+          <span className="meta">{items.length}</span>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }}
+            onClick={() => window.AutodialQueue.clear()}>Clear all</button>
+        </div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.5fr 1fr 1fr 90px 30px" }}>
+            <div>Lead</div><div>Source</div><div>Product</div><div>Phone</div><div></div>
+          </div>
+          {items.map(it => (
+            <div key={it.id} className="row" style={{ gridTemplateColumns: "1.5fr 1fr 1fr 90px 30px" }}>
+              <div style={{ fontWeight: 500, fontSize: 12.5 }}>{it.lead || "—"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{it.source || "—"}</div>
+              <div style={{ fontSize: 11.5 }}><span className="chip">{it.product || "—"}</span></div>
+              <div className="tabular" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{it.phone || <span style={{ color: "var(--state-warning)" }}>no phone</span>}</div>
+              <button className="icon-btn" onClick={() => window.AutodialQueue.remove(it.id)} title="Remove" style={{ color: "var(--state-danger)" }}>
+                <Icons.X size={11}/>
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -221,24 +304,49 @@
 
     return (
       <div className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-h">
-          <Icons.Phone size={13} style={{ color: recording ? "var(--state-danger)" : (paused ? "var(--state-warning)" : "var(--text-secondary)") }}/>
-          <h3>Call recorder</h3>
-          <span className="meta" style={{ marginLeft: 6 }}>
-            {recording ? <><span className="dot" style={{ background: "var(--state-danger)", animation: "pulse 1.4s infinite", marginRight: 6 }}/>recording · {fmtTime(elapsed)}</>
+        {/* Single-row header. flexWrap:nowrap + explicit flex:"0 0 auto" on
+            children keeps Start button on the same line as the title, even
+            on narrower viewports where it previously wrapped to a second row
+            (extra padding showed up because of that wrap). */}
+        <div className="panel-h" style={{ flexWrap: "nowrap" }}>
+          <Icons.Phone size={13} style={{ color: recording ? "var(--state-danger)" : (paused ? "var(--state-warning)" : "var(--text-secondary)"), flex: "0 0 auto" }}/>
+          <h3 style={{ flex: "0 0 auto" }}>Call recorder</h3>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)", flex: "0 0 auto", whiteSpace: "nowrap" }}>
+            {recording ? <><span className="dot" style={{ background: "var(--state-danger)", animation: "pulse 1.4s infinite", marginRight: 4 }}/>recording · {fmtTime(elapsed)}</>
               : paused ? `paused · ${fmtTime(elapsed)}`
               : uploading ? "uploading…"
               : "idle"}
           </span>
-          {/* Mic level meter */}
           {recording && (
-            <div style={{ width: 90, height: 6, background: "var(--bg-raised)", borderRadius: 3, marginLeft: 10, overflow: "hidden" }}>
+            <div style={{ width: 70, height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden", flex: "0 0 auto" }}>
               <div style={{ width: `${Math.min(100, level * 200)}%`, height: "100%", background: "var(--accent-money)", transition: "width 80ms linear" }}/>
             </div>
           )}
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+          {!recording && !paused && !uploading && (
+            <button className="btn btn-primary" onClick={start} style={{ background: "var(--state-danger)", color: "white", flex: "0 0 auto" }}>
+              <span className="dot" style={{ background: "white", marginRight: 6 }}/>Start recording
+            </button>
+          )}
+          {recording && (<>
+            <button className="btn" onClick={pause} style={{ flex: "0 0 auto" }}><Icons.Pause size={12}/> Pause</button>
+            <button className="btn btn-primary" onClick={stop} style={{ background: "var(--accent-money)", color: "white", flex: "0 0 auto" }}>
+              <Icons.Check size={12}/> Stop &amp; save
+            </button>
+            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)", flex: "0 0 auto" }}>
+              <Icons.X size={12}/> Discard
+            </button>
+          </>)}
+          {paused && (<>
+            <button className="btn btn-primary" onClick={resume} style={{ flex: "0 0 auto" }}><Icons.Play size={12}/> Resume</button>
+            <button className="btn" onClick={stop} style={{ flex: "0 0 auto" }}><Icons.Check size={12}/> Stop &amp; save</button>
+            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)", flex: "0 0 auto" }}>
+              <Icons.X size={12}/> Discard
+            </button>
+          </>)}
+          <div style={{ flex: 1, minWidth: 0 }}/>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
             <Shared.Select value={mode} onChange={setMode}
-              options={[{ v: "mic", l: "Mic only" }, { v: "mic+system", l: "Mic + system audio (tab share)" }]}/>
+              options={[{ v: "mic", l: "Mic only" }, { v: "mic+system", l: "Mic + system audio" }]}/>
             {role !== "rep" && (
               <Shared.Select value={scope} onChange={setScope}
                 options={role === "owner"
@@ -246,35 +354,6 @@
                   : [{ v: "self", l: "My calls" }, { v: "team", l: "Downline" }]}/>
             )}
           </div>
-        </div>
-
-        <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {!recording && !paused && !uploading && (
-            <button className="btn btn-primary" onClick={start} style={{ background: "var(--state-danger)", color: "white" }}>
-              <span className="dot" style={{ background: "white", marginRight: 6 }}/>Start recording
-            </button>
-          )}
-          {recording && (<>
-            <button className="btn" onClick={pause}><Icons.Pause size={12}/> Pause</button>
-            <button className="btn btn-primary" onClick={stop} style={{ background: "var(--accent-money)", color: "white" }}>
-              <Icons.Check size={12}/> Stop &amp; save
-            </button>
-            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)" }}>
-              <Icons.X size={12}/> Discard
-            </button>
-          </>)}
-          {paused && (<>
-            <button className="btn btn-primary" onClick={resume}><Icons.Play size={12}/> Resume</button>
-            <button className="btn" onClick={stop}><Icons.Check size={12}/> Stop &amp; save</button>
-            <button className="btn btn-ghost" onClick={cancel} style={{ color: "var(--text-tertiary)" }}>
-              <Icons.X size={12}/> Discard
-            </button>
-          </>)}
-          <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>
-            {mode === "mic+system"
-              ? "Tip: when prompted, share the call's tab (Zoom/Teams/Meet) and check ‘Share tab audio’"
-              : "Mic only — captures your voice"}
-          </span>
         </div>
 
         {/* Recent recordings list */}
@@ -478,26 +557,21 @@
       <div>
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "10px 14px", marginBottom: 12,
+          padding: "12px 16px", marginBottom: 12,
           background: "var(--surface-elev)",
           border: "1px solid var(--border-subtle)",
           borderRadius: 10,
-          gap: 10, flexWrap: "wrap",
+          gap: 14, flexWrap: "wrap",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
-              Live floor
-            </span>
-            <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-              <strong style={{ color: "var(--text-primary)" }}>Start</strong> the autodialer · press <span className="kbd mono" style={{ fontSize: 10 }}>R</span> to pull due retries
-            </span>
-          </div>
+          <AutodialBar state={autodialer} setState={setAutodialer}/>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>press <span className="kbd mono" style={{ fontSize: 10 }}>R</span> to pull due retries</span>
             {Pacing && (() => { const P = Pacing; return <P/>; })()}
             {twStatus === "unconfigured" && <TwilioCTA/>}
-            <AutodialerPill state={autodialer} setState={setAutodialer}/>
           </div>
         </div>
+
+        <PinnedAutodialPanel/>
 
         {/* Rep gets a two-col (queue + redial). Manager/owner views drop the
             redial column — DispatchView already has its own 320px Producer
