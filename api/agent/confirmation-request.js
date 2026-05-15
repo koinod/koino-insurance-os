@@ -4,7 +4,7 @@
 //
 // The actual delivery (web modal / OS push / SMS) is handled by separate
 // workers that subscribe to rba_action_confirmations realtime.
-import { rpc, cors, loadInstallByToken, readAgentToken, SERVICE } from "./_lib.js";
+import { rpc, cors, loadInstallByToken, readAgentToken, SERVICE, SUPA_URL } from "./_lib.js";
 
 export const config = { runtime: "edge" };
 
@@ -30,7 +30,20 @@ export default async function handler(req) {
   if (!ALLOWED_ACTIONS.has(body.action)) {
     return new Response(JSON.stringify({ error: `action not allowed: ${body.action}` }), { status: 400, headers: cors() });
   }
-  const channel = ALLOWED_CHANNELS.has(body.channel) ? body.channel : "any";
+
+  // Resolve channel: explicit > user prefs > default 'any'.
+  // High-risk actions (charge, delete, bulk) override to user's
+  // `high_risk_channel` (typically SMS). Lower-stakes use
+  // `confirmation_channel_default` (web modal default).
+  let channel = ALLOWED_CHANNELS.has(body.channel) ? body.channel : null;
+  if (!channel) {
+    const r = await fetch(`${SUPA_URL || ""}/rest/v1/agent_settings?select=confirm_channel_default,high_risk_channel&user_id=eq.${inst.user_id}`,
+      { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }).catch(() => null);
+    let prefs = null;
+    if (r && r.ok) { const rows = await r.json(); prefs = rows[0]; }
+    const isHighRisk = ["send_real_sms","charge_card","delete_policy","bulk_action_ge_10","switch_into_agency"].includes(body.action);
+    channel = (isHighRisk ? prefs?.high_risk_channel : prefs?.confirm_channel_default) || "any";
+  }
 
   const r = await rpc("rba_request_confirmation", {
     p_device_id: inst.device_id,

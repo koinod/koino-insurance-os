@@ -46,10 +46,11 @@ function PageVault({ role = "owner" }) {
   const fLinks    = data.links.filter(l => match(l.label) || match(l.cat));
   const fCarriers = data.carriers.filter(c => match(c.name) || match(c.category || ""));
   const fCourses  = data.courses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
+  const fSegments = data.segments.filter(s => match(s.name) || match(s.description || ""));
 
   const totalSearch =
     fScripts.length + fVideos.length + fDocs.length +
-    fLinks.length + fCarriers.length + fCourses.length;
+    fLinks.length + fCarriers.length + fCourses.length + fSegments.length;
 
   const counts = {
     all: totalSearch,
@@ -58,6 +59,7 @@ function PageVault({ role = "owner" }) {
     scripts:   fScripts.length,
     videos:    fVideos.length,
     docs:      fDocs.length,
+    segments:  fSegments.length,
     carriers:  fCarriers.length,
     links:     fLinks.length,
   };
@@ -69,6 +71,7 @@ function PageVault({ role = "owner" }) {
     { k: "scripts",   l: "Scripts",    icon: "FileText"  },
     { k: "videos",    l: "Videos",     icon: "Video"     },
     { k: "docs",      l: "Documents",  icon: "Folder"    },
+    { k: "segments",  l: "Segments",   icon: "Bookmark"  },
     { k: "carriers",  l: "Carriers",   icon: "Shield"    },
     { k: "links",     l: "Quick links",icon: "ArrowUpRight" },
   ];
@@ -114,6 +117,7 @@ function PageVault({ role = "owner" }) {
           {fCourses.length  > 0 && <VaultCoursesBlock  courses={fCourses}  role={role}/>}
           {fVideos.length   > 0 && <VaultVideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
           {fDocs.length     > 0 && <VaultDocsBlock     docs={fDocs}/>}
+          {fSegments.length > 0 && <VaultSegmentsListBlock segments={fSegments} onOpen={() => setTab("segments")}/>}
           {fCarriers.length > 0 && <VaultCarriersBlock carriers={fCarriers}/>}
           {fLinks.length    > 0 && <VaultLinksBlock    links={fLinks}/>}
         </div>
@@ -121,11 +125,12 @@ function PageVault({ role = "owner" }) {
 
       {tab === "coaching" && <VaultCoachingPane role={role}/>}
       {tab === "courses"  && <ProductTrainingEmbedded role={role}/>}
-      {tab === "scripts"  && <VaultScriptsBlock scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} canEdit={canEdit}/>}
+      {tab === "scripts"  && <VaultScriptsBlock scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx}/>}
       {tab === "videos"   && <VaultVideosBlock  videos={fVideos}   onOpen={setOpenVideo}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
-      {tab === "carriers" && <VaultCarriersBlock carriers={fCarriers} isOwner={isOwner}/>}
-      {tab === "links"    && <VaultLinksBlock   links={fLinks} canEdit={canEdit}/>}
+      {tab === "segments" && <VaultSegmentsPane isOwner={isOwner}/>}
+      {tab === "carriers" && <VaultCarriersBlock carriers={fCarriers}/>}
+      {tab === "links"    && <VaultLinksBlock   links={fLinks}/>}
 
       {openVideo && (
         <Shared.Modal title={openVideo.title} width={800} onClose={() => setOpenVideo(null)}>
@@ -186,113 +191,44 @@ function vaultSubstitute(body, ctx) {
   return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (full, k) => map[k.toLowerCase()] != null ? map[k.toLowerCase()] : full);
 }
 
-/* ── Vault: Scripts block — collapsible cards with live-call token sub.
-   When canEdit is true (manager/owner/super_admin) renders Add/Edit/Delete
-   controls backed by AppData.mutate.scriptUpsert / scriptDelete. ── */
-function VaultScriptsBlock({ scripts, openId, setOpenId, subCtx, canEdit = false }) {
-  const [editing, setEditing] = React.useState(null);
-
+/* ── Vault: Scripts block — collapsible cards with live-call token sub ── */
+function VaultScriptsBlock({ scripts, openId, setOpenId, subCtx }) {
+  if (!scripts.length) {
+    return (
+      <div className="panel" style={{ padding: 32, textAlign: "center" }}>
+        <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-scripts</code>
+      </div>
+    );
+  }
   const copy = (s) => {
     try { navigator.clipboard.writeText(vaultSubstitute(s.body, subCtx)); window.toast && window.toast("Script copied", "success"); }
     catch (_e) {}
   };
-  const startNew  = () => setEditing({ id: null, title: "", cat: "Open", body: "" });
-  const startEdit = (s) => setEditing({ id: s.id, title: s.title, cat: s.cat || "Open", body: s.body || "" });
-  const save = async () => {
-    if (!editing.title.trim() || !editing.body.trim()) return;
-    try {
-      await window.AppData.mutate.scriptUpsert({
-        id: editing.id,
-        title: editing.title.trim(),
-        cat: editing.cat,
-        body: editing.body,
-      });
-      window.toast && window.toast(editing.id ? "Script updated" : "Script added", "success");
-      setEditing(null);
-    } catch (_e) {}
-  };
-  const remove = async (id) => {
-    if (!confirm("Delete this script? This can't be undone.")) return;
-    if (openId === id) setOpenId(null);
-    try { await window.AppData.mutate.scriptDelete(id); window.toast && window.toast("Script removed", "info"); }
-    catch (_e) {}
-  };
-
-  const empty = !scripts.length;
-
   return (
     <div className="panel">
-      <div className="panel-h">
-        <Icons.FileText size={13}/>
-        <h3>Scripts</h3>
-        <span className="meta">{scripts.length}</span>
-        {canEdit && (
-          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={startNew}>
-            <Icons.Plus size={12}/> Add script
-          </button>
-        )}
-      </div>
-      {empty ? (
-        <div style={{ padding: 32, textAlign: "center" }}>
-          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-scripts</code>
-          {canEdit && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
-              Click <strong style={{ color: "var(--text-secondary)" }}>Add script</strong> to write your first one.
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-          {scripts.map(s => {
-            const open = openId === s.id;
-            const Chev = open ? Icons.ChevronDown : Icons.ChevronRight;
-            return (
-              <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer" }} onClick={() => setOpenId(open ? null : s.id)}>
-                  <Chev size={11} style={{ color: "var(--text-tertiary)" }}/>
-                  <span style={{ flex: 1, fontWeight: 500, fontSize: 12 }} className="cell-truncate">{s.title}</span>
-                  {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
-                  {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
-                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
-                  {canEdit && <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>}
-                  {canEdit && <button className="icon-btn" onClick={(e) => { e.stopPropagation(); remove(s.id); }} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>}
-                </div>
-                {open && (
-                  <div style={{ padding: "10px 12px 12px 30px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                    {vaultSubstitute(s.body, subCtx)}
-                  </div>
-                )}
+      <div className="panel-h"><Icons.FileText size={13}/><h3>Scripts</h3><span className="meta">{scripts.length}</span></div>
+      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+        {scripts.map(s => {
+          const open = openId === s.id;
+          const Chev = open ? Icons.ChevronDown : Icons.ChevronRight;
+          return (
+            <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer" }} onClick={() => setOpenId(open ? null : s.id)}>
+                <Chev size={11} style={{ color: "var(--text-tertiary)" }}/>
+                <span style={{ flex: 1, fontWeight: 500, fontSize: 12 }} className="cell-truncate">{s.title}</span>
+                {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
+                {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
+                <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {editing && (
-        <Shared.Modal title={editing.id ? "Edit script" : "New script"} width={620} onClose={() => setEditing(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={!editing.title.trim() || !editing.body.trim()}>
-              <Icons.Check size={11}/> {editing.id ? "Save" : "Add"}
-            </button>
-          </>
-        }>
-          <Shared.Field label="Title">
-            <input className="text-input" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="Med Supp · Plan G open" autoFocus/>
-          </Shared.Field>
-          <Shared.Field label="Category">
-            <Shared.Select value={editing.cat} onChange={(v) => setEditing({ ...editing, cat: v })} options={SCRIPT_CATS.filter(c => c !== "All").map(c => ({ v: c, l: c }))}/>
-          </Shared.Field>
-          <Shared.Field label="Body">
-            <textarea className="text-input" rows={10} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })}
-              placeholder={`Hi {{lead_name}}, this is {{rep_first}}...`}
-              style={{ width: "100%", lineHeight: 1.6, fontFamily: "var(--font-ui)" }}/>
-          </Shared.Field>
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            Use <code style={{ fontSize: 11 }}>{`{{lead_name}}`}</code> / <code style={{ fontSize: 11 }}>{`{{rep_first}}`}</code> for runtime substitution.
-          </div>
-        </Shared.Modal>
-      )}
+              {open && (
+                <div style={{ padding: "10px 12px 12px 30px", fontSize: 12, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                  {vaultSubstitute(s.body, subCtx)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -399,159 +335,65 @@ function VaultCoursesBlock({ courses, role }) {
 }
 
 /* ── Vault: Carriers (read-only directory) ── */
-/* ── Vault: Carriers block — read-only view of the agency's appointed carriers.
-   Carriers come from the global `public.carriers` catalog + per-agency
-   carrier_profiles; adding new entries is owner/super-admin only via the
-   Admin → Carriers screen (scraper queue or direct insert). The Vault
-   surfaces a deeplink so owners don't have to hunt for it. ── */
-function VaultCarriersBlock({ carriers, isOwner = false }) {
-  const goAdmin = () => {
-    window.__adminInitialTab = "carriers";
-    window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "admin" } }));
-  };
-
+function VaultCarriersBlock({ carriers }) {
+  if (!carriers.length) {
+    return (
+      <div className="panel" style={{ padding: 32, textAlign: "center" }}>
+        <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-carriers</code>
+      </div>
+    );
+  }
   return (
     <div className="panel">
-      <div className="panel-h">
-        <Icons.Shield size={13}/>
-        <h3>Appointed carriers</h3>
-        <span className="meta">{carriers.length}</span>
-        {isOwner && (
-          <button className="btn" style={{ marginLeft: "auto" }} onClick={goAdmin}>
-            <Icons.ArrowUpRight size={11}/> Manage in Admin
-          </button>
-        )}
-      </div>
-      {carriers.length === 0 ? (
-        <div style={{ padding: 32, textAlign: "center" }}>
-          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-carriers</code>
-          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
-            {isOwner
-              ? <>Open <strong style={{ color: "var(--text-secondary)" }}>Admin → Carriers</strong> to approve carrier intel or insert a row directly.</>
-              : <>Your agency owner manages the carrier list. Ask them to add appointments in Admin → Carriers.</>}
+      <div className="panel-h"><Icons.Shield size={13}/><h3>Appointed carriers</h3><span className="meta">{carriers.length}</span></div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+        {carriers.map(c => (
+          <div key={c.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</div>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.category || "—"}</div>
+            {c.contact && (c.contact.phone || c.contact.email) && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", fontSize: 11, color: "var(--text-tertiary)" }}>
+                {c.contact.name && <div>{c.contact.name}</div>}
+                {c.contact.phone && <div>{c.contact.phone}</div>}
+                {c.contact.email && <div className="cell-truncate">{c.contact.email}</div>}
+              </div>
+            )}
           </div>
-        </div>
-      ) : (
-        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-          {carriers.map(c => (
-            <div key={c.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</div>
-              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.category || "—"}</div>
-              {c.contact && (c.contact.phone || c.contact.email) && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-subtle)", fontSize: 11, color: "var(--text-tertiary)" }}>
-                  {c.contact.name && <div>{c.contact.name}</div>}
-                  {c.contact.phone && <div>{c.contact.phone}</div>}
-                  {c.contact.email && <div className="cell-truncate">{c.contact.email}</div>}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
 
-/* ── Vault: Quick links — grouped by category, with Add/Edit/Delete for
-   managers and owners. Backed by AppData.mutate.quickLinkUpsert/Delete. ── */
-function VaultLinksBlock({ links, canEdit = false }) {
-  const [editing, setEditing] = React.useState(null);
-
-  const startNew  = () => setEditing({ id: null, label: "", cat: "Internal", url: "" });
-  const startEdit = (l) => setEditing({ id: l.id, label: l.label, cat: l.cat || "Internal", url: l.url || "" });
-  const save = async () => {
-    const label = editing.label.trim();
-    const raw   = editing.url.trim();
-    if (!label || !raw) return;
-    const safeUrl = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-    try {
-      await window.AppData.mutate.quickLinkUpsert({
-        id: editing.id,
-        label,
-        cat: editing.cat,
-        url: safeUrl,
-      });
-      window.toast && window.toast(editing.id ? "Link updated" : "Link added", "success");
-      setEditing(null);
-    } catch (_e) {}
-  };
-  const remove = async (id) => {
-    if (!confirm("Remove this link?")) return;
-    try { await window.AppData.mutate.quickLinkDelete(id); window.toast && window.toast("Link removed", "info"); }
-    catch (_e) {}
-  };
-
+/* ── Vault: Quick links (grouped by category) ── */
+function VaultLinksBlock({ links }) {
+  if (!links.length) {
+    return (
+      <div className="panel" style={{ padding: 32, textAlign: "center" }}>
+        <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-quick-links</code>
+      </div>
+    );
+  }
   const groups = links.reduce((acc, l) => { (acc[l.cat || "Internal"] ||= []).push(l); return acc; }, {});
-  const empty = !links.length;
-
   return (
     <div className="panel">
-      <div className="panel-h">
-        <Icons.ArrowUpRight size={13}/>
-        <h3>Quick links</h3>
-        <span className="meta">{links.length}</span>
-        {canEdit && (
-          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={startNew}>
-            <Icons.Plus size={12}/> Add link
-          </button>
-        )}
+      <div className="panel-h"><Icons.ArrowUpRight size={13}/><h3>Quick links</h3><span className="meta">{links.length}</span></div>
+      <div style={{ padding: 14 }}>
+        {Object.entries(groups).map(([cat, items]) => (
+          <div key={cat} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{cat}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 6 }}>
+              {items.map(l => (
+                <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 5, color: "var(--text-primary)", textDecoration: "none" }}>
+                  <Icons.ArrowUpRight size={11} style={{ color: "var(--text-tertiary)" }}/>
+                  <span className="cell-truncate" style={{ fontSize: 12, fontWeight: 500 }}>{l.label}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
-      {empty ? (
-        <div style={{ padding: 32, textAlign: "center" }}>
-          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-quick-links</code>
-          {canEdit && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
-              Click <strong style={{ color: "var(--text-secondary)" }}>Add link</strong> to drop in a portal, drive, or doc URL.
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ padding: 14 }}>
-          {Object.entries(groups).map(([cat, items]) => (
-            <div key={cat} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{cat}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 6 }}>
-                {items.map(l => (
-                  <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 5 }}>
-                    <a href={l.url} target="_blank" rel="noopener noreferrer"
-                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--text-primary)", textDecoration: "none" }}>
-                      <Icons.ArrowUpRight size={11} style={{ color: "var(--text-tertiary)", flex: "0 0 auto" }}/>
-                      <span className="cell-truncate" style={{ fontSize: 12, fontWeight: 500 }}>{l.label}</span>
-                    </a>
-                    {canEdit && (
-                      <>
-                        <button className="icon-btn" onClick={() => startEdit(l)} title="Edit"><Icons.Edit size={11}/></button>
-                        <button className="icon-btn" onClick={() => remove(l.id)} title="Remove" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {editing && (
-        <Shared.Modal title={editing.id ? "Edit quick link" : "Add quick link"} width={460} onClose={() => setEditing(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={!editing.label.trim() || !editing.url.trim()}>
-              <Icons.Check size={11}/> {editing.id ? "Save" : "Add"}
-            </button>
-          </>
-        }>
-          <Shared.Field label="Label">
-            <input className="text-input" value={editing.label} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder="UHC agent portal" autoFocus/>
-          </Shared.Field>
-          <Shared.Field label="Category">
-            <Shared.Select value={editing.cat} onChange={(v) => setEditing({ ...editing, cat: v })} options={["Internal","Carrier","Compliance","Tools","Other"].map(c => ({ v: c, l: c }))}/>
-          </Shared.Field>
-          <Shared.Field label="URL">
-            <input className="text-input" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} placeholder="https://portal.example.com"/>
-          </Shared.Field>
-        </Shared.Modal>
-      )}
     </div>
   );
 }
@@ -1481,13 +1323,12 @@ function CommissionsOwner() {
   const issued = allRows.filter(r => r.status === "paid" || r.status === "pending payout").length;
   const totalAp       = allRows.reduce((a, r) => a + (r.ap || 0), 0);
   const totalPaid     = allRows.reduce((a, r) => a + Math.max(0, r.paid || 0), 0);
-  const totalDebt     = (AppData.CLAWBACKS || []).reduce((s, c) => s + (c.amount || 0), 0);
   const overridePool  = Math.round(totalAp * overridePct / 100);
   const isEmpty = totalAp === 0;
 
   const display = isEmpty
-    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000, debt: 14200 }
-    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp, debt: totalDebt };
+    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
+    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
 
   const exportCommissions = () => {
     const headers = ["Period","Rep","Carrier","Lead","AP","Expected","Paid","Status"];
@@ -2473,12 +2314,6 @@ function CourseViewerModal({ course, repId, store, onClose }) {
   const completedCount = prog.completedLessons.length;
   const pct = total ? Math.round((completedCount / total) * 100) : 0;
 
-  // Sequential unlock: the next-incomplete lesson is the cursor; anything
-  // past it is locked until the cursor is marked complete. When the course
-  // is fully done, nothing is locked.
-  const firstIncompleteFlat = lessons.findIndex(l => !prog.completedLessons.includes(l._i));
-  const isLocked = (flat) => !!course.sequential && firstIncompleteFlat !== -1 && flat > firstIncompleteFlat;
-
   const toggle = () => {
     if (!lesson) return;
     if (isDone) ProductTraining.unmarkLessonComplete(repId, course.id, lesson._i);
@@ -2510,17 +2345,13 @@ function CourseViewerModal({ course, repId, store, onClose }) {
                     const lid = `${si}.${li}`;
                     const flat = lessons.findIndex(x => x._i === lid);
                     const done = prog.completedLessons.includes(lid);
-                    const locked = isLocked(flat);
                     return (
-                      <button key={li} onClick={() => !locked && setIdx(flat)} disabled={locked} className="btn btn-ghost"
-                        title={locked ? "Complete the previous lesson to unlock" : undefined}
-                        style={{ display: "flex", justifyContent: "flex-start", width: "100%", padding: "6px 8px", fontSize: 12, background: flat === idx ? "var(--bg-raised)" : "transparent", marginBottom: 2, gap: 6, cursor: locked ? "not-allowed" : "pointer", opacity: locked ? 0.55 : 1 }}>
-                        {locked
-                          ? <Icons.Lock size={10} style={{ color: "var(--text-quaternary)" }}/>
-                          : done
-                            ? <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>
-                            : <Icons.Play size={10} style={{ color: "var(--text-tertiary)" }}/>}
-                        <span style={{ flex: 1, textAlign: "left", color: locked ? "var(--text-quaternary)" : done ? "var(--text-tertiary)" : "var(--text-primary)" }}>{l.title}</span>
+                      <button key={li} onClick={() => setIdx(flat)} className="btn btn-ghost"
+                        style={{ display: "flex", justifyContent: "flex-start", width: "100%", padding: "6px 8px", fontSize: 12, background: flat === idx ? "var(--bg-raised)" : "transparent", marginBottom: 2, gap: 6 }}>
+                        {done
+                          ? <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>
+                          : <Icons.Play size={10} style={{ color: "var(--text-tertiary)" }}/>}
+                        <span style={{ flex: 1, textAlign: "left", color: done ? "var(--text-tertiary)" : "var(--text-primary)" }}>{l.title}</span>
                       </button>
                     );
                   })}
@@ -2561,8 +2392,7 @@ function CourseViewerModal({ course, repId, store, onClose }) {
                       <button className={isDone ? "btn" : "btn btn-primary"} onClick={toggle}>
                         {isDone ? <><Icons.X size={11}/> Mark incomplete</> : <><Icons.Check size={11}/> Mark complete</>}
                       </button>
-                      <button className="btn" disabled={idx === lessons.length - 1 || isLocked(idx + 1)} onClick={() => setIdx(i => Math.min(lessons.length - 1, i + 1))}
-                        title={isLocked(idx + 1) ? "Mark this lesson complete to unlock the next one" : undefined}>
+                      <button className="btn" disabled={idx === lessons.length - 1} onClick={() => setIdx(i => Math.min(lessons.length - 1, i + 1))}>
                         Next <Icons.ArrowRight size={11}/>
                       </button>
                     </div>
@@ -2736,10 +2566,6 @@ function ProductTrainingManager({ store }) {
         </div>
       </div>
 
-      <div style={{ marginTop: 14 }}>
-        <CourseLibraryPanel store={store}/>
-      </div>
-
       {showAssign && <AssignCourseModal store={store} onClose={() => setShowAssign(false)}/>}
     </>
   );
@@ -2797,12 +2623,8 @@ function AssignCourseModal({ store, onClose }) {
   );
 }
 
-/* ─── Course library + builder — shared by Owner and Manager training views.
-   Owns the editing state, the CRUD callbacks, and the row stats. Renders an
-   action bar (with optional extras), the library table, and the builder modal.
-   Manager and owner roles both need to author courses; the Manager view layers
-   this panel under its at-risk + enrollment matrix panels. */
-function CourseLibraryPanel({ store, extraTopActions = null }) {
+/* ─── Owner · Product Training authoring (Course Builder) ────────────── */
+function ProductTrainingOwner({ store }) {
   const { REPS } = AppData;
   const [editing, setEditing] = React.useState(null);
 
@@ -2813,7 +2635,6 @@ function CourseLibraryPanel({ store, extraTopActions = null }) {
     durMin: 0,
     status: "assigned",
     required: false,
-    sequential: false,
     description: "",
     sections: [],
     _isNew: true,
@@ -2835,7 +2656,7 @@ function CourseLibraryPanel({ store, extraTopActions = null }) {
     store.saveCourses(cs => cs.map(c => c.id === id ? { ...c, required: !c.required } : c));
   };
 
-  // Library row stats: enrollment + completion rate.
+  // Owner library row stats: enrollment + completion rate.
   const enrolledCount = (course) => REPS.filter(r => {
     if (course.required) return true;
     return store.assignments.some(a => a.courseId === course.id && (a.repIds || []).includes(r.id));
@@ -2850,7 +2671,7 @@ function CourseLibraryPanel({ store, extraTopActions = null }) {
   return (
     <>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 8 }}>
-        {extraTopActions}
+        <button className="btn" onClick={() => window.toast && window.toast("Course audit trail opens once you've published a course", "info")}><Icons.ArrowUpRight size={13}/> Audit trail</button>
         <button className="btn btn-primary" onClick={newCourse}><Icons.Plus size={13}/> New course</button>
       </div>
 
@@ -2899,16 +2720,6 @@ function CourseLibraryPanel({ store, extraTopActions = null }) {
       {editing && <CourseBuilderModal course={editing} setCourse={setEditing} onSave={saveCourse} onCancel={() => setEditing(null)}/>}
     </>
   );
-}
-
-/* ─── Owner · Product Training authoring (Course Builder) ────────────── */
-function ProductTrainingOwner({ store }) {
-  const auditTrail = (
-    <button className="btn" onClick={() => window.toast && window.toast("Course audit trail opens once you've published a course", "info")}>
-      <Icons.ArrowUpRight size={13}/> Audit trail
-    </button>
-  );
-  return <CourseLibraryPanel store={store} extraTopActions={auditTrail}/>;
 }
 
 /* ─── Course Builder modal — sections, lessons, video upload/embed ───── */
@@ -2977,20 +2788,14 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
         <textarea className="text-input" rows={2} value={c.description} onChange={(e) => update({ description: e.target.value })}
           placeholder="What this course teaches and who should take it" style={{ width: "100%", lineHeight: 1.55 }}/>
       </Shared.Field>
-      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, alignItems: "center" }}>
         <Shared.Field label="Duration (min)">
           <input className="text-input" type="number" value={c.durMin} onChange={(e) => update({ durMin: +e.target.value || 0 })}/>
         </Shared.Field>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 18 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={!!c.required} onChange={(e) => update({ required: e.target.checked })}/>
-            <span>Required for new reps · must be completed before first live calls</span>
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={!!c.sequential} onChange={(e) => update({ sequential: e.target.checked })}/>
-            <span>Sequential unlock · learners must complete each lesson before the next opens</span>
-          </label>
-        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 18 }}>
+          <input type="checkbox" checked={!!c.required} onChange={(e) => update({ required: e.target.checked })}/>
+          <span>Required for new reps · must be completed before first live calls</span>
+        </label>
       </div>
 
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border-subtle)" }}>
@@ -3060,95 +2865,50 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
    6. Calls — Gong-style cards with waveform, transcript, AI score
    ───────────────────────────────────────────────────────────────────────── */
 function PageCalls({ role = "rep" }) {
-  // Local-first call history. Reads window.CallRecorderUtils.listRecentCalls
-  // which sources from localStorage (meta) + IndexedDB (blob). Cloud sync is
-  // gated behind window.__callRecorderCloudSync — off by default per current
-  // product call: "storage should be local not in cloud yet".
-  const [calls, setCalls]     = React.useState([]);
-  const [selId, setSelId]     = React.useState(null);
-  const [playUrl, setPlayUrl] = React.useState(null);
+  const { RECORDINGS, REPS } = AppData;
+  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
+  // Resolve the actual signed-in viewer instead of REPS[0]=Marcus.
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? (REPS[0] && REPS[0].id) : null);
+  // Manager view scopes to downline; rep to self; owner sees fleet.
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const visible = role === "rep"
+    ? RECORDINGS.filter(r => !r.repId || r.repId === meId)
+    : role === "manager" && scopeIds
+      ? RECORDINGS.filter(r => !r.repId || scopeIds.includes(r.repId))
+      : RECORDINGS;
 
-  const reload = React.useCallback(async () => {
-    const utils = window.CallRecorderUtils;
-    if (!utils) { setCalls([]); return; }
-    const scope = role === "rep" ? "self" : "agency";
-    const list = await utils.listRecentCalls({ scope, limit: 50 });
-    setCalls(Array.isArray(list) ? list : []);
-  }, [role]);
-
-  React.useEffect(() => {
-    reload();
-    const onMut = (e) => { if (e?.detail?.table === "call_recordings") reload(); };
-    window.addEventListener("data:mutated", onMut);
-    return () => window.removeEventListener("data:mutated", onMut);
-  }, [reload]);
-
-  const sel = calls.find(c => c.id === selId) || calls[0] || null;
-
-  // Re-hydrate the playable URL from IDB on selection change — the cached
-  // _localBlobUrl on a row dies on reload, so we never trust it directly.
-  React.useEffect(() => {
-    let cancelled = false;
-    let createdUrl = null;
-    setPlayUrl(null);
-    (async () => {
-      if (!sel || !window.CallRecorderUtils) return;
-      const u = await window.CallRecorderUtils.getPlaybackUrl(sel);
-      if (cancelled) return;
-      createdUrl = u;
-      setPlayUrl(u || null);
-    })();
-    return () => {
-      cancelled = true;
-      if (createdUrl && typeof createdUrl === "string" && createdUrl.startsWith("blob:")) {
-        try { URL.revokeObjectURL(createdUrl); } catch {}
-      }
-    };
-  }, [sel && sel.id]);
-
-  const fmtClock = (s) => {
-    const t = Math.max(0, Math.floor(Number(s) || 0));
-    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
-  };
-  const fmtWhen = (iso) => {
-    if (!iso) return "—";
-    const d = new Date(iso); if (isNaN(d)) return iso;
-    const now = new Date();
-    const sameDay = d.toDateString() === now.toDateString();
-    return sameDay ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                   : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  };
+  const [selId, setSelId] = React.useState(visible[0]?.id);
+  const sel = visible.find(r => r.id === selId) || visible[0];
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
           <div className="page-title">Calls</div>
-          <div className="page-sub">
-            Local recordings · {calls.length} on this device · cloud sync off
-          </div>
+          <div className="page-sub">{role === "rep" ? "My calls" : "All recorded calls"} · waveform · talk ratio · AI score</div>
         </div>
       </div>
 
       <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
         <div className="panel">
-          <div className="panel-h"><h3>Recordings</h3><span className="meta">{calls.length}</span></div>
+          <div className="panel-h"><h3>Recordings</h3><span className="meta">{visible.length}</span></div>
           <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-            {calls.map(r => (
+            {visible.map(r => (
               <button key={r.id} onClick={() => setSelId(r.id)} className="btn btn-ghost" style={{ justifyContent: "flex-start", padding: 10, background: sel?.id === r.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 6 }}>
-                  <strong style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lead_name || r.lead || "(no lead)"}</strong>
-                  <span className="tabular mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{fmtClock(r.duration_sec || r.durSec)}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                  <strong style={{ fontSize: 12.5 }}>{r.lead}</strong>
+                  <span className="tabular" style={{ color: r.score >= 80 ? "var(--accent-money)" : r.score >= 60 ? "var(--state-warning)" : "var(--state-danger)", fontSize: 11.5 }}>{r.score}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-tertiary)", fontSize: 11 }}>
-                  <span>{fmtWhen(r.started_at)}</span>
-                  {r.outcome && <span className="chip" style={{ fontSize: 9.5 }}>{String(r.outcome).replace(/_/g, " ")}</span>}
+                  <span>{r.date}</span>
+                  <span className="mono">{Math.floor(r.durSec / 60)}:{String(r.durSec % 60).padStart(2, "0")}</span>
                 </div>
               </button>
             ))}
-            {calls.length === 0 && (
-              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, lineHeight: 1.55 }}>
-                No recordings yet. Start one from <strong>Floor → Live</strong>'s recorder panel.
+            {visible.length === 0 && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                {role === "rep" ? "No calls logged yet — make your first dial from the Floor." : "No recorded calls in scope."}
               </div>
             )}
           </div>
@@ -3157,43 +2917,46 @@ function PageCalls({ role = "rep" }) {
         <div className="panel">
           <div className="panel-h">
             <Icons.Headset size={13}/>
-            <h3>{sel ? (sel.lead_name || sel.lead || "Recording") : "Pick a recording"}</h3>
-            {sel && (
-              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                <button className="btn btn-ghost" onClick={async () => {
-                  if (!window.confirm(`Delete this local recording? (${fmtClock(sel.duration_sec)})`)) return;
-                  await window.CallRecorderUtils?.deleteRecording?.(sel.id);
-                  setSelId(null);
-                }}>
-                  <Icons.Trash size={11}/> Delete
-                </button>
-              </div>
-            )}
+            <h3>{sel?.lead} · score {sel?.score}</h3>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button className="btn btn-ghost" onClick={() => sel && window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Summarize the call with ${sel.lead} and grade my open-ended question rate`, context: "Call · " + sel.lead }}))}><Icons.Sparkles size={11}/> Analyze</button>
+              <button className="btn btn-ghost" onClick={() => sel && AppData.mutate.vaultArtifactInsert({ kind: "Recording", lead_name: sel.lead, rep_id: sel.repId, retention: "10y", status: "complete" }).then(() => window.toast && window.toast(`Sent ${sel.lead}'s recording to Vault`, "success"))}><Icons.Shield size={11}/> Send to vault</button>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "vault" }}))}><Icons.ArrowUpRight size={11}/> Open Vault</button>
+            </div>
           </div>
           <div style={{ padding: 14 }}>
-            {sel ? (
-              <>
-                {playUrl ? (
-                  <audio controls src={playUrl} style={{ width: "100%" }}/>
-                ) : (
-                  <div style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>
-                    Loading audio from local storage…
-                  </div>
-                )}
-                <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11.5, color: "var(--text-secondary)" }}>
-                  <span className="chip">{fmtClock(sel.duration_sec)}</span>
-                  {(sel.channels || sel.audio_mime) && <span className="chip">{sel.channels || String(sel.audio_mime).split(";")[0]}</span>}
-                  {sel.audio_bytes ? <span className="chip">{(sel.audio_bytes / 1024 / 1024).toFixed(2)} MB</span> : null}
-                  {sel.outcome && <span className="chip chip-money">{String(sel.outcome).replace(/_/g, " ")}</span>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 11 }}>
+              <span className="mono">00:00</span>
+              <div style={{ flex: 1, height: 36, position: "relative", background: "var(--bg-raised)", borderRadius: 4, overflow: "hidden" }}>
+                <svg width="100%" height="36" viewBox="0 0 240 36" preserveAspectRatio="none">
+                  {Array.from({ length: 80 }).map((_, i) => {
+                    const h = 4 + Math.abs(Math.sin(i * 0.5 + (sel?.id?.length || 0))) * 26 + (i % 7 === 0 ? 4 : 0);
+                    return <rect key={i} x={i * 3} y={(36 - h) / 2} width="1.6" height={h} fill={i < 48 ? "var(--accent-money)" : "var(--text-quaternary)"}/>;
+                  })}
+                </svg>
+              </div>
+              <span className="mono">{Math.floor((sel?.durSec || 0) / 60)}:{String((sel?.durSec || 0) % 60).padStart(2, "0")}</span>
+            </div>
+            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <span className={`chip ${sel?.talkRatio < 50 ? "chip-money" : "chip-status"}`}>Talk: {sel?.talkRatio}%</span>
+              <span className="chip">Open Q: {sel?.openQ}</span>
+              <span className={`chip ${sel?.flags?.tpmo === "ok" ? "chip-money" : "chip-status"}`}>TPMO {sel?.flags?.tpmo === "ok" ? "✓" : "?"}</span>
+              <span className={`chip ${sel?.flags?.soa === "captured" || sel?.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel?.flags?.soa}</span>
+            </div>
+            <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel?.ai || <span style={{ color: "var(--text-tertiary)" }}>processing…</span>}
+            </div>
+
+            {/* Whisper transcript when available — falls back to a hint when the
+                transcribe pipeline hasn't run yet for this recording. */}
+            {sel && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icons.FileText size={11}/> Transcript
                 </div>
-                <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                  Recordings live on this device only (IndexedDB). Cloud sync, AI scoring, and Whisper transcripts turn on once
-                  <span className="mono" style={{ marginLeft: 4 }}>window.__callRecorderCloudSync</span> is flipped.
-                </div>
-              </>
-            ) : (
-              <div style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5, textAlign: "center" }}>
-                Select a recording from the left list.
+                {window.PostCallTranscript
+                  ? (() => { const T = window.PostCallTranscript; return <T recordingId={sel.id}/>; })()
+                  : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcript module loading…</div>}
               </div>
             )}
           </div>
@@ -3560,7 +3323,7 @@ function PageBook() {
       sections, rep sees only their profile.
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
-  const TABS = role === "owner"
+  const TABS = role === "owner" || role === "super_admin"
     ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
@@ -4129,9 +3892,685 @@ function SettingsAgents({ role = "owner" }) {
           </div>
         </div>
       )}
+
+      <UserConnectorVault />
+      <AutomationRulesEditor />
+      <AgentSettingsEditor />
     </div>
   );
 }
+
+// ─── Automation rules — owner-edited, drives post-call/post-meeting/etc.
+//
+// Fires via SECURITY DEFINER fn automation_fire(agency, trigger, rep, ctx).
+// Webhook handlers (twilio-app, fathom-webhook, stripe webhook, etc.) call
+// the RPC; this editor lets the owner define which command to fan-out for
+// each trigger.
+
+const TRIGGERS = [
+  { k: "call_completed",          l: "After a call ends (with answer)" },
+  { k: "call_missed",             l: "When a call is missed / no answer" },
+  { k: "meeting_completed",       l: "After a Fathom meeting completes" },
+  { k: "lead_created",            l: "When a new lead is created" },
+  { k: "lead_stage_changed",      l: "When a lead moves stages" },
+  { k: "appointment_booked",      l: "When an appointment is booked" },
+  { k: "appointment_reminder_24h",l: "24h before an appointment" },
+  { k: "appointment_reminder_1h", l: "1h before an appointment" },
+  { k: "payment_succeeded",       l: "When a Stripe payment succeeds" },
+  { k: "payment_failed",          l: "When a Stripe payment fails" },
+  { k: "policy_issued",           l: "When a policy is issued" },
+  { k: "nigo_received",           l: "When a NIGO arrives" },
+];
+const COMMAND_KINDS = [
+  { k: "post_call_followup",      l: "Generate post-call follow-up draft" },
+  { k: "draft_sms",               l: "Draft SMS (queue for review)" },
+  { k: "draft_email",             l: "Draft email" },
+  { k: "twilio_dial",             l: "Place outbound call" },
+  { k: "sendblue_send",           l: "Send iMessage via SendBlue" },
+  { k: "fathom_pull_notes",       l: "Pull Fathom notes for the lead" },
+  { k: "auto_quote",              l: "Run auto-quote across carriers" },
+  { k: "script_review",           l: "AI review of the rep's last script" },
+];
+
+function AutomationRulesEditor() {
+  const [rules, setRules] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [agencyId, setAgencyId] = React.useState(null);
+  const [adding, setAdding] = React.useState(false);
+  const [busy, setBusy] = React.useState(null);
+
+  const sb = window.getSupabase && window.getSupabase();
+  const reload = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const aid = (await sb.rpc("current_agency_id"))?.data || null;
+      setAgencyId(aid);
+      const { data } = await sb
+        .from("automation_rules")
+        .select("id,trigger,command_kind,command_payload,scope,rep_id,enabled,delay_seconds,description,created_at")
+        .order("created_at", { ascending: false });
+      setRules(data || []);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const toggle = async (id, current) => {
+    setBusy(id);
+    try {
+      const { error } = await sb.from("automation_rules").update({ enabled: !current }).eq("id", id);
+      if (error) throw error;
+      setRules(prev => prev.map(r => r.id === id ? { ...r, enabled: !current } : r));
+    } catch (e) {
+      window.toast && window.toast(`Toggle failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+  const remove = async (id) => {
+    if (!confirm("Remove this automation?")) return;
+    setBusy(id);
+    try {
+      const { error } = await sb.from("automation_rules").delete().eq("id", id);
+      if (error) throw error;
+      setRules(prev => prev.filter(r => r.id !== id));
+    } catch (e) {
+      window.toast && window.toast(`Remove failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Workflow size={13}/>
+        <h3>Automations</h3>
+        <span className="meta">{rules.length} rules · fired by webhook triggers</span>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setAdding(true)}>
+          <Icons.Plus size={11}/> Add rule
+        </button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading rules…</div>
+      ) : rules.length === 0 ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+          No automation rules yet. Add one to e.g. "After a call ends, draft a follow-up SMS for the lead."
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1.6fr 90px 100px 90px" }}>
+            <div>Trigger</div><div>Command</div><div>Description</div><div>Delay</div><div>Status</div><div></div>
+          </div>
+          {rules.map(r => {
+            const trig = TRIGGERS.find(t => t.k === r.trigger) || { l: r.trigger };
+            const cmd  = COMMAND_KINDS.find(c => c.k === r.command_kind) || { l: r.command_kind };
+            return (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1.6fr 90px 100px 90px" }}>
+                <div style={{ fontSize: 12 }}>{trig.l}</div>
+                <div style={{ fontSize: 12 }}>{cmd.l}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description || "—"}</div>
+                <div style={{ fontSize: 11.5 }}>{r.delay_seconds ? `${r.delay_seconds}s` : "—"}</div>
+                <div>
+                  <span className={`chip ${r.enabled ? "chip-money" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggle(r.id, r.enabled)}>
+                    {busy === r.id ? "…" : r.enabled ? "on" : "off"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" onClick={() => remove(r.id)}>Remove</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {adding && (
+        <AutomationRuleModal agencyId={agencyId} onClose={() => { setAdding(false); reload(); }} />
+      )}
+    </div>
+  );
+}
+
+function AutomationRuleModal({ agencyId, onClose }) {
+  const [trigger, setTrigger] = React.useState("call_completed");
+  const [cmd, setCmd]         = React.useState("draft_sms");
+  const [desc, setDesc]       = React.useState("");
+  const [delay, setDelay]     = React.useState(0);
+  const [intent, setIntent]   = React.useState("follow_up");
+  const [busy, setBusy]       = React.useState(false);
+  const M = window.Shared && window.Shared.Modal;
+  if (!M) return null;
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const sb = window.getSupabase();
+      const payload = {};
+      if (cmd === "draft_sms" || cmd === "draft_email") payload.intent = intent;
+      const { error } = await sb.from("automation_rules").insert({
+        agency_id: agencyId, scope: "agency", trigger, command_kind: cmd,
+        command_payload: payload, delay_seconds: parseInt(delay, 10) || 0,
+        description: desc || null, enabled: true,
+      });
+      if (error) throw error;
+      window.toast && window.toast("Automation added", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <M title="New automation" width={520} onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Shared.Field label="When this happens">
+          <Shared.Select value={trigger} onChange={setTrigger} options={TRIGGERS.map(t => ({ v: t.k, l: t.l }))}/>
+        </Shared.Field>
+        <Shared.Field label="…the agent should">
+          <Shared.Select value={cmd} onChange={setCmd} options={COMMAND_KINDS.map(c => ({ v: c.k, l: c.l }))}/>
+        </Shared.Field>
+        {(cmd === "draft_sms" || cmd === "draft_email") && (
+          <Shared.Field label="Draft intent">
+            <Shared.Select value={intent} onChange={setIntent} options={[
+              { v: "follow_up",  l: "Follow up" },
+              { v: "pre_call",   l: "Pre-call" },
+              { v: "pre_appt",   l: "Pre-appointment" },
+              { v: "reschedule", l: "Reschedule" },
+              { v: "cold_open",  l: "Cold open" },
+            ]}/>
+          </Shared.Field>
+        )}
+        <Shared.Field label="Delay (seconds before agent acts)">
+          <input className="text-input" type="number" min={0} max={86400} value={delay} onChange={e => setDelay(e.target.value)}/>
+        </Shared.Field>
+        <Shared.Field label="Description (for your records)">
+          <input className="text-input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="e.g. After every call >60s, draft a follow-up SMS"/>
+        </Shared.Field>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button className="btn btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save automation"}</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+        </div>
+      </div>
+    </M>
+  );
+}
+
+// ─── agent_settings — per-rep agent preferences (record toggle, etc.)
+
+function AgentSettingsEditor() {
+  const [s, setS] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { setLoading(false); return; }
+      try {
+        const session = (await sb.auth.getSession())?.data?.session;
+        if (!session) { setLoading(false); return; }
+        const aid = (await sb.rpc("current_agency_id"))?.data || null;
+        const { data } = await sb.from("agent_settings").select("*").eq("user_id", session.user.id).maybeSingle();
+        setS(data || {
+          user_id: session.user.id, agency_id: aid,
+          always_record_on_pickup: true, state_match_outbound: true,
+          default_dial_provider: "twilio", confirm_channel_default: "any",
+          high_risk_channel: "sms",
+        });
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const save = async (patch) => {
+    setBusy(true);
+    try {
+      const sb = window.getSupabase();
+      const next = { ...s, ...patch };
+      setS(next);
+      const { error } = await sb.from("agent_settings").upsert(next, { onConflict: "user_id" });
+      if (error) throw error;
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  if (loading || !s) {
+    return <div className="panel" style={{ padding: 22, color: "var(--text-tertiary)" }}>Loading agent settings…</div>;
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Cpu size={13}/>
+        <h3>Agent preferences</h3>
+        <span className="meta">applies to your devices</span>
+        {busy && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>Saving…</span>}
+      </div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <Shared.Field label="Always record calls on pickup">
+          <Shared.Select value={s.always_record_on_pickup ? "y" : "n"} onChange={(v) => save({ always_record_on_pickup: v === "y" })}
+            options={[{ v: "y", l: "Yes (default)" }, { v: "n", l: "No — disclose first" }]}/>
+        </Shared.Field>
+        <Shared.Field label="State-matched outbound number">
+          <Shared.Select value={s.state_match_outbound ? "y" : "n"} onChange={(v) => save({ state_match_outbound: v === "y" })}
+            options={[{ v: "y", l: "Match lead's area code" }, { v: "n", l: "Use first number" }]}/>
+        </Shared.Field>
+        <Shared.Field label="Default dial provider">
+          <Shared.Select value={s.default_dial_provider} onChange={(v) => save({ default_dial_provider: v })}
+            options={[{ v: "twilio", l: "Twilio" }, { v: "sendblue", l: "SendBlue (voice via routing)" }, { v: "bluetooth_phone", l: "Paired phone (Bluetooth)" }]}/>
+        </Shared.Field>
+        <Shared.Field label="Default confirm channel">
+          <Shared.Select value={s.confirm_channel_default} onChange={(v) => save({ confirm_channel_default: v })}
+            options={[{ v: "any", l: "Any (best effort)" }, { v: "web_modal", l: "Web modal" }, { v: "os_push", l: "OS push" }, { v: "sms", l: "SMS" }]}/>
+        </Shared.Field>
+        <Shared.Field label="High-risk action channel (real SMS, charge, delete)">
+          <Shared.Select value={s.high_risk_channel} onChange={(v) => save({ high_risk_channel: v })}
+            options={[{ v: "sms", l: "SMS to your phone" }, { v: "os_push", l: "OS push" }, { v: "web_modal", l: "Web modal only" }, { v: "any", l: "Any" }]}/>
+        </Shared.Field>
+      </div>
+    </div>
+  );
+}
+
+// ─── Per-user connector vault (Twilio, SendBlue, Fathom, …) ───────────────
+//
+// Drives connector_vault writes via /api/agent/connector-upsert. Tokens live
+// per-user (not per-agency) so reps own their personal Twilio number, their
+// SendBlue, etc. Health column shows the latest probe result.
+//
+// Provider-specific forms below (TwilioVaultForm, SendBlueVaultForm,
+// FathomVaultForm) handle the field-level UX. Adding a new provider = add
+// a row to PROVIDER_FORMS plus the form component.
+
+const PROVIDERS = [
+  { key: "twilio",   label: "Twilio",        category: "voice + SMS",  hint: "Outbound dial + SMS via Programmable Voice/Messaging." },
+  { key: "sendblue", label: "SendBlue",      category: "iMessage",     hint: "Blue-bubble SMS for higher reply rates." },
+  { key: "fathom",   label: "Fathom",        category: "meeting notes",hint: "Pull post-call notes for booked appointments." },
+  { key: "gmail",    label: "Gmail",         category: "email",        hint: "Send + read on behalf of the rep." },
+  { key: "outlook",  label: "Outlook",       category: "email",        hint: "M365 / Outlook send + read." },
+  { key: "linkedin", label: "LinkedIn",      category: "social",       hint: "Cookie-based — paste session cookie below." },
+  { key: "fb_ads",   label: "Facebook Ads",  category: "lead gen",     hint: "Pull lead-form submissions automatically." },
+  { key: "ig_business", label: "Instagram",  category: "DMs",          hint: "Auto-reply on IG DMs via Meta Graph API." },
+  { key: "meta_dm",  label: "Meta DM Send",  category: "DMs",          hint: "FB Page + IG Business outbound DM." },
+  { key: "calendly", label: "Calendly",      category: "booking",      hint: "Watch new bookings → fire pre-appt reminders." },
+  { key: "stripe",   label: "Stripe",        category: "billing",      hint: "Subscription + payment ops (owner+ only)." },
+  { key: "apollo",   label: "Apollo",        category: "prospecting",  hint: "Lead enrichment + cadence import." },
+];
+
+function UserConnectorVault() {
+  const [connectors, setConnectors] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [open, setOpen] = React.useState(null);     // provider key being configured
+  const [busy, setBusy] = React.useState(null);
+
+  const reload = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const session = sb && (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      if (!jwt) { setLoading(false); return; }
+      const r = await fetch("/api/agent/connector-list", { headers: { authorization: `Bearer ${jwt}` } });
+      const data = await r.json();
+      setConnectors(Array.isArray(data?.connectors) ? data.connectors : []);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const byProvider = React.useMemo(() => {
+    const m = {};
+    connectors.forEach(c => { (m[c.provider] ||= []).push(c); });
+    return m;
+  }, [connectors]);
+
+  const removeConnector = async (id, label) => {
+    if (!confirm(`Remove ${label} connector?`)) return;
+    setBusy(id);
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("connector_vault").delete().eq("id", id);
+      if (error) throw error;
+      window.toast && window.toast(`${label} removed`, "success");
+      await reload();
+    } catch (e) {
+      window.toast && window.toast(`Remove failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const probeNow = async (id, provider) => {
+    setBusy(`probe-${id}`);
+    try {
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/connector/probe", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ vault_id: id, provider, kind: "manual" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.toast && window.toast(`Probe: ${d?.status || "ok"}`, d?.status === "red" ? "warn" : "success");
+      await reload();
+    } catch (e) {
+      window.toast && window.toast(`Probe failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const healthChip = (h) => {
+    if (!h) return <span className="chip">—</span>;
+    const cls = h.status === "green" ? "chip-money" : h.status === "yellow" ? "chip-status" : "chip-danger";
+    return <span className={`chip ${cls}`} title={h.detail || ""}>{h.status}</span>;
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Workflow size={13}/>
+        <h3>Connectors (used by this user's agent)</h3>
+        <span className="meta">{connectors.length} connected · tokens encrypted at rest</span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={reload}>
+          <Icons.RefreshCw size={11}/> Reload
+        </button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading connectors…</div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+            <div>Provider</div><div>Account</div><div>Health</div><div>Last used</div><div>Connected</div><div></div>
+          </div>
+          {PROVIDERS.map(p => {
+            const rows = byProvider[p.key] || [];
+            if (rows.length === 0) {
+              return (
+                <div key={p.key} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{p.hint}</div>
+                  <div><span className="chip">none</span></div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button className="btn btn-primary" onClick={() => setOpen(p.key)}>
+                      <Icons.Plus size={11}/> Connect
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            return rows.map(r => (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{p.label}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+                </div>
+                <div style={{ fontSize: 12 }}>{r.account_label || "default"}</div>
+                <div>{healthChip(r.health)}</div>
+                <div style={{ fontSize: 11.5 }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleString() : "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(r.connected_at).toLocaleDateString()}</div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" disabled={busy === `probe-${r.id}`} onClick={() => probeNow(r.id, p.key)}>
+                    {busy === `probe-${r.id}` ? "…" : "Probe"}
+                  </button>
+                  <button className="btn btn-ghost" disabled={busy === r.id} onClick={() => removeConnector(r.id, p.label)}>
+                    {busy === r.id ? "…" : "Remove"}
+                  </button>
+                </div>
+              </div>
+            ));
+          })}
+        </div>
+      )}
+      {open && <ConnectorVaultModal provider={open} onClose={() => { setOpen(null); reload(); }} />}
+    </div>
+  );
+}
+
+function ConnectorVaultModal({ provider, onClose }) {
+  // Per-provider form. Common path: collect creds → POST /api/agent/connector-upsert.
+  const Form = {
+    twilio:   TwilioVaultForm,
+    sendblue: SendBlueVaultForm,
+    fathom:   FathomVaultForm,
+    linkedin: LinkedInVaultForm,
+    gmail:    GenericTokenVaultForm,
+    outlook:  GenericTokenVaultForm,
+    fb_ads:   GenericTokenVaultForm,
+    ig_business: GenericTokenVaultForm,
+    meta_dm:  GenericTokenVaultForm,
+    calendly: GenericTokenVaultForm,
+    stripe:   GenericTokenVaultForm,
+    apollo:   GenericTokenVaultForm,
+  }[provider] || GenericTokenVaultForm;
+  const M = window.Shared && window.Shared.Modal;
+  if (!M) return null;
+  return (
+    <M title={`Connect ${provider}`} width={520} onClose={onClose}>
+      <Form provider={provider} onClose={onClose} />
+    </M>
+  );
+}
+
+async function _upsertConnector(payload) {
+  const sb = window.getSupabase();
+  const session = (await sb.auth.getSession())?.data?.session;
+  const jwt = session?.access_token;
+  const r = await fetch("/api/agent/connector-upsert", {
+    method: "POST",
+    headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+  return d;
+}
+
+function TwilioVaultForm({ onClose }) {
+  const [sid, setSid]       = React.useState("");
+  const [tok, setTok]       = React.useState("");
+  const [phones, setPhones] = React.useState("");
+  const [label, setLabel]   = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "twilio",
+        account_label: label || null,
+        access_token: tok,         // auth_token
+        api_key: tok,              // mirror; some endpoints use api_key
+        metadata: {
+          account_sid: sid,
+          phone_numbers: phones.split(",").map(s => s.trim()).filter(Boolean),
+        },
+      });
+      window.toast && window.toast("Twilio connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="Account SID *">
+        <input className="text-input" value={sid} onChange={e => setSid(e.target.value)} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+      </Shared.Field>
+      <Shared.Field label="Auth Token *">
+        <input className="text-input" type="password" value={tok} onChange={e => setTok(e.target.value)} placeholder="32-char auth token"/>
+      </Shared.Field>
+      <Shared.Field label="Phone numbers (comma-separated, +E.164) *">
+        <input className="text-input" value={phones} onChange={e => setPhones(e.target.value)} placeholder="+15551234567, +15559876543"/>
+      </Shared.Field>
+      <Shared.Field label="Label (optional — for multiple Twilio accounts)">
+        <input className="text-input" value={label} onChange={e => setLabel(e.target.value)} placeholder="main"/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        Tokens are stored in connector_vault (column-encrypted at rest, see migration 0030). Find these at console.twilio.com → Account → API Keys.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!sid || !tok || !phones || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function SendBlueVaultForm({ onClose }) {
+  const [keyId, setKeyId]   = React.useState("");
+  const [secret, setSecret] = React.useState("");
+  const [sender, setSender] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "sendblue",
+        api_key: secret,
+        metadata: { api_key_id: keyId, sender_phone: sender },
+      });
+      window.toast && window.toast("SendBlue connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="API Key ID *">
+        <input className="text-input" value={keyId} onChange={e => setKeyId(e.target.value)} placeholder="sb-key-xxxxx"/>
+      </Shared.Field>
+      <Shared.Field label="API Secret *">
+        <input className="text-input" type="password" value={secret} onChange={e => setSecret(e.target.value)}/>
+      </Shared.Field>
+      <Shared.Field label="Sender phone (your registered iMessage number) *">
+        <input className="text-input" value={sender} onChange={e => setSender(e.target.value)} placeholder="+15551234567"/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        Get keys from sendblue.co → Settings → API. The sender number must be activated on your SendBlue account.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!keyId || !secret || !sender || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function FathomVaultForm({ onClose }) {
+  const [key, setKey]       = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+  const apiBase = (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.host}` : "");
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({ provider: "fathom", api_key: key });
+      window.toast && window.toast("Fathom connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="Fathom API key *">
+        <input className="text-input" type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="from fathom.video → Settings → Integrations → API"/>
+      </Shared.Field>
+      <Shared.Field label="Webhook URL (paste this into Fathom)">
+        <input className="text-input mono" readOnly value={`${apiBase}/api/connector/fathom-webhook`} onClick={(e) => e.target.select()} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        After saving, paste the webhook URL into Fathom → Settings → Webhooks for "meeting.completed". Notes will auto-attach to the matching lead.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!key || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function LinkedInVaultForm({ onClose }) {
+  const [cookie, setCookie] = React.useState("");
+  const [csrf, setCsrf]     = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "linkedin",
+        access_token: cookie,
+        metadata: { csrf_token: csrf },
+      });
+      window.toast && window.toast("LinkedIn cookie saved (high-risk per LI ToS)", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--state-warn, var(--text-secondary))" }}>
+        ⚠ LinkedIn doesn't sanction cookie-based automation. Use sparingly to avoid restrictions on your account.
+      </div>
+      <Shared.Field label="li_at cookie *">
+        <input className="text-input mono" type="password" value={cookie} onChange={e => setCookie(e.target.value)} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <Shared.Field label="JSESSIONID (CSRF token)">
+        <input className="text-input mono" type="password" value={csrf} onChange={e => setCsrf(e.target.value)} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        DevTools → Application → Cookies → linkedin.com → li_at + JSESSIONID. Refresh weekly when LI rotates them.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!cookie || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function GenericTokenVaultForm({ provider, onClose }) {
+  const [key, setKey]   = React.useState("");
+  const [meta, setMeta] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      let metaObj = {};
+      if (meta.trim()) {
+        try { metaObj = JSON.parse(meta); } catch { metaObj = { note: meta }; }
+      }
+      await _upsertConnector({ provider, api_key: key, metadata: metaObj });
+      window.toast && window.toast(`${provider} connected`, "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="API token / key *">
+        <input className="text-input" type="password" value={key} onChange={e => setKey(e.target.value)}/>
+      </Shared.Field>
+      <Shared.Field label="Metadata (JSON, optional)">
+        <textarea className="text-input mono" rows={3} value={meta} onChange={e => setMeta(e.target.value)} placeholder='{"account_id":"..."}'/>
+      </Shared.Field>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!key || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsApi() {
   const [revealed, setRevealed] = React.useState(false);
   // Generate a deterministic-looking but session-local key. Real key issuance

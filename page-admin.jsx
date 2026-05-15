@@ -423,7 +423,12 @@ function PageAdmin() {
       {tab === "scrape" && <ScrapeQueueView />}
 
       {/* ── Devices (RBA installs across all agencies) ─────────────── */}
-      {tab === "devices" && <DevicesAdminView />}
+      {tab === "devices" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <DevicesAdminView />
+          <ManualCommandTester />
+        </div>
+      )}
 
       {/* ── Audit ──────────────────────────────────────────────── */}
       {tab === "audit" && (
@@ -1221,8 +1226,11 @@ function DevicesAdminView() {
   const [loading, setLoading]   = React.useState(true);
   const [openId, setOpenId]     = React.useState(null);
   const [audit, setAudit]       = React.useState({});
+  const [commands, setCommands] = React.useState({});  // {device_id: [recent rba_commands rows]}
+  const [anomalies, setAnomalies] = React.useState([]);
   const [busy, setBusy]         = React.useState(null);
   const subRef = React.useRef(null);
+  const cmdSubRef = React.useRef(null);
 
   const sb = window.getSupabase && window.getSupabase();
 
@@ -1235,27 +1243,61 @@ function DevicesAdminView() {
         .select("device_id,user_id,agency_id,role,hostname,os,cpu,ram_gb,version,models_local,status,installed_at,last_seen_at,revoked_at")
         .order("last_seen_at", { ascending: false, nullsFirst: false });
       setInstalls(data || []);
+      // Compute anomalies inline (no LLM, no extra round-trip):
+      const now = Date.now();
+      const a = [];
+      for (const d of data || []) {
+        if (d.status !== "active") continue;
+        if (!d.last_seen_at) { a.push({ device_id: d.device_id, kind: "no_heartbeat_yet", detail: `${d.hostname || d.device_id.slice(0,8)} hasn't sent a heartbeat` }); continue; }
+        const ageHr = (now - new Date(d.last_seen_at).getTime()) / 3600000;
+        if (ageHr > 24) a.push({ device_id: d.device_id, kind: "stale_heartbeat", detail: `${d.hostname || d.device_id.slice(0,8)} stale ${Math.floor(ageHr)}h` });
+        else if (ageHr > 1) a.push({ device_id: d.device_id, kind: "warm_heartbeat", detail: `${d.hostname || d.device_id.slice(0,8)} stale ${Math.floor(ageHr)}h` });
+      }
+      // Pull deny rate per device in last 4h
+      const since = new Date(now - 4 * 3600000).toISOString();
+      const { data: aud } = await sb
+        .from("rba_audit")
+        .select("device_id,result")
+        .gte("created_at", since);
+      const byDev = {};
+      (aud || []).forEach(r => { (byDev[r.device_id] ||= { ok:0, denied:0, error:0 })[r.result] += 1; });
+      Object.entries(byDev).forEach(([deviceId, c]) => {
+        const total = c.ok + c.denied + c.error;
+        if (total >= 10) {
+          if (c.denied / total > 0.3) a.push({ device_id: deviceId, kind: "deny_spike", detail: `${c.denied}/${total} denied (last 4h)` });
+          if (c.error  / total > 0.2) a.push({ device_id: deviceId, kind: "error_spike", detail: `${c.error}/${total} errored (last 4h)` });
+        }
+      });
+      setAnomalies(a);
     } finally { setLoading(false); }
   }, []);
   React.useEffect(() => { reload(); }, [reload]);
 
   React.useEffect(() => {
     if (!sb || !openId) {
-      if (subRef.current) { subRef.current.unsubscribe(); subRef.current = null; }
+      if (subRef.current)    { subRef.current.unsubscribe();    subRef.current = null; }
+      if (cmdSubRef.current) { cmdSubRef.current.unsubscribe(); cmdSubRef.current = null; }
       return;
     }
     let cancelled = false;
     (async () => {
-      const { data } = await sb
-        .from("rba_audit")
-        .select("id,tool,result,detail,duration_ms,created_at")
-        .eq("device_id", openId)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      const [audR, cmdR] = await Promise.all([
+        sb.from("rba_audit")
+          .select("id,tool,result,detail,duration_ms,created_at")
+          .eq("device_id", openId)
+          .order("created_at", { ascending: false })
+          .limit(50),
+        sb.from("rba_commands")
+          .select("id,kind,payload,status,result,error,created_at,completed_at")
+          .eq("device_id", openId)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ]);
       if (cancelled) return;
-      setAudit(prev => ({ ...prev, [openId]: data || [] }));
+      setAudit(prev => ({ ...prev, [openId]: audR.data || [] }));
+      setCommands(prev => ({ ...prev, [openId]: cmdR.data || [] }));
     })();
-    const ch = sb
+    const audCh = sb
       .channel(`rba-audit-${openId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "rba_audit", filter: `device_id=eq.${openId}` },
         (msg) => {
@@ -1265,8 +1307,24 @@ function DevicesAdminView() {
           });
         })
       .subscribe();
-    subRef.current = ch;
-    return () => { cancelled = true; if (subRef.current) { subRef.current.unsubscribe(); subRef.current = null; } };
+    const cmdCh = sb
+      .channel(`rba-cmds-${openId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "rba_commands", filter: `device_id=eq.${openId}` },
+        (msg) => {
+          setCommands(prev => {
+            const cur = prev[openId] || [];
+            const next = [msg.new, ...cur.filter(r => r.id !== msg.new.id)].slice(0, 30);
+            return { ...prev, [openId]: next };
+          });
+        })
+      .subscribe();
+    subRef.current = audCh;
+    cmdSubRef.current = cmdCh;
+    return () => {
+      cancelled = true;
+      if (subRef.current)    { subRef.current.unsubscribe();    subRef.current = null; }
+      if (cmdSubRef.current) { cmdSubRef.current.unsubscribe(); cmdSubRef.current = null; }
+    };
   }, [openId]);
 
   const probe = async (deviceId, kind) => {
@@ -1338,11 +1396,27 @@ function DevicesAdminView() {
         <h3>Role-Based Agents</h3>
         <span className="meta">
           {active} active · {installs.length} total{stale > 0 ? ` · ${stale} stale >24h` : ""}
+          {anomalies.length > 0 ? ` · ${anomalies.length} anomal${anomalies.length === 1 ? "y" : "ies"}` : ""}
         </span>
         <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={reload}>
           <Icons.RefreshCw size={11}/> Reload
         </button>
       </div>
+      {anomalies.length > 0 && (
+        <div style={{ padding: "10px 14px", background: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>Anomalies (auto-flagged)</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {anomalies.map((a, i) => (
+              <span key={i} className={`chip ${a.kind === "stale_heartbeat" || a.kind === "deny_spike" || a.kind === "error_spike" ? "chip-danger" : "chip-status"}`}
+                    style={{ cursor: "pointer", fontSize: 10.5 }}
+                    onClick={() => setOpenId(a.device_id)}
+                    title={a.kind}>
+                {a.detail}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {installs.length === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
           No agent installs yet. Reps install via Settings → Agents.
@@ -1372,7 +1446,7 @@ function DevicesAdminView() {
                   <div style={{ textAlign: "right", fontSize: 11, color: "var(--text-tertiary)" }}>{open ? "▾" : "▸"}</div>
                 </div>
                 {open && (
-                  <div style={{ background: "var(--bg-raised)", padding: 14, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 }}>
+                  <div style={{ background: "var(--bg-raised)", padding: 14, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: 14 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Device ID</div>
                       <div className="mono" style={{ fontSize: 10.5, wordBreak: "break-all" }}>{d.device_id}</div>
@@ -1393,6 +1467,40 @@ function DevicesAdminView() {
                             {busy === `${d.device_id}:revoke` ? "…" : "Revoke"}
                           </button>
                         )}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>
+                        Recent commands (subscribed)
+                      </div>
+                      <div style={{ background: "var(--bg-base)", borderRadius: 6, maxHeight: 280, overflow: "auto" }}>
+                        {(commands[d.device_id] || []).length === 0 ? (
+                          <div style={{ padding: 14, fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
+                            No commands posted yet.
+                          </div>
+                        ) : (commands[d.device_id] || []).map(c => (
+                          <div key={c.id} style={{ padding: "6px 10px", borderBottom: "1px solid var(--border-subtle)", fontSize: 11.5 }}>
+                            <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                              <span className={`chip ${c.status === "succeeded" ? "chip-money" : c.status === "failed" || c.status === "expired" ? "chip-danger" : "chip-status"}`} style={{ fontSize: 9.5 }}>
+                                {c.status}
+                              </span>
+                              <span style={{ fontWeight: 500 }}>{c.kind}</span>
+                              <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 10.5 }}>
+                                {fmtAgo(c.created_at)} ago
+                              </span>
+                            </div>
+                            {c.error && (
+                              <div style={{ marginTop: 3, color: "var(--state-danger)", fontSize: 10.5, fontFamily: "var(--font-mono)" }}>
+                                {String(c.error).slice(0, 160)}
+                              </div>
+                            )}
+                            {c.result && Object.keys(c.result).length > 0 && (
+                              <pre className="mono" style={{ marginTop: 3, padding: "4px 6px", background: "var(--bg-raised)", borderRadius: 4, fontSize: 10, maxHeight: 90, overflow: "auto" }}>
+                                {JSON.stringify(c.result, null, 1).slice(0, 400)}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
                     <div>
@@ -1433,6 +1541,98 @@ function DevicesAdminView() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Manual command tester (super_admin only) ───────────────────────────
+//
+// Post arbitrary commands to a chosen device for end-to-end testing
+// without writing automation rules. Useful for verifying a new tool
+// wires up.
+
+const TESTER_KINDS = [
+  "ping","caps_refresh","models_list","clear_workspace",
+  "auto_quote","twilio_dial","draft_sms","draft_email",
+  "sendblue_send","fathom_pull_notes","script_review","file_review",
+  "browser_run","linkedin_send","linkedin_inbox_scan",
+  "fb_pull_lead_forms","ig_dm_reply","meta_dm_send",
+];
+
+function ManualCommandTester() {
+  const [installs, setInstalls] = React.useState([]);
+  const [deviceId, setDeviceId] = React.useState("");
+  const [kind, setKind]         = React.useState("ping");
+  const [payloadJson, setPayloadJson] = React.useState('{"echo":"test"}');
+  const [busy, setBusy]         = React.useState(false);
+  const [last, setLast]         = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      const { data } = await sb.from("rba_installs")
+        .select("device_id,hostname,role,user_id,status").eq("status","active");
+      setInstalls(data || []);
+    })();
+  }, []);
+
+  const post = async () => {
+    setBusy(true);
+    setLast(null);
+    try {
+      let payload = {};
+      if (payloadJson.trim()) payload = JSON.parse(payloadJson);
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/post-command", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, kind, payload }),
+      });
+      const d = await r.json();
+      setLast(d);
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.toast && window.toast(`Posted · cmd ${String(d.command_id || "").slice(0, 8)}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Post failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Cpu size={13}/>
+        <h3>Manual command tester</h3>
+        <span className="meta">super_admin only · post any command to any device</span>
+      </div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Shared.Field label="Target device">
+            <Shared.Select value={deviceId} onChange={setDeviceId}
+              options={[{ v: "", l: "— pick a device —" }, ...installs.map(i => ({ v: i.device_id, l: `${i.hostname || i.device_id.slice(0,8)} · ${i.role}` }))]}/>
+          </Shared.Field>
+          <Shared.Field label="Command kind">
+            <Shared.Select value={kind} onChange={setKind} options={TESTER_KINDS.map(k => ({ v: k, l: k }))}/>
+          </Shared.Field>
+          <Shared.Field label="Payload (JSON)">
+            <textarea className="text-input mono" rows={6} value={payloadJson} onChange={e => setPayloadJson(e.target.value)} placeholder='{"to_number":"+15551234567","body":"hi"}'/>
+          </Shared.Field>
+          <button className="btn btn-primary" disabled={!deviceId || busy} onClick={post}>
+            {busy ? "Posting…" : "Post command"}
+          </button>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>Last response</div>
+          <pre className="mono" style={{ background: "var(--bg-base)", padding: 10, borderRadius: 6, fontSize: 11, maxHeight: 280, overflow: "auto" }}>
+            {last ? JSON.stringify(last, null, 2) : "(no response yet)"}
+          </pre>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
+            After posting, watch the Recent Commands pane in the device drawer to see when the agent claims, runs, and completes the command.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

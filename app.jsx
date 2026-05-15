@@ -252,6 +252,7 @@ function App() {
       {(() => { const NP = window.PerAgencyNotificationsPanel || NotificationsPanel; return <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>; })()}
       {window.AutoDialBar && (() => { const A = window.AutoDialBar; return <A/>; })()}
       {window.FloorActionsHost && (() => { const F = window.FloorActionsHost; return <F/>; })()}
+      {window.RBAConfirmationsHost && (() => { const C = window.RBAConfirmationsHost; return <C/>; })()}
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall lead={callLead} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
 

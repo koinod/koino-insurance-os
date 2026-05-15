@@ -34,7 +34,11 @@ LOG_PATH = CONFIG_DIR / "agent.log"
 HEARTBEAT_INTERVAL_SEC = 60
 CAPS_REFRESH_INTERVAL_SEC = 3600
 COMMAND_POLL_INTERVAL_SEC = 3
+UPDATE_CHECK_INTERVAL_SEC = 3600   # check /api/agent/version every hour
 DEGRADED_AFTER_SEC = 24 * 3600     # caps refresh failed > 24h → enter degraded mode
+
+VERSION = "0.2.0"
+BUNDLE_VERSION_PATH = None  # set in main()
 
 # ── lightweight YAML parser (avoid pulling pyyaml just for one file) ────────
 
@@ -300,6 +304,54 @@ def dispatch(cmd: dict, ctx: dict) -> tuple[str, dict | None, str | None]:
 # ── Platform inline tools ──────────────────────────────────────────────────
 
 
+def check_and_apply_update(api_base: str) -> dict | None:
+    """Hit /api/agent/version. If bundle_version differs from cached, refetch
+    every file. Cached version lives in CACHE_DIR/bundle_version.txt. Returns
+    summary dict or None on no-op / failure.
+    """
+    try:
+        r = _requests().get(f"{api_base}/api/agent/version", timeout=10)
+        if r.status_code != 200:
+            return None
+        manifest = r.json()
+    except Exception as e:
+        log(f"version check failed: {e}")
+        return None
+
+    bv = manifest.get("bundle_version")
+    if not bv:
+        return None
+    cache_path = CACHE_DIR / "bundle_version.txt"
+    cur = ""
+    try: cur = cache_path.read_text().strip()
+    except Exception: pass
+    if cur == bv:
+        return None  # no-op
+
+    log(f"bundle update detected: {cur or '(none)'} → {bv} — refreshing files")
+    refreshed = 0
+    failed = 0
+    for entry in manifest.get("files") or []:
+        rel = entry.get("path"); url = entry.get("url")
+        if not rel or not url: continue
+        dest = CONFIG_DIR / rel  # paths under ~/.repflow/agent/<rel> (matches install layout)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            resp = _requests().get(url, timeout=20)
+            if resp.status_code != 200:
+                failed += 1; continue
+            dest.write_bytes(resp.content)
+            refreshed += 1
+        except Exception as e:
+            log(f"file refresh failed for {rel}: {e}")
+            failed += 1
+    try: cache_path.write_text(bv)
+    except Exception: pass
+    summary = {"applied_version": bv, "refreshed": refreshed, "failed": failed}
+    log(f"update summary: {summary}")
+    return summary
+
+
 def list_ollama_models() -> list[str]:
     try:
         import requests as _r
@@ -389,6 +441,7 @@ def main():
 
     last_heartbeat = time.time()
     last_caps = time.time()
+    last_update = time.time()
 
     while _running:
         try:
@@ -412,6 +465,17 @@ def main():
                 elif new_caps and new_caps.get("__revoked__"):
                     log("caps refresh 401 — revoked")
                     sys.exit(3)
+
+            if now - last_update >= UPDATE_CHECK_INTERVAL_SEC:
+                summary = check_and_apply_update(api_base)
+                last_update = now
+                # If we refreshed any files, exit cleanly so the service
+                # manager (launchd / systemd / Scheduled Task) restarts us
+                # with the new code. KeepAlive + Restart=always on those
+                # configs handle the bounce.
+                if summary and (summary.get("refreshed") or 0) > 0:
+                    log("agent restarting to load new bundle")
+                    sys.exit(0)
 
             cmd = claim_command(api_base, token)
             if cmd and cmd.get("__revoked__"):
