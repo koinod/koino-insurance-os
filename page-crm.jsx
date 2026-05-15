@@ -32,16 +32,22 @@ const KIND_META = {
   manual:     { l: "Manual upload",   i: "ArrowUp",   tone: null },
 };
 
+// `mode` decides which setup view fires after click:
+//   webhook → mint inbound_slug + secret, show URL + curl
+//   csv     → CSV upload widget
+//   oauth   → "coming soon" pivot, falls back to webhook with pre-filled name
+//   custom  → free-form name + optional field_map → webhook
 const CONNECTOR_CATALOG = [
-  { id: "fb-ads",      name: "Facebook Lead Ads",  kind: "owned_ads",  setup: "Connect Meta Business account → select forms → leads stream in via webhook." },
-  { id: "google-ads",  name: "Google Ads",          kind: "owned_ads",  setup: "OAuth Google Ads → grant Lead Form Extensions read → ROAS attribution flows back." },
-  { id: "tiktok-ads",  name: "TikTok Lead Gen",     kind: "owned_ads",  setup: "OAuth TikTok Business → instant forms ingest. Newer surface — strong T55-T65 reach." },
-  { id: "convoso",     name: "Convoso transfers",   kind: "transfers",  setup: "API key + auto-route inbound → producer queue under 60s." },
-  { id: "ringy",       name: "Ringy / iSalesCRM",   kind: "transfers",  setup: "Webhook URL pointed at /api/leads/inbound; we map fields automatically." },
-  { id: "leadhero",    name: "Lead Heroes",         kind: "vendor",     setup: "Vendor API key + drop email — we score + dedupe before posting to queue." },
-  { id: "tlw",         name: "TLW direct mail",     kind: "vendor",     setup: "Daily CSV email → IMAP grab → vault archive + queue insert." },
-  { id: "csv",         name: "CSV upload",           kind: "manual",     setup: "Drop a CSV — we infer columns + queue the rows for verification + dialing." },
-  { id: "webhook",     name: "Generic webhook",     kind: "webhook",    setup: "POST your leads to /api/leads/inbound with HMAC-signed body. JSON or form-encoded." },
+  { id: "fb-ads",      name: "Facebook Lead Ads",  kind: "owned_ads",  mode: "oauth",   vendor: "Meta",       setup: "OAuth Meta Business → instant forms stream in via webhook." },
+  { id: "google-ads",  name: "Google Ads",          kind: "owned_ads",  mode: "oauth",   vendor: "Google",     setup: "OAuth Google Ads → Lead Form Extensions ingest." },
+  { id: "tiktok-ads",  name: "TikTok Lead Gen",     kind: "owned_ads",  mode: "oauth",   vendor: "TikTok",     setup: "OAuth TikTok Business → instant forms ingest." },
+  { id: "convoso",     name: "Convoso transfers",   kind: "transfers",  mode: "webhook", vendor: "Convoso",    setup: "Point Convoso's lead-push webhook at the URL below. We HMAC-verify on receipt." },
+  { id: "ringy",       name: "Ringy / iSalesCRM",   kind: "transfers",  mode: "webhook", vendor: "Ringy",      setup: "In Ringy → Integrations → Webhook, paste the URL below. We map standard fields automatically." },
+  { id: "leadhero",    name: "Lead Heroes",         kind: "vendor",     mode: "webhook", vendor: "Lead Heroes",setup: "Lead Heroes posts per-lead JSON to your webhook. Add the secret as their HMAC token." },
+  { id: "tlw",         name: "TLW direct mail",     kind: "vendor",     mode: "webhook", vendor: "TLW",        setup: "TLW posts mailed-lead acceptance back to your webhook URL." },
+  { id: "csv",         name: "CSV upload",          kind: "manual",     mode: "csv",     vendor: null,         setup: "Drop a CSV — we map columns to pipeline rows and queue them for outreach." },
+  { id: "webhook",     name: "Generic webhook",     kind: "webhook",    mode: "webhook", vendor: null,         setup: "POST JSON to the webhook URL. Use the HMAC secret in x-repflow-signature." },
+  { id: "custom",      name: "Custom integration",  kind: "webhook",    mode: "custom",  vendor: null,         setup: "Build a new source. Define its name and optional field map (their key → ours) and we'll mint a webhook URL." },
 ];
 
 const STAGES = ["New", "Contacted", "Quoted", "App In", "Issued", "Cancelled", "Lost"];
@@ -751,43 +757,85 @@ function Mini({ label, value, tone }) {
 // ═══ Pipeline (Kanban) ════════════════════════════════════════════════════
 function PipelineSection({ leads, reps, setStageOf, setActiveLead }) {
   const byStage = STAGES.map(s => ({ stage: s, items: leads.filter(l => l.stage === s) }));
+  // Drag state: which card is being dragged + which column is currently a drop target
+  // (so we can highlight it). Cleared on dragEnd/drop.
+  const [drag,     setDrag]     = React.useState(null);
+  const [dragOver, setDragOver] = React.useState(null);
+
+  const handleDrop = (e, stage) => {
+    e.preventDefault();
+    setDragOver(null);
+    if (drag == null) return;
+    const lead = leads.find(l => l.id === drag);
+    setDrag(null);
+    if (!lead || lead.stage === stage) return;
+    setStageOf(drag, stage);
+  };
+
   return (
     <div className="panel">
       <div className="panel-h">
         <Icons.Pipeline size={13}/>
         <h3>Pipeline</h3>
-        <span className="meta">{leads.length} active · drag stage in dropdown to advance</span>
+        <span className="meta">{leads.length} active · drag a card between columns to advance</span>
       </div>
       <div style={{ padding: 14, display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, 1fr)`, gap: 8 }}>
-        {byStage.map(col => (
-          <div key={col.stage} style={{ background: "var(--bg-raised)", borderRadius: 6, padding: 8, minHeight: 220 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-              <span className="dot" style={{ background: STAGE_TONE[col.stage] }}/>
-              <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{col.stage}</span>
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>{col.items.length}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {col.items.map(l => {
-                const owner = reps.find(r => r.id === l.owner);
-                return (
-                  <div key={l.id} onClick={() => setActiveLead(l)}
-                    style={{ padding: 8, background: "var(--bg-overlay)", borderRadius: 5, cursor: "pointer", border: `1px solid ${HEAT_TONE[l.heat] === "var(--text-tertiary)" ? "transparent" : "color-mix(in oklch, " + HEAT_TONE[l.heat] + " 30%, transparent)"}` }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 500 }} className="cell-truncate">{l.lead}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 2 }} className="cell-truncate">{l.product}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 10, color: "var(--text-tertiary)" }}>
-                      <span>{owner?.name || l.owner}</span>
-                      <div style={{ flex: 1 }}/>
-                      {l.ap ? <span style={{ fontWeight: 500, color: "var(--accent-money)" }}>{fmtMoney(l.ap)}</span> : null}
+        {byStage.map(col => {
+          const isTarget = dragOver === col.stage;
+          return (
+            <div key={col.stage}
+              onDragOver={(e) => { e.preventDefault(); if (dragOver !== col.stage) setDragOver(col.stage); }}
+              onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(prev => prev === col.stage ? null : prev); }}
+              onDrop={(e) => handleDrop(e, col.stage)}
+              style={{
+                background: isTarget ? "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))" : "var(--bg-raised)",
+                border: `1px solid ${isTarget ? "var(--accent-money)" : "transparent"}`,
+                borderRadius: 6, padding: 8, minHeight: 220, transition: "background 120ms ease, border-color 120ms ease",
+              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <span className="dot" style={{ background: STAGE_TONE[col.stage] }}/>
+                <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{col.stage}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>{col.items.length}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {col.items.map(l => {
+                  const owner = reps.find(r => r.id === l.owner);
+                  const isDragging = drag === l.id;
+                  return (
+                    <div key={l.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDrag(l.id);
+                        // Some browsers need data on the dataTransfer to start a drag at all.
+                        try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", l.id); } catch (_e) {}
+                      }}
+                      onDragEnd={() => { setDrag(null); setDragOver(null); }}
+                      onClick={() => setActiveLead(l)}
+                      style={{
+                        padding: 8, background: "var(--bg-overlay)", borderRadius: 5,
+                        cursor: isDragging ? "grabbing" : "grab",
+                        opacity: isDragging ? 0.5 : 1,
+                        border: `1px solid ${HEAT_TONE[l.heat] === "var(--text-tertiary)" ? "transparent" : "color-mix(in oklch, " + HEAT_TONE[l.heat] + " 30%, transparent)"}`,
+                      }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 500 }} className="cell-truncate">{l.lead}</div>
+                      <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 2 }} className="cell-truncate">{l.product}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 10, color: "var(--text-tertiary)" }}>
+                        <span>{owner?.name || l.owner}</span>
+                        <div style={{ flex: 1 }}/>
+                        {l.ap ? <span style={{ fontWeight: 500, color: "var(--accent-money)" }}>{fmtMoney(l.ap)}</span> : null}
+                      </div>
                     </div>
+                  );
+                })}
+                {col.items.length === 0 && (
+                  <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 11 }}>
+                    {isTarget && drag != null ? "drop here" : "—"}
                   </div>
-                );
-              })}
-              {col.items.length === 0 && (
-                <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 11 }}>—</div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -857,40 +905,383 @@ function Row({ label, value, tone }) {
 }
 
 // ═══ Connect-source modal ═════════════════════════════════════════════════
+// Multi-step wizard: pick → setup view per `mode`:
+//   webhook → mint inbound_slug + HMAC secret, render URL + curl
+//   csv     → client-side parse + bulk insert into pipeline
+//   oauth   → "coming soon" pivot; offers webhook fallback
+//   custom  → free-form name + optional field_map → webhook
 function ConnectModal({ onClose }) {
-  const [picked, setPicked] = React.useState(null);
-  const onConnect = (c) => {
-    window.toast && window.toast(`OAuth flow for ${c.name} — coming soon. Drop a webhook URL or CSV in the meantime.`, "info");
-    onClose();
+  const [step, setStep]   = React.useState("pick"); // pick | setup | done
+  const [conn, setConn]   = React.useState(null);   // catalog entry
+  const [custom, setCustom] = React.useState({ name: "", vendor: "", costCents: "", fieldMap: "" });
+
+  const start = (c) => {
+    if (c.mode === "oauth") {
+      // Pivot oauth to webhook with vendor pre-named. Real OAuth handshake
+      // requires Meta/Google/TikTok Business app credentials (day-2 task);
+      // shipping the webhook path so the operator can move TODAY.
+      window.toast && window.toast(`${c.name}: live OAuth pending app verification. Wiring webhook now — switch later for free.`, "info");
+      setConn({ ...c, mode: "webhook" });
+    } else {
+      setConn(c);
+    }
+    setStep("setup");
   };
+
   return (
-    <Shared.Modal title="Connect a lead source" width={680} onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-        {CONNECTOR_CATALOG.map(c => {
-          const km = KIND_META[c.kind] || KIND_META.vendor;
-          const Ico = Icons[km.i] || Icons.Plug;
-          const active = picked === c.id;
-          return (
-            <div key={c.id} onClick={() => setPicked(c.id)}
-              style={{ padding: 12, background: active ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)", borderRadius: 6, border: `1px solid ${active ? "color-mix(in oklch, var(--accent-money) 40%, transparent)" : "var(--border-subtle)"}`, cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <Ico size={13} style={{ color: "var(--text-secondary)" }}/>
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</span>
-              </div>
-              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{km.l}</div>
-              {active && (
-                <div style={{ marginTop: 8, padding: 8, background: "var(--bg-overlay)", borderRadius: 4, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                  {c.setup}
-                  <button className="btn btn-primary" style={{ marginTop: 8, width: "100%", height: 28 }} onClick={(e) => { e.stopPropagation(); onConnect(c); }}>
-                    <Icons.ArrowUpRight size={11}/> Start setup
-                  </button>
+    <Shared.Modal
+      title={step === "pick" ? "Connect a lead source" : conn?.name || "Connect a lead source"}
+      width={step === "pick" ? 680 : 640}
+      onClose={onClose}
+    >
+      {step === "pick" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+          {CONNECTOR_CATALOG.map(c => {
+            const km = KIND_META[c.kind] || KIND_META.vendor;
+            const Ico = Icons[km.i] || Icons.Plug;
+            return (
+              <div key={c.id} onClick={() => start(c)}
+                style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)", cursor: "pointer", transition: "border-color 120ms" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in oklch, var(--accent-money) 50%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <Ico size={13} style={{ color: "var(--text-secondary)" }}/>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{km.l}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {step === "setup" && conn?.mode === "webhook" && (
+        <WebhookSetupView conn={conn} custom={null} onBack={() => setStep("pick")} onDone={onClose}/>
+      )}
+      {step === "setup" && conn?.mode === "custom" && (
+        <CustomSourceSetupView conn={conn} custom={custom} setCustom={setCustom} onBack={() => setStep("pick")} onDone={onClose}/>
+      )}
+      {step === "setup" && conn?.mode === "csv" && (
+        <CsvUploadView onBack={() => setStep("pick")} onDone={onClose}/>
+      )}
     </Shared.Modal>
+  );
+}
+
+// ─── Webhook setup view ──────────────────────────────────────────────────
+function WebhookSetupView({ conn, custom, onBack, onDone }) {
+  const [busy, setBusy] = React.useState(false);
+  const [row, setRow]   = React.useState(null);
+  const [err, setErr]   = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBusy(true); setErr(null);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        if (!sb) throw new Error("Supabase client not ready");
+        const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+        if (!agencyId) throw new Error("No active agency — pick one first.");
+        const name = custom?.name?.trim() || conn.name;
+        const { data, error } = await sb.rpc("create_inbound_lead_source", {
+          p_agency_id: agencyId,
+          p_name: name,
+          p_kind: conn.kind || "webhook",
+          p_vendor: custom?.vendor?.trim() || conn.vendor || null,
+          p_cost_per_lead_cents: custom?.costCents ? parseInt(custom.costCents, 10) : null,
+          p_field_map: (() => { try { return custom?.fieldMap ? JSON.parse(custom.fieldMap) : {}; } catch { return {}; } })(),
+          p_notes: null,
+        });
+        if (error) throw error;
+        const r = Array.isArray(data) ? data[0] : data;
+        if (cancelled) return;
+        setRow(r);
+        window.toast && window.toast(`Webhook for ${name} ready`, "success");
+      } catch (e) {
+        if (!cancelled) setErr(String(e?.message || e));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (busy && !row) {
+    return <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>Minting webhook URL + secret…</div>;
+  }
+  if (err) {
+    return (
+      <div style={{ padding: 12 }}>
+        <div style={{ padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12, marginBottom: 10 }}>{err}</div>
+        <button className="btn btn-ghost" onClick={onBack}>← Back</button>
+      </div>
+    );
+  }
+  if (!row) return null;
+
+  const origin = (typeof window !== "undefined" && window.location?.origin) || "https://repflow.koino.capital";
+  const url = `${origin}/api/leads/inbound-source?source=${encodeURIComponent(row.inbound_slug)}`;
+  const sampleBody = JSON.stringify({
+    lead_name: "Cheryl Hampton",
+    phone: "+15125550199",
+    email: "cheryl@example.com",
+    age: 67, state: "TX", product: "Med Supp Plan G",
+  });
+  const curl = `curl -X POST "${url}" \\\n  -H "content-type: application/json" \\\n  -H "x-repflow-signature: sha256=$(printf '%s' '${sampleBody}' | openssl dgst -sha256 -hmac "${row.inbound_hmac_secret}" -hex | awk '{print $2}')" \\\n  -d '${sampleBody}'`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <CopyableField label="Webhook URL" value={url} mono/>
+      <CopyableField label="HMAC secret (x-repflow-signature)" value={row.inbound_hmac_secret} mono secret/>
+      <CopyableField label="Sample curl" value={curl} mono multiline/>
+      <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+        <strong style={{ color: "var(--text-secondary)" }}>{conn.name}:</strong> {conn.setup} The endpoint accepts JSON; nested keys come through unchanged. Field-map this source later from Settings → Lead sources.
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn btn-ghost" onClick={onBack}>← Connect another</button>
+        <button className="btn btn-primary" onClick={onDone}><Icons.Check size={11}/> Done</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Custom source setup ─────────────────────────────────────────────────
+function CustomSourceSetupView({ conn, custom, setCustom, onBack, onDone }) {
+  const [submitted, setSubmitted] = React.useState(false);
+  if (submitted) {
+    return <WebhookSetupView conn={{ ...conn, name: custom.name }} custom={custom} onBack={onBack} onDone={onDone}/>;
+  }
+  const valid = custom.name.trim().length > 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="Source name" hint="e.g. 'BoldLeads', 'My Agent's Mailer', 'Insurance Connect'">
+        <input className="text-input" autoFocus value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="BoldLeads"/>
+      </Shared.Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Shared.Field label="Vendor (optional)">
+          <input className="text-input" value={custom.vendor} onChange={(e) => setCustom({ ...custom, vendor: e.target.value })} placeholder="Company name"/>
+        </Shared.Field>
+        <Shared.Field label="Cost per lead (¢)">
+          <input className="text-input" type="number" value={custom.costCents} onChange={(e) => setCustom({ ...custom, costCents: e.target.value })} placeholder="2800 ($28)"/>
+        </Shared.Field>
+      </div>
+      <Shared.Field label="Field map (optional, JSON)" hint='Map their keys to ours. e.g. {"FirstName":"lead_name","Phone1":"phone"} — leave blank for standard payloads.'>
+        <textarea className="text-input" rows={4} value={custom.fieldMap} onChange={(e) => setCustom({ ...custom, fieldMap: e.target.value })} placeholder='{"FirstName":"lead_name","Phone1":"phone","ZipCode":"state"}' style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}/>
+      </Shared.Field>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn btn-ghost" onClick={onBack}>← Back</button>
+        <button className="btn btn-primary" disabled={!valid} onClick={() => setSubmitted(true)}>Mint webhook →</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── CSV upload view ─────────────────────────────────────────────────────
+function CsvUploadView({ onBack, onDone }) {
+  const [rows, setRows] = React.useState([]);
+  const [headers, setHeaders] = React.useState([]);
+  const [map, setMap] = React.useState({});
+  const [sourceName, setSourceName] = React.useState("CSV import");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const [done, setDone] = React.useState(null); // {inserted, skipped}
+
+  const FIELDS = [
+    { k: "lead_name", l: "Name *",  required: true },
+    { k: "phone",     l: "Phone *", required: true },
+    { k: "email",     l: "Email" },
+    { k: "age",       l: "Age" },
+    { k: "state",     l: "State" },
+    { k: "product",   l: "Product" },
+    { k: "ap_cents",  l: "AP (¢)" },
+  ];
+
+  const parseCsv = (text) => {
+    const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+    if (lines.length === 0) return { headers: [], rows: [] };
+    // simple CSV parser handling quoted fields with commas
+    const splitRow = (line) => {
+      const out = []; let cur = ""; let inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (inQ) {
+          if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+          else if (c === '"') inQ = false;
+          else cur += c;
+        } else {
+          if (c === '"') inQ = true;
+          else if (c === ",") { out.push(cur); cur = ""; }
+          else cur += c;
+        }
+      }
+      out.push(cur);
+      return out;
+    };
+    const hdr = splitRow(lines[0]).map(s => s.trim());
+    const data = lines.slice(1).map(splitRow);
+    return { headers: hdr, rows: data };
+  };
+
+  const autoMap = (hdr) => {
+    const m = {};
+    const lc = (s) => String(s || "").toLowerCase().trim();
+    hdr.forEach((h, idx) => {
+      const lh = lc(h);
+      if (!m.lead_name && (lh === "name" || lh.includes("full name") || lh === "lead" || lh === "lead_name" || (lh.includes("first") && lh.includes("last")))) m.lead_name = idx;
+      if (!m.phone && (lh.includes("phone") || lh.includes("mobile") || lh.includes("cell"))) m.phone = idx;
+      if (!m.email && lh.includes("email")) m.email = idx;
+      if (!m.age && lh === "age") m.age = idx;
+      if (!m.state && (lh === "state" || lh === "st")) m.state = idx;
+      if (!m.product && (lh.includes("product") || lh === "plan" || lh.includes("coverage"))) m.product = idx;
+      if (!m.ap_cents && (lh.includes("premium") || lh === "ap" || lh.includes("annual"))) m.ap_cents = idx;
+    });
+    return m;
+  };
+
+  const onFile = async (file) => {
+    setErr(null);
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setErr("CSV must be under 5 MB"); return; }
+    const text = await file.text();
+    const { headers: hdr, rows: r } = parseCsv(text);
+    if (hdr.length === 0) { setErr("Empty CSV"); return; }
+    setHeaders(hdr); setRows(r); setMap(autoMap(hdr));
+    setSourceName(`CSV: ${file.name.replace(/\.csv$/i, "")} (${r.length} rows)`);
+  };
+
+  const insert = async () => {
+    if (map.lead_name == null || map.phone == null) {
+      setErr("Map at least Name and Phone columns");
+      return;
+    }
+    setBusy(true); setErr(null);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (!sb || !agencyId) throw new Error("No active agency or Supabase client");
+      const get = (row, key) => map[key] != null ? String(row[map[key]] ?? "").trim() : null;
+      const toNumber = (v) => {
+        const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
+        return Number.isFinite(n) ? n : null;
+      };
+      const payload = rows.map(r => ({
+        agency_id:    agencyId,
+        lead_name:    get(r, "lead_name") || "Imported lead",
+        phone:        get(r, "phone") || null,
+        email:        get(r, "email") || null,
+        age:          toNumber(get(r, "age")),
+        state:        get(r, "state") || null,
+        product:      get(r, "product") || null,
+        ap_cents:     toNumber(get(r, "ap_cents")),
+        stage:        "New",
+        heat:         "fresh",
+        source:       sourceName,
+        consent:      "self-attested",
+        days_in_stage: 0,
+        last_activity_text: "Imported via CSV",
+        next_action:  "Call",
+      })).filter(p => p.phone);
+      if (payload.length === 0) throw new Error("No rows with a phone number");
+      // chunk inserts to avoid PostgREST payload limit
+      let inserted = 0;
+      for (let i = 0; i < payload.length; i += 200) {
+        const slice = payload.slice(i, i + 200);
+        const { error } = await sb.from("pipeline").insert(slice);
+        if (error) throw error;
+        inserted += slice.length;
+      }
+      setDone({ inserted, skipped: rows.length - inserted });
+      window.toast && window.toast(`Imported ${inserted} lead${inserted === 1 ? "" : "s"}`, "success");
+      if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setBusy(false); }
+  };
+
+  if (done) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 6 }}>
+        <div style={{ padding: 14, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", borderRadius: 8, fontSize: 13 }}>
+          <Icons.Check size={14} style={{ color: "var(--accent-money)" }}/> Imported <strong>{done.inserted}</strong> lead{done.inserted === 1 ? "" : "s"} into <strong>{sourceName}</strong>{done.skipped > 0 ? <> · skipped {done.skipped} (missing phone)</> : null}.
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onBack}>← Connect another</button>
+          <button className="btn btn-primary" onClick={onDone}><Icons.Check size={11}/> Done</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {rows.length === 0 ? (
+        <label style={{ border: "2px dashed var(--border-subtle)", borderRadius: 8, padding: 24, textAlign: "center", cursor: "pointer", background: "var(--bg-raised)" }}>
+          <input type="file" accept="text/csv,.csv" style={{ display: "none" }} onChange={(e) => onFile(e.target.files?.[0])}/>
+          <Icons.Upload size={24} style={{ color: "var(--text-tertiary)" }}/>
+          <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500 }}>Drop a CSV here</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>or click to browse · headers in first row · &lt; 5 MB</div>
+        </label>
+      ) : (
+        <>
+          <Shared.Field label="Source name (shown in attribution)">
+            <input className="text-input" value={sourceName} onChange={(e) => setSourceName(e.target.value)}/>
+          </Shared.Field>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase" }}>Column mapping</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {FIELDS.map(f => (
+                <Shared.Field key={f.k} label={f.l}>
+                  <Shared.Select
+                    value={map[f.k] != null ? String(map[f.k]) : ""}
+                    onChange={(v) => setMap({ ...map, [f.k]: v === "" ? null : parseInt(v, 10) })}
+                    options={[{ v: "", l: "— skip —" }, ...headers.map((h, i) => ({ v: String(i), l: h || `Col ${i + 1}` }))]}
+                  />
+                </Shared.Field>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+            {rows.length} rows detected. {rows.length > 0 && map.phone != null ? <>Preview row 1 phone: <code>{rows[0][map.phone]}</code></> : null}
+          </div>
+        </>
+      )}
+      {err && <div style={{ padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn btn-ghost" onClick={onBack} disabled={busy}>← Back</button>
+        <button className="btn btn-primary" onClick={insert} disabled={busy || rows.length === 0}>
+          {busy ? "Importing…" : <><Icons.Upload size={11}/> Import {rows.length} lead{rows.length === 1 ? "" : "s"}</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Copyable field helper ────────────────────────────────────────────────
+function CopyableField({ label, value, mono, multiline, secret }) {
+  const [shown, setShown] = React.useState(!secret);
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { window.toast && window.toast("Clipboard blocked", "warn"); }
+  };
+  const display = shown ? value : "•".repeat(Math.min(value.length, 24));
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 500 }}>{label}</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          {secret && <button className="btn btn-ghost" style={{ height: 22, padding: "0 8px", fontSize: 11 }} onClick={() => setShown(s => !s)}>{shown ? "Hide" : "Show"}</button>}
+          <button className="btn btn-ghost" style={{ height: 22, padding: "0 8px", fontSize: 11 }} onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+        </div>
+      </div>
+      {multiline ? (
+        <pre style={{ margin: 0, padding: 10, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 11, fontFamily: mono ? "var(--font-mono)" : "inherit", whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--text-secondary)" }}>{display}</pre>
+      ) : (
+        <code style={{ display: "block", padding: 8, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 11.5, fontFamily: mono ? "var(--font-mono)" : "inherit", wordBreak: "break-all", color: "var(--text-secondary)" }}>{display}</code>
+      )}
+    </div>
   );
 }
 
@@ -937,6 +1328,21 @@ function LeadDetailModal({ lead, reps, sourceNames = [], onClose, reassign, setS
         </button>
         <button className="btn" onClick={() => window.scheduleSOA && window.scheduleSOA(lead)}>
           <Icons.Calendar size={11}/> Schedule SOA
+        </button>
+        <button className="btn" disabled={!lead.phone}
+          title={lead.phone ? "Add to your autodial queue on the Floor" : "Needs a phone number first"}
+          onClick={() => window.AutodialQueue && window.AutodialQueue.add({
+            id: "crm-" + lead.id,
+            lead: lead.lead,
+            phone: lead.phone,
+            product: lead.product,
+            age: lead.age,
+            state: lead.state,
+            ap: lead.ap || 0,
+            source: lead.source || "CRM",
+            score: lead.heat === "hot" ? 92 : lead.heat === "fresh" ? 88 : 78,
+          })}>
+          <Icons.Phone size={11}/> Send to autodial
         </button>
         <div style={{ flex: 1 }}/>
         <button className="btn btn-ghost" onClick={onClose}>Close</button>
