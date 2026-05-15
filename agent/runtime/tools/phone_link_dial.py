@@ -60,7 +60,39 @@ def _normalize(num: str) -> str | None:
     return None
 
 
+def _phone_link_hwnd():
+    """Find Phone Link window. Returns hwnd or None.
+    Tries exact match first, then substring match — Windows updates have
+    been known to suffix the title with notification counts, document
+    state, etc. (`'Phone Link - Calls'`, `'(2) Phone Link'`)."""
+    import ctypes
+    user32 = ctypes.windll.user32
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    exact = []; partial = []
+    def cb(hwnd, _):
+        if not user32.IsWindowVisible(hwnd): return True
+        n = user32.GetWindowTextLengthW(hwnd)
+        if n == 0: return True
+        buf = ctypes.create_unicode_buffer(n + 1)
+        user32.GetWindowTextW(hwnd, buf, n + 1)
+        t = buf.value
+        if t == "Phone Link":
+            exact.append(hwnd)
+        elif "Phone Link" in t:
+            partial.append((hwnd, t))
+        return True
+    user32.EnumWindows(EnumWindowsProc(cb), 0)
+    if exact: return exact[0]
+    if partial: return partial[0][0]
+    return None
+
+
 def _open_phone_link():
+    """Ensure Phone Link is visible. If already running, skip launch.
+    Otherwise try ms-phone: URI then the AppsFolder shell command, polling
+    up to 6s for the window to appear."""
+    if _phone_link_hwnd() is not None:
+        return True
     try: os.startfile("ms-phone:")
     except OSError: pass
     try:
@@ -69,7 +101,13 @@ def _open_phone_link():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     except Exception: pass
-    time.sleep(1.6)
+    deadline = time.time() + 6.0
+    while time.time() < deadline:
+        if _phone_link_hwnd() is not None:
+            time.sleep(0.4)   # let UI settle past splash
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def _check_cancel(api_base: str, token: str, dial_command_id: str | None) -> bool:
@@ -172,22 +210,13 @@ def _try_uia(num: str) -> tuple[bool, str, str]:
 
 def _bring_to_foreground():
     import ctypes
+    hwnd = _phone_link_hwnd()
+    if hwnd is None: return False
     user32 = ctypes.windll.user32
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    found = []
-    def cb(hwnd, _):
-        if not user32.IsWindowVisible(hwnd): return True
-        n = user32.GetWindowTextLengthW(hwnd)
-        if n == 0: return True
-        buf = ctypes.create_unicode_buffer(n + 1)
-        user32.GetWindowTextW(hwnd, buf, n + 1)
-        if buf.value == "Phone Link":
-            found.append(hwnd); return False
-        return True
-    user32.EnumWindows(EnumWindowsProc(cb), 0)
-    if not found: return False
-    user32.ShowWindow(found[0], 9)
-    user32.SetForegroundWindow(found[0])
+    user32.ShowWindow(hwnd, 9)              # SW_RESTORE
+    # SetForegroundWindow can fail when the calling process isn't
+    # foreground itself — works fine from a Scheduled-Task python.
+    user32.SetForegroundWindow(hwnd)
     time.sleep(0.4)
     return True
 
@@ -208,7 +237,9 @@ def _send_digits(digits: str):
 
 
 def _dial_once(num: str, method: str) -> dict:
-    _open_phone_link()
+    if not _open_phone_link():
+        return {"status": "phone_link_launch_failed",
+                "fix": "Open Microsoft Phone Link manually once — agent then keeps it warm."}
     if method in ("auto", "uia"):
         ok, detail, _ = _try_uia(num)
         if ok:
