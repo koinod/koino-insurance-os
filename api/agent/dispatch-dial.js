@@ -149,6 +149,8 @@ export default async function handler(req) {
   }
 
   // --- 6. Build payload tailored to the lead ------------------------------
+  const dialCount = Math.max(1, Math.min(5, parseInt(body.dial_count, 10) || 1));
+  const dialInterval = Math.max(5, Math.min(120, parseInt(body.dial_interval_seconds, 10) || 15));
   const payload = {
     to_number: e164,
     auto_dial: true,                      // dispatched from web = pre-confirmed by the click
@@ -159,10 +161,13 @@ export default async function handler(req) {
       product: lead.product,
       email: lead.email,
     } : null,
+    dial_count: dialCount,
+    dial_interval_seconds: dialInterval,
   };
-  // sendinput fallback for phone_link until we have a reliable UIA selector
+  // Phone Link uses UIA selectors learned via phone_link_inspect — auto
+  // method tries UIA first, falls back to sendinput.
   if (provider === "phone_link" || provider === "bluetooth_phone") {
-    payload.method = "sendinput";
+    payload.method = body.method || "auto";
   }
 
   // --- 7. Insert the command directly (service role bypasses RPC auth) ----

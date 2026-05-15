@@ -292,6 +292,11 @@ def dispatch(cmd: dict, ctx: dict) -> tuple[str, dict | None, str | None]:
             return "failed", None, f"rate limit hit ({bucket}: {cap}/hr)"
 
     try:
+        # Inject the command's own id so tools that need it (multi-dial
+        # cancel-check, idempotency keys, etc.) can reference themselves
+        # via /api/agent/* lookups. Tools that don't care just ignore it.
+        if isinstance(payload, dict):
+            payload = {**payload, "__command_id": cmd.get("id")}
         result = tool.run(payload, ctx)
         if not isinstance(result, dict):
             result = {"value": result}

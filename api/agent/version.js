@@ -17,7 +17,7 @@ export const config = { runtime: "edge" };
 
 // Bumped manually when we want to force a refresh even when contents
 // haven't changed (e.g. forcing all agents to recheck).
-export const BUNDLE_VERSION = "0.2.5";
+export const BUNDLE_VERSION = "0.2.6";
 
 // File set the agent ships. Mirrors install.sh.js / install.ps1.js.
 const FILES = [
