@@ -85,6 +85,51 @@ async function pollResult(commandId) {
   return { status: "timeout" };
 }
 
+// Hijack the existing global `repflowCall(phone, leadName)` so EVERY surface
+// that already calls it — page-crm modal, page-floor, page-queue, autodialer,
+// owner page, tenant page — automatically routes through the agent dispatch.
+// Original implementation preserved as window.repflowCallLegacy.
+//
+// Three install attempts (defense-in-depth, since other scripts may also
+// (re)define window.repflowCall):
+//   1. Immediately on script load (this script tag is placed AFTER app.js
+//      in index.html so it usually wins).
+//   2. On window.load — catches any module that defines repflowCall after
+//      DOMContentLoaded.
+//   3. Periodic re-check for the first 30s — catches lazy modules.
+function installHijack() {
+  const cur = window.repflowCall;
+  // Already wrapped — done.
+  if (cur && cur.__rbaWrapped) return;
+  if (typeof cur === "function") window.repflowCallLegacy = cur;
+  function wrapped(phone, leadName, opts) {
+    if (typeof window.repflowDialViaAgent !== "function") {
+      if (typeof window.repflowCallLegacy === "function") {
+        return window.repflowCallLegacy(phone, leadName, opts);
+      }
+      window.toast && window.toast("Dial: agent helper missing.", "error");
+      return;
+    }
+    return window.repflowDialViaAgent({
+      lead_id:   (opts && opts.lead_id)   || null,
+      lead_name: leadName,
+      to_number: phone,
+      provider:  (opts && opts.provider)  || null,
+    });
+  }
+  wrapped.__rbaWrapped = true;
+  window.repflowCall = wrapped;
+}
+installHijack();
+if (typeof window !== "undefined") {
+  window.addEventListener("load", installHijack);
+  let _ticks = 0;
+  const _t = setInterval(() => {
+    installHijack();
+    if (++_ticks >= 15) clearInterval(_t);   // 30s of catch-up
+  }, 2000);
+}
+
 window.repflowDialViaAgent = async function (args) {
   // args: { lead_id, lead_name, to_number, provider? }
   const targetLabel = args.lead_name ? ` (${args.lead_name})` : "";

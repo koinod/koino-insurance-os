@@ -59,7 +59,10 @@
 <script src="dist/page-admin.js?v=86"></script>
 <script src="dist/rba-confirmations.js?v=1"></script>
 <script src="dist/rba-lead-activity.js?v=1"></script>
-<script src="dist/rba-dial.js?v=1"></script>
+<!-- rba-dial.js MUST load after app.js so its hijack of window.repflowCall
+     wins. app.js sets repflowCall globally; loading rba-dial.js before it
+     gets the hijack overwritten. -->
+<!-- Moved below app.js script tag — see further down. -->
 <!-- page-platform-admin.jsx source deleted in 34dcba4 — not restored. -->
 <script src="dist/page-billing.js?v=74"></script>
 <script src="dist/page-autodialer.js?v=74"></script>
@@ -75,5 +78,8 @@
 <script src="dist/page-auth.js?v=87"></script>
 <script src="dist/page-mobile.js?v=75"></script>
 <script src="dist/app.js?v=86"></script>
+<!-- rba-dial.js loads LAST so its hijack of window.repflowCall wins
+     against any earlier definitions in app.js / page-*.js. -->
+<script src="dist/rba-dial.js?v=2"></script>
 </body>
 </html>
