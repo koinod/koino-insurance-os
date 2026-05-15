@@ -588,6 +588,11 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
               <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>No activity logged yet.</div>
             )}
           </div>
+
+          {window.RBALeadActivityPane && (() => {
+            const P = window.RBALeadActivityPane;
+            return <P leadId={lead.id} />;
+          })()}
         </div>
 
         <div className="slideout-foot">
