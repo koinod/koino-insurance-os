@@ -92,22 +92,34 @@ def run(payload, ctx):
                 "confirmation_id": r.json().get("confirmation_id"),
                 "note": "Approve in the Repflow UI / SMS / OS push to dispatch."}
 
-    # auto_dial=true: invoke Phone Link via tel: URI
-    uri = f"tel:{num}"
-    try:
-        os.startfile(uri)            # Windows shell-open the URI
-    except OSError as e:
-        # Common cause: no app registered for tel:. Tell the user how to fix.
-        return {
-            "status": "no_handler",
-            "to_number": num,
-            "error": str(e),
-            "fix": "Settings → Apps → Default apps → 'Make calls' → Phone Link, then re-fire.",
-        }
+    # auto_dial=true: invoke Phone Link via its declared URI schemes.
+    # Verified on PLATINUM 2026-05-15: Microsoft.YourPhone manifest declares
+    # protocols ['ms-phone', 'tel', 'sms']. ms-phone:// goes directly to
+    # Phone Link without depending on the user's default tel: handler choice.
+    candidates = [
+        f"ms-phone:?action=call&number={num}",
+        f"ms-phone:?number={num}",
+        f"ms-phone://call/{num}",
+        f"tel:{num}",   # last resort — only works if Phone Link is the tel: default
+    ]
+    last_err = None
+    for uri in candidates:
+        try:
+            os.startfile(uri)
+            return {
+                "status": "dispatched_to_phone_link",
+                "to_number": num,
+                "handler": uri,
+                "note": "Phone Link Calls UI should appear. Click Call (or it auto-dials if 'Always confirm' is off in Phone Link settings).",
+                "at": time.time(),
+            }
+        except OSError as e:
+            last_err = str(e)
+            continue
     return {
-        "status": "dispatched_to_phone_link",
+        "status": "no_handler",
         "to_number": num,
-        "handler": uri,
-        "note": "Phone Link should now show a Call popup. If you set 'Always confirm before calling' to off, it auto-dials.",
-        "at": time.time(),
+        "tried": candidates,
+        "error": last_err,
+        "fix": "Open Phone Link → Settings → Calls → enable. If still failing: Windows Settings → Apps → Default apps → 'Make calls' → Phone Link.",
     }
