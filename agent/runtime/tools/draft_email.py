@@ -36,7 +36,7 @@ def run(payload, ctx):
                            context=lead.get("context") or "(none)",
                            last_message=lead.get("last_message") or "(none)")
 
-    r = _r.post("http://127.0.0.1:11434/api/generate",
+    r = _r.post((ctx.get("cfg",{}).get("ollama_url") or "http://127.0.0.1:11434") + "/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
                       "options": {"temperature": 0.5, "num_predict": 350}},
                 timeout=60)

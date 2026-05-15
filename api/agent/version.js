@@ -17,7 +17,7 @@ export const config = { runtime: "edge" };
 
 // Bumped manually when we want to force a refresh even when contents
 // haven't changed (e.g. forcing all agents to recheck).
-export const BUNDLE_VERSION = "0.2.0";
+export const BUNDLE_VERSION = "0.2.1";
 
 // File set the agent ships. Mirrors install.sh.js / install.ps1.js.
 const FILES = [
@@ -40,6 +40,7 @@ const FILES = [
   "agent/runtime/tools/script_review.py",
   "agent/runtime/tools/file_review.py",
   "agent/runtime/tools/browser_run.py",
+  "agent/runtime/tools/create_lead.py",
 ];
 
 export default async function handler(req) {

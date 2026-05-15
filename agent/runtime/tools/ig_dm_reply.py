@@ -31,10 +31,10 @@ def _exchange(api_base: str, token: str) -> dict:
     return r.json()
 
 
-def _ollama(prompt, model):
-    r = _r.post("http://127.0.0.1:11434/api/generate",
+def _ollama(prompt, model, base_url):
+    r = _r.post(base_url.rstrip("/") + "/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
-                      "options": {"temperature": 0.5, "num_predict": 100}}, timeout=30)
+                      "options": {"temperature": 0.5, "num_predict": 100}}, timeout=120)
     return (r.json().get("response") or "").strip().strip('"')
 
 
@@ -64,7 +64,7 @@ def run(payload, ctx):
         if last.get("from", {}).get("id") == page_id: continue
         text = last.get("message", "")
         if not text: continue
-        reply = _ollama(PROMPT.format(intent=intent, msg=text), model)
+        reply = _ollama(PROMPT.format(intent=intent, msg=text), model, (cfg.get("ollama_url") or "http://127.0.0.1:11434"))
         drafts.append({
             "conversation_id": c.get("id"),
             "their_msg": text,
