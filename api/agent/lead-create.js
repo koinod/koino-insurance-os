@@ -12,9 +12,15 @@ import { SUPA_URL, SERVICE, cors, loadInstallByToken, readAgentToken } from "./_
 
 export const config = { runtime: "edge" };
 
-const ALLOWED_STAGES = new Set(["New","Contacted","Quoted","App In","Issued"]);
-const ALLOWED_HEAT   = new Set(["fresh","warm","hot"]);
-const ALLOWED_CONSENT= new Set(["none","verbal","verified"]);
+// Pipeline table CHECK constraints (verified against DB 2026-05-15):
+//   stage   ∈ {New, Contacted, Quoted, App In, Issued, Cancelled, Lost}
+//   heat    ∈ {fresh, hot, warm, cold}
+//   consent ∈ {verified, pending, none}
+const ALLOWED_STAGES = new Set(["New","Contacted","Quoted","App In","Issued","Cancelled","Lost"]);
+const ALLOWED_HEAT   = new Set(["fresh","warm","hot","cold"]);
+const ALLOWED_CONSENT= new Set(["verified","pending","none"]);
+// Map common synonyms to allowed values so callers don't need to memorize.
+const CONSENT_ALIAS  = { verbal: "pending", written: "verified", yes: "verified", no: "none" };
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
@@ -31,7 +37,10 @@ export default async function handler(req) {
 
   const stage   = ALLOWED_STAGES.has(body.stage)   ? body.stage   : "New";
   const heat    = ALLOWED_HEAT.has(body.heat)      ? body.heat    : "warm";
-  const consent = ALLOWED_CONSENT.has(body.consent)? body.consent : "verbal";
+  const consentRaw = body.consent || "pending";
+  const consent = ALLOWED_CONSENT.has(consentRaw)
+                  ? consentRaw
+                  : (CONSENT_ALIAS[consentRaw] || "pending");
 
   // Owner rep — the install's user_id, mapped to a rep row if one exists.
   // Best-effort lookup via agency_members.rep_id.
