@@ -56,12 +56,15 @@ export default async function handler(req) {
   return new Response(JSON.stringify({
     bundle_version: BUNDLE_VERSION,
     api_base: apiBase,
-    files: FILES.map(f => ({
-      path: f.replace(/^agent\//, ""),                    // dest under ~/.repflow/agent/
-      url:  `${apiBase}/${f}`,                            // fetch from raw deploy
-      // sha256: null — populated when build-jsx is extended; agent will
-      // refetch on every bundle_version delta if hash absent.
-    })),
+    files: FILES.map(f => {
+      const rel = f.replace(/^agent\//, "");
+      return {
+        path: rel,                                         // dest under ~/.repflow/agent/
+        url:  `${apiBase}/api/agent/runtime-file?path=${encodeURIComponent(rel)}`,
+        // sha256: null — populated when build-jsx is extended; agent will
+        // refetch on every bundle_version delta if hash absent.
+      };
+    }),
     issued_at: new Date().toISOString(),
   }), {
     status: 200,

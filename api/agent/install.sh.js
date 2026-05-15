@@ -142,11 +142,14 @@ fi
 FILES=(${fileList})
 echo "[rba] downloading \${#FILES[@]} runtime files"
 for rel in "\${FILES[@]}"; do
+  # rel is like "agent/runtime/agent.py"; strip the "agent/" prefix for both
+  # the destination path and the runtime-file endpoint param.
   dest_rel=\$(echo "\$rel" | sed 's|^agent/||')
   dest="\$RBA_HOME/\$dest_rel"
   mkdir -p "\$(dirname "\$dest")"
-  if ! curl -fsSL "\$API_BASE/\$rel" -o "\$dest"; then
-    echo "[rba] WARN failed to fetch \$rel — skipping"
+  url="\$API_BASE/api/agent/runtime-file?path=\$dest_rel"
+  if ! curl -fsSL "\$url" -o "\$dest"; then
+    echo "[rba] WARN failed to fetch \$dest_rel — skipping"
   fi
 done
 
