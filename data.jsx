@@ -588,6 +588,7 @@ window.hydrateFromSupabase = async function () {
         bankingSet: p.banking_set, bankingSetAt: p.banking_set_at,
         kitShipped: p.kit_shipped, kitShippedAt: p.kit_shipped_at,
         firstDial: p.first_dial, firstDialAt: p.first_dial_at,
+        isVerified: p.is_verified, verifiedById: p.verified_by_id, verifiedAt: p.verified_at,
         notes: p.notes, updatedAt: p.updated_at,
       }));
       window.AppData.AUTOMATION_RULES = mapRows(automationRulesR, r => ({
@@ -1364,6 +1365,31 @@ window.AppData.mutate = {
       const payload = { rep_id: repId, agency_id: me && me.agency_id, [stepKey]: value, [stepKey + "_at"]: value ? now : null, updated_at: now };
       const { error } = await sb.from("onboarding_progress").upsert(payload, { onConflict: "rep_id" });
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("onboarding_progress", "update", repId);
+  },
+
+  async onboardingVerify(repId, isVerified) {
+    const list = window.AppData.ONBOARDING_PROGRESS = window.AppData.ONBOARDING_PROGRESS || [];
+    let p = list.find(x => x.repId === repId);
+    const now = new Date().toISOString();
+    const me = window.me && window.me();
+    if (p) {
+      p.isVerified = isVerified;
+      p.verifiedAt = isVerified ? now : null;
+      p.verifiedById = isVerified ? me?.rep_id : null;
+    }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const payload = { 
+        rep_id: repId, 
+        is_verified: isVerified, 
+        verified_at: isVerified ? now : null, 
+        verified_by_id: isVerified ? me?.rep_id : null,
+        updated_at: now 
+      };
+      const { error } = await sb.from("onboarding_progress").upsert(payload, { onConflict: "rep_id" });
+      if (error) { window.toast && window.toast(`Verification failed: ${error.message}`, "error"); throw error; }
     }
     _emitMutation("onboarding_progress", "update", repId);
   },

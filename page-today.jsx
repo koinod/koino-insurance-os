@@ -940,6 +940,7 @@ function TodayManager({ aep }) {
             { k: "pay",      l: "Pay" },
             { k: "expenses", l: "Expenses" },
             { k: "nigo",     l: "NIGO" },
+            { k: "onboarding", l: "Onboarding" },
           ]}
         />
       </div>
@@ -948,6 +949,91 @@ function TodayManager({ aep }) {
       {subTab === "pay"      && <TodayManagerPay scopeIds={scopeIds}/>}
       {subTab === "expenses" && <TodayManagerExpenses/>}
       {subTab === "nigo"     && <TodayManagerNigo scopeIds={scopeIds}/>}
+      {subTab === "onboarding" && <TodayManagerOnboarding scopeIds={scopeIds}/>}
+    </div>
+  );
+}
+
+function TodayManagerOnboarding({ scopeIds }) {
+  const { REPS, ONBOARDING_PROGRESS } = AppData;
+  const inScope = (id) => !scopeIds || scopeIds.length === 0 || scopeIds.includes(id);
+  
+  const pending = REPS
+    .filter(r => inScope(r.id))
+    .map(r => {
+      const p = (ONBOARDING_PROGRESS || []).find(x => x.repId === r.id) || {};
+      const steps = [
+        { k: "licenseSigned", l: "Lic" },
+        { k: "niprVerified",  l: "NIPR" },
+        { k: "bankingSet",    l: "Bank" },
+        { k: "kitShipped",    l: "Kit" },
+        { k: "firstDial",     l: "Dial" },
+      ];
+      const doneCount = steps.filter(s => p[s.k]).length;
+      return { rep: r, progress: p, steps, doneCount };
+    })
+    .filter(x => x.doneCount < 5 || !x.progress.isVerified)
+    .sort((a, b) => b.doneCount - a.doneCount);
+
+  const handleVerify = async (repId, val) => {
+    try {
+      await AppData.mutate.onboardingVerify(repId, val);
+      window.toast && window.toast(val ? "Rep verified for production" : "Verification removed", "success");
+    } catch (_e) {}
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="panel">
+        <div className="panel-h"><Icons.Shield size={13}/><h3>Producer verification</h3><span className="meta">{pending.length} pending audit</span></div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 110px 100px" }}>
+            <div>Producer</div>
+            <div style={{ textAlign: "center" }}>Steps</div>
+            <div style={{ textAlign: "center" }}>Status</div>
+            <div></div>
+          </div>
+          {pending.length === 0 && (
+            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+              All producers in your scope are verified.
+            </div>
+          )}
+          {pending.map(({ rep, progress, steps, doneCount }) => (
+            <div key={rep.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 110px 100px", height: 42 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Shared.Avatar rep={rep} size={18}/>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{rep.name}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{rep.handle}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 3 }}>
+                {steps.map(s => (
+                  <div key={s.k} title={s.l} style={{ 
+                    width: 18, height: 18, borderRadius: 3, fontSize: 8, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: progress[s.k] ? "var(--accent-money)" : "var(--bg-raised)",
+                    color: progress[s.k] ? "white" : "var(--text-quaternary)"
+                  }}>{s.l[0]}</div>
+                ))}
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <span className={`chip ${progress.isVerified ? "chip-money" : "chip-status"}`} style={{ fontSize: 10 }}>
+                  {progress.isVerified ? "Verified" : `${doneCount}/5 steps`}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button className={`btn ${progress.isVerified ? "btn-ghost" : "btn-primary"}`} 
+                  style={{ padding: "3px 8px", fontSize: 10 }}
+                  disabled={doneCount < 3}
+                  onClick={() => handleVerify(rep.id, !progress.isVerified)}>
+                  {progress.isVerified ? "Revoke" : "Verify"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

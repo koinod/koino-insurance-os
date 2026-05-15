@@ -1308,12 +1308,13 @@ function CommissionsOwner() {
   const issued = allRows.filter(r => r.status === "paid" || r.status === "pending payout").length;
   const totalAp       = allRows.reduce((a, r) => a + (r.ap || 0), 0);
   const totalPaid     = allRows.reduce((a, r) => a + Math.max(0, r.paid || 0), 0);
+  const totalDebt     = (AppData.CLAWBACKS || []).reduce((s, c) => s + (c.amount || 0), 0);
   const overridePool  = Math.round(totalAp * overridePct / 100);
   const isEmpty = totalAp === 0;
 
   const display = isEmpty
-    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
-    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
+    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000, debt: 14200 }
+    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp, debt: totalDebt };
 
   const exportCommissions = () => {
     const headers = ["Period","Rep","Carrier","Lead","AP","Expected","Paid","Status"];
