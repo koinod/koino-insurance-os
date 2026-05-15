@@ -1,7 +1,11 @@
-// GET /api/cron/appointment-reminders — every 15 min. Scans
-// appointments.scheduled within the next 24h / 1h windows and fires
-// automation_rules: appointment_reminder_24h / appointment_reminder_1h.
+// GET /api/cron/appointment-reminders — daily on Hobby plan. Scans
+// appointments.scheduled within the next 24h window and fires
+// automation_rules: appointment_reminder_24h. The 1h reminder is also
+// fired here for any appointment in (now+55m..now+1h) — on Hobby this
+// only catches them if the cron happens to run within that window, so
+// the scan also covers everything in the next 24h to avoid silent miss.
 // Idempotent via reminder_24h_fired_at / reminder_1h_fired_at columns.
+// Upgrade to Vercel Pro to restore */15 cadence.
 import { SUPA_URL, SERVICE, cors } from "../agent/_lib.js";
 
 export const config = { runtime: "edge" };
