@@ -14,7 +14,10 @@ import { dirname, join, basename } from "node:path";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(root, "dist");
 
-if (existsSync(outDir)) await rm(outDir, { recursive: true });
+// Don't `rm -rf dist/` — Vercel re-runs this script in parallel with
+// asset collection, and a delete window causes ENOENT during deploy.
+// esbuild overwrites individual outputs cleanly; stale files left over
+// from a renamed source are an acceptable trade for race-free deploys.
 await mkdir(outDir, { recursive: true });
 
 const entries = (await readdir(root))
