@@ -3323,7 +3323,7 @@ function PageBook() {
       sections, rep sees only their profile.
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
-  const TABS = role === "owner"
+  const TABS = role === "owner" || role === "super_admin"
     ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
