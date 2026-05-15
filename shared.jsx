@@ -831,6 +831,12 @@ class ErrorBoundary extends React.Component {
     console.error("[ErrorBoundary]", err, info?.componentStack);
     this.setState({ info });
     if (window.toast) window.toast(`UI error: ${err?.message || err}`, "error");
+    // Report to the server-side error log (lib/error-reporter.js). React
+    // boundary errors don't bubble to window.onerror, so without this hook
+    // panel crashes are invisible to /api/client-error.
+    if (window.reportClientError) {
+      try { window.reportClientError(err, info); } catch {}
+    }
   }
   render() {
     if (!this.state.err) return <React.Fragment key={this.state.resetKey}>{this.props.children}</React.Fragment>;
