@@ -178,6 +178,7 @@ function EnrollModal({ seqId, sequences, onClose }) {
     setSaving(true);
     try {
       const sb = window.getSupabase && window.getSupabase();
+      const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
       if (sb && AppData.LIVE) {
         await sb.from("sequence_enrollments").insert({
           lead_pipeline_id: leadId,
@@ -186,13 +187,19 @@ function EnrollModal({ seqId, sequences, onClose }) {
           status:           "active",
           current_step:     0,
           enrolled_at:      new Date().toISOString(),
-          next_step_at:     new Date().toISOString(), // fire immediately on first run
+          next_send_at:     new Date().toISOString(),  // due on next drip-runner tick
+          agency_id:        agencyId || null,
         });
       }
       const leadName = leads.find(l => l.id === leadId)?.lead || "Lead";
-      window.toast && window.toast(`${leadName} enrolled in sequence`, "success");
+      window.toast && window.toast(`${leadName} enrolled — drip-runner picks it up at next tick`, "success");
+      window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "sequence_enrollments" }}));
       onClose();
-    } catch (_e) { setSaving(false); }
+    } catch (e) {
+      console.error("[EnrollModal] insert failed:", e);
+      window.toast && window.toast(`Enroll failed: ${e.message || e}`, "error");
+      setSaving(false);
+    }
   };
 
   return (
@@ -395,6 +402,191 @@ function VendorModal({ vendor, onClose, onSaved }) {
 }
 
 /* ─── Vendors tab ──────────────────────────────────────────────────────── */
+/* ─── Inflow tab — the marquee view of Lead Drip.
+   What the user lands on: a live feed of leads dripping in from vendors,
+   with per-vendor health on the right and quick KPI tiles on top. Replaces
+   "Sequences" as the default because the page name is Lead Drip — the first
+   thing it should show is leads dripping in, not campaign templates. ── */
+function InflowTab({ onConfigureVendors }) {
+  const [vendors] = useVendorWebhooks();
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    ["data:hydrated", "data:mutated", "data:realtime"].forEach(e => window.addEventListener(e, fn));
+    return () => ["data:hydrated", "data:mutated", "data:realtime"].forEach(e => window.removeEventListener(e, fn));
+  }, []);
+
+  // Auto-tick the elapsed values every 10s so the feed actually feels live.
+  React.useEffect(() => {
+    const t = setInterval(() => force(n => n + 1), 10_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const queue    = AppData.QUEUE    || [];
+  const pipeline = AppData.PIPELINE || [];
+
+  // "Inflow" = inbound queue rows (not-yet-dispatched) + freshly-created
+  // pipeline rows (stage=New, days≤0). Both represent leads that landed
+  // recently. Tag each with a kind so the row can offer the right action.
+  const items = [
+    ...queue.map(q => ({ kind: "inbound", id: q.id, lead: q.lead, phone: q.phone, product: q.product, state: q.state, source: q.source || "Unknown", elapsed: q.elapsed, score: q.score, age: q.age, assignedRepId: q.assignedRepId, raw: q })),
+    ...pipeline.filter(p => p.stage === "New" && (p.days || 0) === 0)
+      .map(p => ({ kind: "pipeline", id: p.id, lead: p.lead, phone: p.phone, product: p.product, state: p.state, source: p.source || "Direct", elapsed: 0, score: p.heat === "hot" ? 92 : 80, age: p.age, raw: p })),
+  ].sort((a, b) => (a.elapsed || 0) - (b.elapsed || 0));
+
+  const lastHour    = items.filter(i => (i.elapsed || Infinity) < 3600).length;
+  const totalToday  = items.length;
+  const undispatch  = queue.filter(q => !q.assignedRepId).length;
+  const activeVend  = (vendors || []).filter(v => v.is_active).length;
+
+  // Per-source counts so the vendor cards can show "today's drip".
+  const bySource = {};
+  items.forEach(i => {
+    const s = (i.source || "Unknown").toString();
+    if (!bySource[s]) bySource[s] = { count: 0, lastElapsed: Infinity };
+    bySource[s].count++;
+    bySource[s].lastElapsed = Math.min(bySource[s].lastElapsed, i.elapsed || Infinity);
+  });
+
+  const fmtAge = (s) => {
+    if (s == null || s === Infinity) return "—";
+    if (s < 60)    return `${Math.floor(s)}s ago`;
+    if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  };
+  const ageTone = (s) => (s == null) ? "var(--text-tertiary)"
+    : s < 30   ? "var(--accent-money)"
+    : s < 300  ? "var(--accent-status)"
+    : s < 3600 ? "var(--text-secondary)"
+    :            "var(--text-tertiary)";
+
+  const pin = (i) => window.AutodialQueue && window.AutodialQueue.add({
+    id: "drip-" + i.id, lead: i.lead, phone: i.phone, product: i.product,
+    age: i.age, state: i.state, source: i.source, score: i.score || 85,
+  });
+
+  const SpendStrip = window.SpendStrip;
+
+  return (
+    <div>
+      {SpendStrip && (
+        <SpendStrip items={[
+          { l: "Leads today",        v: String(totalToday),       tone: totalToday > 0 ? "money" : undefined },
+          { l: "Last hour",          v: String(lastHour),         tone: lastHour > 0 ? "money" : undefined },
+          { l: "Awaiting dispatch",  v: String(undispatch),       tone: undispatch > 5 ? "warn" : undefined },
+          { l: "Active vendors",     v: String(activeVend) },
+        ]}/>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginTop: 14 }}>
+        <div className="panel">
+          <div className="panel-h">
+            <span className="dot" style={{ background: "var(--accent-money)", animation: items.length > 0 ? "pulse 1.8s infinite" : "none" }}/>
+            <h3>Live drip</h3>
+            <span className="meta">{items.length} today · newest first</span>
+          </div>
+          {items.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center" }}>
+              <Icons.Activity size={20} style={{ color: "var(--text-quaternary)" }}/>
+              <div style={{ marginTop: 8, fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>No leads dripping in yet</div>
+              <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-tertiary)", maxWidth: 360, margin: "4px auto 0", lineHeight: 1.5 }}>
+                Connect a vendor webhook and leads will land here in real time. Each row is one inbound lead — claim it, pin it to autodial, or let it auto-dispatch.
+              </div>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onConfigureVendors}>
+                <Icons.Plus size={11}/> Configure vendors
+              </button>
+            </div>
+          ) : (
+            <div className="list">
+              <div className="list-h" style={{ gridTemplateColumns: "80px 1.4fr 1fr 1fr 70px 110px 90px" }}>
+                <div>Age</div><div>Lead</div><div>Source</div><div>Product</div><div>State</div><div>Phone</div><div></div>
+              </div>
+              {items.map(i => {
+                const tone = ageTone(i.elapsed);
+                return (
+                  <div key={i.kind + "-" + i.id} className="row" style={{ gridTemplateColumns: "80px 1.4fr 1fr 1fr 70px 110px 90px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="dot" style={{ background: tone }}/>
+                      <span className="tabular" style={{ fontSize: 11, color: tone }}>{fmtAge(i.elapsed)}</span>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 12.5 }} className="cell-truncate">{i.lead || "—"}</div>
+                      {i.kind === "inbound" && !i.assignedRepId && (
+                        <div style={{ fontSize: 10.5, color: "var(--state-warning)", marginTop: 1 }}>awaiting dispatch</div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="cell-truncate">{i.source || "—"}</div>
+                    <div style={{ minWidth: 0 }}><span className="chip" style={{ fontSize: 10.5 }}>{i.product || "—"}</span></div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{i.state || "—"}</div>
+                    <div className="tabular" style={{ fontSize: 11 }}>
+                      {i.phone || <span style={{ color: "var(--state-warning)" }}>no phone</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                      <button className="btn btn-ghost" style={{ padding: "3px 6px" }} disabled={!i.phone}
+                        title={i.phone ? "Pin to autodial queue (Floor)" : "No phone on file"}
+                        onClick={() => i.phone && pin(i)}>
+                        <Icons.Phone size={11}/>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Vendor health side panel */}
+        <div className="panel" style={{ alignSelf: "start" }}>
+          <div className="panel-h">
+            <Icons.Send size={13}/>
+            <h3>Vendors</h3>
+            <span className="meta">{(vendors || []).length}</span>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={onConfigureVendors}>
+              Manage <Icons.ArrowUpRight size={10}/>
+            </button>
+          </div>
+          {!vendors || vendors.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+              No vendor webhooks yet.
+              <div style={{ marginTop: 6 }}>
+                <button className="btn btn-primary" style={{ fontSize: 11 }} onClick={onConfigureVendors}>Add a vendor</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              {vendors.map(v => {
+                const stat = bySource[v.vendor_name] || { count: 0, lastElapsed: Infinity };
+                const silent = stat.lastElapsed === Infinity || stat.lastElapsed > 3600;
+                const inactive = !v.is_active;
+                return (
+                  <div key={v.id} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)", opacity: inactive ? 0.55 : 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 500 }} className="cell-truncate">{v.vendor_name}</span>
+                      <span className="chip" style={{ fontSize: 10, color: inactive ? "var(--text-tertiary)" : silent ? "var(--state-warning)" : "var(--accent-money)" }}>
+                        {inactive ? "off" : silent ? "silent" : "live"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11, color: "var(--text-tertiary)" }}>
+                      <span><strong style={{ color: "var(--text-primary)" }}>{stat.count}</strong> today</span>
+                      <span>{stat.lastElapsed === Infinity ? "none" : fmtAge(stat.lastElapsed)}</span>
+                    </div>
+                    {v.cost_per_lead_cents > 0 && (
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+                        ~{_fmtCents(v.cost_per_lead_cents)}/lead · est ${Math.round((stat.count * v.cost_per_lead_cents) / 100)} today
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VendorsTab() {
   const [vendors, reloadVendors] = useVendorWebhooks();
   const spend  = useVendorSpend();
@@ -704,10 +896,278 @@ function MessagingTab({ outbox }) {
 }
 
 /* ─── Main page ───────────────────────────────────────────────────────── */
+/* ─── ConnectorsTab — per-source inbound webhook URLs ──────────────────
+   Reads public.agency_lead_sources for the active agency. Each row exposes:
+     • inbound webhook URL  (POST /api/leads/inbound-source?source=<slug>)
+     • HMAC secret          (for x-repflow-signature)
+     • field_map preview    (provider key → repflow field)
+     • default sequence     (auto-enroll on inbound when set)
+     • last_received_at + inbound_count metrics
+   The "Setup" panel for each source shows a copyable curl example so users
+   can paste it into GoatLeads / any provider's webhook config. */
+function ConnectorsTab({ role, sequences }) {
+  const [sources, setSources] = React.useState(null);
+  const [editing, setEditing] = React.useState(null);
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+
+  const reload = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+    if (!sb || !AppData.LIVE || !agencyId) { setSources([]); return; }
+    try {
+      const { data } = await sb.from("agency_lead_sources")
+        .select("id,name,vendor,kind,inbound_slug,inbound_hmac_secret,field_map,default_sequence_id,last_received_at,inbound_count,active")
+        .eq("agency_id", agencyId)
+        .order("name");
+      setSources(Array.isArray(data) ? data : []);
+    } catch { setSources([]); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const rand = (len) => {
+    const a = new Uint8Array(len);
+    crypto.getRandomValues(a);
+    return Array.from(a).map(b => b.toString(16).padStart(2, "0")).join("");
+  };
+  const slugify = (s) => String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+
+  const provisionSlug = async (source) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !AppData.LIVE) return;
+    const slug   = `${slugify(source.name || source.vendor || "source")}-${rand(3)}`;
+    const secret = rand(32);
+    try {
+      await sb.from("agency_lead_sources")
+        .update({ inbound_slug: slug, inbound_hmac_secret: secret, kind: source.kind || "webhook" })
+        .eq("id", source.id);
+      window.toast && window.toast(`Webhook provisioned for ${source.name}`, "success");
+      reload();
+    } catch (e) {
+      window.toast && window.toast(`Provision failed: ${e.message}`, "error");
+    }
+  };
+
+  const setDefaultSeq = async (sourceId, seqId) => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !AppData.LIVE) return;
+    try {
+      await sb.from("agency_lead_sources")
+        .update({ default_sequence_id: seqId || null })
+        .eq("id", sourceId);
+      window.toast && window.toast(seqId ? "Auto-enroll set" : "Auto-enroll cleared", "info");
+      reload();
+    } catch (e) {
+      window.toast && window.toast(`Update failed: ${e.message}`, "error");
+    }
+  };
+
+  const copy = (text, label) => {
+    navigator.clipboard?.writeText(text);
+    window.toast && window.toast(`${label} copied`, "info");
+  };
+
+  const curlFor = (s) => {
+    const url = `${baseUrl}/api/leads/inbound-source?source=${s.inbound_slug}`;
+    const sampleBody = '{"lead_name":"Jane Doe","phone":"+15125550199","email":"jane@example.com","state":"TX","age":66,"product":"Med Supp Plan G"}';
+    // Recipe assumes shell has openssl; matches the edge function's HMAC verifier.
+    return `BODY='${sampleBody}'
+SIG=$(printf "%s" "$BODY" | openssl dgst -sha256 -hmac "${s.inbound_hmac_secret || "<SECRET>"}" | cut -d' ' -f2)
+curl -X POST "${url}" \\
+  -H "content-type: application/json" \\
+  -H "x-repflow-signature: sha256=$SIG" \\
+  -d "$BODY"`;
+  };
+
+  if (sources === null) return <div className="panel" style={{ padding: 28, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading sources…</div>;
+
+  if (sources.length === 0) {
+    return (
+      <div className="panel" style={{ padding: 28, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, lineHeight: 1.6 }}>
+        No lead sources configured yet for this agency.
+        <div style={{ marginTop: 10 }}>
+          <button className="btn btn-primary" onClick={async () => {
+            const sb = window.getSupabase && window.getSupabase();
+            const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+            if (!sb || !agencyId) return;
+            const slug   = `goatleads-${Math.random().toString(36).slice(2, 6)}`;
+            const secret = rand(32);
+            try {
+              await sb.from("agency_lead_sources").insert({
+                agency_id: agencyId,
+                name: "GoatLeads",
+                vendor: "GoatLeads",
+                kind: "webhook",
+                active: true,
+                inbound_slug: slug,
+                inbound_hmac_secret: secret,
+                field_map: { "lead_name": "lead_name", "phone": "phone", "email": "email", "state": "state", "age": "age", "product": "product" },
+              });
+              window.toast && window.toast("GoatLeads source created — copy the URL below into their webhook config", "success");
+              reload();
+            } catch (e) {
+              window.toast && window.toast(`Create failed: ${e.message}`, "error");
+            }
+          }}>
+            <Icons.Plus size={12}/> Add GoatLeads webhook (sample)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Plug size={13}/>
+          <h3>Connectors</h3>
+          <span className="meta">{sources.length} configured</span>
+        </div>
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.6fr 130px 1fr 110px 110px" }}>
+            <div>Source</div>
+            <div>Status</div>
+            <div>Auto-enroll into</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Received</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Last seen</div>
+          </div>
+          {sources.map(s => {
+            const provisioned = !!s.inbound_slug;
+            const last = s.last_received_at ? new Date(s.last_received_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+            const isOpen = editing === s.id;
+            return (
+              <React.Fragment key={s.id}>
+                <div className="row" style={{ gridTemplateColumns: "1.6fr 130px 1fr 110px 110px", cursor: "pointer" }} onClick={() => setEditing(isOpen ? null : s.id)}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <strong style={{ fontSize: 12.5 }}>{s.name}</strong>
+                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.vendor || s.kind || "—"}</span>
+                  </div>
+                  <div>
+                    {provisioned
+                      ? <span className="chip chip-money" style={{ fontSize: 10 }}>webhook ready</span>
+                      : <span className="chip" style={{ fontSize: 10, color: "var(--state-warning)" }}>not provisioned</span>}
+                  </div>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <Shared.Select
+                      value={s.default_sequence_id || ""}
+                      onChange={(v) => setDefaultSeq(s.id, v)}
+                      options={[{ v: "", l: "— no auto-enroll —" }, ...sequences.filter(sq => (sq.audience || "lead") === "lead").map(sq => ({ v: sq.id, l: sq.name }))]}
+                    />
+                  </div>
+                  <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{s.inbound_count || 0}</div>
+                  <div className="tabular" style={{ textAlign: "right", fontSize: 11, color: "var(--text-tertiary)" }}>{last}</div>
+                </div>
+                {isOpen && (
+                  <div style={{ padding: 14, background: "var(--bg-raised)", borderTop: "1px solid var(--border-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
+                    {!provisioned ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: "var(--text-secondary)" }}>
+                        <div>This source doesn't have a webhook URL yet. Generate one — RepFlow creates a unique slug + HMAC secret you'll paste into the provider's outbound config.</div>
+                        <div>
+                          <button className="btn btn-primary" onClick={() => provisionSlug(s)}>
+                            <Icons.Plug size={11}/> Generate webhook URL + secret
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Webhook URL</div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <code className="mono" style={{ flex: 1, padding: "6px 10px", background: "var(--bg-overlay)", borderRadius: 4, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {baseUrl}/api/leads/inbound-source?source={s.inbound_slug}
+                            </code>
+                            <button className="btn btn-ghost" onClick={() => copy(`${baseUrl}/api/leads/inbound-source?source=${s.inbound_slug}`, "URL")}>
+                              <Icons.Copy size={11}/> Copy
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>HMAC secret</div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <code className="mono" style={{ flex: 1, padding: "6px 10px", background: "var(--bg-overlay)", borderRadius: 4, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.inbound_hmac_secret}
+                            </code>
+                            <button className="btn btn-ghost" onClick={() => copy(s.inbound_hmac_secret, "Secret")}>
+                              <Icons.Copy size={11}/> Copy
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                            Provider must sign each request: <code className="mono">x-repflow-signature: sha256=&lt;HMAC-SHA256(body, secret)&gt;</code>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Sample curl</div>
+                          <pre className="mono" style={{ padding: 10, background: "var(--bg-overlay)", borderRadius: 4, fontSize: 10.5, whiteSpace: "pre-wrap", margin: 0, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+{curlFor(s)}
+                          </pre>
+                          <div style={{ marginTop: 6 }}>
+                            <button className="btn btn-ghost" onClick={() => copy(curlFor(s), "Curl recipe")}>
+                              <Icons.Copy size={11}/> Copy recipe
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Field map</div>
+                          <pre className="mono" style={{ padding: 10, background: "var(--bg-overlay)", borderRadius: 4, fontSize: 10.5, whiteSpace: "pre-wrap", margin: 0, color: "var(--text-tertiary)" }}>
+{JSON.stringify(s.field_map || {}, null, 2)}
+                          </pre>
+                          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                            Maps provider JSON keys (dot-path supported) → RepFlow fields: lead_name, phone, email, state, age, product, ap.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 14, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        <strong style={{ color: "var(--text-primary)" }}>How auto-enroll works:</strong> when a provider posts a lead and the source has a default sequence,
+        the lead lands in your pipeline AND a sequence enrollment is created with <code className="mono">next_send_at = now</code>.
+        Drip-runner picks it up at the next tick (currently daily, dry-run mode). Flip
+        <code className="mono"> org_settings.drip.send_enabled = true</code> when you're ready to send for real.
+      </div>
+    </div>
+  );
+}
+
+// Drip is in DRY RUN until org_settings.drip.send_enabled is flipped to true.
+// In dry-run, drip-runner queues sms_outbox rows with status='dry_run' and
+// the Phase 2 sms-flush skips them. UI surfaces this prominently so reps
+// don't think outreach is actually firing.
+function useDripSendFlag() {
+  const [sendEnabled, setSendEnabled] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !AppData.LIVE) return;
+      try {
+        const { data } = await sb.from("org_settings")
+          .select("value")
+          .eq("key", "drip.send_enabled")
+          .limit(1);
+        if (cancelled) return;
+        setSendEnabled(Boolean(data && data[0] && data[0].value === true));
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return sendEnabled;
+}
+
 function PageLeadDrip({ role = "owner" }) {
   useDripReady();
   const outbox = useSmsOutbox();
-  const [inner,    setInner]    = React.useState("sequences");
+  const sendEnabled = useDripSendFlag();
+  const [inner,    setInner]    = React.useState("inflow");
   const [seqSel,   setSeqSel]   = React.useState(null);
   const [newOpen,  setNewOpen]  = React.useState(false);
   const [enrollFor, setEnrollFor] = React.useState(null);
@@ -719,23 +1179,47 @@ function PageLeadDrip({ role = "owner" }) {
 
   const activeSeq = sequences.find(s => s.id === seqSel) || sequences[0] || null;
 
+  // Inflow is the default landing — Lead Drip exists to show leads dripping in.
   // role==="owner": full vendor admin tab. role==="manager": vendors hidden.
+  // "Connectors" is the new per-source webhook config tab (agency_lead_sources).
   const innerTabs = [
-    { k: "sequences", l: "Sequences" },
-    { k: "outbox",    l: `Outbox${outbox?.length ? ` (${outbox.length})` : ""}` },
-    { k: "rules",     l: "Rules" },
+    { k: "inflow",      l: "Inflow" },
+    { k: "sequences",   l: "Sequences" },
+    { k: "connectors",  l: "Connectors" },
+    { k: "outbox",      l: `Outbox${outbox?.length ? ` (${outbox.length})` : ""}` },
+    { k: "rules",       l: "Rules" },
     ...(role === "owner" ? [{ k: "vendors", l: "Vendors" }] : []),
-    { k: "messaging", l: "Messaging" },
+    { k: "messaging",   l: "Messaging" },
   ];
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Lead Drip</div>
-          <div className="page-sub">Sequences · outbox · rules · vendor webhooks · messaging</div>
+          <div className="page-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Lead Drip
+            {!sendEnabled && (
+              <span title="Drip-runner is queueing sms_outbox rows with status='dry_run'. Flip org_settings.drip.send_enabled to true to start real sends."
+                style={{
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em",
+                  padding: "3px 8px", borderRadius: 999,
+                  background: "color-mix(in oklch, var(--state-warning) 18%, transparent)",
+                  border: "1px solid color-mix(in oklch, var(--state-warning) 50%, transparent)",
+                  color: "var(--state-warning)",
+                  textTransform: "uppercase",
+                }}>
+                DRY RUN · no sends yet
+              </span>
+            )}
+          </div>
+          <div className="page-sub">{inner === "inflow"
+            ? "Live feed of leads coming in from your vendor webhooks"
+            : "Inflow · sequences · outbox · rules · vendors · messaging"}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {inner === "inflow" && role === "owner" && (
+            <button className="btn btn-primary" onClick={() => setInner("vendors")}><Icons.Plus size={12}/> Configure vendor</button>
+          )}
           {inner === "sequences" && (
             <>
               <button className="btn" onClick={() => setEnrollFor("any")}><Icons.Plus size={12}/> Enroll lead</button>
@@ -763,6 +1247,11 @@ function PageLeadDrip({ role = "owner" }) {
           </button>
         ))}
       </div>
+
+      {/* ── Inflow tab (default) ── */}
+      {inner === "inflow" && (
+        <InflowTab onConfigureVendors={() => setInner(role === "owner" ? "vendors" : "rules")}/>
+      )}
 
       {/* ── Sequences tab ── */}
       {inner === "sequences" && (
@@ -885,7 +1374,10 @@ function PageLeadDrip({ role = "owner" }) {
         </div>
       )}
 
-      {/* ── Vendors tab ── */}
+      {/* ── Connectors tab ── per-source inbound webhooks + auto-enroll ── */}
+      {inner === "connectors" && <ConnectorsTab role={role} sequences={sequences}/>}
+
+      {/* ── Vendors tab ── legacy lead_vendor_webhooks shell ── */}
       {inner === "vendors" && <VendorsTab/>}
 
       {/* ── Messaging tab ── */}
