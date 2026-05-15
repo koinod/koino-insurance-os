@@ -214,6 +214,7 @@ function PageAdmin() {
     { k: "billing",   l: "Billing",    icon: "Wallet"      },
     { k: "carriers",  l: "Carriers",   icon: "Shield"      },
     { k: "scrape",    l: "UW Queue",   icon: "Bell"        },
+    { k: "devices",   l: "Devices",    icon: "Cpu"         },
     { k: "audit",     l: "Audit Log",  icon: "Activity"    },
   ];
 
@@ -420,6 +421,9 @@ function PageAdmin() {
 
       {/* ── UW Scrape Queue (pending findings from carrier-intel agent) ── */}
       {tab === "scrape" && <ScrapeQueueView />}
+
+      {/* ── Devices (RBA installs across all agencies) ─────────────── */}
+      {tab === "devices" && <DevicesAdminView />}
 
       {/* ── Audit ──────────────────────────────────────────────── */}
       {tab === "audit" && (
@@ -1195,6 +1199,238 @@ function ScrapeQueueView() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Devices admin (cross-agency RBA install observability) ─────────────
+//
+// Lists every install visible to viewer (super_admin sees all; owner+admin
+// see their own agency). Click a row to open a drawer with:
+//   • capability ledger snapshot
+//   • live audit tail (Supabase realtime on rba_audit filtered by device_id)
+//   • action buttons: Probe (ping/caps_refresh/models_list), Revoke
+//
+// Realtime subscription only attached when the drawer is open — collapse
+// = unsubscribe so we don't burn quota when the tab is just sitting there.
+
+function DevicesAdminView() {
+  const [installs, setInstalls] = React.useState([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [openId, setOpenId]     = React.useState(null);
+  const [audit, setAudit]       = React.useState({});
+  const [busy, setBusy]         = React.useState(null);
+  const subRef = React.useRef(null);
+
+  const sb = window.getSupabase && window.getSupabase();
+
+  const reload = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb
+        .from("rba_installs")
+        .select("device_id,user_id,agency_id,role,hostname,os,cpu,ram_gb,version,models_local,status,installed_at,last_seen_at,revoked_at")
+        .order("last_seen_at", { ascending: false, nullsFirst: false });
+      setInstalls(data || []);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  React.useEffect(() => {
+    if (!sb || !openId) {
+      if (subRef.current) { subRef.current.unsubscribe(); subRef.current = null; }
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await sb
+        .from("rba_audit")
+        .select("id,tool,result,detail,duration_ms,created_at")
+        .eq("device_id", openId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      setAudit(prev => ({ ...prev, [openId]: data || [] }));
+    })();
+    const ch = sb
+      .channel(`rba-audit-${openId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "rba_audit", filter: `device_id=eq.${openId}` },
+        (msg) => {
+          setAudit(prev => {
+            const cur = prev[openId] || [];
+            return { ...prev, [openId]: [msg.new, ...cur].slice(0, 100) };
+          });
+        })
+      .subscribe();
+    subRef.current = ch;
+    return () => { cancelled = true; if (subRef.current) { subRef.current.unsubscribe(); subRef.current = null; } };
+  }, [openId]);
+
+  const probe = async (deviceId, kind) => {
+    setBusy(`${deviceId}:${kind}`);
+    try {
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/post-command", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, kind, payload: kind === "ping" ? { echo: Date.now() } : {} }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.toast && window.toast(`${kind} queued · cmd ${String(d.command_id || "").slice(0, 8)}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Probe failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const revoke = async (deviceId) => {
+    if (!confirm("Revoke this device? It self-wipes on next heartbeat.")) return;
+    setBusy(`${deviceId}:revoke`);
+    try {
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/revoke", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${r.status}`);
+      }
+      window.toast && window.toast("Revoked", "success");
+      await reload();
+    } catch (e) {
+      window.toast && window.toast(`Revoke failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const fmtAgo = (ts) => {
+    if (!ts) return "—";
+    const s = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (s < 60)    return `${Math.floor(s)}s`;
+    if (s < 3600)  return `${Math.floor(s/60)}m`;
+    if (s < 86400) return `${Math.floor(s/3600)}h`;
+    return `${Math.floor(s/86400)}d`;
+  };
+  const statusChip = (st, lastSeen) => {
+    if (st === "revoked") return "chip";
+    if (st === "quarantined") return "chip chip-status";
+    const stale = lastSeen && (Date.now() - new Date(lastSeen).getTime() > 5 * 60_000);
+    return stale ? "chip chip-status" : "chip chip-money";
+  };
+
+  if (loading) {
+    return <div className="panel"><div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Loading devices…</div></div>;
+  }
+
+  const active = installs.filter(d => d.status === "active").length;
+  const stale  = installs.filter(d => d.status === "active" && d.last_seen_at && (Date.now() - new Date(d.last_seen_at).getTime() > 24 * 3600_000)).length;
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Cpu size={13}/>
+        <h3>Role-Based Agents</h3>
+        <span className="meta">
+          {active} active · {installs.length} total{stale > 0 ? ` · ${stale} stale >24h` : ""}
+        </span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={reload}>
+          <Icons.RefreshCw size={11}/> Reload
+        </button>
+      </div>
+      {installs.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+          No agent installs yet. Reps install via Settings → Agents.
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 90px 100px 1fr 100px 110px 70px" }}>
+            <div>Hostname / OS</div><div>Role</div><div>Version</div><div>Models</div><div>Status</div><div>Heartbeat</div><div></div>
+          </div>
+          {installs.map(d => {
+            const open = openId === d.device_id;
+            return (
+              <React.Fragment key={d.device_id}>
+                <div className="row" style={{ gridTemplateColumns: "1.4fr 90px 100px 1fr 100px 110px 70px", cursor: "pointer" }}
+                     onClick={() => setOpenId(open ? null : d.device_id)}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{d.hostname || "—"}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                      {d.os || "?"} · {d.ram_gb ? `${d.ram_gb}GB` : "?"} · {(d.user_id || "").slice(0, 8)}
+                    </div>
+                  </div>
+                  <div><span className="chip">{d.role}</span></div>
+                  <div className="mono" style={{ fontSize: 11.5 }}>{d.version || "—"}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{(d.models_local || []).join(", ") || "—"}</div>
+                  <div><span className={statusChip(d.status, d.last_seen_at)}>{d.status}</span></div>
+                  <div className="mono" style={{ fontSize: 11.5 }}>{fmtAgo(d.last_seen_at)}</div>
+                  <div style={{ textAlign: "right", fontSize: 11, color: "var(--text-tertiary)" }}>{open ? "▾" : "▸"}</div>
+                </div>
+                {open && (
+                  <div style={{ background: "var(--bg-raised)", padding: 14, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Device ID</div>
+                      <div className="mono" style={{ fontSize: 10.5, wordBreak: "break-all" }}>{d.device_id}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>Installed</div>
+                      <div style={{ fontSize: 12 }}>{new Date(d.installed_at).toLocaleString()}</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                        <button className="btn" disabled={d.status !== "active" || busy === `${d.device_id}:ping`} onClick={() => probe(d.device_id, "ping")}>
+                          {busy === `${d.device_id}:ping` ? "…" : "Ping"}
+                        </button>
+                        <button className="btn" disabled={d.status !== "active" || busy === `${d.device_id}:caps_refresh`} onClick={() => probe(d.device_id, "caps_refresh")}>
+                          {busy === `${d.device_id}:caps_refresh` ? "…" : "Refresh caps"}
+                        </button>
+                        <button className="btn" disabled={d.status !== "active" || busy === `${d.device_id}:models_list`} onClick={() => probe(d.device_id, "models_list")}>
+                          {busy === `${d.device_id}:models_list` ? "…" : "Models"}
+                        </button>
+                        {d.status !== "revoked" && (
+                          <button className="btn btn-ghost" disabled={busy === `${d.device_id}:revoke`} onClick={() => revoke(d.device_id)}>
+                            {busy === `${d.device_id}:revoke` ? "…" : "Revoke"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>
+                        Live audit tail (subscribed)
+                      </div>
+                      <div style={{ background: "var(--bg-base)", borderRadius: 6, maxHeight: 280, overflow: "auto" }}>
+                        {(audit[d.device_id] || []).length === 0 ? (
+                          <div style={{ padding: 14, fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
+                            No tool calls yet.
+                          </div>
+                        ) : (audit[d.device_id] || []).map(row => (
+                          <div key={row.id} style={{ padding: "6px 10px", borderBottom: "1px solid var(--border-subtle)", fontSize: 11.5 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                              <span className={`chip ${row.result === "ok" ? "chip-money" : row.result === "denied" ? "chip-status" : "chip-danger"}`} style={{ fontSize: 9.5 }}>
+                                {row.result}
+                              </span>
+                              <span style={{ fontWeight: 500 }}>{row.tool}</span>
+                              {row.duration_ms != null && (
+                                <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 10.5 }}>
+                                  {row.duration_ms}ms · {fmtAgo(row.created_at)} ago
+                                </span>
+                              )}
+                            </div>
+                            {row.detail && (
+                              <div style={{ marginTop: 3, color: "var(--text-tertiary)", fontSize: 10.5, fontFamily: "var(--font-mono)" }}>
+                                {row.detail.slice(0, 200)}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
     </div>

@@ -3699,176 +3699,202 @@ function SettingsIntegrations() {
   );
 }
 
-/* Settings → Agents — install/uninstall AI agents recommended for the
- * viewer's role. Sources truth from suggested_agents_for_role(role) RPC.
+/* Settings → Agents — device-install management.
  *
- * Install flow tries:
- *   1. RPC public.install_agent(p_agent_key) — if present, single round-trip
- *   2. Direct upsert into public.rba_installs (agency_id from current_agency_id,
- *      agent_key from suggestion). If `rba_installs` is missing we surface
- *      the error rather than silently succeed.
+ * Migrated 2026-05-15 from the persona-recommendation prototype to the
+ * production rba_installs schema (migration 0030). Lists the user's local
+ * agent installs (one row per device_id), shows live status from
+ * heartbeat, lets the user issue an install token + revoke devices.
  *
- * Uninstall hits public.rba_installs delete (RLS confines to viewer agency).
- *
- * Pass 6 (2026-05-11).
+ * Per-role capability ledger and tool registry are now server-side
+ * (api/agent/_lib.js). The old `suggested_agents_for_role` and
+ * `install_agent` RPC paths never existed in the DB; this component used
+ * to silently fail.
  */
 function SettingsAgents({ role = "owner" }) {
-  const [suggestions, setSuggestions] = React.useState([]);
-  const [installs,    setInstalls]    = React.useState([]);
-  const [loading,     setLoading]     = React.useState(true);
-  const [err,         setErr]         = React.useState(null);
-  const [busyKey,     setBusyKey]     = React.useState(null);
-  const [agencyId,    setAgencyId]    = React.useState(null);
+  const [installs, setInstalls]     = React.useState([]);
+  const [loading, setLoading]       = React.useState(true);
+  const [busyId, setBusyId]         = React.useState(null);
+  const [tokenInfo, setTokenInfo]   = React.useState(null);   // { token, expires_at, role, agency_id }
+  const [issuing, setIssuing]       = React.useState(false);
+  const [err, setErr]               = React.useState(null);
 
   const refresh = React.useCallback(async () => {
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    setErr(null);
     try {
-      const aid = (await sb.rpc("current_agency_id"))?.data || null;
-      setAgencyId(aid);
-      const [sug, ins] = await Promise.all([
-        sb.rpc("suggested_agents_for_role", { p_role: role }),
-        sb.from("rba_installs").select("agent_key, status, installed_at"),
-      ]);
-      if (Array.isArray(sug?.data)) setSuggestions(sug.data);
-      if (Array.isArray(ins?.data)) setInstalls(ins.data);
-      if (sug?.error && sug.error.code !== "PGRST116") setErr(sug.error.message || String(sug.error));
+      const sb = window.getSupabase && window.getSupabase();
+      const session = sb && (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      if (!jwt) { setLoading(false); return; }
+      const r = await fetch("/api/agent/installs", { headers: { authorization: `Bearer ${jwt}` } });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+      setInstalls(Array.isArray(data?.installs) ? data.installs : []);
     } catch (e) {
       setErr(String(e?.message || e));
     } finally { setLoading(false); }
-  }, [role]);
+  }, []);
   React.useEffect(() => { refresh(); }, [refresh]);
 
-  const installedKeys = React.useMemo(() => new Set(installs.map(i => i.agent_key)), [installs]);
-
-  const install = async (agentKey, label) => {
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    setBusyKey(agentKey);
+  const issueInstallToken = async () => {
+    setIssuing(true);
+    setErr(null);
     try {
-      // Try RPC first
-      let ok = false;
-      try {
-        const r = await sb.rpc("install_agent", { p_agent_key: agentKey });
-        if (!r.error) ok = true;
-      } catch (_e) {}
-      if (!ok) {
-        // Fallback: direct insert. agency_id falls from RLS or current_agency_id.
-        const row = { agent_key: agentKey, status: "installed" };
-        if (agencyId) row.agency_id = agencyId;
-        const r2 = await sb.from("rba_installs").upsert(row, { onConflict: "agency_id,agent_key" });
-        if (r2.error) throw r2.error;
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/install-token", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({}),  // role auto-derived from membership
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+      setTokenInfo(data);
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally { setIssuing(false); }
+  };
+
+  const revoke = async (deviceId) => {
+    if (!confirm("Revoke this device? It will self-wipe on its next heartbeat.")) return;
+    setBusyId(deviceId);
+    try {
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/revoke", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${r.status}`);
       }
-      window.toast && window.toast(`${label} installed`, "success");
+      window.toast && window.toast("Device revoked", "success");
       await refresh();
     } catch (e) {
-      window.toast && window.toast(`Install failed: ${e?.message || e}`, "error");
-    } finally { setBusyKey(null); }
+      window.toast && window.toast(`Revoke failed: ${e?.message || e}`, "error");
+    } finally { setBusyId(null); }
   };
 
-  const uninstall = async (agentKey, label) => {
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    setBusyKey(agentKey);
-    try {
-      let q = sb.from("rba_installs").delete().eq("agent_key", agentKey);
-      if (agencyId) q = q.eq("agency_id", agencyId);
-      const r = await q;
-      if (r.error) throw r.error;
-      window.toast && window.toast(`${label} uninstalled`, "success");
-      await refresh();
-    } catch (e) {
-      window.toast && window.toast(`Uninstall failed: ${e?.message || e}`, "error");
-    } finally { setBusyKey(null); }
+  const apiBase = (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.host}` : "https://repflow.koino.capital");
+  const installCmds = (token) => ({
+    bash:  `curl -fsSL ${apiBase}/api/agent/install.sh?token=${token} | bash`,
+    pwsh:  `iwr -useb "${apiBase}/api/agent/install.ps1?token=${token}" | iex`,
+    docker: `docker run -d --name repflow-agent -e RBA_TOKEN=${token} -e API_BASE=${apiBase} -v "$HOME/.repflow/agent:/agent" ghcr.io/koinod/repflow-agent:latest`,
+  });
+
+  const fmtAgo = (ts) => {
+    if (!ts) return "—";
+    const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (diff < 60)    return `${Math.floor(diff)}s ago`;
+    if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
   };
-
-  if (loading) {
-    return <div className="panel" style={{ padding: 24, color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading agent recommendations…</div>;
-  }
-  if (err) {
-    return (
-      <div className="panel" style={{ padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--state-danger)" }}>Couldn't load agents</div>
-        <div style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "6px 0 10px" }}>{err}</div>
-        <button className="btn" onClick={refresh}>Try again</button>
-      </div>
-    );
-  }
-  if (suggestions.length === 0) {
-    return (
-      <div className="panel" style={{ padding: 18 }}>
-        <h3 style={{ margin: 0, marginBottom: 6 }}>Agents</h3>
-        <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-          No agents seeded in <code style={{ fontSize: 10.5 }}>role_agent_defaults</code> for the <strong>{role}</strong> role yet. Ask your IMO admin to populate defaults, or install agents directly from the Ops → Agents page.
-        </div>
-      </div>
-    );
-  }
-
-  const required = suggestions.filter(a => a.required);
-  const optional = suggestions.filter(a => !a.required);
-
-  const renderRow = (a) => {
-    const key = a.agent_key || a.id;
-    const label = a.label || a.name || key;
-    const installed = installedKeys.has(key);
-    return (
-      <div key={key} className="row" style={{ gridTemplateColumns: "1.4fr 1.6fr 130px", padding: "10px 12px", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
-            {a.required && <span className="chip chip-status" style={{ marginRight: 6, fontSize: 10 }}>required</span>}
-            {a.host_hint && <span style={{ fontSize: 10.5 }}>runs on {a.host_hint}</span>}
-          </div>
-        </div>
-        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>{a.description || ""}</div>
-        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-          {installed ? (
-            <>
-              <span className="chip chip-money" style={{ fontSize: 10.5 }}>installed</span>
-              <button
-                className="btn btn-ghost"
-                disabled={a.required || busyKey === key}
-                title={a.required ? "Required agents can't be uninstalled" : "Uninstall"}
-                onClick={() => uninstall(key, label)}
-              >
-                {busyKey === key ? "…" : "Uninstall"}
-              </button>
-            </>
-          ) : (
-            <button className="btn btn-primary" disabled={busyKey === key} onClick={() => install(key, label)}>
-              {busyKey === key ? "Installing…" : "Install"}
-            </button>
-          )}
-        </div>
-      </div>
-    );
+  const statusChipClass = (s, lastSeen) => {
+    if (s === "revoked")     return "chip";
+    if (s === "quarantined") return "chip chip-status";
+    const stale = lastSeen && (Date.now() - new Date(lastSeen).getTime() > 5 * 60_000);
+    return stale ? "chip chip-status" : "chip chip-money";
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {required.length > 0 && (
-        <div className="panel">
-          <div className="panel-h">
-            <h3>Required for {role}s</h3>
-            <span className="meta">{required.filter(a => installedKeys.has(a.agent_key || a.id)).length}/{required.length} installed</span>
-          </div>
-          <div className="list">{required.map(renderRow)}</div>
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Cpu size={13}/>
+          <h3>Your devices</h3>
+          <span className="meta">
+            {installs.filter(i => i.status === "active").length} active · {installs.length} total
+          </span>
+          <button className="btn" style={{ marginLeft: "auto" }} onClick={refresh}>
+            <Icons.RefreshCw size={11}/> Refresh
+          </button>
+          <button className="btn btn-primary" disabled={issuing} onClick={issueInstallToken}>
+            {issuing ? "…" : <><Icons.Plus size={11}/> Install on a machine</>}
+          </button>
         </div>
-      )}
-      {optional.length > 0 && (
+        {err && (
+          <div style={{ padding: 12, color: "var(--state-danger)", fontSize: 12 }}>
+            {err}
+          </div>
+        )}
+        {loading ? (
+          <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading devices…</div>
+        ) : installs.length === 0 ? (
+          <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+            No devices installed. Click <strong>Install on a machine</strong> to issue a one-shot token, then run the curl/iwr command on the target machine.
+          </div>
+        ) : (
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 90px 1fr 110px 130px 100px" }}>
+              <div>Hostname / OS</div>
+              <div>Role</div>
+              <div>Models</div>
+              <div>Heartbeat</div>
+              <div>Status</div>
+              <div></div>
+            </div>
+            {installs.map(d => (
+              <div key={d.device_id} className="row" style={{ gridTemplateColumns: "1.4fr 90px 1fr 110px 130px 100px" }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{d.hostname || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{d.os || ""} · {d.version || "v?"}</div>
+                </div>
+                <div><span className="chip">{d.role}</span></div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{(d.models_local || []).join(", ") || "—"}</div>
+                <div style={{ fontSize: 12 }}>{fmtAgo(d.last_seen_at)}</div>
+                <div><span className={statusChipClass(d.status, d.last_seen_at)}>{d.status}</span></div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  {d.status !== "revoked" && (
+                    <button className="btn btn-ghost" disabled={busyId === d.device_id} onClick={() => revoke(d.device_id)}>
+                      {busyId === d.device_id ? "…" : "Revoke"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {tokenInfo && (
         <div className="panel">
           <div className="panel-h">
-            <h3>Recommended</h3>
-            <span className="meta">{optional.length} optional agents</span>
+            <Icons.Shield size={13}/>
+            <h3>Install token (expires in 5 min)</h3>
+            <span className="meta">role: {tokenInfo.role}</span>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => setTokenInfo(null)}>Dismiss</button>
           </div>
-          <div className="list">{optional.map(renderRow)}</div>
+          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+            {[
+              ["macOS / Linux (bash)", installCmds(tokenInfo.token).bash],
+              ["Windows (PowerShell)", installCmds(tokenInfo.token).pwsh],
+              ["Docker (any OS)",      installCmds(tokenInfo.token).docker],
+            ].map(([label, cmd]) => (
+              <div key={label}>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>{label}</div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", padding: 8, background: "var(--bg-raised)", borderRadius: 6 }}>
+                  <code className="mono" style={{ flex: 1, fontSize: 11, wordBreak: "break-all" }}>{cmd}</code>
+                  <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(cmd).then(() => window.toast && window.toast("Copied", "success"))}>
+                    <Icons.Copy size={11}/> Copy
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+              The token works once. After install, the device gets a long-lived agent token stored in <code>~/.repflow/agent/config.yaml</code> (chmod 600). Revoke any time from the list above.
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
-
 function SettingsApi() {
   const [revealed, setRevealed] = React.useState(false);
   // Generate a deterministic-looking but session-local key. Real key issuance
