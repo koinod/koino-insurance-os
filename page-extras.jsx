@@ -3892,9 +3892,414 @@ function SettingsAgents({ role = "owner" }) {
           </div>
         </div>
       )}
+
+      <UserConnectorVault />
     </div>
   );
 }
+
+// ─── Per-user connector vault (Twilio, SendBlue, Fathom, …) ───────────────
+//
+// Drives connector_vault writes via /api/agent/connector-upsert. Tokens live
+// per-user (not per-agency) so reps own their personal Twilio number, their
+// SendBlue, etc. Health column shows the latest probe result.
+//
+// Provider-specific forms below (TwilioVaultForm, SendBlueVaultForm,
+// FathomVaultForm) handle the field-level UX. Adding a new provider = add
+// a row to PROVIDER_FORMS plus the form component.
+
+const PROVIDERS = [
+  { key: "twilio",   label: "Twilio",        category: "voice + SMS",  hint: "Outbound dial + SMS via Programmable Voice/Messaging." },
+  { key: "sendblue", label: "SendBlue",      category: "iMessage",     hint: "Blue-bubble SMS for higher reply rates." },
+  { key: "fathom",   label: "Fathom",        category: "meeting notes",hint: "Pull post-call notes for booked appointments." },
+  { key: "gmail",    label: "Gmail",         category: "email",        hint: "Send + read on behalf of the rep." },
+  { key: "outlook",  label: "Outlook",       category: "email",        hint: "M365 / Outlook send + read." },
+  { key: "linkedin", label: "LinkedIn",      category: "social",       hint: "Cookie-based — paste session cookie below." },
+  { key: "fb_ads",   label: "Facebook Ads",  category: "lead gen",     hint: "Pull lead-form submissions automatically." },
+  { key: "ig_business", label: "Instagram",  category: "DMs",          hint: "Auto-reply on IG DMs via Meta Graph API." },
+  { key: "meta_dm",  label: "Meta DM Send",  category: "DMs",          hint: "FB Page + IG Business outbound DM." },
+  { key: "calendly", label: "Calendly",      category: "booking",      hint: "Watch new bookings → fire pre-appt reminders." },
+  { key: "stripe",   label: "Stripe",        category: "billing",      hint: "Subscription + payment ops (owner+ only)." },
+  { key: "apollo",   label: "Apollo",        category: "prospecting",  hint: "Lead enrichment + cadence import." },
+];
+
+function UserConnectorVault() {
+  const [connectors, setConnectors] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [open, setOpen] = React.useState(null);     // provider key being configured
+  const [busy, setBusy] = React.useState(null);
+
+  const reload = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const session = sb && (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      if (!jwt) { setLoading(false); return; }
+      const r = await fetch("/api/agent/connector-list", { headers: { authorization: `Bearer ${jwt}` } });
+      const data = await r.json();
+      setConnectors(Array.isArray(data?.connectors) ? data.connectors : []);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const byProvider = React.useMemo(() => {
+    const m = {};
+    connectors.forEach(c => { (m[c.provider] ||= []).push(c); });
+    return m;
+  }, [connectors]);
+
+  const removeConnector = async (id, label) => {
+    if (!confirm(`Remove ${label} connector?`)) return;
+    setBusy(id);
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("connector_vault").delete().eq("id", id);
+      if (error) throw error;
+      window.toast && window.toast(`${label} removed`, "success");
+      await reload();
+    } catch (e) {
+      window.toast && window.toast(`Remove failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const probeNow = async (id, provider) => {
+    setBusy(`probe-${id}`);
+    try {
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/connector/probe", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ vault_id: id, provider, kind: "manual" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.toast && window.toast(`Probe: ${d?.status || "ok"}`, d?.status === "red" ? "warn" : "success");
+      await reload();
+    } catch (e) {
+      window.toast && window.toast(`Probe failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  const healthChip = (h) => {
+    if (!h) return <span className="chip">—</span>;
+    const cls = h.status === "green" ? "chip-money" : h.status === "yellow" ? "chip-status" : "chip-danger";
+    return <span className={`chip ${cls}`} title={h.detail || ""}>{h.status}</span>;
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Workflow size={13}/>
+        <h3>Connectors (used by this user's agent)</h3>
+        <span className="meta">{connectors.length} connected · tokens encrypted at rest</span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={reload}>
+          <Icons.RefreshCw size={11}/> Reload
+        </button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading connectors…</div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+            <div>Provider</div><div>Account</div><div>Health</div><div>Last used</div><div>Connected</div><div></div>
+          </div>
+          {PROVIDERS.map(p => {
+            const rows = byProvider[p.key] || [];
+            if (rows.length === 0) {
+              return (
+                <div key={p.key} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{p.hint}</div>
+                  <div><span className="chip">none</span></div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button className="btn btn-primary" onClick={() => setOpen(p.key)}>
+                      <Icons.Plus size={11}/> Connect
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            return rows.map(r => (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+                <div>
+                  <div style={{ fontWeight: 500 }}>{p.label}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+                </div>
+                <div style={{ fontSize: 12 }}>{r.account_label || "default"}</div>
+                <div>{healthChip(r.health)}</div>
+                <div style={{ fontSize: 11.5 }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleString() : "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(r.connected_at).toLocaleDateString()}</div>
+                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" disabled={busy === `probe-${r.id}`} onClick={() => probeNow(r.id, p.key)}>
+                    {busy === `probe-${r.id}` ? "…" : "Probe"}
+                  </button>
+                  <button className="btn btn-ghost" disabled={busy === r.id} onClick={() => removeConnector(r.id, p.label)}>
+                    {busy === r.id ? "…" : "Remove"}
+                  </button>
+                </div>
+              </div>
+            ));
+          })}
+        </div>
+      )}
+      {open && <ConnectorVaultModal provider={open} onClose={() => { setOpen(null); reload(); }} />}
+    </div>
+  );
+}
+
+function ConnectorVaultModal({ provider, onClose }) {
+  // Per-provider form. Common path: collect creds → POST /api/agent/connector-upsert.
+  const Form = {
+    twilio:   TwilioVaultForm,
+    sendblue: SendBlueVaultForm,
+    fathom:   FathomVaultForm,
+    linkedin: LinkedInVaultForm,
+    gmail:    GenericTokenVaultForm,
+    outlook:  GenericTokenVaultForm,
+    fb_ads:   GenericTokenVaultForm,
+    ig_business: GenericTokenVaultForm,
+    meta_dm:  GenericTokenVaultForm,
+    calendly: GenericTokenVaultForm,
+    stripe:   GenericTokenVaultForm,
+    apollo:   GenericTokenVaultForm,
+  }[provider] || GenericTokenVaultForm;
+  const M = window.Shared && window.Shared.Modal;
+  if (!M) return null;
+  return (
+    <M title={`Connect ${provider}`} width={520} onClose={onClose}>
+      <Form provider={provider} onClose={onClose} />
+    </M>
+  );
+}
+
+async function _upsertConnector(payload) {
+  const sb = window.getSupabase();
+  const session = (await sb.auth.getSession())?.data?.session;
+  const jwt = session?.access_token;
+  const r = await fetch("/api/agent/connector-upsert", {
+    method: "POST",
+    headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+  return d;
+}
+
+function TwilioVaultForm({ onClose }) {
+  const [sid, setSid]       = React.useState("");
+  const [tok, setTok]       = React.useState("");
+  const [phones, setPhones] = React.useState("");
+  const [label, setLabel]   = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "twilio",
+        account_label: label || null,
+        access_token: tok,         // auth_token
+        api_key: tok,              // mirror; some endpoints use api_key
+        metadata: {
+          account_sid: sid,
+          phone_numbers: phones.split(",").map(s => s.trim()).filter(Boolean),
+        },
+      });
+      window.toast && window.toast("Twilio connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="Account SID *">
+        <input className="text-input" value={sid} onChange={e => setSid(e.target.value)} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+      </Shared.Field>
+      <Shared.Field label="Auth Token *">
+        <input className="text-input" type="password" value={tok} onChange={e => setTok(e.target.value)} placeholder="32-char auth token"/>
+      </Shared.Field>
+      <Shared.Field label="Phone numbers (comma-separated, +E.164) *">
+        <input className="text-input" value={phones} onChange={e => setPhones(e.target.value)} placeholder="+15551234567, +15559876543"/>
+      </Shared.Field>
+      <Shared.Field label="Label (optional — for multiple Twilio accounts)">
+        <input className="text-input" value={label} onChange={e => setLabel(e.target.value)} placeholder="main"/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        Tokens are stored in connector_vault (column-encrypted at rest, see migration 0030). Find these at console.twilio.com → Account → API Keys.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!sid || !tok || !phones || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function SendBlueVaultForm({ onClose }) {
+  const [keyId, setKeyId]   = React.useState("");
+  const [secret, setSecret] = React.useState("");
+  const [sender, setSender] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "sendblue",
+        api_key: secret,
+        metadata: { api_key_id: keyId, sender_phone: sender },
+      });
+      window.toast && window.toast("SendBlue connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="API Key ID *">
+        <input className="text-input" value={keyId} onChange={e => setKeyId(e.target.value)} placeholder="sb-key-xxxxx"/>
+      </Shared.Field>
+      <Shared.Field label="API Secret *">
+        <input className="text-input" type="password" value={secret} onChange={e => setSecret(e.target.value)}/>
+      </Shared.Field>
+      <Shared.Field label="Sender phone (your registered iMessage number) *">
+        <input className="text-input" value={sender} onChange={e => setSender(e.target.value)} placeholder="+15551234567"/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        Get keys from sendblue.co → Settings → API. The sender number must be activated on your SendBlue account.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!keyId || !secret || !sender || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function FathomVaultForm({ onClose }) {
+  const [key, setKey]       = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+  const apiBase = (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.host}` : "");
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({ provider: "fathom", api_key: key });
+      window.toast && window.toast("Fathom connected", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="Fathom API key *">
+        <input className="text-input" type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="from fathom.video → Settings → Integrations → API"/>
+      </Shared.Field>
+      <Shared.Field label="Webhook URL (paste this into Fathom)">
+        <input className="text-input mono" readOnly value={`${apiBase}/api/connector/fathom-webhook`} onClick={(e) => e.target.select()} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        After saving, paste the webhook URL into Fathom → Settings → Webhooks for "meeting.completed". Notes will auto-attach to the matching lead.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!key || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function LinkedInVaultForm({ onClose }) {
+  const [cookie, setCookie] = React.useState("");
+  const [csrf, setCsrf]     = React.useState("");
+  const [busy, setBusy]     = React.useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await _upsertConnector({
+        provider: "linkedin",
+        access_token: cookie,
+        metadata: { csrf_token: csrf },
+      });
+      window.toast && window.toast("LinkedIn cookie saved (high-risk per LI ToS)", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--state-warn, var(--text-secondary))" }}>
+        ⚠ LinkedIn doesn't sanction cookie-based automation. Use sparingly to avoid restrictions on your account.
+      </div>
+      <Shared.Field label="li_at cookie *">
+        <input className="text-input mono" type="password" value={cookie} onChange={e => setCookie(e.target.value)} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <Shared.Field label="JSESSIONID (CSRF token)">
+        <input className="text-input mono" type="password" value={csrf} onChange={e => setCsrf(e.target.value)} style={{ fontSize: 11 }}/>
+      </Shared.Field>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+        DevTools → Application → Cookies → linkedin.com → li_at + JSESSIONID. Refresh weekly when LI rotates them.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!cookie || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function GenericTokenVaultForm({ provider, onClose }) {
+  const [key, setKey]   = React.useState("");
+  const [meta, setMeta] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      let metaObj = {};
+      if (meta.trim()) {
+        try { metaObj = JSON.parse(meta); } catch { metaObj = { note: meta }; }
+      }
+      await _upsertConnector({ provider, api_key: key, metadata: metaObj });
+      window.toast && window.toast(`${provider} connected`, "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Shared.Field label="API token / key *">
+        <input className="text-input" type="password" value={key} onChange={e => setKey(e.target.value)}/>
+      </Shared.Field>
+      <Shared.Field label="Metadata (JSON, optional)">
+        <textarea className="text-input mono" rows={3} value={meta} onChange={e => setMeta(e.target.value)} placeholder='{"account_id":"..."}'/>
+      </Shared.Field>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="btn btn-primary" disabled={!key || busy} onClick={save}>{busy ? "Saving…" : "Connect"}</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsApi() {
   const [revealed, setRevealed] = React.useState(false);
   // Generate a deterministic-looking but session-local key. Real key issuance
