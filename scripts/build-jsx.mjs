@@ -6,10 +6,10 @@
 // per-script scoping that Babel-in-browser used to give us.
 
 import { build } from "esbuild";
-import { readdir, mkdir, rm } from "node:fs/promises";
+import { readdir, mkdir, rm, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, basename } from "node:path";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(root, "dist");
@@ -23,6 +23,32 @@ const entries = (await readdir(root))
 
 if (entries.length === 0) {
   console.error("no .jsx files found at repo root");
+  process.exit(1);
+}
+
+// Guard: every Icons.X referenced anywhere must exist in icons.jsx. The icon
+// module is just a plain object; missing keys evaluate to `undefined` and
+// React.createElement(undefined,...) throws minified error #130 the moment
+// that UI mounts. Catching it here turns a runtime crash into a build error.
+const iconsSrc = await readFile(join(root, "icons.jsx"), "utf8");
+const defined = new Set([...iconsSrc.matchAll(/^  ([A-Z][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]));
+const missing = new Map(); // name → [{file, line}]
+for (const path of entries) {
+  const src = await readFile(path, "utf8");
+  for (const m of src.matchAll(/Icons\.([A-Z][A-Za-z0-9_]*)/g)) {
+    const name = m[1];
+    if (defined.has(name)) continue;
+    const line = src.slice(0, m.index).split("\n").length;
+    if (!missing.has(name)) missing.set(name, []);
+    missing.get(name).push(`${basename(path)}:${line}`);
+  }
+}
+if (missing.size > 0) {
+  console.error("\n✘ Build aborted: undefined Icons.* references would crash React #130.");
+  for (const [name, locs] of missing) {
+    console.error(`   Icons.${name} — ${locs.join(", ")}`);
+  }
+  console.error("   Add the missing icon(s) to icons.jsx and rebuild.\n");
   process.exit(1);
 }
 
