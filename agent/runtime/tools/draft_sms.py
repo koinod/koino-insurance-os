@@ -36,11 +36,11 @@ Write ONE SMS. No quotes, no explanation, just the SMS body.
 """
 
 
-def _ollama(prompt: str, model: str = "qwen2.5:3b") -> str:
-    r = _r.post("http://127.0.0.1:11434/api/generate",
+def _ollama(prompt: str, model: str, base_url: str) -> str:
+    r = _r.post(base_url.rstrip("/") + "/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
                       "options": {"temperature": 0.4, "num_predict": 80}},
-                timeout=30)
+                timeout=120)
     if r.status_code != 200:
         raise RuntimeError(f"ollama generate failed: HTTP {r.status_code}")
     return (r.json().get("response") or "").strip().strip('"').strip("'")
@@ -59,10 +59,10 @@ def run(payload: dict, ctx: dict) -> dict:
         context=lead.get("context") or "(none)",
     )
 
-    # Pick model by what's loaded; prefer 3b for speed.
     cfg = ctx.get("cfg") or {}
     model = cfg.get("default_model") or "qwen2.5:3b"
-    text = _ollama(prompt, model=model)
+    base = cfg.get("ollama_url") or "http://127.0.0.1:11434"
+    text = _ollama(prompt, model, base)
     text = text[:160]  # hard cap; carriers reject longer SMS
 
     WORKSPACE.mkdir(parents=True, exist_ok=True)

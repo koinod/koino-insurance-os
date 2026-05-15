@@ -20,7 +20,7 @@ def run(payload, ctx):
 
     cfg = ctx.get("cfg") or {}
     model = cfg.get("smart_model") or cfg.get("default_model") or "qwen2.5:3b"
-    r = _r.post("http://127.0.0.1:11434/api/generate",
+    r = _r.post((ctx.get("cfg",{}).get("ollama_url") or "http://127.0.0.1:11434") + "/api/generate",
                 json={"model": model, "prompt": f"Summarize this file in 3-5 bullets, then list any action items:\n\n{text}",
                       "stream": False, "options": {"num_predict": 600}}, timeout=90)
     if r.status_code != 200:
