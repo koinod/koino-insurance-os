@@ -55,7 +55,10 @@ export default async function handler(req) {
 
   const script = `# Repflow Agent — Windows installer
 # Generated for token ${token ? token.slice(0, 8) + "…" : "(no token)"}
-$ErrorActionPreference = 'Stop'
+# NOTE: Continue is intentional. Native pip writes to stderr even on
+# success which Stop would treat as a terminating error. We check
+# explicit failure conditions (token redeem, file download) directly.
+$ErrorActionPreference = 'Continue'
 
 $ApiBase = '${apiBase}'
 $Token   = '${token}'
@@ -97,11 +100,11 @@ if (-not (Test-Path $VenvDir)) {
   & $Py -m venv $VenvDir
 }
 $VPy = Join-Path $VenvDir 'Scripts\\python.exe'
-$VPip = Join-Path $VenvDir 'Scripts\\pip.exe'
-& $VPip install --quiet --upgrade pip wheel
+# Use python -m pip — pip.exe in a Windows venv refuses self-upgrade.
+& $VPy -m pip install --quiet --upgrade pip wheel 2>&1 | Out-Null
 Write-Host "[rba] installing python deps"
-& $VPip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright
-& $VPy -m playwright install chromium
+& $VPy -m pip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright 2>&1 | Out-Null
+& $VPy -m playwright install chromium 2>&1 | Out-Null
 
 # ── 3. Ollama ─────────────────────────────────────────────────────────
 $ollama = Get-Command ollama -ErrorAction SilentlyContinue
