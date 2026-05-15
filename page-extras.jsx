@@ -3894,6 +3894,277 @@ function SettingsAgents({ role = "owner" }) {
       )}
 
       <UserConnectorVault />
+      <AutomationRulesEditor />
+      <AgentSettingsEditor />
+    </div>
+  );
+}
+
+// ─── Automation rules — owner-edited, drives post-call/post-meeting/etc.
+//
+// Fires via SECURITY DEFINER fn automation_fire(agency, trigger, rep, ctx).
+// Webhook handlers (twilio-app, fathom-webhook, stripe webhook, etc.) call
+// the RPC; this editor lets the owner define which command to fan-out for
+// each trigger.
+
+const TRIGGERS = [
+  { k: "call_completed",          l: "After a call ends (with answer)" },
+  { k: "call_missed",             l: "When a call is missed / no answer" },
+  { k: "meeting_completed",       l: "After a Fathom meeting completes" },
+  { k: "lead_created",            l: "When a new lead is created" },
+  { k: "lead_stage_changed",      l: "When a lead moves stages" },
+  { k: "appointment_booked",      l: "When an appointment is booked" },
+  { k: "appointment_reminder_24h",l: "24h before an appointment" },
+  { k: "appointment_reminder_1h", l: "1h before an appointment" },
+  { k: "payment_succeeded",       l: "When a Stripe payment succeeds" },
+  { k: "payment_failed",          l: "When a Stripe payment fails" },
+  { k: "policy_issued",           l: "When a policy is issued" },
+  { k: "nigo_received",           l: "When a NIGO arrives" },
+];
+const COMMAND_KINDS = [
+  { k: "post_call_followup",      l: "Generate post-call follow-up draft" },
+  { k: "draft_sms",               l: "Draft SMS (queue for review)" },
+  { k: "draft_email",             l: "Draft email" },
+  { k: "twilio_dial",             l: "Place outbound call" },
+  { k: "sendblue_send",           l: "Send iMessage via SendBlue" },
+  { k: "fathom_pull_notes",       l: "Pull Fathom notes for the lead" },
+  { k: "auto_quote",              l: "Run auto-quote across carriers" },
+  { k: "script_review",           l: "AI review of the rep's last script" },
+];
+
+function AutomationRulesEditor() {
+  const [rules, setRules] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [agencyId, setAgencyId] = React.useState(null);
+  const [adding, setAdding] = React.useState(false);
+  const [busy, setBusy] = React.useState(null);
+
+  const sb = window.getSupabase && window.getSupabase();
+  const reload = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const aid = (await sb.rpc("current_agency_id"))?.data || null;
+      setAgencyId(aid);
+      const { data } = await sb
+        .from("automation_rules")
+        .select("id,trigger,command_kind,command_payload,scope,rep_id,enabled,delay_seconds,description,created_at")
+        .order("created_at", { ascending: false });
+      setRules(data || []);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const toggle = async (id, current) => {
+    setBusy(id);
+    try {
+      const { error } = await sb.from("automation_rules").update({ enabled: !current }).eq("id", id);
+      if (error) throw error;
+      setRules(prev => prev.map(r => r.id === id ? { ...r, enabled: !current } : r));
+    } catch (e) {
+      window.toast && window.toast(`Toggle failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+  const remove = async (id) => {
+    if (!confirm("Remove this automation?")) return;
+    setBusy(id);
+    try {
+      const { error } = await sb.from("automation_rules").delete().eq("id", id);
+      if (error) throw error;
+      setRules(prev => prev.filter(r => r.id !== id));
+    } catch (e) {
+      window.toast && window.toast(`Remove failed: ${e?.message || e}`, "error");
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Workflow size={13}/>
+        <h3>Automations</h3>
+        <span className="meta">{rules.length} rules · fired by webhook triggers</span>
+        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setAdding(true)}>
+          <Icons.Plus size={11}/> Add rule
+        </button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading rules…</div>
+      ) : rules.length === 0 ? (
+        <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+          No automation rules yet. Add one to e.g. "After a call ends, draft a follow-up SMS for the lead."
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1.4fr 1.6fr 90px 100px 90px" }}>
+            <div>Trigger</div><div>Command</div><div>Description</div><div>Delay</div><div>Status</div><div></div>
+          </div>
+          {rules.map(r => {
+            const trig = TRIGGERS.find(t => t.k === r.trigger) || { l: r.trigger };
+            const cmd  = COMMAND_KINDS.find(c => c.k === r.command_kind) || { l: r.command_kind };
+            return (
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 1.4fr 1.6fr 90px 100px 90px" }}>
+                <div style={{ fontSize: 12 }}>{trig.l}</div>
+                <div style={{ fontSize: 12 }}>{cmd.l}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{r.description || "—"}</div>
+                <div style={{ fontSize: 11.5 }}>{r.delay_seconds ? `${r.delay_seconds}s` : "—"}</div>
+                <div>
+                  <span className={`chip ${r.enabled ? "chip-money" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggle(r.id, r.enabled)}>
+                    {busy === r.id ? "…" : r.enabled ? "on" : "off"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" onClick={() => remove(r.id)}>Remove</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {adding && (
+        <AutomationRuleModal agencyId={agencyId} onClose={() => { setAdding(false); reload(); }} />
+      )}
+    </div>
+  );
+}
+
+function AutomationRuleModal({ agencyId, onClose }) {
+  const [trigger, setTrigger] = React.useState("call_completed");
+  const [cmd, setCmd]         = React.useState("draft_sms");
+  const [desc, setDesc]       = React.useState("");
+  const [delay, setDelay]     = React.useState(0);
+  const [intent, setIntent]   = React.useState("follow_up");
+  const [busy, setBusy]       = React.useState(false);
+  const M = window.Shared && window.Shared.Modal;
+  if (!M) return null;
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const sb = window.getSupabase();
+      const payload = {};
+      if (cmd === "draft_sms" || cmd === "draft_email") payload.intent = intent;
+      const { error } = await sb.from("automation_rules").insert({
+        agency_id: agencyId, scope: "agency", trigger, command_kind: cmd,
+        command_payload: payload, delay_seconds: parseInt(delay, 10) || 0,
+        description: desc || null, enabled: true,
+      });
+      if (error) throw error;
+      window.toast && window.toast("Automation added", "success");
+      onClose();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <M title="New automation" width={520} onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Shared.Field label="When this happens">
+          <Shared.Select value={trigger} onChange={setTrigger} options={TRIGGERS.map(t => ({ v: t.k, l: t.l }))}/>
+        </Shared.Field>
+        <Shared.Field label="…the agent should">
+          <Shared.Select value={cmd} onChange={setCmd} options={COMMAND_KINDS.map(c => ({ v: c.k, l: c.l }))}/>
+        </Shared.Field>
+        {(cmd === "draft_sms" || cmd === "draft_email") && (
+          <Shared.Field label="Draft intent">
+            <Shared.Select value={intent} onChange={setIntent} options={[
+              { v: "follow_up",  l: "Follow up" },
+              { v: "pre_call",   l: "Pre-call" },
+              { v: "pre_appt",   l: "Pre-appointment" },
+              { v: "reschedule", l: "Reschedule" },
+              { v: "cold_open",  l: "Cold open" },
+            ]}/>
+          </Shared.Field>
+        )}
+        <Shared.Field label="Delay (seconds before agent acts)">
+          <input className="text-input" type="number" min={0} max={86400} value={delay} onChange={e => setDelay(e.target.value)}/>
+        </Shared.Field>
+        <Shared.Field label="Description (for your records)">
+          <input className="text-input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="e.g. After every call >60s, draft a follow-up SMS"/>
+        </Shared.Field>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button className="btn btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save automation"}</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+        </div>
+      </div>
+    </M>
+  );
+}
+
+// ─── agent_settings — per-rep agent preferences (record toggle, etc.)
+
+function AgentSettingsEditor() {
+  const [s, setS] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) { setLoading(false); return; }
+      try {
+        const session = (await sb.auth.getSession())?.data?.session;
+        if (!session) { setLoading(false); return; }
+        const aid = (await sb.rpc("current_agency_id"))?.data || null;
+        const { data } = await sb.from("agent_settings").select("*").eq("user_id", session.user.id).maybeSingle();
+        setS(data || {
+          user_id: session.user.id, agency_id: aid,
+          always_record_on_pickup: true, state_match_outbound: true,
+          default_dial_provider: "twilio", confirm_channel_default: "any",
+          high_risk_channel: "sms",
+        });
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const save = async (patch) => {
+    setBusy(true);
+    try {
+      const sb = window.getSupabase();
+      const next = { ...s, ...patch };
+      setS(next);
+      const { error } = await sb.from("agent_settings").upsert(next, { onConflict: "user_id" });
+      if (error) throw error;
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  if (loading || !s) {
+    return <div className="panel" style={{ padding: 22, color: "var(--text-tertiary)" }}>Loading agent settings…</div>;
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Cpu size={13}/>
+        <h3>Agent preferences</h3>
+        <span className="meta">applies to your devices</span>
+        {busy && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>Saving…</span>}
+      </div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <Shared.Field label="Always record calls on pickup">
+          <Shared.Select value={s.always_record_on_pickup ? "y" : "n"} onChange={(v) => save({ always_record_on_pickup: v === "y" })}
+            options={[{ v: "y", l: "Yes (default)" }, { v: "n", l: "No — disclose first" }]}/>
+        </Shared.Field>
+        <Shared.Field label="State-matched outbound number">
+          <Shared.Select value={s.state_match_outbound ? "y" : "n"} onChange={(v) => save({ state_match_outbound: v === "y" })}
+            options={[{ v: "y", l: "Match lead's area code" }, { v: "n", l: "Use first number" }]}/>
+        </Shared.Field>
+        <Shared.Field label="Default dial provider">
+          <Shared.Select value={s.default_dial_provider} onChange={(v) => save({ default_dial_provider: v })}
+            options={[{ v: "twilio", l: "Twilio" }, { v: "sendblue", l: "SendBlue (voice via routing)" }, { v: "bluetooth_phone", l: "Paired phone (Bluetooth)" }]}/>
+        </Shared.Field>
+        <Shared.Field label="Default confirm channel">
+          <Shared.Select value={s.confirm_channel_default} onChange={(v) => save({ confirm_channel_default: v })}
+            options={[{ v: "any", l: "Any (best effort)" }, { v: "web_modal", l: "Web modal" }, { v: "os_push", l: "OS push" }, { v: "sms", l: "SMS" }]}/>
+        </Shared.Field>
+        <Shared.Field label="High-risk action channel (real SMS, charge, delete)">
+          <Shared.Select value={s.high_risk_channel} onChange={(v) => save({ high_risk_channel: v })}
+            options={[{ v: "sms", l: "SMS to your phone" }, { v: "os_push", l: "OS push" }, { v: "web_modal", l: "Web modal only" }, { v: "any", l: "Any" }]}/>
+        </Shared.Field>
+      </div>
     </div>
   );
 }

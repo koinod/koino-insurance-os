@@ -423,7 +423,12 @@ function PageAdmin() {
       {tab === "scrape" && <ScrapeQueueView />}
 
       {/* ── Devices (RBA installs across all agencies) ─────────────── */}
-      {tab === "devices" && <DevicesAdminView />}
+      {tab === "devices" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <DevicesAdminView />
+          <ManualCommandTester />
+        </div>
+      )}
 
       {/* ── Audit ──────────────────────────────────────────────── */}
       {tab === "audit" && (
@@ -1536,6 +1541,98 @@ function DevicesAdminView() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Manual command tester (super_admin only) ───────────────────────────
+//
+// Post arbitrary commands to a chosen device for end-to-end testing
+// without writing automation rules. Useful for verifying a new tool
+// wires up.
+
+const TESTER_KINDS = [
+  "ping","caps_refresh","models_list","clear_workspace",
+  "auto_quote","twilio_dial","draft_sms","draft_email",
+  "sendblue_send","fathom_pull_notes","script_review","file_review",
+  "browser_run","linkedin_send","linkedin_inbox_scan",
+  "fb_pull_lead_forms","ig_dm_reply","meta_dm_send",
+];
+
+function ManualCommandTester() {
+  const [installs, setInstalls] = React.useState([]);
+  const [deviceId, setDeviceId] = React.useState("");
+  const [kind, setKind]         = React.useState("ping");
+  const [payloadJson, setPayloadJson] = React.useState('{"echo":"test"}');
+  const [busy, setBusy]         = React.useState(false);
+  const [last, setLast]         = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      const { data } = await sb.from("rba_installs")
+        .select("device_id,hostname,role,user_id,status").eq("status","active");
+      setInstalls(data || []);
+    })();
+  }, []);
+
+  const post = async () => {
+    setBusy(true);
+    setLast(null);
+    try {
+      let payload = {};
+      if (payloadJson.trim()) payload = JSON.parse(payloadJson);
+      const sb = window.getSupabase();
+      const session = (await sb.auth.getSession())?.data?.session;
+      const jwt = session?.access_token;
+      const r = await fetch("/api/agent/post-command", {
+        method: "POST",
+        headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId, kind, payload }),
+      });
+      const d = await r.json();
+      setLast(d);
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.toast && window.toast(`Posted · cmd ${String(d.command_id || "").slice(0, 8)}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Post failed: ${e?.message || e}`, "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Cpu size={13}/>
+        <h3>Manual command tester</h3>
+        <span className="meta">super_admin only · post any command to any device</span>
+      </div>
+      <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Shared.Field label="Target device">
+            <Shared.Select value={deviceId} onChange={setDeviceId}
+              options={[{ v: "", l: "— pick a device —" }, ...installs.map(i => ({ v: i.device_id, l: `${i.hostname || i.device_id.slice(0,8)} · ${i.role}` }))]}/>
+          </Shared.Field>
+          <Shared.Field label="Command kind">
+            <Shared.Select value={kind} onChange={setKind} options={TESTER_KINDS.map(k => ({ v: k, l: k }))}/>
+          </Shared.Field>
+          <Shared.Field label="Payload (JSON)">
+            <textarea className="text-input mono" rows={6} value={payloadJson} onChange={e => setPayloadJson(e.target.value)} placeholder='{"to_number":"+15551234567","body":"hi"}'/>
+          </Shared.Field>
+          <button className="btn btn-primary" disabled={!deviceId || busy} onClick={post}>
+            {busy ? "Posting…" : "Post command"}
+          </button>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>Last response</div>
+          <pre className="mono" style={{ background: "var(--bg-base)", padding: 10, borderRadius: 6, fontSize: 11, maxHeight: 280, overflow: "auto" }}>
+            {last ? JSON.stringify(last, null, 2) : "(no response yet)"}
+          </pre>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
+            After posting, watch the Recent Commands pane in the device drawer to see when the agent claims, runs, and completes the command.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
