@@ -3,8 +3,9 @@
  * Builds a detailed lead profile, runs it through window.RateEngine, and
  * returns dollar-denominated monthly premiums per appointed carrier with
  * UW class assignment + decline reasons. The recommendation cites the
- * actual producer-guide rule (from /lib/carrier-underwriting.json) that
- * drove the pick.
+
+ * actual producer-guide rule (sourced from public.product_underwriting_rules
+ * with a fallback to /lib/carrier-underwriting.json) that drove the pick.
  *
  * Sections:
  *   1. Lead profile  — name + contact + state + age + height/weight (auto BMI)
@@ -787,7 +788,7 @@
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  Engine estimates from <code style={{ fontSize: 10.5 }}>window.RateEngine</code> + producer guides (<code style={{ fontSize: 10.5 }}>/lib/carrier-underwriting.json</code>). Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
+                  Engine estimates from <code style={{ fontSize: 10.5 }}>window.RateEngine</code> + underwriting rules (<code style={{ fontSize: 10.5 }}>product_underwriting_rules</code> table, edits via Admin → Carriers). Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
                 </div>
 
                 {/* Run Quote Agent — inserts into auto_quote_requests; RBA picks up */}
