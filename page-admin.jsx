@@ -207,12 +207,14 @@ function PageAdmin() {
   const hwHealthy   = hardware.filter(h => h.status === "ok").length;
 
   const TABS = [
-    { k: "agencies",  l: "Agencies",  icon: "Building"    },
-    { k: "members",   l: "Members",   icon: "Users"       },
-    { k: "hierarchy", l: "Hierarchy", icon: "Workflow"    },
-    { k: "invites",   l: "Invites",   icon: "Bell"        },
-    { k: "billing",   l: "Billing",   icon: "Wallet"      },
-    { k: "audit",     l: "Audit Log", icon: "Activity"    },
+    { k: "agencies",  l: "Agencies",   icon: "Building"    },
+    { k: "members",   l: "Members",    icon: "Users"       },
+    { k: "hierarchy", l: "Hierarchy",  icon: "Workflow"    },
+    { k: "invites",   l: "Invites",    icon: "Bell"        },
+    { k: "billing",   l: "Billing",    icon: "Wallet"      },
+    { k: "carriers",  l: "Carriers",   icon: "Shield"      },
+    { k: "scrape",    l: "UW Queue",   icon: "Bell"        },
+    { k: "audit",     l: "Audit Log",  icon: "Activity"    },
   ];
 
   return (
@@ -412,6 +414,12 @@ function PageAdmin() {
           onPlanChange={updateAgencyPlan}
         />
       )}
+
+      {/* ── Carriers (life + annuity catalog) ───────────────────── */}
+      {tab === "carriers" && <CarriersAdminView />}
+
+      {/* ── UW Scrape Queue (pending findings from carrier-intel agent) ── */}
+      {tab === "scrape" && <ScrapeQueueView />}
 
       {/* ── Audit ──────────────────────────────────────────────── */}
       {tab === "audit" && (
@@ -858,5 +866,339 @@ function BroadcastModal({ agencyId, reps, onClose }) {
   );
 }
 window.BroadcastModal = BroadcastModal;
+
+// ─── Carriers admin (life + annuity catalog + per-product underwriting) ───
+//
+// Read = global catalog of carriers. Selecting one expands a panel showing
+// its products (filtered to category in {'life','annuity'}) and the
+// approved underwriting rules per product. Super-admin can edit
+// carrier_profiles inline (priority / urls / autoquoter flags).
+//
+// Writing carrier/product/rule rows from scratch is intentionally NOT here —
+// the source-of-truth path is scraper → review queue → approve. This screen
+// is for review of existing rows + tweaking the metadata that drives the
+// recommend API's ranking.
+
+function CarriersAdminView() {
+  const [carriers, setCarriers]   = React.useState([]);
+  const [profiles, setProfiles]   = React.useState({});
+  const [products, setProducts]   = React.useState({}); // {carrier_id: [products]}
+  const [rules, setRules]         = React.useState({}); // {product_id: [rules]}
+  const [expanded, setExpanded]   = React.useState(null); // carrier_id
+  const [loading, setLoading]     = React.useState(true);
+  const [savingCid, setSavingCid] = React.useState(null);
+
+  const sb = window.getSupabase && window.getSupabase();
+
+  React.useEffect(() => {
+    if (!sb) { setLoading(false); return; }
+    (async () => {
+      setLoading(true);
+      try {
+        const [{ data: cs }, { data: ps }] = await Promise.all([
+          sb.from("carriers").select("id,name,category,status").in("category", ["life","annuity"]).order("name"),
+          sb.from("carrier_profiles").select("*"),
+        ]);
+        setCarriers(cs || []);
+        const pMap = {};
+        (ps || []).forEach(p => { pMap[p.carrier_id] = p; });
+        setProfiles(pMap);
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const loadProductsFor = async (carrierId) => {
+    if (!sb || products[carrierId]) return;
+    const { data: prods } = await sb
+      .from("products")
+      .select("id,carrier_id,name,category,comp_pct,is_active")
+      .eq("carrier_id", carrierId)
+      .in("category", ["life","annuity"])
+      .order("name");
+    const list = prods || [];
+    setProducts(prev => ({ ...prev, [carrierId]: list }));
+    if (list.length === 0) return;
+    const ids = list.map(p => p.id);
+    const { data: rs } = await sb
+      .from("product_underwriting_rules")
+      .select("id,product_id,rule_type,severity,payload,review_status,source_url")
+      .in("product_id", ids)
+      .eq("review_status", "approved")
+      .order("rule_type");
+    const rMap = {};
+    (rs || []).forEach(r => { (rMap[r.product_id] ||= []).push(r); });
+    setRules(prev => ({ ...prev, ...rMap }));
+  };
+
+  const toggleExpand = (cid) => {
+    if (expanded === cid) { setExpanded(null); return; }
+    setExpanded(cid);
+    loadProductsFor(cid);
+  };
+
+  const updateProfile = async (cid, patch) => {
+    if (!sb) return;
+    setSavingCid(cid);
+    const current = profiles[cid] || { carrier_id: cid };
+    const next = { ...current, ...patch, carrier_id: cid };
+    setProfiles(prev => ({ ...prev, [cid]: next }));
+    try {
+      await sb.from("carrier_profiles").upsert(next, { onConflict: "carrier_id" });
+      window.toast && window.toast(`Saved ${cid}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message || e}`, "error");
+    } finally { setSavingCid(null); }
+  };
+
+  if (loading) {
+    return <div className="panel"><div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Loading carriers…</div></div>;
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Shield size={13}/>
+        <h3>Life + Annuity Carriers</h3>
+        <span className="meta">{carriers.length} carriers · drives /api/carrier-recommend ranking</span>
+      </div>
+      {carriers.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+          No life or annuity carriers in catalog yet. Add via UW Queue (approve scraper findings) or insert into <code>public.carriers</code>.
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 90px 70px 90px 100px 100px 70px" }}>
+            <div>Carrier</div><div>Category</div><div>Priority</div><div>Bind hrs</div><div>Comm tier</div><div>Autoquoter</div><div>JIT appt</div>
+          </div>
+          {carriers.map(c => {
+            const prof = profiles[c.id] || {};
+            const isOpen = expanded === c.id;
+            return (
+              <React.Fragment key={c.id}>
+                <div className="row" style={{ gridTemplateColumns: "1.4fr 90px 70px 90px 100px 100px 70px", cursor: "pointer" }} onClick={() => toggleExpand(c.id)}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{c.id} · {c.status}</div>
+                  </div>
+                  <div><span className="chip">{c.category}</span></div>
+                  <div className="mono" style={{ fontSize: 12 }}>{prof.quote_priority ?? 100}</div>
+                  <div className="mono" style={{ fontSize: 12 }}>{prof.bind_speed_hours ?? "—"}</div>
+                  <div style={{ fontSize: 12 }}>{prof.commission_tier ? prof.commission_tier.toUpperCase() : "—"}</div>
+                  <div style={{ fontSize: 12 }}>{prof.autoquoter_supported ? "✓" : "—"}</div>
+                  <div style={{ fontSize: 12 }}>{prof.jit_appointment ? "✓" : "—"}</div>
+                </div>
+                {isOpen && (
+                  <div style={{ background: "var(--bg-raised)", padding: 14, borderTop: "1px solid var(--border-subtle)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+                      <Shared.Field label="Quote priority (lower = first)">
+                        <input className="text-input" type="number" defaultValue={prof.quote_priority ?? 100}
+                          onBlur={(e) => updateProfile(c.id, { quote_priority: parseInt(e.target.value, 10) || 100 })}/>
+                      </Shared.Field>
+                      <Shared.Field label="Bind speed (hours)">
+                        <input className="text-input" type="number" defaultValue={prof.bind_speed_hours ?? ""}
+                          onBlur={(e) => updateProfile(c.id, { bind_speed_hours: e.target.value ? parseInt(e.target.value, 10) : null })}/>
+                      </Shared.Field>
+                      <Shared.Field label="Commission tier">
+                        <Shared.Select value={prof.commission_tier || ""} onChange={(v) => updateProfile(c.id, { commission_tier: v || null })}
+                          options={[{ v: "", l: "—" }, { v: "a", l: "A" }, { v: "b", l: "B" }, { v: "c", l: "C" }]}/>
+                      </Shared.Field>
+                      <Shared.Field label="Scraper slug (agent/scrapers/<x>.py)">
+                        <input className="text-input" defaultValue={prof.scraper_slug || ""}
+                          onBlur={(e) => updateProfile(c.id, { scraper_slug: e.target.value || null, autoquoter_supported: !!e.target.value })}/>
+                      </Shared.Field>
+                      <Shared.Field label="Producer portal URL">
+                        <input className="text-input" defaultValue={prof.producer_portal_url || ""}
+                          onBlur={(e) => updateProfile(c.id, { producer_portal_url: e.target.value || null })}/>
+                      </Shared.Field>
+                      <Shared.Field label="Quoter URL">
+                        <input className="text-input" defaultValue={prof.quoter_url || ""}
+                          onBlur={(e) => updateProfile(c.id, { quoter_url: e.target.value || null })}/>
+                      </Shared.Field>
+                      <Shared.Field label="e-App URL">
+                        <input className="text-input" defaultValue={prof.e_app_url || ""}
+                          onBlur={(e) => updateProfile(c.id, { e_app_url: e.target.value || null })}/>
+                      </Shared.Field>
+                      <Shared.Field label="JIT appointment">
+                        <Shared.Select value={prof.jit_appointment ? "y" : "n"} onChange={(v) => updateProfile(c.id, { jit_appointment: v === "y" })}
+                          options={[{ v: "n", l: "No — appoint first" }, { v: "y", l: "Yes — JIT supported" }]}/>
+                      </Shared.Field>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 500 }}>
+                      Products + underwriting rules
+                    </div>
+                    {(products[c.id] || []).length === 0 ? (
+                      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>No products on file for this carrier yet.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {products[c.id].map(p => {
+                          const prules = rules[p.id] || [];
+                          return (
+                            <div key={p.id} style={{ border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 10 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                <div style={{ fontWeight: 500, fontSize: 13 }}>{p.name}</div>
+                                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                                  {p.category} · comp {p.comp_pct ?? "—"}% · {prules.length} rules · {p.is_active ? "active" : "inactive"}
+                                </div>
+                              </div>
+                              {prules.length > 0 && (
+                                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                  {prules.map(r => (
+                                    <span key={r.id} className={`chip ${r.severity === "decline" ? "chip-danger" : r.severity === "rate_up" ? "chip-status" : ""}`} title={JSON.stringify(r.payload)}>
+                                      {r.rule_type} → {r.severity}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {savingCid === c.id && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)" }}>Saving…</div>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Scrape queue review (carrier_scrape_findings → approve/reject) ───────
+//
+// The carrier-intel agent posts proposed inserts/updates here with raw
+// evidence. Approving calls the SECURITY DEFINER fn
+// `approve_carrier_scrape_finding` which writes through to live tables.
+
+function ScrapeQueueView() {
+  const [findings, setFindings] = React.useState([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [busyId, setBusyId]     = React.useState(null);
+
+  const sb = window.getSupabase && window.getSupabase();
+
+  const reload = React.useCallback(async () => {
+    if (!sb) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await sb
+        .from("carrier_scrape_findings")
+        .select("id,carrier_id,product_id,finding_kind,proposed,current_value,source_url,source_quote,confidence,review_status,created_at")
+        .eq("review_status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      setFindings(data || []);
+    } finally { setLoading(false); }
+  }, []);
+
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const reviewerEmail = (() => {
+    try {
+      const u = window.__SESSION_USER || {};
+      return u.email || "super_admin";
+    } catch { return "super_admin"; }
+  })();
+
+  const approve = async (id) => {
+    if (!sb) return;
+    setBusyId(id);
+    try {
+      const { error } = await sb.rpc("approve_carrier_scrape_finding", { p_finding_id: id, p_reviewer: reviewerEmail });
+      if (error) throw error;
+      window.toast && window.toast("Approved · written to live tables", "success");
+      setFindings(prev => prev.filter(f => f.id !== id));
+    } catch (e) {
+      window.toast && window.toast(`Approve failed: ${e.message || e}`, "error");
+    } finally { setBusyId(null); }
+  };
+
+  const reject = async (id) => {
+    if (!sb) return;
+    setBusyId(id);
+    try {
+      const { error } = await sb.rpc("reject_carrier_scrape_finding", { p_finding_id: id, p_reviewer: reviewerEmail, p_reason: null });
+      if (error) throw error;
+      setFindings(prev => prev.filter(f => f.id !== id));
+    } catch (e) {
+      window.toast && window.toast(`Reject failed: ${e.message || e}`, "error");
+    } finally { setBusyId(null); }
+  };
+
+  if (loading) {
+    return <div className="panel"><div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Loading queue…</div></div>;
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Bell size={13}/>
+        <h3>Underwriting Scrape Queue</h3>
+        <span className="meta">{findings.length} pending · agent-proposed updates to carriers/products/rules</span>
+        <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={reload}>
+          <Icons.RefreshCw size={11}/> Reload
+        </button>
+      </div>
+      {findings.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+          Inbox zero. The carrier-intel agent will drop new findings here when it next runs.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14 }}>
+          {findings.map(f => (
+            <div key={f.id} style={{ border: "1px solid var(--border-subtle)", borderRadius: 6, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                <span className="chip">{f.finding_kind}</span>
+                <span style={{ fontWeight: 500 }}>{f.carrier_id || "—"}</span>
+                {typeof f.confidence === "number" && (
+                  <span className="chip" style={{ fontSize: 10 }}>conf {(f.confidence * 100).toFixed(0)}%</span>
+                )}
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>
+                  {new Date(f.created_at).toLocaleString()}
+                </span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 11.5 }}>
+                <div>
+                  <div style={{ color: "var(--text-tertiary)", marginBottom: 4 }}>Proposed</div>
+                  <pre className="mono" style={{ background: "var(--bg-base)", padding: 8, borderRadius: 4, maxHeight: 180, overflow: "auto", fontSize: 11 }}>
+                    {JSON.stringify(f.proposed, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <div style={{ color: "var(--text-tertiary)", marginBottom: 4 }}>Current</div>
+                  <pre className="mono" style={{ background: "var(--bg-base)", padding: 8, borderRadius: 4, maxHeight: 180, overflow: "auto", fontSize: 11 }}>
+                    {f.current_value ? JSON.stringify(f.current_value, null, 2) : "(none — new row)"}
+                  </pre>
+                </div>
+              </div>
+              {f.source_quote && (
+                <div style={{ marginTop: 8, padding: 8, background: "var(--bg-raised)", borderRadius: 4, fontSize: 11.5, fontStyle: "italic", color: "var(--text-secondary)" }}>
+                  “{f.source_quote}”
+                  {f.source_url && (
+                    <div style={{ marginTop: 4, fontSize: 10.5 }}>
+                      <a href={f.source_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{f.source_url}</a>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+                <button className="btn btn-primary" disabled={busyId === f.id} onClick={() => approve(f.id)}>
+                  {busyId === f.id ? "…" : <><Icons.Check size={11}/> Approve & apply</>}
+                </button>
+                <button className="btn btn-ghost" disabled={busyId === f.id} onClick={() => reject(f.id)}>
+                  Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 })();

@@ -1122,6 +1122,8 @@ function CommissionsRep() {
   const paid  = ROWS.reduce((a, r) => a + r.paid, 0);
   const inClearing = total - Math.max(0, paid);
   const charge = ROWS.filter(r => r.paid < 0).reduce((a, r) => a + r.paid, 0);
+  const issuedCount = ROWS.filter(r => r.expected > 0 && r.paid >= 0).length;
+  const nigoCount   = ROWS.filter(r => /nigo|declined|withdrawn/i.test(r.status || "")).length;
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -1160,14 +1162,27 @@ function CommissionsRep() {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Expected MTD" prefix="$" value={total.toLocaleString()} sub="across 7 issues" trend="up"/>
+        <Shared.KpiCard hero label="Expected MTD" prefix="$" value={total.toLocaleString()} sub={`across ${issuedCount} issue${issuedCount === 1 ? "" : "s"}`} trend={total > 0 ? "up" : undefined}/>
         <Shared.KpiCard label="Paid MTD" prefix="$" value={Math.max(0, paid).toLocaleString()} sub="advances + as-earned"/>
-        <Shared.KpiCard label="In clearing" prefix="$" value={inClearing.toLocaleString()} sub="2 NIGO"/>
+        <Shared.KpiCard label="In clearing" prefix="$" value={inClearing.toLocaleString()} sub={nigoCount > 0 ? `${nigoCount} NIGO` : "expected − paid"}/>
         <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(charge).toLocaleString()} sub="last 30d" neg/>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{ROWS.length} rows · this month</span></div>
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{ROWS.length} row{ROWS.length === 1 ? "" : "s"} · this month</span></div>
+        {ROWS.length === 0 && (
+          <div style={{ padding: "32px 24px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 13, lineHeight: 1.55 }}>
+            <div style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 6 }}>No deals on your statement yet.</div>
+            <div>Write your first deal in <strong>Floor → Deals</strong> — comp % is captured at deal-write and flows here automatically.</div>
+            <button className="btn btn-primary" style={{ marginTop: 14 }}
+              onClick={() => {
+                try { localStorage.setItem("repflow.floor.mode", "deals"); } catch {}
+                window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "floor" }}));
+              }}>
+              <Icons.Plus size={12}/> Write a deal
+            </button>
+          </div>
+        )}
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "100px 1.4fr 1fr 1fr 80px 60px 90px 90px 1fr" }}>
             <div>Date</div><div>Lead</div><div>Carrier</div><div>Product</div>
