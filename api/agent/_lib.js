@@ -55,6 +55,33 @@ export function readUserJwt(req) {
 // Capability ledger — what each role's local agent is allowed to call.
 // The web app's RLS still gates database writes; this gates LOCAL tools that
 // don't touch the DB (shell, fs, browser automation).
+//
+// Shape: { db, local, connectors, rate, confirm_required }
+// Tools declare REQUIRED_CAPS as dotted paths; agent's caps_allow() walks
+// the role's tree and only allows when every required path is truthy.
+//
+// Hard rules (PRD §10) enforced server-side by absence:
+//   • shell: false on every role, ever.
+//   • fs_outside_workspace: false on every role, ever.
+
+const BASE_LOCAL_DENY = {
+  shell: false,
+  fs_outside_workspace: false,
+};
+
+const BASE_CONNECTORS = {
+  // Boolean = "this connector usable by this role". Tokens come from
+  // connector_vault per user; the boolean controls whether the agent will
+  // even attempt to exchange.
+  twilio: true, sendblue: true, fathom: true,
+  gmail: true, outlook: true,
+  linkedin: false, sales_nav: false,                   // off by default; opt-in per role
+  fb_ads: true, ig_business: true, meta_dm: true,
+  calendly: true, stripe: false,
+  bluetooth_phone: false,                              // opt-in per device
+  phantombuster: false, apollo: true, zoominfo: true, clay: true,
+};
+
 export const CAPABILITIES = {
   rep: {
     db: { read_own_pipeline: true, read_own_queue: true, read_own_calls: true,
@@ -62,8 +89,9 @@ export const CAPABILITIES = {
           write_agency_settings: false },
     local: { dial_twilio: true, draft_email: true, draft_sms: true,
              browser_carrier_portal: true, browser_general: false,
-             record_system_audio: "during_calls_only", read_clipboard: "with_prompt",
-             open_url: true, shell: false, fs_outside_workspace: false },
+             record_system_audio: "on_pickup", read_clipboard: "with_prompt",
+             open_url: true, ...BASE_LOCAL_DENY },
+    connectors: { ...BASE_CONNECTORS, linkedin: false, fb_ads: false, ig_business: false },
     rate: { dials_per_hour: 120, drafts_per_hour: 60, browser_runs_per_hour: 30 },
   },
   manager: {
@@ -72,8 +100,9 @@ export const CAPABILITIES = {
           write_agency_settings: false },
     local: { dial_twilio: true, draft_email: true, draft_sms: true,
              browser_carrier_portal: true, browser_general: true,
-             record_system_audio: "during_calls_only", read_clipboard: true,
-             open_url: true, shell: false, fs_outside_workspace: false },
+             record_system_audio: "on_pickup", read_clipboard: true,
+             open_url: true, ...BASE_LOCAL_DENY },
+    connectors: { ...BASE_CONNECTORS, linkedin: true, sales_nav: true },
     rate: { dials_per_hour: 240, drafts_per_hour: 120, browser_runs_per_hour: 60 },
   },
   owner: {
@@ -82,10 +111,11 @@ export const CAPABILITIES = {
           write_agency_settings: true },
     local: { dial_twilio: true, draft_email: true, draft_sms: true,
              browser_carrier_portal: true, browser_general: true,
-             record_system_audio: true, read_clipboard: true,
-             open_url: true, shell: false, fs_outside_workspace: false },
+             record_system_audio: "on_pickup", read_clipboard: true,
+             open_url: true, ...BASE_LOCAL_DENY },
+    connectors: { ...BASE_CONNECTORS, linkedin: true, sales_nav: true, stripe: true },
     rate: { dials_per_hour: 600, drafts_per_hour: 600, browser_runs_per_hour: 240 },
-    confirm_required: ["send_real_sms", "charge_card", "delete_policy", "bulk_action_ge_10"],
+    confirm_required: ["send_real_sms", "send_real_email", "charge_card", "delete_policy", "bulk_action_ge_10"],
   },
   admin: {
     // IMO-wide — all child agencies under imo_id, but never cross-IMO
@@ -94,10 +124,24 @@ export const CAPABILITIES = {
           write_agency_settings: true, cross_agency_within_imo: true },
     local: { dial_twilio: true, draft_email: true, draft_sms: true,
              browser_carrier_portal: true, browser_general: true,
-             record_system_audio: true, read_clipboard: true,
-             open_url: true, shell: false, fs_outside_workspace: false },
+             record_system_audio: "on_pickup", read_clipboard: true,
+             open_url: true, ...BASE_LOCAL_DENY },
+    connectors: { ...BASE_CONNECTORS, linkedin: true, sales_nav: true, stripe: true, phantombuster: true },
     rate: { dials_per_hour: 1200, drafts_per_hour: 1200, browser_runs_per_hour: 600 },
-    confirm_required: ["send_real_sms", "charge_card", "delete_policy", "bulk_action_ge_10",
+    confirm_required: ["send_real_sms", "send_real_email", "charge_card", "delete_policy", "bulk_action_ge_10",
                        "switch_into_agency"],
+  },
+  super_admin: {
+    db: { read_own_pipeline: true, read_own_queue: true, read_own_calls: true,
+          read_team_pipeline: true, write_commissions: true, write_invites: true,
+          write_agency_settings: true, cross_agency_within_imo: true, cross_imo: true },
+    local: { dial_twilio: true, draft_email: true, draft_sms: true,
+             browser_carrier_portal: true, browser_general: true,
+             record_system_audio: true, read_clipboard: true,
+             open_url: true, ...BASE_LOCAL_DENY },
+    connectors: Object.fromEntries(Object.keys(BASE_CONNECTORS).map(k => [k, true])),
+    rate: { dials_per_hour: 99999, drafts_per_hour: 99999, browser_runs_per_hour: 99999 },
+    confirm_required: ["send_real_sms", "send_real_email", "charge_card", "delete_policy", "bulk_action_ge_10",
+                       "switch_into_agency", "cross_imo_action"],
   },
 };
