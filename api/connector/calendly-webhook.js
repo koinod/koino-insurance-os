@@ -4,18 +4,39 @@
 //   • invitee.created  → INSERT appointments + fire automation_fire(appointment_booked)
 //   • invitee.canceled → UPDATE appointments.status='canceled'
 //
-// No bearer auth (Calendly signs requests but signature verification is
-// follow-on). Idempotent via (source='calendly', external_id=event_uuid).
+// Verifies Calendly-Webhook-Signature header (HMAC-SHA256, t=<unix>,v1=<sig>)
+// against CALENDLY_WEBHOOK_SECRET when configured.
+// Idempotent via (source='calendly', external_id=event_uuid).
 import { SUPA_URL, SERVICE, cors } from "../agent/_lib.js";
 
 export const config = { runtime: "edge" };
+
+async function verifyCalendly(rawBody, header, secret) {
+  if (!secret) return true;
+  if (!header) return false;
+  const parts = Object.fromEntries(header.split(",").map(kv => kv.split("=", 2)));
+  const t = parts.t; const v1 = parts.v1;
+  if (!t || !v1) return false;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${rawBody}`));
+  const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+  if (hex.length !== v1.length) return false;
+  let r = 0; for (let i = 0; i < hex.length; i++) r |= hex.charCodeAt(i) ^ v1.charCodeAt(i);
+  return r === 0;
+}
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
+  const raw = await req.text();
+  const ok  = await verifyCalendly(raw, req.headers.get("calendly-webhook-signature"), process.env.CALENDLY_WEBHOOK_SECRET);
+  if (!ok) return new Response(JSON.stringify({ error: "bad signature" }), { status: 401, headers: cors() });
+
   let body = {};
-  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  try { body = JSON.parse(raw); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
 
   const event = body.event;
   const payload = body.payload || {};

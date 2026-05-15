@@ -17,6 +17,21 @@ export const config = { runtime: "edge" };
 const APPROVE_RE = /^(y|yes|yep|approve|approved|ok|okay|👍|✅)\b/i;
 const DENY_RE    = /^(n|no|nope|deny|denied|stop|cancel|👎|❌)\b/i;
 
+// Twilio signs requests with HMAC-SHA1 of (URL + sorted form params).
+async function verifyTwilio(url, params, sig, authToken) {
+  if (!authToken) return true;  // dev mode
+  if (!sig) return false;
+  let data = url;
+  const keys = Array.from(params.keys()).sort();
+  for (const k of keys) data += k + (params.get(k) || "");
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(authToken),
+    { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const out = await crypto.subtle.sign("HMAC", key, enc.encode(data));
+  const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(out)));
+  return b64 === sig;
+}
+
 function twiml(body = "") {
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`, {
     status: 200, headers: { "content-type": "text/xml" },
@@ -29,6 +44,15 @@ export default async function handler(req) {
 
   const text = await req.text();
   const p = new URLSearchParams(text);
+
+  // Build URL Twilio used (for signature). Vercel sets x-forwarded-proto/host.
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const host  = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+  const url   = `${proto}://${host}${new URL(req.url).pathname}`;
+  const sig   = req.headers.get("x-twilio-signature");
+  const ok    = await verifyTwilio(url, p, sig, process.env.TWILIO_AUTH_TOKEN);
+  if (!ok) return new Response("bad signature", { status: 401 });
+
   const from = (p.get("From") || "").trim();
   const body = (p.get("Body") || "").trim();
   if (!from || !body) return twiml();
