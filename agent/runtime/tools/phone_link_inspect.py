@@ -47,6 +47,25 @@ def run(payload, ctx):
     except Exception as e:
         return {"status": "phone_link_window_not_found", "error": str(e)}
 
+    # Empirically learned 2026-05-15: Phone Link tabs use AutomationIds
+    #   ChatNodeAutomationId (Messages) | CallingNodeAutomationId (Calls)
+    # Default-launched view is Messages — click Calls so the inspector
+    # captures the dialer Edit, Call button, and call-history list.
+    nav_to = (payload.get("navigate_to") or "calls").lower()
+    nav_id = {"calls": "CallingNodeAutomationId",
+              "messages": "ChatNodeAutomationId",
+              "settings": "SettingsNodeAutomationId"}.get(nav_to)
+    nav_status = "skipped"
+    if nav_id:
+        try:
+            tab = win.child_window(auto_id=nav_id, control_type="TabItem")
+            tab.wait("exists enabled visible", timeout=4)
+            tab.click_input()
+            time.sleep(1.5)
+            nav_status = f"clicked {nav_id}"
+        except Exception as e:
+            nav_status = f"navigate failed: {str(e)[:120]}"
+
     elements = []
     def _walk(node, depth):
         if depth > max_depth: return
@@ -89,6 +108,8 @@ def run(payload, ctx):
     ]
     return {
         "status": "ok",
+        "navigate_to": nav_to,
+        "navigation": nav_status,
         "total_elements": len(elements),
         "interesting_elements": interesting,
         "note": "interesting_elements filtered to Edit/Button/TabItem/ListItem/Hyperlink + anything with dial/call/search in the name",
