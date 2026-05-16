@@ -1,58 +1,70 @@
 # Migration Apply — 2026-05-16
 
-Status of the 8 new migrations (0041–0048) after the sprint merge wave.
+Status of the 8 new migrations (0041–0048) after the sprint merge wave,
+plus the per-table RLS work that closed the cross-tenant write leak.
 
-## Applied to production (Insurance OS / jfphwmzwteermalzwojp)
+## Production state (Insurance OS / `jfphwmzwteermalzwojp`)
 
-| File | Tracker name | What it did |
+| Tracker entry | Source file(s) | What it did |
 |---|---|---|
-| `0043_webhook_replay_seen.sql` | `0043_webhook_replay_seen` | New `webhook_replay_seen(slug, request_id)` table; RLS on; service-role-only writes |
-| `0045_user_prefs.sql` | `0045_user_prefs` | New `user_prefs(rep_id, key, value)` table; self-only RLS via `agency_members` |
-| `0047_inbound_sms.sql` + `0048_sms_optouts.sql` | `0047_sms_outbox_phase2_unified` | **Consolidated** — these two had conflicting `sms_outbox_status_check` definitions. Applied a UNION: `pending`/`claimed`/`sent`/`failed`/`expired`/`received`/`dry_run`/`skipped_no_consent`/`skipped_opted_out`/`skipped_quiet_hours`. New `sms_optouts` table + `sms_outbox.{direction,from_number,twilio_sid}` columns + unique index on `twilio_sid` |
-| `0046_consent_default_fix.sql` | `0046_consent_default_fix` | TCPA fix: `pipeline.consent` default flipped `verified` → `pending`; CHECK widened to accept `implied`/`express`/`none`; **8 rows demoted from `verified` to `pending`** (none had proving touchpoints or paying-vendor sources) |
+| `0043_webhook_replay_seen` | `0043_webhook_replay_seen.sql` | New `webhook_replay_seen(slug, request_id)` table; RLS on; service-role-only writes |
+| `0045_user_prefs` | `0045_user_prefs.sql` | New `user_prefs(rep_id, key, value)` table; self-only RLS via `agency_members` |
+| `0047_sms_outbox_phase2_unified` | `0047_inbound_sms.sql` (consolidated with 0048) | **Merged source files** because their `sms_outbox_status_check` definitions collided. Applied UNION: `pending`/`claimed`/`sent`/`failed`/`expired`/`received`/`dry_run`/`skipped_no_consent`/`skipped_opted_out`/`skipped_quiet_hours`. New `sms_optouts` table + `sms_outbox.{direction, from_number, twilio_sid}` columns + unique index on `twilio_sid` |
+| `0046_consent_default_fix` | `0046_consent_default_fix.sql` | TCPA fix: `pipeline.consent` default flipped `verified`→`pending`; CHECK widened to accept `implied`/`express`/`none`; **8 rows demoted from `verified` to `pending`** |
+| `0049_rls_pass1_agency_id_cols_and_scoped_policies` | `0042_rls_harden.sql` (Pass 1 section) | Added `agency_id` columns to recruits/notifications/threads/households/interviews/followup_rules/forecast_overrides/forecast_runs. Backfilled notifications via `recipient_handle → reps.handle` (4 of 12 matched); orphans assigned to atlas-demo. Installed `tenant rw X` scoped policies on 17 tables (parallel to leaks). |
+| `0050_rls_pass2_drop_leaks_no_write_tables` | `0042_rls_harden.sql` (Pass 2 section) | Dropped 17 `auth write X using(true) with check(true)` leak policies on tables with 0 direct client writes |
+| `0051_rls_pass3_drop_remaining_leaks` | `0042_rls_harden.sql` (Pass 3 section) | Dropped 7 remaining leak policies (messages, threads, notifications, recruits, coaching_notes, coaching_sessions, thread_members). Required code patch in `data.jsx` to include `agency_id` on `threads.insert` |
+| `0052_recruits_add_funnel_columns` | (new — local file is `0042_rls_harden.sql` tail) | Added Rookie-of-the-Year funnel columns (`stage`, `applied_at`, `discovery_at`, `onboarded_at`, `licensed_at`, `owner_rep_id`) onto deployed `recruits` table (which has `full_name`/`contact_email`/etc. shape — coexistence not replacement). Patched `page-recruits.jsx` to use the deployed column names. |
 
-## Not applied — needs decisions
+## The leak is closed
 
-### `0041_close_schema_drift.sql` — redundant
-Audit assumed `agencies`/`agency_members`/`agency_invites`/etc. were missing. They all exist in deployed via timestamp-format migrations. The file is idempotent (all `if not exists`) so applying would be a no-op, but it's not worth tracker churn. **Recommend: keep file as documentation of expected schema; do not apply.**
+`SELECT count(*) FROM pg_policies WHERE schemaname='public' AND qual='true' AND with_check='true' AND cmd IN ('ALL','UPDATE','DELETE') AND 'authenticated' = ANY(roles)` → **0**.
 
-### `0044_recruits.sql` — schema collision
-The deployed `recruits` table is a completely different shape from what 0044 declares:
+Smoke 25/25 green vs prod after every pass.
 
-| | Deployed | 0044 expects |
-|---|---|---|
-| Tenant key | none | `agency_id uuid` |
-| Name | `full_name` | `name` |
-| Email | `contact_email` | `email` |
-| Phone | `contact_phone` | `phone` |
-| Stage tracking | `status` (free text) | `stage` CHECK + per-stage timestamps |
-| Owner | `recruiter_handle` (text) | `owner_rep_id` FK to `reps` |
-| Other | `license_state`, `has_license` | applied/discovery/onboarded/licensed_at |
+## Local migration files — final state
 
-These model different concepts:
-- **Deployed:** recruiter-CRM (contact + license state + recruiter handle)
-- **0044:** funnel-stage tracker (Applied → Discovery → Onboarding → Licensed)
+| File | Status |
+|---|---|
+| `0041_close_schema_drift.sql` | **NO-OP placeholder** — original DDL would be idempotent against current schema but adds churn; kept as documentation of expected shape. See `audits/SCHEMA_DRIFT.md`. |
+| `0042_rls_harden.sql` | **REWRITTEN** to match what was actually applied (Pass 1+2+3+0052 consolidated). Re-running against the now-fixed DB would be a no-op (all `drop policy if exists` / `create policy` patterns are idempotent). |
+| `0044_recruits.sql` | **DELETED** — collided with deployed `recruits` schema (deployed shape: contact-mgmt; the 0044 file wanted funnel-stage). Replaced by additive `0052` migration applied in production. |
+| `0047_inbound_sms.sql` | **REWRITTEN** to be the unified Phase 2 SMS migration (was 0047 + 0048 merged). |
+| `0048_sms_optouts.sql` | **DELETED** — content folded into `0047`. |
 
-The Rookie of the Year play (CLAUDE.md) wants the funnel-stage shape. **Recommend: add `agency_id` + `stage` + per-stage timestamps as columns on the existing table (additive migration), update page-recruits.jsx to use the unified shape. Don't drop the deployed columns — they have data.**
+## `supabase db push` advisory — still in effect
 
-### `0042_rls_harden.sql` — production-unsafe as written
-**This is the most important security fix and the most-blocked.**
+This project's deployed migration tracker uses timestamp-format versions
+(e.g. `20260516223408_0043_webhook_replay_seen`) while the local files use
+`00NN_*` convention. `supabase migration list` shows **0 of 50 local
+migrations as recorded applied** because the version-name mismatch means
+the CLI doesn't recognize them as the same migrations.
 
-The migration's strategy: drop every `auth write X using(true) with check(true)` leak, then install tenant-scoped replacements for tables that have `agency_id`.
+**Do not run `supabase db push` directly.** All migrations from 2026-05-16
+forward have been applied via the Supabase MCP `apply_migration` tool,
+which records each one with a fresh timestamp entry. To apply new
+migrations going forward, use the same path.
 
-Problem: the migration leaves ~15 tables **with no write policy at all** (clients, messages, threads, notifications, recruits, households, interviews, touchpoints, coaching_notes, coaching_sessions, nigos, attributions, forecast_*, followup_rules, message_reads, thread_members, agent_runs). The author's comment says "write to the server only" — assuming all writes go through `security definer` RPCs.
+## Code changes that depend on these migrations
 
-Grep of the codebase shows direct `sb.from('X').{insert,update,delete}` calls on at least: `messages` (1), `threads` (2), `notifications` (1), `recruits` (2), `coaching_notes` (2), `coaching_sessions` (1). Applying 0042 as-is would lock authenticated users out of those writes → app down.
+- `data.jsx:2057` — `threads.insert` now includes `agency_id` (otherwise the
+  Pass 3 WITH CHECK rejects the insert because the new scoped policy
+  requires a non-NULL tenant id).
+- `page-recruits.jsx` — `addRecruit` now writes to `full_name`/`contact_email`/
+  `contact_phone` (deployed column names), and the kanban card renderer
+  falls back gracefully between the two naming sets.
 
-**To unblock:**
-1. Either add `agency_id` to each affected table + install a tenant-scoped policy, OR
-2. Route every direct `.from('X').{insert,update,delete}` call through a `security definer` RPC, OR
-3. Add a `for all to authenticated using (tenant scope expression resolved via joins) with check (...)` policy per table.
+## What's still owed (not in this round)
 
-Until one of those lands, **the cross-tenant write leak from `0002_fill_missing_domains.sql:597` remains live in production.**
-
-## How application happened
-
-`supabase db push` was NOT used. The local `00NN_*` migration filename convention is incompatible with the deployed DB's timestamp-format tracker — `migration list` shows 0/48 local migrations recorded as applied even though the schemas are mostly in place. Each new migration here was applied via the Supabase MCP `apply_migration` tool, which records its own timestamp entry in the tracker.
-
-**Don't run `supabase db push` directly against this project until the tracker reconciliation is done** (separate session — Phase 2 in the retro).
+- **agency_id NOT NULL constraint** on the columns added by Pass 1: currently
+  nullable to avoid breaking existing rows. After all writes are confirmed
+  setting agency_id, tighten to NOT NULL + drop the `IS NULL` clause from
+  the USING expressions.
+- **Per-rep visibility scope** on `coaching_notes`/`coaching_sessions`: current
+  policy lets every agency member see every other member's coaching notes.
+  Probably wrong — should be self + manager-of-rep only.
+- **3 false-live UIs** (notifications bell, in-app chat, vault carriers
+  block) per `audits/REALTIME_COVERAGE.md` — still suggest realtime but
+  don't subscribe.
+- **5 onboarding RPCs** missing in deployed DB per `audits/ONBOARDING_GAPS.md` —
+  `provision_sub_agency` is the hard blocker for fresh-owner agency creation.

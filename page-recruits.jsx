@@ -89,9 +89,9 @@
       try {
         const row = {
           agency_id: me.agency_id,
-          name: form.name.trim(),
-          email: form.email.trim() || null,
-          phone: form.phone.trim() || null,
+          full_name: form.name.trim(),
+          contact_email: form.email.trim() || null,
+          contact_phone: form.phone.trim() || null,
           source: form.source.trim() || null,
           stage: "Applied",
           owner_rep_id: me.rep_id || null,
@@ -175,10 +175,10 @@
                           padding: 8, cursor: "grab",
                           opacity: drag === r.id ? 0.5 : 1,
                         }}>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>{r.name}</div>
-                        {(r.email || r.phone) && (
+                        <div style={{ fontSize: 12, fontWeight: 500 }}>{r.full_name || r.name}</div>
+                        {(r.contact_email || r.contact_phone || r.email || r.phone) && (
                           <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>
-                            {r.email || r.phone}
+                            {r.contact_email || r.contact_phone || r.email || r.phone}
                           </div>
                         )}
                         {r.source && (

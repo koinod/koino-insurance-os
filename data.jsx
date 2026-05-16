@@ -2054,7 +2054,9 @@ window.AppData.mutate = {
     sortedMembers.forEach(h => tmList.push({ id: "tm-" + Date.now() + "-" + h, threadId: tmpId, member: h, muted: false }));
     if (window.AppData.LIVE) {
       const sb = window.getSupabase(); if (!sb) return row;
-      const { data, error } = await sb.from("threads").insert({ kind, subject, related_lead_id: relatedLeadId, last_message_at: row.lastMessageAt }).select().single();
+      const me = window.me && window.me();
+      const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+      const { data, error } = await sb.from("threads").insert({ agency_id: agencyId, kind, subject, related_lead_id: relatedLeadId, last_message_at: row.lastMessageAt }).select().single();
       if (error) { window.toast && window.toast(`Thread create failed: ${error.message}`, "error"); throw error; }
       if (data?.id) {
         // remap optimistic id

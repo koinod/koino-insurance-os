@@ -1,182 +1,237 @@
--- 1778891250_rls_harden.sql
+-- 0042_rls_harden.sql
 --
--- Minimum-safe RLS remediation for the gaps catalogued in
--- audits/RLS_AUDIT.md. Strategy:
---   1. Drop every leftover `auth write X using(true) with check(true)` policy
---      created by 0002_fill_missing_domains.sql:597 that was never replaced.
---   2. Drop the residual `anon read X using(true)` policies for the 0001 init
---      tables (reps, pipeline, queue, courses, recordings, connections,
---      hardware, ai_agents, workflows) and one straggler followup_rules.
---   3. Where the table has agency_id, install a tenant-scoped write policy.
---      Where it doesn't, leave write to the server only (no replacement) and
---      document it.
+-- ⚠️  Applied in production as 0049+0050+0051 (per-table pass strategy).
+--     This file is the consolidated record of what was actually applied
+--     after the original 0042 was discovered to be production-unsafe.
 --
--- Idempotent: all `drop policy if exists`. The new create policies use
--- `if not exists` semantics by virtue of being preceded by their drop.
--- Depends on 1778891249_close_schema_drift.sql for: reps.agency_id, carriers.agency_id.
+-- Original 0042 strategy: drop every `auth write X using(true) with check(true)`
+-- leak from 0002_fill_missing_domains.sql:597 + 0001 init, then install
+-- tenant-scoped replacements only on tables that had `agency_id`. Tables
+-- without agency_id were left with NO write policy at all, on the assumption
+-- that all writes went through `security definer` RPCs.
 --
--- Not applied. Review then `supabase db push`.
-
-begin;
+-- Production reality (2026-05-16 grep): direct client `sb.from('messages|
+-- threads|notifications|recruits|coaching_*').{insert,update,delete}` calls
+-- exist in the codebase. Applying the original 0042 as-is would have locked
+-- authenticated writes to those tables → app down.
+--
+-- Resolution: applied as three passes via the Supabase MCP `apply_migration`
+-- tool (see deployed migration tracker entries 0049/0050/0051). This file
+-- consolidates them as a documentation record. NOT re-runnable as-is
+-- because the leak policies it would drop have already been dropped.
+--
+-- See `audits/MIGRATION_APPLY_2026-05-16.md` for the full account.
 
 set local search_path = public;
 
-------------------------------------------------------------------------------
--- A. Drop residual blanket `anon read X` policies on 0001 tables.
---    0001:220-228 created these and they were never dropped.
-------------------------------------------------------------------------------
-drop policy if exists "anon read reps"        on public.reps;
-drop policy if exists "anon read pipeline"    on public.pipeline;
-drop policy if exists "anon read queue"       on public.queue;
-drop policy if exists "anon read courses"     on public.courses;
-drop policy if exists "anon read recordings"  on public.recordings;
-drop policy if exists "anon read connections" on public.connections;
-drop policy if exists "anon read hardware"    on public.hardware;
-drop policy if exists "anon read ai_agents"   on public.ai_agents;
-drop policy if exists "anon read workflows"   on public.workflows;
--- 0006_anon_demo_read.sql had previously re-installed scoped anon-demo reads
--- on a subset of these tables — those are scoped to the public demo agency_id
--- and are intentionally kept. If they were also dropped here, they would need
--- to be re-installed afterward. (They are NOT named "anon read X".)
+-- ── PASS 1 (additive — agency_id columns + scoped policies parallel to leak) ──
+alter table public.recruits           add column if not exists agency_id uuid;
+alter table public.notifications      add column if not exists agency_id uuid;
+alter table public.threads            add column if not exists agency_id uuid;
+alter table public.households         add column if not exists agency_id uuid;
+alter table public.interviews         add column if not exists agency_id uuid;
+alter table public.followup_rules     add column if not exists agency_id uuid;
+alter table public.forecast_overrides add column if not exists agency_id uuid;
+alter table public.forecast_runs      add column if not exists agency_id uuid;
 
--- straggler: followup_rules anon read was not in 0024's drop list.
-drop policy if exists "anon read followup_rules" on public.followup_rules;
+-- Best-effort notifications backfill (handle → reps.handle → reps.agency_id),
+-- then assign orphans to the atlas-demo agency.
+update public.notifications n
+   set agency_id = r.agency_id
+  from public.reps r
+ where n.recipient_handle = r.handle
+   and n.agency_id is null;
+update public.notifications
+   set agency_id = 'd88e26b9-e8f4-49a7-bfa1-3d84a51506a1'::uuid
+ where agency_id is null;
 
-------------------------------------------------------------------------------
--- B. Drop residual blanket `auth write X` policies. From 0001 (lines 209-217)
---    and 0002 (line 597 loop), these were never replaced.
-------------------------------------------------------------------------------
-
--- 0001 batch
-drop policy if exists "auth write reps"        on public.reps;
-drop policy if exists "auth write pipeline"    on public.pipeline;
-drop policy if exists "auth write queue"       on public.queue;
-drop policy if exists "auth write courses"     on public.courses;
-drop policy if exists "auth write recordings"  on public.recordings;
-drop policy if exists "auth write connections" on public.connections;
-drop policy if exists "auth write hardware"    on public.hardware;
-drop policy if exists "auth write ai_agents"   on public.ai_agents;
-drop policy if exists "auth write workflows"   on public.workflows;
-
--- 0002 loop batch — only those NOT already dropped by 0015 / 0024.
-drop policy if exists "auth write agent_runs"           on public.agent_runs;
-drop policy if exists "auth write attributions"         on public.attributions;
-drop policy if exists "auth write clients"              on public.clients;
-drop policy if exists "auth write coaching_notes"       on public.coaching_notes;
-drop policy if exists "auth write coaching_sessions"    on public.coaching_sessions;
-drop policy if exists "auth write followup_rules"       on public.followup_rules;
-drop policy if exists "auth write forecast_overrides"   on public.forecast_overrides;
-drop policy if exists "auth write forecast_runs"        on public.forecast_runs;
-drop policy if exists "auth write households"           on public.households;
-drop policy if exists "auth write interviews"           on public.interviews;
-drop policy if exists "auth write message_reads"        on public.message_reads;
-drop policy if exists "auth write messages"             on public.messages;
-drop policy if exists "auth write nigos"                on public.nigos;
-drop policy if exists "auth write notifications"        on public.notifications;
-drop policy if exists "auth write recruits"             on public.recruits;
-drop policy if exists "auth write sequences"            on public.sequences;
-drop policy if exists "auth write thread_members"       on public.thread_members;
-drop policy if exists "auth write threads"              on public.threads;
-drop policy if exists "auth write touchpoints"          on public.touchpoints;
-
--- 0002 loop, catalog tables — write is server-side only; drop the blanket.
-drop policy if exists "auth write aep_periods"   on public.aep_periods;
-drop policy if exists "auth write carriers"      on public.carriers;
-drop policy if exists "auth write lead_sources"  on public.lead_sources;
-drop policy if exists "auth write nigo_reasons"  on public.nigo_reasons;
-drop policy if exists "auth write products"      on public.products;
-
-------------------------------------------------------------------------------
--- C. Install tenant-scoped write policies for tables that already have
---    agency_id (per init + 0015 + 1778891249).
-------------------------------------------------------------------------------
-
--- reps: needs reps.agency_id (added in 1778891249).
-create policy "tenant write reps" on public.reps
+-- Scoped tenant policies. viewer_agency_ids() is set-returning so use
+-- `IN (SELECT public.viewer_agency_ids())`.
+drop policy if exists "tenant rw agent_runs" on public.agent_runs;
+create policy "tenant rw agent_runs" on public.agent_runs
   for all to authenticated
-  using       (public.is_super_admin() OR agency_id = ANY (public.viewer_agency_ids()))
-  with check  (public.is_super_admin() OR agency_id = ANY (public.viewer_agency_ids()));
+  using       (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
 
--- pipeline: needs pipeline.agency_id (added in 1778891249).
-create policy "tenant write pipeline" on public.pipeline
+drop policy if exists "tenant rw attributions" on public.attributions;
+create policy "tenant rw attributions" on public.attributions
   for all to authenticated
-  using       (public.is_super_admin() OR agency_id = ANY (public.viewer_agency_ids()))
-  with check  (public.is_super_admin() OR agency_id = ANY (public.viewer_agency_ids()));
+  using (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = attributions.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = attributions.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())));
 
--- queue: no agency_id today. The minimum-safe move is to scope writes via
--- pipeline_id (queue.pipeline_id -> pipeline.agency_id) — but that schema
--- relationship is not provable from this branch's migrations. TODO: confirm
--- queue→pipeline FK exists in deployed DB; if so, scope through it. For now,
--- forbid client writes entirely (server-only with service-role key).
--- (No replacement policy. Reads remain scoped per 0015:132-134.)
-
--- connections, hardware, ai_agents, workflows, courses, recordings: no
--- agency_id in the current schema. Server-only writes for now; flag for
--- phase 2.
-
--- sequences: agency_id added in 0031:28 but it's nullable; scope writes that
--- have a non-null agency_id, and forbid writes that leave it null.
-create policy "tenant write sequences" on public.sequences
+drop policy if exists "tenant rw clients" on public.clients;
+create policy "tenant rw clients" on public.clients
   for all to authenticated
-  using       (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())))
-  with check  (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())));
+  using (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = clients.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = clients.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())));
 
--- carriers, products: scoped now that 1778891249 added agency_id.
-create policy "tenant write carriers" on public.carriers
+drop policy if exists "tenant rw coaching_notes" on public.coaching_notes;
+create policy "tenant rw coaching_notes" on public.coaching_notes
   for all to authenticated
-  using       (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())))
-  with check  (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())));
+  using (public.is_super_admin() OR exists (
+    select 1 from public.reps r where r.id = coaching_notes.rep_id
+     and r.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.reps r where r.id = coaching_notes.rep_id
+     and r.agency_id IN (SELECT public.viewer_agency_ids())));
 
-create policy "tenant write products" on public.products
+drop policy if exists "tenant rw coaching_sessions" on public.coaching_sessions;
+create policy "tenant rw coaching_sessions" on public.coaching_sessions
   for all to authenticated
-  using       (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())))
-  with check  (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id = ANY (public.viewer_agency_ids())));
+  using (public.is_super_admin() OR exists (
+    select 1 from public.reps r where r.id = coaching_sessions.rep_id
+     and r.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.reps r where r.id = coaching_sessions.rep_id
+     and r.agency_id IN (SELECT public.viewer_agency_ids())));
 
-------------------------------------------------------------------------------
--- D. Make sure RLS is actually enabled on the tables we just hardened.
---    Idempotent — safe even if already enabled.
-------------------------------------------------------------------------------
-alter table public.reps         enable row level security;
-alter table public.pipeline     enable row level security;
-alter table public.queue        enable row level security;
-alter table public.courses      enable row level security;
-alter table public.recordings   enable row level security;
-alter table public.connections  enable row level security;
-alter table public.hardware     enable row level security;
-alter table public.ai_agents    enable row level security;
-alter table public.workflows    enable row level security;
-alter table public.agent_runs   enable row level security;
-alter table public.attributions enable row level security;
-alter table public.clients      enable row level security;
-alter table public.coaching_notes      enable row level security;
-alter table public.coaching_sessions   enable row level security;
-alter table public.followup_rules      enable row level security;
-alter table public.forecast_overrides  enable row level security;
-alter table public.forecast_runs       enable row level security;
-alter table public.households          enable row level security;
-alter table public.interviews          enable row level security;
-alter table public.message_reads       enable row level security;
-alter table public.messages            enable row level security;
-alter table public.nigos               enable row level security;
-alter table public.notifications       enable row level security;
-alter table public.recruits            enable row level security;
-alter table public.sequences           enable row level security;
-alter table public.thread_members      enable row level security;
-alter table public.threads             enable row level security;
-alter table public.touchpoints         enable row level security;
-alter table public.aep_periods   enable row level security;
-alter table public.carriers      enable row level security;
-alter table public.lead_sources  enable row level security;
-alter table public.nigo_reasons  enable row level security;
-alter table public.products      enable row level security;
+drop policy if exists "tenant rw followup_rules" on public.followup_rules;
+create policy "tenant rw followup_rules" on public.followup_rules
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
 
-commit;
+drop policy if exists "tenant rw forecast_overrides" on public.forecast_overrides;
+create policy "tenant rw forecast_overrides" on public.forecast_overrides
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
 
--- TODO follow-ups (NOT applied here):
---   1. Phase 2 for tables without agency_id (recruits/threads/notifications/
---      sequences/forecast_*/followup_rules/interviews/households/clients/
---      attributions/touchpoints/nigos) — either add agency_id and scope, or
---      keep server-only and verify the client never tries to mutate.
---   2. Decide whether anon reads on agency_lead_sources inbound webhook flow
---      are actually needed (lead_drip phase 1 added them — confirm or revoke).
---   3. queue → pipeline relationship: confirm FK and scope queue writes.
+drop policy if exists "tenant rw forecast_runs" on public.forecast_runs;
+create policy "tenant rw forecast_runs" on public.forecast_runs
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw households" on public.households;
+create policy "tenant rw households" on public.households
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw interviews" on public.interviews;
+create policy "tenant rw interviews" on public.interviews
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw message_reads" on public.message_reads;
+create policy "tenant rw message_reads" on public.message_reads
+  for all to authenticated
+  using (public.is_super_admin() OR exists (
+    select 1 from public.messages m join public.threads th on th.id = m.thread_id
+     where m.id = message_reads.message_id
+       and th.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.messages m join public.threads th on th.id = m.thread_id
+     where m.id = message_reads.message_id
+       and th.agency_id IN (SELECT public.viewer_agency_ids())));
+
+drop policy if exists "tenant rw messages" on public.messages;
+create policy "tenant rw messages" on public.messages
+  for all to authenticated
+  using (public.is_super_admin() OR exists (
+    select 1 from public.threads th where th.id = messages.thread_id
+     and th.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.threads th where th.id = messages.thread_id
+     and th.agency_id IN (SELECT public.viewer_agency_ids())));
+
+drop policy if exists "tenant rw nigos" on public.nigos;
+create policy "tenant rw nigos" on public.nigos
+  for all to authenticated
+  using (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = nigos.pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = nigos.pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())));
+
+drop policy if exists "tenant rw notifications" on public.notifications;
+create policy "tenant rw notifications" on public.notifications
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw recruits" on public.recruits;
+create policy "tenant rw recruits" on public.recruits
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw sequences" on public.sequences;
+create policy "tenant rw sequences" on public.sequences
+  for all to authenticated
+  using       (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id IN (SELECT public.viewer_agency_ids())))
+  with check  (public.is_super_admin() OR (agency_id IS NOT NULL AND agency_id IN (SELECT public.viewer_agency_ids())));
+
+drop policy if exists "tenant rw thread_members" on public.thread_members;
+create policy "tenant rw thread_members" on public.thread_members
+  for all to authenticated
+  using (public.is_super_admin() OR exists (
+    select 1 from public.threads th where th.id = thread_members.thread_id
+     and th.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.threads th where th.id = thread_members.thread_id
+     and th.agency_id IN (SELECT public.viewer_agency_ids())));
+
+drop policy if exists "tenant rw threads" on public.threads;
+create policy "tenant rw threads" on public.threads
+  for all to authenticated
+  using       (public.is_super_admin() OR agency_id IS NULL OR agency_id IN (SELECT public.viewer_agency_ids()))
+  with check  (public.is_super_admin() OR agency_id IN (SELECT public.viewer_agency_ids()));
+
+drop policy if exists "tenant rw touchpoints" on public.touchpoints;
+create policy "tenant rw touchpoints" on public.touchpoints
+  for all to authenticated
+  using (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = touchpoints.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())))
+  with check (public.is_super_admin() OR exists (
+    select 1 from public.pipeline p where p.id = touchpoints.lead_pipeline_id
+     and p.agency_id IN (SELECT public.viewer_agency_ids())));
+
+-- ── PASS 2 + 3 (drop the leaks; scoped policies above now gate writes) ──
+drop policy if exists "auth write attributions"       on public.attributions;
+drop policy if exists "auth write clients"            on public.clients;
+drop policy if exists "auth write touchpoints"        on public.touchpoints;
+drop policy if exists "auth write nigos"              on public.nigos;
+drop policy if exists "auth write message_reads"      on public.message_reads;
+drop policy if exists "auth write households"         on public.households;
+drop policy if exists "auth write interviews"         on public.interviews;
+drop policy if exists "auth write followup_rules"     on public.followup_rules;
+drop policy if exists "auth write forecast_overrides" on public.forecast_overrides;
+drop policy if exists "auth write forecast_runs"      on public.forecast_runs;
+drop policy if exists "auth write agent_runs"         on public.agent_runs;
+drop policy if exists "auth write sequences"          on public.sequences;
+drop policy if exists "auth write aep_periods"        on public.aep_periods;
+drop policy if exists "auth write lead_sources"       on public.lead_sources;
+drop policy if exists "auth write nigo_reasons"       on public.nigo_reasons;
+drop policy if exists "auth write carriers"           on public.carriers;
+drop policy if exists "auth write products"           on public.products;
+drop policy if exists "auth write messages"           on public.messages;
+drop policy if exists "auth write threads"            on public.threads;
+drop policy if exists "auth write notifications"      on public.notifications;
+drop policy if exists "auth write recruits"           on public.recruits;
+drop policy if exists "auth write coaching_notes"     on public.coaching_notes;
+drop policy if exists "auth write coaching_sessions"  on public.coaching_sessions;
+drop policy if exists "auth write thread_members"     on public.thread_members;
+
+-- ── 0052 (recruits funnel columns — separate tracker entry; included here
+--    for completeness on a fresh-DB run path) ──
+alter table public.recruits add column if not exists stage text
+  check (stage in ('Applied','Discovery','Onboarding','Licensed')) default 'Applied';
+alter table public.recruits add column if not exists applied_at    timestamptz default now();
+alter table public.recruits add column if not exists discovery_at  timestamptz;
+alter table public.recruits add column if not exists onboarded_at  timestamptz;
+alter table public.recruits add column if not exists licensed_at   timestamptz;
+alter table public.recruits add column if not exists owner_rep_id  text references public.reps(id);
+create index if not exists recruits_agency_stage_idx on public.recruits(agency_id, stage);
