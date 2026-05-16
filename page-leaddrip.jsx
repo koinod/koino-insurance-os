@@ -479,7 +479,7 @@ function InflowTab({ onConfigureVendors }) {
         ]}/>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginTop: 14 }}>
+      <div className="cards-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 14, marginTop: 14 }}>
         <div className="panel">
           <div className="panel-h">
             <span className="dot" style={{ background: "var(--accent-money)", animation: items.length > 0 ? "pulse 1.8s infinite" : "none" }}/>

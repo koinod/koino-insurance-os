@@ -4872,8 +4872,8 @@ function SettingsAgents({ role = "owner" }) {
             No devices installed. Click <strong>Install on a machine</strong> to issue a one-shot token, then run the curl/iwr command on the target machine.
           </div>
         ) : (
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 90px 1fr 110px 130px 100px" }}>
+          <div className="list list-responsive">
+            <div className="list-h" style={{ gridTemplateColumns: "minmax(140px, 1.4fr) 80px minmax(120px, 1fr) 100px 110px 90px" }}>
               <div>Hostname / OS</div>
               <div>Role</div>
               <div>Models</div>
@@ -4882,16 +4882,16 @@ function SettingsAgents({ role = "owner" }) {
               <div></div>
             </div>
             {installs.map(d => (
-              <div key={d.device_id} className="row" style={{ gridTemplateColumns: "1.4fr 90px 1fr 110px 130px 100px" }}>
-                <div>
-                  <div style={{ fontWeight: 500 }}>{d.hostname || "—"}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{d.os || ""} · {d.version || "v?"}</div>
+              <div key={d.device_id} className="row" style={{ gridTemplateColumns: "minmax(140px, 1.4fr) 80px minmax(120px, 1fr) 100px 110px 90px" }}>
+                <div style={{ overflow: "hidden" }}>
+                  <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.hostname || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.os || ""} · {d.version || "v?"}</div>
                 </div>
                 <div><span className="chip">{d.role}</span></div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{(d.models_local || []).join(", ") || "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={(d.models_local || []).join(", ")}>{(d.models_local || []).join(", ") || "—"}</div>
                 <div style={{ fontSize: 12 }}>{fmtAgo(d.last_seen_at)}</div>
                 <div><span className={statusChipClass(d.status, d.last_seen_at)}>{d.status}</span></div>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div className="list-actions" style={{ display: "flex", justifyContent: "flex-end" }}>
                   {d.status !== "revoked" && (
                     <button className="btn btn-ghost" disabled={busyId === d.device_id} onClick={() => revoke(d.device_id)}>
                       {busyId === d.device_id ? "…" : "Revoke"}
@@ -5325,24 +5325,28 @@ function UserConnectorVault() {
       {loading ? (
         <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading connectors…</div>
       ) : (
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
+        // list-responsive: at >900px, render as grid with shrinkable
+        // minmax(0, fr) tracks so a long account_label can't push the
+        // fixed-pixel sibling tracks past the panel edge. At ≤900px, the
+        // .list-h hides and each .row becomes a flex-wrap card (see styles.css).
+        <div className="list list-responsive">
+          <div className="list-h" style={{ gridTemplateColumns: "minmax(120px, 1.2fr) minmax(140px, 1.5fr) 80px 110px 100px 130px" }}>
             <div>Provider</div><div>Account</div><div>Health</div><div>Last used</div><div>Connected</div><div></div>
           </div>
           {PROVIDERS.map(p => {
             const rows = byProvider[p.key] || [];
             if (rows.length === 0) {
               return (
-                <div key={p.key} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{p.label}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+                <div key={p.key} className="row" style={{ gridTemplateColumns: "minmax(120px, 1.2fr) minmax(140px, 1.5fr) 80px 110px 100px 130px" }}>
+                  <div style={{ overflow: "hidden" }}>
+                    <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.category}</div>
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{p.hint}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.hint}>{p.hint}</div>
                   <div><span className="chip">none</span></div>
                   <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
                   <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>—</div>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <div className="list-actions" style={{ display: "flex", justifyContent: "flex-end" }}>
                     <button className="btn btn-primary" onClick={() => setOpen(p.key)}>
                       <Icons.Plus size={11}/> Connect
                     </button>
@@ -5351,16 +5355,16 @@ function UserConnectorVault() {
               );
             }
             return rows.map(r => (
-              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 1fr 90px 130px 110px 130px" }}>
-                <div>
-                  <div style={{ fontWeight: 500 }}>{p.label}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.category}</div>
+              <div key={r.id} className="row" style={{ gridTemplateColumns: "minmax(120px, 1.2fr) minmax(140px, 1.5fr) 80px 110px 100px 130px" }}>
+                <div style={{ overflow: "hidden" }}>
+                  <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.category}</div>
                 </div>
-                <div style={{ fontSize: 12 }}>{r.account_label || "default"}</div>
+                <div style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.account_label || "default"}>{r.account_label || "default"}</div>
                 <div>{healthChip(r.health)}</div>
-                <div style={{ fontSize: 11.5 }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleString() : "—"}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(r.connected_at).toLocaleDateString()}</div>
-                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                <div style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleString() : "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{new Date(r.connected_at).toLocaleDateString()}</div>
+                <div className="list-actions" style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                   <button className="btn btn-ghost" disabled={busy === `probe-${r.id}`} onClick={() => probeNow(r.id, p.key)}>
                     {busy === `probe-${r.id}` ? "…" : "Probe"}
                   </button>
