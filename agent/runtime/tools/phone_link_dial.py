@@ -1,33 +1,38 @@
-"""phone_link_dial — outbound call via Microsoft Phone Link.
+"""phone_link_dial — outbound call(s) via Microsoft Phone Link.
 
-Phone Link routes the call through the user's Bluetooth-paired phone.
-
-Verified empirically (2026-05-15 PLATINUM):
-  • ms-phone:?action=call&number=... opens Phone Link but does NOT
-    pre-fill the number — Phone Link silently ignores URI query params.
-  • tel: only works if Phone Link is set as the default tel: handler
-    (Settings → Apps → Default apps → 'Make calls' → Phone Link).
-
-Real implementation: agent opens Phone Link via ms-phone:, brings its
-window to the foreground, types the number digits via SendInput, then
-presses Enter to dial. This is the agent's own Python process doing
-the local work — no shell-out, no separate script.
-
-Fallback chain (degrades gracefully if pywinauto isn't installed):
-  1. pywinauto UIA backend → click Calls tab + type into dialer
-  2. ctypes user32 SendInput → keystroke injection at the foreground app
-  3. ms-phone: URI alone → opens app, requires user to dial manually
+Production-grade implementation:
+  1. Open Phone Link (ms-phone: + AUMID launch).
+  2. UIA-navigate to Calls tab via auto_id 'CallingNodeAutomationId'
+     (learned from phone_link_inspect 2026-05-15).
+  3. Locate the dialer Edit (provider-version-tolerant: tries multiple
+     selectors), type the number, click Call (or press Enter).
+  4. If multi-dial requested: loop dial_count times, sleeping
+     dial_interval_seconds between attempts, polling rba_commands
+     for a `cancel_dial` request that targets this command.
 
 Payload:
   {
-    to_number: "+19312522222",
-    lead_id?:  "uuid",
-    auto_dial: false,        # default false → posts confirmation first
-    method?:   "auto"        # "auto" | "uia" | "sendinput" | "uri_only"
+    to_number:       "+19312522222",
+    lead_id?:        "uuid",
+    auto_dial:       false,         # default false → posts confirmation first
+    method?:         "auto",        # auto | uia | sendinput | uri_only
+    dial_count?:     1,             # 1-5: how many attempts
+    dial_interval_seconds?: 15,     # 5-120: gap between attempts
+    stop_on?:        "manual"       # manual (only stop on cancel) — call
+                                    # status feedback isn't available from
+                                    # Phone Link, so 'answered' would be a
+                                    # lie. Just 'manual' for now.
   }
 
 Returns:
-  { status, to_number, method_used, phone_link_state, at, note }
+  { status, attempts: [{ at, result, error? }, ...], final_status,
+    cancelled, to_number, method_used }
+
+Cancellation:
+  Caller posts a separate rba_command with kind='cancel_dial' and
+  payload={dial_command_id: <this command's id>}. Between attempts the
+  tool checks for a queued cancel_dial via the
+  /api/agent/cancel-check endpoint.
 """
 from __future__ import annotations
 import os, re, sys, time, subprocess
@@ -38,138 +43,225 @@ RATE_BUCKET = "dial"
 
 E164_RE = re.compile(r"^\+?[1-9]\d{6,14}$")
 
+# Verified via phone_link_inspect on PLATINUM 2026-05-15
+PHONE_LINK_TAB_IDS = {
+    "calls":    "CallingNodeAutomationId",
+    "messages": "ChatNodeAutomationId",
+    "settings": "SettingsNodeAutomationId",
+}
+
 
 def _normalize(num: str) -> str | None:
     if not num: return None
     s = re.sub(r"[^\d+]", "", num)
-    if s.startswith("+"):
-        if E164_RE.match(s): return s
-    elif len(s) == 10:
-        return "+1" + s
-    elif len(s) == 11 and s.startswith("1"):
-        return "+" + s
+    if s.startswith("+") and E164_RE.match(s): return s
+    if len(s) == 10: return "+1" + s
+    if len(s) == 11 and s.startswith("1"): return "+" + s
     return None
 
 
-def _open_phone_link():
-    """Bring Phone Link to the foreground. Multiple attempts because
-    ms-phone: occasionally no-ops if the app is already running on a
-    different virtual desktop."""
-    tried = []
-    for uri in ("ms-phone:", "ms-phone://"):
-        try:
-            os.startfile(uri); tried.append(uri); time.sleep(1.2); break
-        except OSError:
-            tried.append(f"{uri}(failed)")
-    # Also try direct AUMID launch as belt-and-suspenders
-    try:
-        subprocess.Popen(
-            ["explorer.exe", "shell:AppsFolder\\Microsoft.YourPhone_8wekyb3d8bbwe!App"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        tried.append("explorer.exe shell:AppsFolder")
-        time.sleep(1.0)
-    except Exception:
-        pass
-    return tried
-
-
-def _find_phone_link_hwnd():
-    """Return the HWND of the top-level 'Phone Link' window, or None."""
+def _phone_link_hwnd():
+    """Find Phone Link window. Returns hwnd or None.
+    Tries exact match first, then substring match — Windows updates have
+    been known to suffix the title with notification counts, document
+    state, etc. (`'Phone Link - Calls'`, `'(2) Phone Link'`)."""
     import ctypes
     user32 = ctypes.windll.user32
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    found = []
+    exact = []; partial = []
     def cb(hwnd, _):
         if not user32.IsWindowVisible(hwnd): return True
         n = user32.GetWindowTextLengthW(hwnd)
         if n == 0: return True
         buf = ctypes.create_unicode_buffer(n + 1)
         user32.GetWindowTextW(hwnd, buf, n + 1)
-        if buf.value == "Phone Link":
-            found.append(hwnd); return False
+        t = buf.value
+        if t == "Phone Link":
+            exact.append(hwnd)
+        elif "Phone Link" in t:
+            partial.append((hwnd, t))
         return True
     user32.EnumWindows(EnumWindowsProc(cb), 0)
-    return found[0] if found else None
+    if exact: return exact[0]
+    if partial: return partial[0][0]
+    return None
 
 
-def _bring_to_foreground(hwnd):
+def _open_phone_link():
+    """Ensure Phone Link is visible. If already running, skip launch.
+    Otherwise try ms-phone: URI then the AppsFolder shell command, polling
+    up to 6s for the window to appear."""
+    if _phone_link_hwnd() is not None:
+        return True
+    try: os.startfile("ms-phone:")
+    except OSError: pass
+    try:
+        subprocess.Popen(
+            ["explorer.exe", "shell:AppsFolder\\Microsoft.YourPhone_8wekyb3d8bbwe!App"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception: pass
+    deadline = time.time() + 6.0
+    while time.time() < deadline:
+        if _phone_link_hwnd() is not None:
+            time.sleep(0.4)   # let UI settle past splash
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _check_cancel(api_base: str, token: str, dial_command_id: str | None) -> bool:
+    """Poll the cancel endpoint. Returns True if a cancel_dial command
+    targeting dial_command_id is queued (and we should stop)."""
+    if not dial_command_id: return False
+    try:
+        r = _r.get(
+            f"{api_base}/api/agent/cancel-check",
+            headers={"x-agent-token": token},
+            params={"dial_command_id": dial_command_id},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            return bool(r.json().get("cancelled"))
+    except Exception:
+        pass
+    return False
+
+
+def _try_uia(num: str) -> tuple[bool, str, str]:
+    """Returns (ok, method_detail, button_used)."""
+    try:
+        from pywinauto import Application
+    except ImportError:
+        return False, "pywinauto not installed", ""
+
+    try:
+        app = Application(backend="uia").connect(title="Phone Link", timeout=5)
+        win = app.window(title="Phone Link")
+    except Exception as e:
+        return False, f"connect failed: {e}", ""
+
+    # 1. Click Calls tab
+    try:
+        tab = win.child_window(auto_id=PHONE_LINK_TAB_IDS["calls"], control_type="TabItem")
+        tab.wait("exists enabled visible", timeout=4)
+        tab.click_input()
+        time.sleep(1.0)
+    except Exception as e:
+        return False, f"calls tab click failed: {e}", ""
+
+    # 2. Find the dialer Edit. Try multiple selectors — Phone Link's
+    # version-to-version stability is sketchy. Targets in order of preference:
+    #   - title="Search your contacts" / "Search contacts or enter number"
+    #   - any Edit child of the Calls panel
+    edit = None
+    edit_label = None
+    for label in ("Search your contacts", "Search contacts or enter number",
+                  "Search contacts, enter number", "Dial pad"):
+        try:
+            cand = win.child_window(title=label, control_type="Edit")
+            if cand.exists(timeout=1):
+                edit = cand; edit_label = f"title='{label}'"
+                break
+        except Exception:
+            continue
+    if edit is None:
+        # Fallback: find ANY Edit on the Calls panel
+        try:
+            for e in win.descendants(control_type="Edit"):
+                edit = e; edit_label = "first descendant Edit"
+                break
+        except Exception:
+            pass
+    if edit is None:
+        return False, "couldn't find dialer Edit", ""
+
+    # 3. Focus + type the number
+    try:
+        edit.set_focus()
+        time.sleep(0.2)
+        # Clear any previous text (select-all + delete)
+        try: edit.type_keys("^a", with_spaces=False, pause=0.05)
+        except Exception: pass
+        try: edit.type_keys("{DELETE}", pause=0.05)
+        except Exception: pass
+        edit.type_keys(num.lstrip("+"), with_spaces=False, pause=0.04)
+        time.sleep(0.3)
+    except Exception as e:
+        return False, f"type failed via {edit_label}: {e}", edit_label
+
+    # 4. Click Call button if present, else press Enter
+    btn_used = "enter"
+    try:
+        for btn_label in ("Call", "Call number", "Place call"):
+            try:
+                btn = win.child_window(title=btn_label, control_type="Button")
+                if btn.exists(timeout=1):
+                    btn.click_input(); btn_used = f"button '{btn_label}'"
+                    return True, f"uia: dialer found via {edit_label}, dialed via {btn_used}", btn_used
+            except Exception:
+                continue
+        # Fallback: press Enter on the focused dialer
+        edit.type_keys("{ENTER}")
+        return True, f"uia: dialer found via {edit_label}, dialed via Enter", btn_used
+    except Exception as e:
+        return False, f"call button click failed: {e}", btn_used
+
+
+def _bring_to_foreground():
     import ctypes
+    hwnd = _phone_link_hwnd()
+    if hwnd is None: return False
     user32 = ctypes.windll.user32
-    user32.ShowWindow(hwnd, 9)         # SW_RESTORE
+    user32.ShowWindow(hwnd, 9)              # SW_RESTORE
+    # SetForegroundWindow can fail when the calling process isn't
+    # foreground itself — works fine from a Scheduled-Task python.
     user32.SetForegroundWindow(hwnd)
     time.sleep(0.4)
+    return True
 
 
 def _send_digits(digits: str):
-    """SendInput each digit + Enter. Uses VK codes; '+' is skipped (not
-    supported in tel dialing — the country code is implicit per Phone Link)."""
     import ctypes
-    from ctypes import wintypes
     user32 = ctypes.windll.user32
-    # Map digit chars to VK codes
     VK = {str(i): 0x30 + i for i in range(10)}
-    VK_RETURN = 0x0D
-    KEYEVENTF_KEYUP = 0x0002
     for ch in digits:
         if ch == "+": continue
         vk = VK.get(ch)
         if vk is None: continue
-        user32.keybd_event(vk, 0, 0, 0)
-        time.sleep(0.04)
-        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
-        time.sleep(0.06)
+        user32.keybd_event(vk, 0, 0, 0); time.sleep(0.04)
+        user32.keybd_event(vk, 0, 0x0002, 0); time.sleep(0.06)
     time.sleep(0.3)
-    user32.keybd_event(VK_RETURN, 0, 0, 0)
-    user32.keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(0x0D, 0, 0, 0)
+    user32.keybd_event(0x0D, 0, 0x0002, 0)
 
 
-def _try_uia(num: str) -> tuple[bool, str]:
-    """Use pywinauto UIA backend to navigate Calls + type number + Call.
-    Returns (ok, detail). Soft-fail if pywinauto not installed."""
-    try:
-        from pywinauto import Application
-    except ImportError:
-        return False, "pywinauto not installed"
-    try:
-        app = Application(backend="uia").connect(title="Phone Link", timeout=5)
-        win = app.window(title="Phone Link")
-        # Navigate to Calls tab (best-effort selectors)
-        try:
-            calls = win.child_window(title="Calls", control_type="TabItem")
-            calls.click_input()
-            time.sleep(0.4)
-        except Exception:
-            pass
-        # Find the contact search / dialer input
-        edit = None
-        for name_try in ("Search your contacts", "Search contacts or enter number", "Dial pad"):
-            try:
-                edit = win.child_window(title=name_try, control_type="Edit")
-                if edit.exists(timeout=1):
-                    break
-            except Exception:
-                continue
-        if edit is None:
-            # Fall through to keystroke injection
-            return False, "uia couldn't locate dialer edit"
-        edit.set_focus()
-        edit.type_keys(num.lstrip("+"), with_spaces=False, pause=0.04)
-        time.sleep(0.3)
-        # Click Call button if present
-        try:
-            call_btn = win.child_window(title="Call", control_type="Button")
-            call_btn.click_input()
-        except Exception:
-            edit.type_keys("{ENTER}")
-        return True, "uia path completed"
-    except Exception as e:
-        return False, f"uia error: {e}"
+def _dial_once(num: str, method: str) -> dict:
+    if not _open_phone_link():
+        return {"status": "phone_link_launch_failed",
+                "fix": "Open Microsoft Phone Link manually once — agent then keeps it warm."}
+    if method in ("auto", "uia"):
+        ok, detail, _ = _try_uia(num)
+        if ok:
+            return {"status": "dialed_via_phone_link", "method_used": "uia", "detail": detail}
+        if method == "uia":
+            return {"status": "uia_failed", "detail": detail}
+    if method in ("auto", "sendinput"):
+        if not _bring_to_foreground():
+            return {"status": "phone_link_window_not_found"}
+        digits = num.lstrip("+")
+        if digits.startswith("1") and len(digits) == 11:
+            digits = digits[1:]
+        _send_digits(digits)
+        return {"status": "dialed_via_phone_link", "method_used": "sendinput",
+                "digits_sent": digits,
+                "note": "sendinput is best-effort — call connects only if Phone Link's dialer field had focus when keystrokes arrived"}
+    return {"status": "phone_link_opened_uri_only"}
 
 
 def run(payload, ctx):
     if sys.platform != "win32":
-        return {"status": "platform_unsupported", "platform": sys.platform}
+        return {"status": "platform_unsupported"}
 
     raw = payload.get("to_number")
     num = _normalize(raw)
@@ -178,15 +270,20 @@ def run(payload, ctx):
 
     method = (payload.get("method") or "auto").lower()
     auto = bool(payload.get("auto_dial"))
+    count = max(1, min(5, int(payload.get("dial_count") or 1)))
+    interval = max(5, min(120, int(payload.get("dial_interval_seconds") or 15)))
 
     if not auto:
         r = _r.post(
             f"{ctx['api_base']}/api/agent/confirmation-request",
             headers={"x-agent-token": ctx["token"], "content-type": "application/json"},
             json={
-                "action": "send_real_sms",
-                "description": f"Phone Link dial to {num}",
-                "args_redacted": {"channel": "phone_link", "to": num, "lead_id": payload.get("lead_id"), "method": method},
+                "action": "send_real_sms",   # treated as high-risk for routing
+                "description": (f"Phone Link dial to {num}" +
+                                (f" ({count}× every {interval}s)" if count > 1 else "")),
+                "args_redacted": {"channel": "phone_link", "to": num,
+                                  "lead_id": payload.get("lead_id"),
+                                  "method": method, "count": count, "interval_s": interval},
                 "channel": "any",
             }, timeout=8,
         )
@@ -196,47 +293,34 @@ def run(payload, ctx):
                 "to_number": num,
                 "confirmation_id": r.json().get("confirmation_id")}
 
-    opened = _open_phone_link()
+    dial_command_id = payload.get("__command_id")  # injected by dispatcher; agent's runtime adds it
+    attempts = []
+    cancelled = False
+    for i in range(count):
+        if i > 0:
+            # sleep in 1s slices so cancel-check is responsive
+            for _ in range(interval):
+                if _check_cancel(ctx["api_base"], ctx["token"], dial_command_id):
+                    cancelled = True; break
+                time.sleep(1)
+            if cancelled: break
+        attempt = _dial_once(num, method)
+        attempt["at"] = time.time()
+        attempt["attempt_number"] = i + 1
+        attempts.append(attempt)
+        # If the dial primitive itself errored, stop the loop early
+        if attempt.get("status") not in ("dialed_via_phone_link", "phone_link_opened_uri_only"):
+            break
 
-    # Method routing
-    if method in ("auto", "uia"):
-        ok, detail = _try_uia(num)
-        if ok:
-            return {"status": "dialed_via_phone_link",
-                    "to_number": num,
-                    "method_used": "uia",
-                    "detail": detail,
-                    "opened_via": opened,
-                    "at": time.time()}
-        if method == "uia":
-            return {"status": "uia_failed",
-                    "to_number": num,
-                    "detail": detail,
-                    "opened_via": opened}
-
-    if method in ("auto", "sendinput"):
-        hwnd = _find_phone_link_hwnd()
-        if not hwnd:
-            return {"status": "phone_link_window_not_found",
-                    "to_number": num,
-                    "opened_via": opened,
-                    "fix": "Open Phone Link manually and re-fire."}
-        _bring_to_foreground(hwnd)
-        # Strip leading +1 country code — Phone Link dialer prefixes US automatically
-        digits = num.lstrip("+")
-        if digits.startswith("1") and len(digits) == 11:
-            digits = digits[1:]
-        _send_digits(digits)
-        return {"status": "dialed_via_phone_link",
-                "to_number": num,
-                "method_used": "sendinput",
-                "digits_sent": digits,
-                "opened_via": opened,
-                "at": time.time(),
-                "note": "If Phone Link's dialer/search field had focus, the number is now entered and Enter pressed. If a different field had focus, digits went elsewhere — re-run with method='uia' for safer targeting (requires pywinauto)."}
-
-    # method=uri_only: just open and return
-    return {"status": "phone_link_opened_uri_only",
-            "to_number": num,
-            "opened_via": opened,
-            "note": "URI invoke only. User must enter the number manually."}
+    return {
+        "status": "cancelled" if cancelled else (
+            "dialed_via_phone_link" if attempts and attempts[-1].get("status") == "dialed_via_phone_link"
+            else "failed"),
+        "to_number": num,
+        "method_requested": method,
+        "method_used": attempts[-1].get("method_used") if attempts else None,
+        "dial_count_requested": count,
+        "dial_interval_seconds": interval,
+        "attempts": attempts,
+        "cancelled": cancelled,
+    }
