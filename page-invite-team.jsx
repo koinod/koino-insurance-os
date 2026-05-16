@@ -96,7 +96,12 @@
         </div>
       );
     }
-    if (me.role !== "manager" && me.role !== "super_admin") {
+    // Owners + managers + super_admins may mint invites. Producers see no
+    // panel. Owner is sometimes collapsed to manager in the UI tweak but
+    // the DB role can still be "owner" — include it explicitly so owners
+    // who land on Recruiting can invite their team.
+    const ALLOWED_INVITERS = new Set(["owner", "manager", "super_admin", "admin", "imo_owner"]);
+    if (!ALLOWED_INVITERS.has(me.role)) {
       return null;
     }
     if (!authedJwt && !me.is_demo) {
@@ -105,6 +110,13 @@
     const isDemoViewer = !!me.is_demo;
 
     const generate = async () => {
+      // Light client-side validation so we don't waste a server round-trip
+      // on obvious typos. Email is optional, but malformed entries get
+      // flagged before submit.
+      if (emailHint && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailHint.trim())) {
+        setErrMsg("Email hint looks malformed — fix it or leave it blank.");
+        return;
+      }
       setBusy(true); setErrMsg(""); setLink(null);
       try {
         const jwt = await getJwt();
