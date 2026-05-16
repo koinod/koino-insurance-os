@@ -105,11 +105,16 @@ function StartPicker({ session, onPicked }) {
   const [name, setName] = React.useState("");
   const [primaryState, setPrimaryState] = React.useState("");
   const [inviteToken, setInviteToken] = React.useState("");
+  // Track which user-type the operator picked so the provisioning call uses
+  // the right tier (solo vs agency). Previously the solo button reused the
+  // "start" mode but the create button hardcoded kind="agency" — solo users
+  // ended up on the agency tier silently.
+  const [kind, setKind] = React.useState("agency"); // agency | solo
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
   const sb = window.getSupabase();
 
-  const startAgency = async (kind) => {
+  const startAgency = async (kindArg) => {
     if (!name.trim()) { setErr("Agency name is required."); return; }
     setBusy(true); setErr("");
     try {
@@ -117,12 +122,20 @@ function StartPicker({ session, onPicked }) {
       const { data, error } = await sb.rpc("provision_sub_agency", {
         p_name: name.trim(),
         p_slug: slug,
-        p_tier: kind === "solo" ? "solo" : "agency",
+        p_tier: kindArg === "solo" ? "solo" : "agency",
         p_owner_email: session.user.email,
         p_primary_state: primaryState || null,
         p_plan: "trial",
       });
-      if (error) throw error;
+      if (error) {
+        // Surface a hint when the RPC isn't deployed yet so the operator
+        // doesn't see a cryptic "function does not exist" with no recovery.
+        const msg = String(error?.message || error);
+        if (/function .*provision_sub_agency.* does not exist/i.test(msg) || error?.code === "PGRST202") {
+          throw new Error("Agency provisioning isn't deployed on this Supabase project yet. Ask your admin to apply migration provision_sub_agency, or skip to demo mode.");
+        }
+        throw error;
+      }
       // RPC returns either a uuid or jsonb { agency_id } — handle both
       const agencyId = (data && typeof data === "object") ? (data.agency_id || data.id) : data;
       if (!agencyId) throw new Error("Provision returned no agency_id");
@@ -165,7 +178,7 @@ function StartPicker({ session, onPicked }) {
               How do you want to use Repflow?
             </div>
             <div style={{ display: "grid", gap: 8 }}>
-              <button className="btn" style={{ justifyContent: "flex-start", padding: 14, height: "auto" }} onClick={() => setMode("start")}>
+              <button className="btn" style={{ justifyContent: "flex-start", padding: 14, height: "auto" }} onClick={() => { setKind("agency"); setMode("start"); }}>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>Start a new agency</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>You're the owner. Recruit reps + appoint carriers under your IMO.</div>
@@ -177,7 +190,7 @@ function StartPicker({ session, onPicked }) {
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>You got a link or token from a manager or upline.</div>
                 </div>
               </button>
-              <button className="btn" style={{ justifyContent: "flex-start", padding: 14, height: "auto" }} onClick={() => { setName(session?.user?.email?.split("@")?.[0] || "My book"); setMode("start"); /* solo kind below */ }}>
+              <button className="btn" style={{ justifyContent: "flex-start", padding: 14, height: "auto" }} onClick={() => { setKind("solo"); setName(session?.user?.email?.split("@")?.[0] || "My book"); setMode("start"); }}>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>I'm a solo producer</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>Just me. No team yet. Repflow as my book.</div>
@@ -198,8 +211,8 @@ function StartPicker({ session, onPicked }) {
             {err && <div style={{ color: "var(--state-danger)", fontSize: 12, marginTop: 6 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { setMode("pick"); setErr(""); }} disabled={busy}>Back</button>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => startAgency("agency")} disabled={busy || !name.trim()}>
-                {busy ? "Provisioning…" : "Create agency →"}
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => startAgency(kind)} disabled={busy || !name.trim()}>
+                {busy ? "Provisioning…" : (kind === "solo" ? "Create my book →" : "Create agency →")}
               </button>
             </div>
           </>
