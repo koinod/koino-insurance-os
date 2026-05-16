@@ -215,6 +215,7 @@ function PageAdmin() {
     { k: "carriers",  l: "Carriers",   icon: "Shield"      },
     { k: "scrape",    l: "UW Queue",   icon: "Bell"        },
     { k: "devices",   l: "Devices",    icon: "Cpu"         },
+    { k: "security",  l: "Security",   icon: "Shield"      },
     { k: "audit",     l: "Audit Log",  icon: "Activity"    },
   ];
 
@@ -429,6 +430,9 @@ function PageAdmin() {
           <ManualCommandTester />
         </div>
       )}
+
+      {/* ── Security advisor ───────────────────────────────────── */}
+      {tab === "security" && <SecurityAdvisorView/>}
 
       {/* ── Audit ──────────────────────────────────────────────── */}
       {tab === "audit" && (
@@ -1550,6 +1554,108 @@ function DevicesAdminView() {
 // Post arbitrary commands to a chosen device for end-to-end testing
 // without writing automation rules. Useful for verifying a new tool
 // wires up.
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Security advisor view — surfaces public.security_advisor_report() findings.
+   The function is super_admin-gated server-side, so this just calls + renders.
+   Buckets results by severity, maps to CVSS-like bands, shows remediation SQL.
+   ───────────────────────────────────────────────────────────────────────── */
+function SecurityAdvisorView() {
+  const [findings, setFindings] = React.useState([]);
+  const [loading, setLoading]   = React.useState(false);
+  const [refreshedAt, setRefreshedAt] = React.useState(null);
+  const [filter, setFilter] = React.useState("all");
+
+  const load = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    setLoading(true);
+    try {
+      const { data, error } = await sb.rpc("security_advisor_report");
+      if (error) throw error;
+      setFindings(Array.isArray(data) ? data : []);
+      setRefreshedAt(new Date());
+    } catch (e) {
+      window.toast && window.toast(`Advisor failed: ${e.message || e}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const sevOrder = { ERROR: 0, WARN: 1, INFO: 2 };
+  const sevColor = { ERROR: "var(--state-danger)", WARN: "var(--state-warning)", INFO: "var(--text-tertiary)" };
+  const filtered = (filter === "all" ? findings : findings.filter(f => f.severity === filter))
+    .slice()
+    .sort((a, b) => (sevOrder[a.severity] ?? 99) - (sevOrder[b.severity] ?? 99));
+
+  const counts = findings.reduce((acc, f) => { acc[f.severity] = (acc[f.severity] || 0) + 1; return acc; }, {});
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Shield size={13}/>
+        <h3>Security advisor</h3>
+        <span className="meta">
+          {findings.length} finding{findings.length === 1 ? "" : "s"}
+          {refreshedAt && ` · refreshed ${refreshedAt.toLocaleTimeString()}`}
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {["all","ERROR","WARN","INFO"].map(s => (
+            <button key={s} className="btn btn-ghost"
+              style={{
+                padding: "3px 10px", fontSize: 11,
+                background: filter === s ? "var(--bg-raised)" : "transparent",
+                color: filter === s ? "var(--text-primary)" : "var(--text-tertiary)",
+              }}
+              onClick={() => setFilter(s)}>
+              {s === "all" ? `All (${findings.length})` : `${s} (${counts[s] || 0})`}
+            </button>
+          ))}
+          <button className="btn" onClick={load} disabled={loading}>
+            <Icons.RefreshCw size={11}/> {loading ? "Scanning…" : "Re-scan"}
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: "10px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)" }}>
+        CVSS-band mapping: <strong style={{ color: "var(--state-danger)" }}>ERROR</strong> ≈ High/Critical (7.0–9.9) · <strong style={{ color: "var(--state-warning)" }}>WARN</strong> ≈ Medium (4.0–6.9) · <strong>INFO</strong> ≈ Low (0.1–3.9).
+        Findings come from a SECURITY DEFINER function over <code className="mono">pg_policies</code> / <code className="mono">pg_proc</code> / <code className="mono">pg_tables</code>.
+      </div>
+      {loading && findings.length === 0 ? (
+        <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Scanning…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+          {findings.length === 0
+            ? "No findings — clean run."
+            : `No ${filter} findings.`}
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "80px 110px 1.4fr 1.6fr 1.2fr" }}>
+            <div>Severity</div><div>CVSS</div><div>Where</div><div>Issue</div><div>Remediation</div>
+          </div>
+          {filtered.map((f, i) => (
+            <div key={`${f.kind}-${f.table_name}-${i}`} className="row" style={{ gridTemplateColumns: "80px 110px 1.4fr 1.6fr 1.2fr" }}>
+              <div>
+                <span className="chip" style={{ color: sevColor[f.severity], borderColor: sevColor[f.severity], fontWeight: 600 }}>
+                  {f.severity}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }} className="mono">{f.cvss_band}</div>
+              <div style={{ fontSize: 12 }}>
+                <div style={{ fontWeight: 500 }}>{f.table_name || f.name}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-quaternary)" }} className="mono">{f.kind}</div>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{f.message}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }} className="mono cell-truncate" title={f.remediation}>{f.remediation}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const TESTER_KINDS = [
   "ping","caps_refresh","models_list","clear_workspace",
