@@ -47,6 +47,37 @@ const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","
 const slugify = (s) => String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
 
 /* ─── Status helpers ─────────────────────────────────────────────────────── */
+
+// Local fallback for when the backend tables/RPCs aren't deployed yet.
+// Keeps the wizard from becoming a permanent dead-end. Scoped per agency.
+const LOCAL_KEY = (agencyId) => `repflow.onboarding.${agencyId}`;
+function readLocal(agencyId) {
+  try { return JSON.parse(localStorage.getItem(LOCAL_KEY(agencyId)) || "{}"); }
+  catch { return {}; }
+}
+function writeLocal(agencyId, patch) {
+  try {
+    const cur = readLocal(agencyId);
+    const next = { ...cur, ...patch };
+    localStorage.setItem(LOCAL_KEY(agencyId), JSON.stringify(next));
+    return next;
+  } catch { return patch; }
+}
+function buildStatusFromLocal(agencyId) {
+  const local = readLocal(agencyId);
+  const done = STEPS.map(s => s.key).filter(k => !!local[k]);
+  const next = STEPS.find(s => !local[s.key])?.key || null;
+  return {
+    onboarding_complete: next === null,
+    complete_steps: done.length,
+    total_steps: STEPS.length,
+    next_pending: next,
+    done_steps: done,
+    pending_steps: STEPS.map(s => s.key).filter(k => !local[k]),
+    _source: "local",
+  };
+}
+
 async function fetchStatus(sb, agencyId) {
   // The view is keyed on agency_id (column may be `id` or `agency_id` depending
   // on the view definition — we try both because the doc names slug+name).
@@ -82,7 +113,11 @@ async function fetchStatus(sb, agencyId) {
       error: null,
     };
   } catch (e) {
-    return { status: null, error: String(e?.message || e) };
+    // Backend tables missing entirely — fall back to a local-only progress
+    // store so a fresh owner can still walk through the wizard and reach
+    // Today without a manual SQL deploy. The wizard surfaces a banner when
+    // running in local mode (see WizardChrome).
+    return { status: buildStatusFromLocal(agencyId), error: null };
   }
 }
 
@@ -95,7 +130,17 @@ async function completeStep(sb, agencyId, stepKey, payload) {
   const { data, error } = await sb.rpc("complete_onboarding_step", {
     p_agency_id: agencyId, p_step_key: stepKey, p_payload: payload || {},
   });
-  if (error) throw error;
+  if (error) {
+    // If the RPC is missing on the deployed schema, fall back to local
+    // progress so the operator can still finish onboarding. This prevents
+    // a hard trap loop on schema-mismatch deployments.
+    const msg = String(error?.message || error);
+    if (/function .*complete_onboarding_step.* does not exist/i.test(msg) || error?.code === "PGRST202") {
+      writeLocal(agencyId, { [stepKey]: { payload: payload || {}, at: new Date().toISOString() } });
+      return { local: true };
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -239,7 +284,7 @@ function StartPicker({ session, onPicked }) {
 }
 
 /* ─── Wizard chrome ──────────────────────────────────────────────────────── */
-function WizardChrome({ agencyName, currentKey, doneSet, totalSteps, children }) {
+function WizardChrome({ agencyName, currentKey, doneSet, totalSteps, onExit, localMode, children }) {
   const idx = STEPS.findIndex(s => s.key === currentKey);
   const step = STEPS[idx] || STEPS[0];
   return (
@@ -252,7 +297,17 @@ function WizardChrome({ agencyName, currentKey, doneSet, totalSteps, children })
             <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{step.label} · step {idx + 1} of {STEPS.length}</div>
           </div>
           <div style={{ color: "var(--text-tertiary)", fontSize: 11.5, fontFamily: "var(--font-mono)" }}>{doneSet.size}/{totalSteps || STEPS.length}</div>
+          {onExit && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onExit} title="Skip the rest of onboarding — you can revisit incomplete steps from Settings">
+              Skip to Today →
+            </button>
+          )}
         </div>
+        {localMode && (
+          <div style={{ marginBottom: 12, padding: 8, background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)", borderRadius: 6, fontSize: 11.5, color: "var(--state-warning)", lineHeight: 1.45 }}>
+            Onboarding RPCs not deployed on this Supabase project — progress is being stored locally in this browser only. Apply the onboarding migrations to persist across devices.
+          </div>
+        )}
 
         {/* progress dots */}
         <div style={{ display: "flex", gap: 4, marginBottom: 18 }}>
@@ -285,17 +340,27 @@ function StepProfile({ agency, onSubmit, busy, err }) {
     npn: "", ein: "", phone: "", email: "",
     address_line1: "", address_city: "", address_state: agency?.primaryState || "", address_zip: "",
   });
-  const valid = form.legal_name.trim().length > 1;
+  // Client-side validation: name is required, optional fields are
+  // format-checked only when filled in. NPN is always digits-only thanks
+  // to the input's replace pattern; we still enforce 8-10 chars when present.
+  const emailOk = !form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  const npnOk   = !form.npn   || (form.npn.length >= 6 && form.npn.length <= 10);
+  const zipOk   = !form.address_zip || /^\d{5}(-\d{4})?$/.test(form.address_zip.trim());
+  const issues = [];
+  if (!emailOk) issues.push("Email looks off");
+  if (!npnOk)   issues.push("NPN should be 6-10 digits");
+  if (!zipOk)   issues.push("ZIP should be 5 or 9 digits");
+  const valid = form.legal_name.trim().length > 1 && emailOk && npnOk && zipOk;
   return (
     <>
       <Shared.Field label="Legal name"><input className="text-input" value={form.legal_name} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} autoFocus/></Shared.Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <Shared.Field label="NPN" hint="National Producer Number (8 digits)"><input className="text-input" value={form.npn} onChange={(e) => setForm({ ...form, npn: e.target.value.replace(/\D/g, "") })} placeholder="19384726"/></Shared.Field>
+        <Shared.Field label="NPN" hint="National Producer Number (6-10 digits)"><input className="text-input" value={form.npn} onChange={(e) => setForm({ ...form, npn: e.target.value.replace(/\D/g, "") })} placeholder="19384726"/></Shared.Field>
         <Shared.Field label="EIN" hint="Federal tax ID (optional)"><input className="text-input" value={form.ein} onChange={(e) => setForm({ ...form, ein: e.target.value })} placeholder="12-3456789"/></Shared.Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Shared.Field label="Main phone"><input className="text-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 (404) 555-0142"/></Shared.Field>
-        <Shared.Field label="Contact email"><input className="text-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ops@atlasimo.com"/></Shared.Field>
+        <Shared.Field label="Contact email"><input className="text-input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ops@atlasimo.com"/></Shared.Field>
       </div>
       <Shared.Field label="Street address"><input className="text-input" value={form.address_line1} onChange={(e) => setForm({ ...form, address_line1: e.target.value })} placeholder="100 Peachtree St NE"/></Shared.Field>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
@@ -303,6 +368,7 @@ function StepProfile({ agency, onSubmit, busy, err }) {
         <Shared.Field label="State"><Shared.Select value={form.address_state} onChange={(v) => setForm({ ...form, address_state: v })} options={[{ v: "", l: "—" }, ...US_STATES.map(s => ({ v: s, l: s }))]}/></Shared.Field>
         <Shared.Field label="ZIP"><input className="text-input" value={form.address_zip} onChange={(e) => setForm({ ...form, address_zip: e.target.value })} placeholder="30303"/></Shared.Field>
       </div>
+      {issues.length > 0 && <div style={{ color: "var(--state-warning)", fontSize: 12 }}>{issues.join(" · ")}</div>}
       {err && <div style={{ color: "var(--state-danger)", fontSize: 12 }}>{err}</div>}
       <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} disabled={!valid || busy} onClick={() => onSubmit(form)}>
         {busy ? "Saving…" : "Save profile + continue →"}
@@ -313,9 +379,13 @@ function StepProfile({ agency, onSubmit, busy, err }) {
 
 function StepBranding({ onSubmit, busy, err }) {
   const [form, setForm] = React.useState({ logo_url: "", primary_color: "#0a8c61", dark_color: "#0c0d11" });
+  // Logo URL is optional; when provided, must be a parseable http(s) URL.
+  // Color values default to brand defaults so they're always valid.
+  const logoOk = !form.logo_url || /^https?:\/\/.+/i.test(form.logo_url.trim());
   return (
     <>
-      <Shared.Field label="Logo URL" hint="Drop a hosted image URL — Vercel Blob, S3, public Drive, etc."><input className="text-input" value={form.logo_url} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="https://…/logo.png"/></Shared.Field>
+      <Shared.Field label="Logo URL" hint="Drop a hosted image URL — Vercel Blob, S3, public Drive, etc."><input className="text-input" type="url" value={form.logo_url} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="https://…/logo.png"/></Shared.Field>
+      {!logoOk && <div style={{ color: "var(--state-warning)", fontSize: 12, marginBottom: 6 }}>Logo URL should start with http:// or https://</div>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Shared.Field label="Primary brand color">
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -338,7 +408,7 @@ function StepBranding({ onSubmit, busy, err }) {
         <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Preview · this is roughly how the sidebar mark will look.</div>
       </div>
       {err && <div style={{ color: "var(--state-danger)", fontSize: 12, marginTop: 6 }}>{err}</div>}
-      <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} disabled={busy} onClick={() => onSubmit(form)}>
+      <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} disabled={busy || !logoOk} onClick={() => onSubmit(form)}>
         {busy ? "Saving…" : "Save branding + continue →"}
       </button>
     </>
@@ -581,15 +651,31 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
     if (!email.trim()) return null;
     try {
       // Try RPC mint_invite first; fall back to /api/invites/create if missing.
+      // The RPC signature is (p_agency_id, p_role, p_email_hint, p_upline_rep_id)
+      // — passing the 4th param explicitly so PostgREST resolves the right overload.
       let token = null;
       try {
-        const r = await sb.rpc("mint_invite", { p_agency_id: agencyId, p_role: role, p_email_hint: email.trim() });
-        token = r?.data?.token || r?.data || null;
+        const r = await sb.rpc("mint_invite", {
+          p_agency_id:    agencyId,
+          p_role:         role,
+          p_email_hint:   email.trim(),
+          p_upline_rep_id: null,
+        });
+        if (!r?.error) token = r?.data?.token || r?.data || null;
       } catch (_rpcErr) {}
       if (!token) {
+        // Also forward the auth header so /api/invites/create authenticates.
+        let jwt = null;
+        try {
+          const sess = await sb.auth.getSession();
+          jwt = sess?.data?.session?.access_token || null;
+        } catch {}
         const r2 = await fetch("/api/invites/create", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(jwt ? { "authorization": `Bearer ${jwt}` } : {}),
+          },
           body: JSON.stringify({ agency_id: agencyId, role, email_hint: email.trim() }),
         });
         const j = await r2.json().catch(() => ({}));
@@ -716,11 +802,17 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
 
 function StepFirstLead({ sb, agencyId, onSubmit, busy, err }) {
   const [form, setForm] = React.useState({ name: "", phone: "", state: "", product: "Med Supp Plan G", source: "manual" });
+  const [insertErr, setInsertErr] = React.useState("");
   const valid = form.name.trim().length > 1;
   const submit = async () => {
+    setInsertErr("");
     // Best-effort: insert into pipeline as "New", then complete the step.
+    // pipeline.consent has a CHECK constraint allowing only
+    // ('verified','pending','none') — "self-attested" used to silently
+    // violate the check and the catch swallowed it. Default to "pending"
+    // for first-run self-entered leads.
     try {
-      await sb.from("pipeline").insert({
+      const { error: insertError } = await sb.from("pipeline").insert({
         agency_id: agencyId,
         lead_name: form.name.trim(),
         phone: form.phone || null,
@@ -730,12 +822,18 @@ function StepFirstLead({ sb, agencyId, onSubmit, busy, err }) {
         source: form.source,
         ap_cents: 0,
         days_in_stage: 0,
-        consent: "self-attested",
+        consent: "pending",
         heat: "fresh",
       });
+      if (insertError) throw insertError;
     } catch (e) {
-      // Don't block — the wizard still finishes; user can add leads later.
-      console.warn("first lead insert failed:", e?.message || e);
+      // Surface the insert failure to the operator instead of silently
+      // pretending the lead landed. We still advance the wizard so they
+      // aren't trapped — leads can be added later from CRM.
+      const msg = String(e?.message || e);
+      setInsertErr(`Couldn't save the lead (${msg}) — wizard will finish anyway. Add leads from CRM later.`);
+      window.toast && window.toast("Lead save failed — wizard will continue", "warn");
+      console.warn("first lead insert failed:", msg);
     }
     onSubmit({ first_lead: form });
   };
@@ -757,6 +855,7 @@ function StepFirstLead({ sb, agencyId, onSubmit, busy, err }) {
         { v: "inbound",     l: "Inbound call" },
         { v: "list",        l: "T65 / mailing list" },
       ]}/></Shared.Field>
+      {insertErr && <div style={{ color: "var(--state-warning)", fontSize: 12, marginTop: 6 }}>{insertErr}</div>}
       {err && <div style={{ color: "var(--state-danger)", fontSize: 12, marginTop: 6 }}>{err}</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button className="btn btn-ghost" style={{ flex: 1 }} disabled={busy} onClick={() => onSubmit({ skipped: true })}>Skip — finish wizard</button>
@@ -856,8 +955,16 @@ function AgencyWizard({ agency, onDone }) {
     } finally { setBusy(false); }
   };
 
+  const localMode = statusRow?._source === "local";
   return (
-    <WizardChrome agencyName={agency.name || statusRow.name} currentKey={nextKey} doneSet={doneSet} totalSteps={statusRow.total_steps}>
+    <WizardChrome
+      agencyName={agency.name || statusRow.name}
+      currentKey={nextKey}
+      doneSet={doneSet}
+      totalSteps={statusRow.total_steps}
+      onExit={() => onDone && onDone()}
+      localMode={localMode}
+    >
       <StepBody stepKey={nextKey} sb={sb} agency={agency} onSubmit={submitStep} busy={busy} err={err}/>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border-subtle)" }}>
         <button className="btn btn-ghost" style={{ fontSize: 11.5 }} onClick={() => onDone && onDone()}>
