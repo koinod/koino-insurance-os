@@ -263,25 +263,47 @@ window.hydrateFromSupabase = async function () {
       sb.from("agencies").select("*"),
     ]);
 
-    if (Array.isArray(agencies.data)) {
+    // SMOKE FIX (sprint/pre-flight): a demo session must never have its
+    // seed wiped by an empty cloud read. The previous guard `Array.isArray`
+    // was true for `[]`, so anonymous + ?demo=1 hydrate landed empty cloud
+    // arrays on top of the just-loaded seed. We now require length > 0
+    // when the session is in demo mode (either ?demo=1, demo-skip, or an
+    // is_demo agency). Real agencies keep the original behaviour: an
+    // empty cloud read DOES land an empty array, so the empty-state UI
+    // (e.g. "Invite reps") renders correctly.
+    const demoMode = !!(
+      window.__demoSkip ||
+      (window.__activeAgency && window.__activeAgency.is_demo) ||
+      (window.me && window.me() && window.me().is_demo === true) ||
+      (typeof window.isDemoAgency === "function" && window.isDemoAgency())
+    );
+    const hasRows = (res) => Array.isArray(res?.data) && res.data.length > 0;
+    // For demo sessions: only overwrite seed when cloud has real rows.
+    // For real sessions: keep prior behaviour — assign whatever cloud
+    // returned (including []), so empty-state UI renders.
+    const canWrite = (res) => demoMode ? hasRows(res) : Array.isArray(res?.data);
+
+    if (canWrite(agencies)) {
       window.AppData.AGENCIES = agencies.data.map(a => ({
         id: a.id, name: a.name, slug: a.slug,
         defaultOverridePct: a.default_override_pct != null ? Number(a.default_override_pct) : 20.0
       }));
     }
 
-    if (Array.isArray(orgSettings.data)) {
+    if (canWrite(orgSettings)) {
       const map = {};
       orgSettings.data.forEach(s => { map[s.key] = s.value; });
       window.AppData.ORG_SETTINGS = map;
     }
 
-    // GATE CHANGE (sovereign pass 6, 2026-05-11):
-    //   Was: `if (data?.length)` → empty agency left the demo fixtures in place.
-    //   Now: `if (Array.isArray(data))` → 0 rows assigns [] and the page
-    //   renders its empty state (manager card "No producers visible at your
-    //   scope. Invite reps."), instead of fake Atlas / Marcus rows.
-    if (Array.isArray(reps.data)) {
+    // GATE CHANGE (sovereign pass 6, 2026-05-11; refined sprint/pre-flight):
+    //   v1: `if (data?.length)` → empty agency left demo fixtures in place
+    //       even for real signed-in agencies (bug — should be empty state).
+    //   v2: `if (Array.isArray(data))` → 0 rows always assigns [] (broke
+    //       ?demo=1 path — empty cloud wiped the just-loaded seed).
+    //   v3 (now): `canWrite(res)` — `length > 0` only for demo sessions,
+    //       `Array.isArray` for real ones. Both bugs fixed.
+    if (canWrite(reps)) {
       window.AppData.REPS = reps.data.map(r => ({
         id: r.id, name: r.name, handle: r.handle, tier: r.tier,
         mtd: Math.round(r.mtd_cents / 100), today: Math.round(r.today_cents / 100),
@@ -291,7 +313,7 @@ window.hydrateFromSupabase = async function () {
         baseCompPct: r.base_comp_pct != null ? Number(r.base_comp_pct) : 50.0
       }));
     }
-    if (Array.isArray(pipeline.data)) {
+    if (canWrite(pipeline)) {
       window.AppData.PIPELINE = pipeline.data.map(p => ({
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
@@ -300,7 +322,7 @@ window.hydrateFromSupabase = async function () {
         phone: p.phone || null, email: p.email || null,
       }));
     }
-    if (Array.isArray(queue.data)) {
+    if (canWrite(queue)) {
       window.AppData.QUEUE = queue.data.map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
         product: q.product, elapsed: q.elapsed_seconds, score: q.score,
@@ -308,12 +330,12 @@ window.hydrateFromSupabase = async function () {
         assignedRepId: q.assigned_rep_id || null,
       }));
     }
-    if (Array.isArray(courses.data)) {
+    if (canWrite(courses)) {
       window.AppData.COURSES = courses.data.map(c => ({
         id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
       }));
     }
-    if (Array.isArray(recordings.data)) {
+    if (canWrite(recordings)) {
       window.AppData.RECORDINGS = recordings.data.map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
@@ -321,24 +343,24 @@ window.hydrateFromSupabase = async function () {
         ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
       }));
     }
-    if (Array.isArray(connections.data)) {
+    if (canWrite(connections)) {
       window.AppData.CONNECTIONS = connections.data.map(c => ({
         id: c.id, name: c.name, category: c.category, status: c.status, meta: c.meta
       }));
     }
-    if (Array.isArray(hardware.data)) {
+    if (canWrite(hardware)) {
       window.AppData.HARDWARE = hardware.data.map(h => ({
         id: h.id, name: h.name, kind: h.kind, status: h.status, uptime: h.uptime_text,
         load: h.load_pct, agents: h.agent_count, last: "live"
       }));
     }
-    if (Array.isArray(agents.data)) {
+    if (canWrite(agents)) {
       window.AppData.AGENTS = agents.data.map(a => ({
         id: a.id, name: a.name, host: a.host_id, reqs: a.reqs_per_day,
         success: parseFloat(a.success_rate), last: "live", desc: a.description
       }));
     }
-    if (Array.isArray(workflows.data)) {
+    if (canWrite(workflows)) {
       window.AppData.WORKFLOWS = workflows.data.map(w => ({
         id: w.id, name: w.name, runs: w.runs_per_day,
         lastRun: w.last_run ? new Date(w.last_run).toLocaleString() : "—"

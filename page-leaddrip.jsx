@@ -717,6 +717,15 @@ function MessagingTab({ outbox }) {
   const [sending,  setSending]  = React.useState(false);
   const streamRef = React.useRef(null);
 
+  // TCPA pre-flight gate (blocker #2, sprint/pre-flight). Manual replies
+  // composed in this tab were previously inserted directly into sms_outbox
+  // with status='pending' — bypassing every gate the Phase 2 sender owns.
+  // While Drip is in DRY RUN (org_settings.drip.send_enabled=false), we
+  // refuse the insert entirely. When the flag flips on, we still append
+  // a STOP-out hint so the message remains TCPA-compliant regardless of
+  // what the rep typed.
+  const sendEnabled = useDripSendFlag();
+
   const messages = Array.isArray(outbox) ? outbox : [];
 
   // Group by to_number → thread list
@@ -763,19 +772,35 @@ function MessagingTab({ outbox }) {
 
   const sendReply = async () => {
     if (!composer.trim() || !activePhone) return;
+    // TCPA pre-flight gate (option C — both block + STOP-suffix):
+    // Refuse manual SMS while Drip is in DRY RUN. This keeps the
+    // direct-insert path from short-circuiting the consent / quiet-hour /
+    // STOP-list gates that live in api/cron/sms-flush.js.
+    if (!sendEnabled) {
+      window.toast && window.toast("Manual SMS disabled while Drip is in DRY RUN.", "error");
+      return;
+    }
     setSending(true);
     try {
       const sb = window.getSupabase && window.getSupabase();
       const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
       const meIdent  = window.me && window.me();
       if (sb && AppData.LIVE && agencyId) {
+        // Append the STOP-out hint if the rep didn't include one. Case-
+        // insensitive — "STOP", "Reply Stop", "reply STOP to opt out"
+        // all count. Required by TCPA / CTIA short-code messaging
+        // principles for any outbound that isn't a direct reply to a
+        // user-initiated message.
+        const raw = composer.trim();
+        const hasStop = /stop/i.test(raw);
+        const body = hasStop ? raw : `${raw} Reply STOP to opt out`;
         await sb.from("sms_outbox").insert({
           agency_id:  agencyId,
           rep_id:     meIdent?.rep_id || null,
           to_number:  activePhone,
-          body:       composer.trim(),
+          body,
           status:     "pending",
-          source:     "manual",
+          source:     "manual_reply",
         });
         window.toast && window.toast("Message queued", "success");
       } else {
