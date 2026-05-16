@@ -302,4 +302,118 @@ End-of-turn summary: 1–2 sentences. What changed, what's next. Detail goes to 
 
 ---
 
+## 2026-05-16 — Quote tool DB hydration, Connect Source wizard, cross-IIFE hardening
+
+### Cross-IIFE bare refs crash the whole app
+
+Every `*.jsx` is wrapped in an IIFE by `scripts/build-jsx.mjs`. Bare
+`<PageTeam/>` in `app.jsx` only works if `page-owner.js` ran first AND
+assigned `window.PageTeam = PageTeam`. Cache mismatch, parse error, or
+load order → `"Can't find variable: PageTeam"` → whole tab crashes on
+render. **Fix shipped** — `F(key, props)` helper in `app.jsx` that falls
+back to `<PageStub/>`. Same fragility exists in 30+ other files; codemod
+when there's time.
+
+```js
+const F = (key, props = {}) => {
+  const P = window[key];
+  return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
+};
+```
+
+### Settings → Carriers had silent CHECK violations
+
+UI passed `category: "Med Supp"` and `status: "paused"` — both fail the
+DB CHECK constraint (23514). The generic save-failed toast hid the real
+error. **Pattern:** when a Supabase insert/update generic-toasts, dump
+postgres logs and look for 23514. UI enums and DB enums must be locked in
+sync.
+
+- `carriers.category`: `med_supp / medicare_advantage / final_expense /
+  annuity / life / aca / dental / vision / part_d / other`
+- `carriers.status`: `active / pending / inactive` (NOT
+  paused/terminated)
+
+### `provision_sub_agency` RPC requires `p_*` prefixed JS params
+
+PostgREST is strict: `sb.rpc("provision_sub_agency", { name, slug, ... })`
+returns `PGRST202 function not found` because the SQL signature is
+`provision_sub_agency(p_name, p_slug, ...)`. **All our RPCs use `p_*`
+prefix** — JS callers must match exactly. This single bug was what made
+"Start a new agency" impossible for any new signup before today.
+
+### AuthGate stale-me race fixed
+
+`refreshTenant` was firing `window.refreshMe()` as fire-and-forget, then
+`setTenant(t)`. AuthGate re-rendered with fresh `tenant.member` but stale
+`me={role:"unmapped", needs_onboarding:true}` → `isUnmapped` true →
+routed back to FirstRun → loop. **Fixed two ways:** `await refreshMe()`
+BEFORE `setTenant`, AND short-circuit `isUnmapped` to false when
+`tenant.member` exists. **Tenant.member is authoritative; me() is a
+lagging cache.**
+
+### Quote tool DB hydration pattern
+
+`lib/rate-engine.js` keeps the `/lib/carrier-underwriting.json` fallback,
+but adds `hydrateFromSupabase()` that runs on mount and overrides
+`UW_GUIDES` with DB rows. Merge order: JSON first, DB second (DB wins per
+carrier id). `recommendReasons()` reads `UW_GUIDES` transparently.
+
+Rule-row → flat-field map:
+- `tobacco` rule → `tobacco_rateup_pct`, `tobacco_notes`
+- `build_chart` rule → `max_bmi`, `min_bmi`, `build_notes`
+- `condition_rate_class { condition: 'diabetes' }` →
+  `diabetes_accepted`, `diabetes_a1c_cap`, `diabetes_insulin`
+- `condition_decline` rule → `auto_decline_conditions[]`
+- `state_avail` rule → `state_exclusions_or_special[]`
+- `face_amount` rule → `face_amounts`
+
+### Connect-Source wizard pattern (page-crm.jsx)
+
+`create_inbound_lead_source(p_agency_id, p_name, p_kind, p_vendor,
+p_cost_per_lead_cents, p_field_map, p_notes)` is `SECURITY DEFINER`,
+returns the new row with slug + 64-char hex HMAC secret. UI never holds
+the entropy source. Webhook URL:
+`/api/leads/inbound-source?source=<slug>`. HMAC verified server-side via
+`x-repflow-signature: sha256=<hex>`. `field_map` jsonb maps provider's
+keys → ours.
+
+CSV upload: client-side parse with quoted-field handling, `auto_map`
+heuristics by column header text, batch insert into `pipeline` 200 rows
+at a time. `agency_id` MUST be explicitly set per row.
+
+### Concurrent writers in the same repo
+
+Eight `sprint/*` branches active in parallel, plus a
+`claude/fervent-nobel-b93fcd` upstream agent. Every commit I made had to
+`git stash push -u` of unrelated dirty files first (`icons.jsx`,
+`shared.jsx`, `page-floor.jsx`, etc.). **Pattern:** stash → push → pop.
+Don't `git checkout -- <file>` on dirty files you didn't touch — they're
+another agent's in-flight work.
+
+### `?v=N` cache-buster is hand-managed and lies
+
+The version number in `<script src="dist/X.js?v=N">` is decoupled from
+file content. Bumping the number doesn't verify what's actually
+deployed. **Always `grep` for a known marker in `dist/page-X.js` after
+building.** Long-term: switch to content-hashed filenames via esbuild
+`--entry-names=[name].[hash]`.
+
+### Migration files don't auto-apply
+
+`supabase/migrations/*.sql` in tree ≠ applied to live DB. Use
+`supabase db push` OR Supabase MCP `apply_migration`. Migration 0029
+was in tree for days before I applied it.
+
+### Vercel project access via MCP
+
+Returns 403 (`koinocapital-7163s-projects` scope auth mismatch). To
+verify a deploy, `curl https://repflow.koino.capital/dist/X.js?v=N` and
+grep. The site has Vercel bot challenge enabled — `curl` may get a 403
+HTML page; if so, run from a browser DevTools fetch to bypass.
+
+---
+
 *Generated 2026-05-07 by the Dispatch session that built tenant isolation, invite hierarchy, expenses, and the UEP marketing site. Update as you learn more.*
+
+*Appended 2026-05-16 by the session that wired Quote tool to `product_underwriting_rules`, built the Connect-Source wizard, and hardened `app.jsx` against cross-IIFE crashes.*
