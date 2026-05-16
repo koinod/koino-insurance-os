@@ -405,9 +405,16 @@
                   </div>
                 </div>
                 {isOpen && (
-                  <div className="row" style={{ gridColumn: "1 / -1", padding: 8, background: "var(--bg-raised)" }}>
+                  <div className="row" style={{
+                    gridColumn: "1 / -1",
+                    gridTemplateColumns: "1fr",
+                    height: "auto",
+                    minHeight: 64,
+                    padding: "14px 18px",
+                    background: "var(--bg-raised)",
+                  }}>
                     {playUrl
-                      ? <audio controls autoPlay src={playUrl} style={{ width: "100%" }}/>
+                      ? <audio controls autoPlay src={playUrl} style={{ width: "100%", height: 36 }}/>
                       : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Loading playback…</div>}
                   </div>
                 )}
