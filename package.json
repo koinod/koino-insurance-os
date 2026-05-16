@@ -4,7 +4,8 @@
   "scripts": {
     "build": "node scripts/build-jsx.mjs",
     "vercel-build": "node scripts/build-jsx.mjs",
-    "smoke": "node tests/smoke.mjs"
+    "smoke": "node tests/smoke.mjs",
+    "smoke:interactions": "node tests/interactions.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.0",
