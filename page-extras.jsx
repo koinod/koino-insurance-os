@@ -807,8 +807,18 @@ function VaultDocsPane({ canEdit }) {
   const [q, setQ]           = React.useState("");
   const [catFilter, setCat] = React.useState("All");
   const [addOpen, setAddOpen] = React.useState(false);
-  const emptyDocDraft = () => ({ title: "", cat: "Internal", url: "", segmentId: null, targetRoles: ["owner","manager","rep"] });
+  const emptyDocDraft = () => ({ id: null, title: "", cat: "Internal", url: "", segmentId: null, targetRoles: ["owner","manager","rep"] });
   const [draft, setDraft]   = React.useState(emptyDocDraft());
+  const openCreate = () => { setDraft(emptyDocDraft()); setAddOpen(true); };
+  const openEdit   = (d) => {
+    setDraft({
+      id: d.id, title: d.title || "", cat: d.cat || "Internal",
+      url: d.url || "", segmentId: d.segmentId || null,
+      targetRoles: Array.isArray(d.targetRoles) && d.targetRoles.length > 0
+        ? d.targetRoles : ["owner","manager","rep"],
+    });
+    setAddOpen(true);
+  };
 
   const cats = ["All", ...Array.from(new Set(docs.map(d => d.cat).filter(Boolean)))];
   const filtered = docs.filter(d =>
@@ -827,13 +837,14 @@ function VaultDocsPane({ canEdit }) {
     const safeUrl = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : "";
     try {
       await window.AppData.mutate.docUpsert({
+        id: draft.id || undefined,
         title, cat: draft.cat, url: safeUrl, kind: "link",
         segmentId: draft.segmentId || null,
         targetRoles: draft.targetRoles,
       });
       setDraft(emptyDocDraft());
       setAddOpen(false);
-      window.toast && window.toast("Document added", "success");
+      window.toast && window.toast(draft.id ? "Document saved" : "Document added", "success");
     } catch (_e) {}
   };
 
@@ -849,7 +860,7 @@ function VaultDocsPane({ canEdit }) {
         <h3>Documents</h3>
         <span className="meta">{filtered.length} of {docs.length}</span>
         <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search docs…" value={q} onChange={e => setQ(e.target.value)}/>
-        {canEdit && <button className="btn btn-primary" onClick={() => setAddOpen(true)}><Icons.Plus size={12}/> Add doc</button>}
+        {canEdit && <button className="btn btn-primary" onClick={openCreate}><Icons.Plus size={12}/> Add doc</button>}
       </div>
       <div style={{ padding: "8px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
         {cats.map(c => (
@@ -866,11 +877,11 @@ function VaultDocsPane({ canEdit }) {
         </div>
       ) : (
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1fr 120px 80px 30px" }}>
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 120px 80px 60px" }}>
             <div>Title</div><div>Category</div><div>Kind</div><div></div>
           </div>
           {filtered.map(d => (
-            <div key={d.id} className="row" style={{ gridTemplateColumns: "1fr 120px 80px 30px" }}>
+            <div key={d.id} className="row" style={{ gridTemplateColumns: "1fr 120px 80px 60px" }}>
               <div style={{ fontWeight: 500, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icons.FileText size={11} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
                 {d.url
@@ -880,19 +891,24 @@ function VaultDocsPane({ canEdit }) {
               <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{d.cat || "—"}</div>
               <div><span className="chip">{d.kind || "link"}</span></div>
               {canEdit
-                ? <button className="icon-btn" onClick={() => removeDoc(d.id)} style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                ? (
+                  <div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                    <button className="icon-btn" onClick={() => openEdit(d)} title="Edit"><Icons.Edit size={11}/></button>
+                    <button className="icon-btn" onClick={() => removeDoc(d.id)} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                  </div>
+                )
                 : <div/>}
             </div>
           ))}
         </div>
       )}
       {addOpen && (
-        <Shared.Modal title="Add document" width={520} onClose={() => setAddOpen(false)} actions={
+        <Shared.Modal title={draft.id ? "Edit document" : "Add document"} width={520} onClose={() => setAddOpen(false)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={addDoc}
               disabled={!draft.title.trim() || draft.targetRoles.length === 0}>
-              <Icons.Plus size={11}/> Add
+              <Icons.Check size={11}/> {draft.id ? "Save changes" : "Add"}
             </button>
           </>
         }>
@@ -2931,10 +2947,18 @@ function ProductTrainingManager({ store }) {
 /* ─── Manager · Assign Course modal ───────────────────────────────────── */
 function AssignCourseModal({ store, onClose }) {
   const { REPS } = AppData;
+  // Scope assignment targets to the viewer's downline. Owner/super_admin →
+  // scopeRepIds() returns null → see everyone in agency. Manager → only their
+  // downline. Operator directive: "higher-level managers should be able to
+  // assign courses to anyone below them."
+  const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
+  const visibleReps = scopeIds ? REPS.filter(r => scopeIds.includes(r.id)) : REPS;
   const [courseId, setCourseId] = React.useState(store.courses[0]?.id || "");
   const [repIds, setRepIds]     = React.useState([]);
   const [dueDate, setDueDate]   = React.useState("");
   const toggle = (id) => setRepIds(rs => rs.includes(id) ? rs.filter(x => x !== id) : [...rs, id]);
+  const selectAll = () => setRepIds(visibleReps.map(r => r.id));
+  const clearAll  = () => setRepIds([]);
 
   const save = () => {
     if (!courseId || repIds.length === 0) return;
@@ -2965,9 +2989,23 @@ function AssignCourseModal({ store, onClose }) {
       <Shared.Field label="Due date (optional)">
         <input className="text-input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}/>
       </Shared.Field>
-      <div className="field-l" style={{ marginTop: 8 }}>Producers · {repIds.length} selected</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+        <div className="field-l" style={{ flex: 1 }}>
+          Producers in your downline · {repIds.length} of {visibleReps.length} selected
+        </div>
+        {visibleReps.length > 0 && (
+          <>
+            <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }} onClick={selectAll}>Select all</button>
+            <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }} onClick={clearAll}>Clear</button>
+          </>
+        )}
+      </div>
       <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
-        {REPS.map(r => (
+        {visibleReps.length === 0 ? (
+          <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
+            No producers in your downline yet. Recruit or invite first, then come back here to assign.
+          </div>
+        ) : visibleReps.map(r => (
           <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
             <input type="checkbox" checked={repIds.includes(r.id)} onChange={() => toggle(r.id)}/>
             <Shared.Avatar rep={r} size={20}/>
