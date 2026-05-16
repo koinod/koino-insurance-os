@@ -964,20 +964,71 @@ window.isPublicVersion = isPublicVersion;
 window.AgencyTime = AgencyTime;
 
 /* AutodialQueue — per-rep "play queue" for the autodialer.
-   Lives in localStorage so it survives page reloads but stays per-device.
-   Any page can add a lead with AutodialQueue.add({ id, lead, phone, ... });
-   the Floor's autodial bar reads .list() to drive the dialer. */
+   localStorage stays the synchronous cache (UI never blocks on the network).
+   Every mutation also debounce-upserts the same payload to public.user_prefs
+   (key = "autodial_queue") so the queue survives a device switch.
+   On me:loaded, call AutodialQueue.hydrate() once — fetches the server row,
+   merges with local (server wins iff its updated_at is newer than local's),
+   and dispatches autodial:queue:changed so any open UI re-renders. */
 window.AutodialQueue = (() => {
-  const KEY = "repflow.autodial.queue.v1";
+  const KEY     = "repflow.autodial.queue.v1";
+  const META    = "repflow.autodial.queue.meta.v1"; // { updated_at: ISO }
+  const PREF    = "autodial_queue";
+
   const read = () => {
     try { return JSON.parse(localStorage.getItem(KEY) || "[]"); }
     catch { return []; }
   };
-  const write = (rows) => {
+  const readMeta = () => {
+    try { return JSON.parse(localStorage.getItem(META) || "{}"); }
+    catch { return {}; }
+  };
+  const writeMeta = (m) => {
+    try { localStorage.setItem(META, JSON.stringify(m)); } catch (_e) {}
+  };
+
+  let pushTimer = null;
+  const schedulePush = () => {
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(pushNow, 600);
+  };
+
+  const repId = () => {
+    const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+    return me?.rep_id || null;
+  };
+
+  const pushNow = async () => {
+    pushTimer = null;
+    const sb  = window.getSupabase && window.getSupabase();
+    const rid = repId();
+    if (!sb || !rid) return; // anon / pre-signin → cache-only is fine
+    const value = read();
+    const updated_at = new Date().toISOString();
+    writeMeta({ updated_at });
+    try {
+      const { error } = await sb.from("user_prefs").upsert(
+        { rep_id: rid, key: PREF, value, updated_at },
+        { onConflict: "rep_id,key" }
+      );
+      if (error && !/relation .* does not exist/i.test(error.message || "")) {
+        // Don't spam the user when the migration hasn't been applied yet —
+        // localStorage already holds the queue, the upsert is best-effort.
+        console.warn("AutodialQueue push failed:", error.message || error);
+      }
+    } catch (e) {
+      console.warn("AutodialQueue push threw:", e?.message || e);
+    }
+  };
+
+  const write = (rows, { push = true } = {}) => {
     try { localStorage.setItem(KEY, JSON.stringify(rows)); }
     catch (_e) {}
+    writeMeta({ updated_at: new Date().toISOString() });
     window.dispatchEvent(new CustomEvent("autodial:queue:changed"));
+    if (push) schedulePush();
   };
+
   return {
     list() { return read(); },
     count() { return read().length; },
@@ -992,5 +1043,58 @@ window.AutodialQueue = (() => {
     },
     remove(id) { write(read().filter(x => x.id !== id)); },
     clear() { write([]); },
+
+    // hydrate() — pull the server row and reconcile with local. Server wins
+    // iff its updated_at is strictly newer than the local meta timestamp;
+    // otherwise we push local up (covers the offline-mutate-then-online
+    // case). Fires autodial:queue:changed if the local list actually
+    // changes. Safe to call multiple times. Returns the resolved list.
+    async hydrate() {
+      const sb  = window.getSupabase && window.getSupabase();
+      const rid = repId();
+      if (!sb || !rid) return read();
+      try {
+        const { data, error } = await sb.from("user_prefs")
+          .select("value, updated_at")
+          .eq("rep_id", rid)
+          .eq("key", PREF)
+          .maybeSingle();
+        if (error) {
+          if (!/relation .* does not exist/i.test(error.message || "")) {
+            console.warn("AutodialQueue hydrate failed:", error.message || error);
+          }
+          return read();
+        }
+        if (!data) {
+          // No server row yet — push local up (if any) so it's there next
+          // time we land on a different device.
+          if (read().length > 0) schedulePush();
+          return read();
+        }
+        const localMeta = readMeta();
+        const serverNewer = !localMeta.updated_at
+          || new Date(data.updated_at) > new Date(localMeta.updated_at);
+        if (serverNewer) {
+          const serverList = Array.isArray(data.value) ? data.value : [];
+          const prevJSON = JSON.stringify(read());
+          const nextJSON = JSON.stringify(serverList);
+          if (prevJSON !== nextJSON) {
+            // Adopt server state without re-pushing — server is already the
+            // authoritative copy we just read.
+            write(serverList, { push: false });
+            writeMeta({ updated_at: data.updated_at });
+          } else {
+            writeMeta({ updated_at: data.updated_at });
+          }
+          return serverList;
+        }
+        // Local is newer (or equal) — push to catch the server up.
+        schedulePush();
+        return read();
+      } catch (e) {
+        console.warn("AutodialQueue hydrate threw:", e?.message || e);
+        return read();
+      }
+    },
   };
 })();
