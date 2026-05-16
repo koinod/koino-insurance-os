@@ -621,6 +621,21 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
             const agencyName = meIdent?.agency_name || "your agency";
             window.generateSOAPdf && window.generateSOAPdf(lead, agencyName);
           }}><Icons.Shield size={12}/> SOA</button>
+          <button className="btn" disabled={!phone.trim()}
+            title={phone.trim() ? "Pin this lead to your autodial queue on the Floor" : "Add phone first"}
+            onClick={() => phone.trim() && window.AutodialQueue && window.AutodialQueue.add({
+              id: "pipe-" + lead.id,
+              lead: lead.lead,
+              phone: phone.trim(),
+              product: lead.product,
+              age: lead.age,
+              state: lead.state,
+              ap: lead.ap || 0,
+              source: lead.source || "Pipeline",
+              score: lead.heat === "hot" ? 92 : lead.heat === "fresh" ? 88 : 78,
+            })}>
+            <Icons.Phone size={12}/> Send to autodial
+          </button>
           <button className="btn btn-primary" disabled={!phone.trim()}
             title={phone.trim() ? `Call ${phone} via your installed agent` : "Add phone first"}
             onClick={() => phone.trim() && (window.repflowDialViaAgent

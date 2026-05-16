@@ -131,6 +131,22 @@ function DialQueueView({ onCall }) {
                       <Icons.Phone size={12}/>
                     </button>
                     <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
+                      title={l.phone ? "Pin to autodial queue (Floor)" : "No phone on file"}
+                      disabled={!l.phone}
+                      onClick={() => l.phone && window.AutodialQueue && window.AutodialQueue.add({
+                        id: "q-" + l.id,
+                        lead: l.lead,
+                        phone: l.phone,
+                        product: l.product,
+                        age: l.age,
+                        state: l.state,
+                        ap: l.ap || 0,
+                        source: l.source || "Queue",
+                        score: l.score || 80,
+                      })}>
+                      <Icons.Plus size={12}/>
+                    </button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }}
                       title={l.phone ? `Send SMS to ${l.phone}` : "No phone on file"}
                       disabled={!l.phone}
                       onClick={() => l.phone && window.smsCompose && window.smsCompose(l, l.phone)}>

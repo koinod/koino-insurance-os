@@ -961,3 +961,35 @@ window.Shared = { TierChip, Avatar, Sparkline, KpiCard, Sidebar, Topbar, CmdK, A
 window.isDemoAgency = isDemoAgency;
 window.isPublicVersion = isPublicVersion;
 window.AgencyTime = AgencyTime;
+
+/* AutodialQueue — per-rep "play queue" for the autodialer.
+   Lives in localStorage so it survives page reloads but stays per-device.
+   Any page can add a lead with AutodialQueue.add({ id, lead, phone, ... });
+   the Floor's autodial bar reads .list() to drive the dialer. */
+window.AutodialQueue = (() => {
+  const KEY = "repflow.autodial.queue.v1";
+  const read = () => {
+    try { return JSON.parse(localStorage.getItem(KEY) || "[]"); }
+    catch { return []; }
+  };
+  const write = (rows) => {
+    try { localStorage.setItem(KEY, JSON.stringify(rows)); }
+    catch (_e) {}
+    window.dispatchEvent(new CustomEvent("autodial:queue:changed"));
+  };
+  return {
+    list() { return read(); },
+    count() { return read().length; },
+    has(id) { return read().some(x => x.id === id); },
+    add(item) {
+      if (!item || !item.id) return false;
+      const cur = read();
+      if (cur.some(x => x.id === item.id)) return false;
+      write([...cur, { ...item, _addedAt: Date.now() }]);
+      window.toast && window.toast(`${item.lead || "Lead"} added to autodial`, "success");
+      return true;
+    },
+    remove(id) { write(read().filter(x => x.id !== id)); },
+    clear() { write([]); },
+  };
+})();
