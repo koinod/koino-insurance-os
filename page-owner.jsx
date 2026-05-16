@@ -918,7 +918,7 @@ function PageTeam() {
       try {
         await Promise.all(Object.entries(picks).map(([qid, rid]) => AppData.mutate.queueAssign(qid, rid)));
         window.toast && window.toast(`Routed ${Object.keys(picks).length} leads`, "success");
-      } catch (_e) {}
+      } catch (e) { window.toast?.(`Route batch failed: ${e?.message || e}`, "error"); console.error("[owner.queueAssignBatch]", e); }
     }
   };
 
@@ -999,7 +999,7 @@ function PageTeam() {
                     try {
                       await AppData.mutate.queueAssign(dragSnap.id, r.id);
                       window.toast && window.toast(`${dragSnap.lead} → ${r.name.split(" ")[0]}${AppData.LIVE ? " · routed" : ""}`, "success");
-                    } catch (_e) {}
+                    } catch (e) { window.toast?.(`Route failed: ${e?.message || e}`, "error"); console.error("[owner.queueAssignDnD]", e); }
                   }
                 }}
                 style={{
@@ -1435,7 +1435,7 @@ function ReplayMomentModal({ card, onClose }) {
       ];
   const markPracticed = async () => {
     if (card?.sessionId && !String(card.sessionId).startsWith("seed-")) {
-      try { await AppData.mutate.coachingSessionResolve(card.sessionId, "practiced", null, "Replay reviewed by manager"); } catch (_e) {}
+      try { await AppData.mutate.coachingSessionResolve(card.sessionId, "practiced", null, "Replay reviewed by manager"); } catch (e) { window.toast?.(`Mark practiced failed: ${e?.message || e}`, "error"); console.error("[owner.coachingSessionResolve]", e); }
     }
     window.toast && window.toast("Marked practiced — moves down the queue", "success");
     onClose();

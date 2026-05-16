@@ -84,7 +84,7 @@ function PageNIGO({ role = "manager" }) {
     try {
       await AppData.mutate.nigoStatus(id, newStatus);
       window.toast && window.toast(`NIGO marked ${STATUS_LABEL[newStatus] || newStatus}${AppData.LIVE ? " · saved" : ""}`, "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`NIGO update failed: ${e?.message || e}`, "error"); console.error("[opsDepth.nigoStatus]", e); }
   };
   const totalAtRisk = visible.reduce((a, n) => a + (n.apAtRisk || 0), 0);
   const repById = Object.fromEntries((AppData.REPS || []).map(r => [r.id, r]));

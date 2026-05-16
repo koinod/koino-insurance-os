@@ -505,7 +505,7 @@ function DispatchView({ onCall }) {
     setPick(q.id, rid);
     try {
       if (AppData.mutate?.queueAssign) await AppData.mutate.queueAssign(q.id, rid);
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Queue assign failed: ${e?.message || e}`, "error"); console.error("[queue.assign]", e); return; }
     const rep = REPS.find(r => r.id === rid);
     window.toast && window.toast(`Sent ${q.lead} → ${rep?.name?.split(" ")[0] || rid}`, "success");
   };
@@ -1617,7 +1617,7 @@ function InCallQuoteAssist({ lead }) {
         recommendedCarrierId: quoted[0]?.carrierId || null,
       });
       window.toast && window.toast("Quote saved to lead", "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Quote save failed: ${e?.message || e}`, "error"); console.error("[queue.leadQuoteSave]", e); }
   };
 
   return (
@@ -1780,7 +1780,7 @@ function InCall({ onClose, lead, autodial }) {
     try {
       const conn = window.__twActive || (window.Twilio && window.Twilio.Device && window.Twilio.Device.activeConnection && window.Twilio.Device.activeConnection());
       if (conn && typeof conn.mute === "function") conn.mute(!muted);
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Mute failed: ${e?.message || e}`, "error"); console.error("[queue.twilioMute]", e); }
     window.toast && window.toast(!muted ? "Muted" : "Unmuted", "info");
   };
   const toggleHold = () => {

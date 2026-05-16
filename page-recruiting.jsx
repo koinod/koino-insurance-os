@@ -436,7 +436,7 @@
         try {
           await window.AppData.mutate.recruitingApplicantSetStatus(applicant.id, next.id);
           window.toast && window.toast(`${applicant.name.split(" ")[0]} → ${next.label}`, "success");
-        } catch (_e) {}
+        } catch (e) { window.toast?.(`Applicant status update failed: ${e?.message || e}`, "error"); console.error("[recruiting.applicantSetStatus]", e); }
       }
     };
 
@@ -532,7 +532,7 @@
       try {
         await window.AppData.mutate.recruitingCampaignToggle(c.id, next);
         window.toast && window.toast(`${c.name} → ${next}`, "success");
-      } catch (_e) {}
+      } catch (e) { window.toast?.(`Campaign toggle failed: ${e?.message || e}`, "error"); console.error("[recruiting.campaignToggle]", e); }
     };
     // Managers can only toggle campaigns they own (in their downline scope).
     const canEdit = !isManager || visibleToMe;

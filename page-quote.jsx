@@ -175,7 +175,7 @@
               data.every(r => ["ok","decline","error","no_creds","no_scraper"].includes(r.status))) {
             setAgentRunStatus("done");
           }
-        } catch (_) {}
+        } catch (e) { console.warn("[quote.agentRunPoll]", e); }
       };
       setAgentRunStatus("running");
       poll();

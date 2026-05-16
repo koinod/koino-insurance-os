@@ -333,7 +333,7 @@ const AccountChip = () => {
             ) : (
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}
                 onClick={() => {
-                  try { sessionStorage.clear(); } catch(_e) {}
+                  try { sessionStorage.clear(); } catch (e) { console.warn("[shared.signOutClear]", e); }
                   window.location.reload();
                 }}>
                 <Icons.Send size={11}/> Sign in to a real account
@@ -974,7 +974,7 @@ window.AutodialQueue = (() => {
   };
   const write = (rows) => {
     try { localStorage.setItem(KEY, JSON.stringify(rows)); }
-    catch (_e) {}
+    catch (e) { console.warn("[shared.localStorageWrite]", e); }
     window.dispatchEvent(new CustomEvent("autodial:queue:changed"));
   };
   return {

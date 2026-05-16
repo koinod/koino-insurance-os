@@ -37,7 +37,7 @@ export default async function handler(req) {
     });
     const rows = await r.json().catch(() => []);
     artifactId = rows?.[0]?.id || null;
-  } catch (_e) {}
+  } catch (e) { console.warn("[twilio-recording.artifactCreate]", e); }
 
   // Fire transcription async (don't block Twilio's webhook on Whisper latency).
   // EdgeRuntime exposes waitUntil via req when available; fall back to a detached fetch.
@@ -79,5 +79,5 @@ async function transcribeAndPersist({ recording_url, artifactId, anon, origin })
         }),
       });
     }
-  } catch (_e) {}
+  } catch (e) { console.warn("[twilio-recording.transcribeAndPersist]", e); }
 }

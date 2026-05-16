@@ -113,7 +113,7 @@ export default async function handler(req) {
         try {
           const reps = await pgGet("reps", `select=name&id=eq.${mgr.rep_id}&limit=1`);
           if (reps[0]?.name) mgrName = reps[0].name;
-        } catch (_e) {}
+        } catch (e) { console.warn("[cron.manager-inactivity.repNameLookup]", mgr.rep_id, e); }
 
         await pgInsert("agency_notifications", {
           agency_id: agencyId,

@@ -93,7 +93,7 @@ function PageMessages({ role = "rep" }) {
     if (!body || !activeId) return;
     setComposer("");
     try { await window.AppData.mutate.messagePost({ threadId: activeId, body }); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Send failed: ${e?.message || e}`, "error"); console.error("[messages.send]", e); }
   };
   const onComposerKey = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -108,7 +108,7 @@ function PageMessages({ role = "rep" }) {
       const t = await window.AppData.mutate.threadEnsure({ memberHandles: [myHandle, handle], kind: "dm" });
       setActiveId(t.id);
       setComposeOpen(false);
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Open DM failed: ${e?.message || e}`, "error"); console.error("[messages.threadEnsure]", e); }
   };
 
   return (

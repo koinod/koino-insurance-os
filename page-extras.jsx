@@ -347,7 +347,7 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
   const removeScript = async (id) => {
     if (!confirm("Delete this script? This can't be undone.")) return;
     try { await window.AppData.mutate.scriptDelete(id); window.toast && window.toast("Script removed", "info"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Script delete failed: ${e?.message || e}`, "error"); console.error("[vault.scriptDelete]", e); }
   };
 
   const copy = (s) => {
@@ -834,12 +834,12 @@ function VaultDocsPane({ canEdit }) {
       setDraft(emptyDocDraft());
       setAddOpen(false);
       window.toast && window.toast("Document added", "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Document add failed: ${e?.message || e}`, "error"); console.error("[vault.docUpsert]", e); }
   };
 
   const removeDoc = async (id) => {
     try { await window.AppData.mutate.docDelete(id); window.toast && window.toast("Removed", "info"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Document delete failed: ${e?.message || e}`, "error"); console.error("[vault.docDelete]", e); }
   };
 
   return (
@@ -1059,7 +1059,7 @@ function VaultSegmentsPane({ canEdit }) {
       window.dispatchEvent(new CustomEvent("data:mutated"));
       if (selId === id) setSelId(null);
       window.toast && window.toast("Segment removed", "info");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Segment delete failed: ${e?.message || e}`, "error"); console.error("[vault.segmentDelete]", e); }
   };
 
   if (segments.length === 0) {
@@ -1256,7 +1256,7 @@ function PageTiering() {
       setHistory([{ who: rep.name, from: rep.tier, to: t, reason: "Manual override", when: "now" }, ...history]);
     }
     try { await AppData.mutate.tieringOverride(id, t); window.toast && window.toast(`${rep.name} → ${t.toUpperCase()}${AppData.LIVE ? " · saved" : ""}`, "success"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Tier override failed: ${e?.message || e}`, "error"); console.error("[tiering.override]", e); }
   };
 
   return (
@@ -1726,11 +1726,11 @@ const ProductTraining = (() => {
     }));
   }
   function loadJSON(key, fallback) {
-    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (_e) {}
+    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (e) { console.warn("[training.loadJSON]", key, e); }
     return fallback;
   }
   function saveJSON(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_e) {}
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { console.warn("[training.saveJSON]", key, e); }
   }
   function broadcast() {
     window.dispatchEvent(new CustomEvent("training:changed"));
@@ -2240,11 +2240,11 @@ function useLocalArray(key, seed) {
     try {
       const raw = localStorage.getItem(key);
       if (raw) return JSON.parse(raw);
-    } catch (_e) {}
+    } catch (e) { console.warn("[useLocalArray.read]", key, e); }
     return seed;
   });
   React.useEffect(() => {
-    try { localStorage.setItem(key, JSON.stringify(items)); } catch (_e) {}
+    try { localStorage.setItem(key, JSON.stringify(items)); } catch (e) { console.warn("[useLocalArray.write]", key, e); }
   }, [items]);
   return [items, setItems];
 }
@@ -2307,7 +2307,7 @@ function VideoLibrary({ canEdit = true }) {
   const removeVideo = async (id) => {
     if (sel?.id === id) setSel(null);
     try { await window.AppData.mutate.videoDelete(id); window.toast && window.toast("Video removed", "info"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Video delete failed: ${e?.message || e}`, "error"); console.error("[vault.videoDelete]", e); }
   };
 
   return (
@@ -2460,12 +2460,12 @@ function ScriptsLibrary({ canEdit = true }) {
       });
       window.toast && window.toast(editing.id ? "Script updated" : "Script added", "success");
       setEditing(null);
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Script save failed: ${e?.message || e}`, "error"); console.error("[scripts.upsert]", e); }
   };
   const remove = async (id) => {
     if (openId === id) setOpenId(null);
     try { await window.AppData.mutate.scriptDelete(id); window.toast && window.toast("Script removed", "info"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Script delete failed: ${e?.message || e}`, "error"); console.error("[scripts.delete]", e); }
   };
   const copyBody = async (s) => {
     try {
@@ -3781,7 +3781,7 @@ function SettingsOrg() {
     try {
       await window.AppData.mutate.orgSettingsSave({ name, legal, domain, npn });
       window.toast && window.toast(`Organization saved${AppData.LIVE ? "" : " (demo only — sign in for persistence)"}`, "success");
-    } catch (_e) {} finally { setSaving(false); }
+    } catch (e) { window.toast?.(`Organization save failed: ${e?.message || e}`, "error"); console.error("[org.settingsSave]", e); } finally { setSaving(false); }
   };
   return (
     <div className="panel" style={{ padding: 16 }}>
@@ -3816,7 +3816,7 @@ function OperatingStatesEditor() {
       setBusy(true);
       try {
         await window.AppData.mutate.orgSettingsSave({ operating_states: next });
-      } catch (_e) {} finally { setBusy(false); }
+      } catch (e) { window.toast?.(`Operating states save failed: ${e?.message || e}`, "error"); console.error("[org.operatingStates]", e); } finally { setBusy(false); }
     }
   };
 
@@ -5054,7 +5054,7 @@ function SettingsRouting() {
               active: r.active !== false,
             })));
           }
-        } catch (_e) {}
+        } catch (e) { console.warn("[routing.rulesLoad]", e); }
       } else if (isDemo) {
         setRules([
           { id: "demo-1", src: "FB Lead Form · T65", route: "Med Supp specialists", weight: 60, active: true },
@@ -5220,7 +5220,7 @@ function SettingsNotifications() {
         if (!cancelled && data && data.prefs && typeof data.prefs === "object") {
           setPrefs({ ...DEFAULTS, ...data.prefs });
         }
-      } catch (_e) {}
+      } catch (e) { console.warn("[notifications.prefsLoad]", e); }
       finally { if (!cancelled) setLoaded(true); }
     })();
     return () => { cancelled = true; };
@@ -5358,7 +5358,7 @@ function SettingsProfile({ role }) {
       try {
         const mr = await sb.from("v_user_metrics").select("*").maybeSingle();
         if (mr.data) setMetrics(mr.data);
-      } catch (_e) {}
+      } catch (e) { console.warn("[profile.metricsLoad]", e); }
     } catch (e) {
       setLoadErr(String(e?.message || e));
     } finally { setLoading(false); }

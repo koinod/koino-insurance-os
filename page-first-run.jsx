@@ -54,12 +54,12 @@ async function fetchStatus(sb, agencyId) {
     const r = await sb.from("v_agency_onboarding_status")
       .select("*").eq("agency_id", agencyId).maybeSingle();
     if (r.data) return { status: r.data, error: null };
-  } catch (_e) {}
+  } catch (e) { console.warn("[firstRun.statusByAgencyId]", e); }
   try {
     const r2 = await sb.from("v_agency_onboarding_status")
       .select("*").eq("id", agencyId).maybeSingle();
     if (r2.data) return { status: r2.data, error: null };
-  } catch (_e) {}
+  } catch (e) { console.warn("[firstRun.statusById]", e); }
   // Fallback: read agency_onboarding_steps directly + derive next_pending
   try {
     const r3 = await sb.from("agency_onboarding_steps")
@@ -88,7 +88,7 @@ async function fetchStatus(sb, agencyId) {
 
 async function ensureStarted(sb, agencyId) {
   // Idempotent — start_agency_onboarding seeds step rows if absent.
-  try { await sb.rpc("start_agency_onboarding", { p_agency_id: agencyId }); } catch (_e) {}
+  try { await sb.rpc("start_agency_onboarding", { p_agency_id: agencyId }); } catch (e) { console.warn("[firstRun.start_agency_onboarding]", e); }
 }
 
 async function completeStep(sb, agencyId, stepKey, payload) {
@@ -342,7 +342,7 @@ function StepCarriers({ sb, onSubmit, busy, err }) {
       try {
         const r = await sb.from("carriers").select("id, name, category").order("name");
         if (Array.isArray(r.data)) setCarriers(r.data);
-      } catch (_e) {}
+      } catch (e) { console.warn("[firstRun.carriersLoad]", e); }
       setLoading(false);
     })();
   }, []);
@@ -434,11 +434,11 @@ function StepConnectors({ sb, onSubmit, busy, err }) {
       try {
         const r = await sb.from("connector_catalog").select("*").order("sort_order", { ascending: true });
         if (Array.isArray(r.data)) setCatalog(r.data);
-      } catch (_e) {}
+      } catch (e) { console.warn("[firstRun.catalogLoad]", e); }
       try {
         const cur = await sb.from("connections").select("id, status");
         if (Array.isArray(cur.data)) setConnected(new Set(cur.data.filter(c => c.status === "ok").map(c => c.id)));
-      } catch (_e) {}
+      } catch (e) { console.warn("[firstRun.connectionsLoad]", e); }
       setLoading(false);
     })();
   }, []);
@@ -572,7 +572,7 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
       try {
         const r = await sb.rpc("mint_invite", { p_agency_id: agencyId, p_role: role, p_email_hint: email.trim() });
         token = r?.data?.token || r?.data || null;
-      } catch (_rpcErr) {}
+      } catch (e) { console.warn("[firstRun.mintInvite]", e); }
       if (!token) {
         const r2 = await fetch("/api/invites/create", {
           method: "POST",

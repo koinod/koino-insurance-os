@@ -279,7 +279,7 @@ window.AgencySwitcher = AgencySwitcher;
       const { data: ag } = await sb.from("agencies").select("id").limit(1).maybeSingle();
       if (!ag) return;
       sb.rpc("log_audit", { p_agency_id: ag.id, p_action: action, p_target: target || null, p_metadata: metadata || {}, p_actor_role: null }).then(() => {});
-    } catch (_e) {}
+    } catch (e) { console.warn("[billing.logAudit]", e); }
   };
 
   const wrap = (name, action, getTarget, getMetadata) => {

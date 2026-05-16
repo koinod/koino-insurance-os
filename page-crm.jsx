@@ -807,7 +807,7 @@ function PipelineSection({ leads, reps, setStageOf, setActiveLead }) {
                       onDragStart={(e) => {
                         setDrag(l.id);
                         // Some browsers need data on the dataTransfer to start a drag at all.
-                        try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", l.id); } catch (_e) {}
+                        try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", l.id); } catch (err) { console.warn("[crm.dragStart]", err); }
                       }}
                       onDragEnd={() => { setDrag(null); setDragOver(null); }}
                       onClick={() => setActiveLead(l)}

@@ -132,7 +132,7 @@ function PagePipeline({ role = "owner" }) {
         await Promise.all(ownerIds.map(rid => AppData.mutate.coachingNoteCreate(rid, note)));
         window.toast && window.toast(`Coached ${ownerIds.length} producer${ownerIds.length === 1 ? "" : "s"}`, "success");
         setSel(new Set());
-      } catch (_e) {}
+      } catch (e) { window.toast?.(`Coaching note failed: ${e?.message || e}`, "error"); console.error("[pipeline.coachingNoteCreate]", e); }
       return;
     }
 
@@ -440,13 +440,13 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
     const next = phone.trim() || null;
     if (next === (lead.phone || null)) return;
     try { await AppData.mutate.pipelineContact(lead.id, { phone: next }); window.toast && window.toast(next ? "Phone saved" : "Phone cleared", "success"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Phone save failed: ${e?.message || e}`, "error"); console.error("[pipeline.contactPhone]", e); }
   };
   const saveEmail = async () => {
     const next = email.trim() || null;
     if (next === (lead.email || null)) return;
     try { await AppData.mutate.pipelineContact(lead.id, { email: next }); window.toast && window.toast(next ? "Email saved" : "Email cleared", "success"); }
-    catch (_e) {}
+    catch (e) { window.toast?.(`Email save failed: ${e?.message || e}`, "error"); console.error("[pipeline.contactEmail]", e); }
   };
 
   return (
@@ -528,7 +528,7 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
                   try {
                     await AppData.mutate.sequenceEnroll(lead.id, s.id, lead.owner);
                     window.toast && window.toast(`Enrolled ${lead.lead} in ${s.name}${AppData.LIVE ? " · saved" : ""}`, "success");
-                  } catch (_e) {}
+                  } catch (e) { window.toast?.(`Sequence enroll failed: ${e?.message || e}`, "error"); console.error("[pipeline.sequenceEnroll]", e); }
                 }}>Enroll</button>
               </div>
             ))}
