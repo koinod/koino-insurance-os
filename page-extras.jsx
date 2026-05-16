@@ -325,7 +325,7 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
     const body  = draft.body.trim();
     if (!title || !body) return;
     if (!Array.isArray(draft.targetRoles) || draft.targetRoles.length === 0) {
-      window.toast && window.toast("Pick at least one role under Visible to", "danger");
+      window.toast && window.toast("Pick at least one role under Visible to", "error");
       return;
     }
     try {
@@ -820,7 +820,7 @@ function VaultDocsPane({ canEdit }) {
     const title = draft.title.trim();
     if (!title) return;
     if (!Array.isArray(draft.targetRoles) || draft.targetRoles.length === 0) {
-      window.toast && window.toast("Pick at least one role under Visible to", "danger");
+      window.toast && window.toast("Pick at least one role under Visible to", "error");
       return;
     }
     const raw = draft.url.trim();
@@ -968,7 +968,7 @@ function VaultSegmentsPane({ canEdit }) {
     try {
       const sb       = window.getSupabase && window.getSupabase();
       const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
-      if (!sb || !agencyId) { window.toast && window.toast("Not connected", "danger"); return; }
+      if (!sb || !agencyId) { window.toast && window.toast("Not connected", "error"); return; }
       // Strip empty-value rules so the segment never carries dead filters.
       const rules = draft.filterRules.filter(r => r.field && r.op && (r.value !== "" && r.value != null));
       // First attempt: include filter_rules (migration 0034). On column-missing,
@@ -1000,7 +1000,7 @@ function VaultSegmentsPane({ canEdit }) {
       setSelId(data.id);
       window.toast && window.toast("Segment created", "success");
     } catch (_e) {
-      window.toast && window.toast("Failed to create segment", "danger");
+      window.toast && window.toast("Failed to create segment", "error");
     }
   };
 

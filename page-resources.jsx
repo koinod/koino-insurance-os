@@ -291,7 +291,7 @@ function PageResources({ role = "owner" }) {
   );
   const copyScript = (s) => {
     try { navigator.clipboard.writeText(s.body); window.toast && window.toast("Script copied", "success"); }
-    catch (_e) { window.toast && window.toast("Copy failed", "danger"); }
+    catch (_e) { window.toast && window.toast("Copy failed", "error"); }
   };
 
   // ─── Docs (persisted via AppData.mutate.docUpsert / docDelete) ─────────
@@ -356,7 +356,7 @@ function PageResources({ role = "owner" }) {
     const url = gdocUrl.trim();
     if (!url) return;
     if (!/docs\.google\.com\/(document|spreadsheets|presentation)/.test(url)) {
-      window.toast && window.toast("Not a Google Docs/Sheets/Slides URL", "danger");
+      window.toast && window.toast("Not a Google Docs/Sheets/Slides URL", "error");
       return;
     }
     setImporting(true);
@@ -368,7 +368,7 @@ function PageResources({ role = "owner" }) {
       });
       const data = await r.json();
       if (!data.ok) {
-        window.toast && window.toast(data.error || "Import failed", "danger");
+        window.toast && window.toast(data.error || "Import failed", "error");
         return;
       }
       try {
@@ -384,7 +384,7 @@ function PageResources({ role = "owner" }) {
       setGdocUrl("");
       window.toast && window.toast(`Imported "${data.title}"`, "success");
     } catch (e) {
-      window.toast && window.toast("Import failed: " + (e?.message || "unknown"), "danger");
+      window.toast && window.toast("Import failed: " + (e?.message || "unknown"), "error");
     } finally {
       setImporting(false);
     }
