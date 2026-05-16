@@ -22,8 +22,8 @@ await mkdir(ARTIFACT_DIR, { recursive: true });
 // Pages visible per role. Pull from shared.jsx NAV.* — keep in sync if NAV changes.
 const PAGES_BY_ROLE = {
   rep:         ["today", "floor", "messages", "leaderboard", "library", "connections"],
-  manager:     ["today", "book", "crm", "leaddrip", "quote", "vault", "floor", "connections"],
-  super_admin: ["today", "book", "crm", "leaddrip", "quote", "vault", "floor", "connections", "admin"],
+  manager:     ["today", "book", "crm", "leaddrip", "quote", "vault", "floor", "recruits", "connections"],
+  super_admin: ["today", "book", "crm", "leaddrip", "quote", "vault", "floor", "recruits", "connections", "admin"],
 };
 
 const failures = [];

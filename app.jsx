@@ -27,6 +27,25 @@ function App() {
     return () => window.removeEventListener("data:hydrated", onHydrate);
   }, []);
 
+  // Hydrate the AutodialQueue from Supabase once per session-load. The queue
+  // is localStorage-cached so the UI never blocks; this call pulls the
+  // server copy (user_prefs.key='autodial_queue') and merges, so a queue
+  // built on one device shows up on the next sign-in.
+  useEffect(() => {
+    let done = false;
+    const tryHydrate = () => {
+      if (done) return;
+      if (window.AutodialQueue && typeof window.AutodialQueue.hydrate === "function") {
+        done = true;
+        window.AutodialQueue.hydrate().catch(() => {});
+      }
+    };
+    // If me is already resolved by the time the App mounts, fire immediately.
+    if (window.me && window.me()) tryHydrate();
+    window.addEventListener("me:loaded", tryHydrate);
+    return () => window.removeEventListener("me:loaded", tryHydrate);
+  }, []);
+
   // Global incall:open / incall:dismiss — used by AutoDialBar to pop the rich
   // dashboard for each lead, and by any per-row Phone button that wants the
   // same panel rather than just firing repflowCall().
@@ -176,6 +195,7 @@ function App() {
       case "auto-quoter": return F("PageAutoQuoter", { role });
       case "book":        return F("PageBook");
       case "recruiting":  return F("PageRecruiting", { role });
+      case "recruits":    return F("PageRecruits",   { role });
       case "settings":    return F("PageSettings",   { role });
       // admin: super_admin gets the real PageAdmin panel; everyone else falls
       // through to Today so old deep links don't 404.
