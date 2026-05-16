@@ -647,7 +647,10 @@ function LiveFloorMap({ reps, picks }) {
           const load = Object.values(picks).filter(rid => rid === r.id).length;
           const totalLoad = load + (r.appts || 0);
           const overCap = totalLoad >= 6;
-          const targetProgress = Math.min(100, Math.round(((r.today || 0) / 1800) * 100));  // $1,800 daily target
+          // Daily target: agency_config.daily_target_default (cents-equivalent dollars); default 1800.
+          const _cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
+          const _dailyTarget = (_cfg && _cfg.daily_target_default) || 1800;
+          const targetProgress = Math.min(100, Math.round(((r.today || 0) / _dailyTarget) * 100));
           return (
             <div key={r.id} style={{
               padding: 10,

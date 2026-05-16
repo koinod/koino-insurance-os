@@ -1488,6 +1488,9 @@ function CoachingRep() {
     return diffDays <= 7;
   }).length;
 
+  // Seed cards previously shown the fake "+12% close rate (cohort)" / "Persistency +6pts"
+  // numbers to every agency on first paint. Gate to demo so real tenants see an empty state.
+  const _isDemoCoach = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || (window.isDemoAgency && window.isDemoAgency()) || false;
   const cards = openCards.length > 0
     ? openCards.slice(0, 5).map(s => ({
         id: s.id,
@@ -1496,10 +1499,10 @@ function CoachingRep() {
         drill: "Run 5-question rephrase drill",
         impact: s.outcome || "track this week",
       }))
-    : [
+    : (_isDemoCoach ? [
         { id: "seed-1", focus: "Ask 3 more open-ended questions per hour", evidence: "Default focus until your manager assigns one.", drill: "Run 5-question rephrase drill", impact: "+12% close rate (cohort)" },
         { id: "seed-2", focus: "Cut talk-listen from 52% → 45%",            evidence: "Default focus until your manager assigns one.",  drill: "30-sec silence drill x10",       impact: "Persistency +6pts" },
-      ];
+      ] : []);
 
   return (
     <div className="page-pad">
