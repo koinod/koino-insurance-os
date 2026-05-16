@@ -96,34 +96,7 @@ function AepTitleChip({ ctx }) {
   return <span style={{ color: "var(--accent-heat)" }}>{label}</span>;
 }
 
-/* ───── AEP banner + Tasks live panels (used by all role views) ─────────── */
-function AEPBanner({ repId, role = "rep" }) {
-  const ctx = useAepContext(repId, role);
-  if (!ctx) return null;
-  const { active, myAssign, isLive, daysToStart } = ctx;
-  const pctApps = myAssign && myAssign.targetApps > 0 ? Math.round((myAssign.completedApps / myAssign.targetApps) * 100) : 0;
-  return (
-    <div className="panel" style={{ padding: "12px 16px", marginBottom: 14, background: "color-mix(in oklch, var(--accent-heat) 6%, transparent)", borderColor: "color-mix(in oklch, var(--accent-heat) 30%, transparent)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span className="chip" style={{ color: "var(--accent-heat)", borderColor: "color-mix(in oklch, var(--accent-heat) 40%, transparent)", background: "color-mix(in oklch, var(--accent-heat) 12%, transparent)", fontWeight: 600 }}>
-          {isLive ? "🔥 AEP LIVE" : "AEP UPCOMING"}
-        </span>
-        <strong style={{ fontSize: 13 }}>{active.name}</strong>
-        <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
-          {active.startsAt} → {active.endsAt}
-          {!isLive && daysToStart != null && daysToStart > 0 && <span> · opens in {daysToStart}d</span>}
-        </span>
-        {myAssign && (
-          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14, fontSize: 12 }}>
-            <span><strong className="tabular">{myAssign.completedApps}</strong> / {myAssign.targetApps} apps <span style={{ color: "var(--text-tertiary)" }}>({pctApps}%)</span></span>
-            <span><strong className="tabular">${myAssign.completedAp.toLocaleString()}</strong> / ${myAssign.targetAp.toLocaleString()} AP</span>
-            {myAssign.territory && <span className="chip">{myAssign.territory}</span>}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
+/* AEPBanner removed 2026-05-15 — dead code, no callers (audits/DEAD_CODE.md). */
 
 function ForecastStrip({ scope = "team" }) {
   const runs = AppData.FORECAST_RUNS || [];
