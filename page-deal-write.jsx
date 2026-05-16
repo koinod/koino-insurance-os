@@ -36,6 +36,15 @@
     return cat.includes("iul") || name.includes("iul") || name.includes("indexed universal");
   }
 
+  function splitName(q) {
+    const parts = String(q || "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { firstName: "", lastName: "" };
+    if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+    return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
+  }
+
+  const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+
   // --------------------------------------------------------------------------
   // <DealWriteForm/> — the form itself
   // --------------------------------------------------------------------------
@@ -51,6 +60,13 @@
     , [pipeline]);
 
     const [leadId, setLeadId]           = useState(defaultLeadId || "");
+    // New-lead capture: when set, submit() inserts a pipeline row first, then
+    // writes the policy against the returned id. Null means "use leadId".
+    const [newLead, setNewLead]         = useState(null);
+    // Typeahead state for the lead combobox.
+    const [query, setQuery]             = useState("");
+    const [pickerOpen, setPickerOpen]   = useState(false);
+    const pickerRef                     = React.useRef(null);
     const [carrierId, setCarrierId]     = useState("");
     const [productId, setProductId]     = useState("");
     const [ap, setAp]                   = useState("");
@@ -66,6 +82,56 @@
     const product = products.find(p => p.id === productId);
     const carrier = carriers.find(c => c.id === carrierId);
     const showTarget = isIULProduct(product);
+
+    const selectedLead = leadId ? pipeline.find(l => String(l.id) === String(leadId)) : null;
+    const isCommitted  = !!selectedLead || !!newLead;
+
+    useEffect(() => {
+      if (!pickerOpen) return;
+      const onDown = (e) => {
+        if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false);
+      };
+      window.addEventListener("mousedown", onDown);
+      return () => window.removeEventListener("mousedown", onDown);
+    }, [pickerOpen]);
+
+    const filteredLeads = useMemo(() => {
+      const q = query.trim().toLowerCase();
+      if (!q) return eligibleLeads.slice(0, 8);
+      return eligibleLeads.filter(l =>
+        (l.lead || "").toLowerCase().includes(q) ||
+        (l.state || "").toLowerCase().includes(q) ||
+        (l.product || "").toLowerCase().includes(q)
+      ).slice(0, 8);
+    }, [query, eligibleLeads]);
+
+    const exactExistingMatch = useMemo(() => {
+      const q = query.trim().toLowerCase();
+      if (!q) return false;
+      return eligibleLeads.some(l => (l.lead || "").toLowerCase() === q);
+    }, [query, eligibleLeads]);
+
+    const pickExisting = (l) => {
+      setLeadId(l.id);
+      setNewLead(null);
+      setQuery(l.lead || "");
+      setPickerOpen(false);
+      setError(null);
+    };
+
+    const pickNewFromQuery = () => {
+      const { firstName, lastName } = splitName(query);
+      setLeadId("");
+      setNewLead({ firstName, lastName, state: "", phone: "", email: "" });
+      setPickerOpen(false);
+      setError(null);
+    };
+
+    const clearLead = () => {
+      setLeadId("");
+      setNewLead(null);
+      setQuery("");
+    };
 
     // Cascade: when carrier changes, narrow product list & clear product
     useEffect(() => {
@@ -111,7 +177,12 @@
       const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
       const me = (meIdent?.rep_id && AppData.REPS?.find(r => r.id === meIdent.rep_id))
               || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null);
-      if (!leadId)     return setError("Pick a linked lead");
+      if (!leadId && !newLead) return setError("Add a new lead or pick one from your pipeline");
+      if (newLead) {
+        const fn = newLead.firstName.trim(), ln = newLead.lastName.trim();
+        if (!fn && !ln) return setError("Enter the lead's first and last name");
+        if (!newLead.state) return setError("Pick the lead's state");
+      }
       if (!carrierId)  return setError("Pick a carrier");
       if (!productId)  return setError("Pick a product");
       if (!ap || Number(ap) <= 0) return setError("Enter AP");
@@ -119,7 +190,40 @@
 
       setBusy(true);
       const sb = window.getSupabase && window.getSupabase();
-      const lead = pipeline.find(l => String(l.id) === String(leadId));
+      // New-lead path: materialize the pipeline row first so the policy can
+      // reference a real id. Pre-fill product + AP from this deal so the
+      // kanban row matches what the producer just sold.
+      let lead = pipeline.find(l => String(l.id) === String(leadId));
+      if (!lead && newLead) {
+        try {
+          const display = [newLead.firstName.trim(), newLead.lastName.trim()].filter(Boolean).join(" ");
+          const newRow = {
+            id: "tmp-" + Date.now(),
+            lead: display,
+            age: null,
+            state: newLead.state,
+            stage: "App In",
+            product: product ? product.name : null,
+            ap: Number(ap) || 0,
+            days: 0,
+            last: "Deal written from Floor",
+            next: "Track to issue",
+            source: "Deal-write",
+            owner: me ? me.id : null,
+            consent: "verified",
+            heat: "hot",
+            phone: (newLead.phone || "").trim() || null,
+            email: (newLead.email || "").trim() || null,
+          };
+          await AppData.mutate.pipelineInsert(newRow);
+          lead = newRow;
+          setLeadId(newRow.id);
+          setNewLead(null);
+        } catch (e) {
+          setBusy(false);
+          return setError(`Couldn't save the new lead: ${e?.message || e}`);
+        }
+      }
 
       const row = {
         lead_pipeline_id: lead && lead.id && typeof lead.id === "string" ? lead.id : null,
@@ -164,7 +268,8 @@
           window.toast && window.toast("Deal written locally (Supabase offline)", "info");
         }
         // Reset form
-        setLeadId(""); setCarrierId(""); setProductId(""); setAp(""); setTarget("");
+        setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
+        setCarrierId(""); setProductId(""); setAp(""); setTarget("");
         setCompRate(""); setDraftDate(""); setPolNum(""); setStatus("submitted");
         onWritten && onWritten();
       } catch (e) {
@@ -196,18 +301,104 @@
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {/* Linked Lead — full width */}
+          {/* Linked Lead — typeahead. Type a name → existing matches +
+              "Add new" inline. New leads get materialized into the pipeline
+              on submit so the producer doesn't have to go through CRM first. */}
           <div style={{ gridColumn: "1 / -1" }}>
-            <Lbl required>👤 Linked Lead</Lbl>
-            <select style={inp} value={leadId} onChange={(e) => setLeadId(e.target.value)}>
-              <option value="">— pick a lead —</option>
-              {eligibleLeads.map(l => (
-                <option key={l.id} value={l.id}>
-                  {l.lead} · {l.state} · {l.stage} · {l.product || "(no product)"}
-                </option>
-              ))}
-            </select>
+            <Lbl required>👤 Lead</Lbl>
+            {isCommitted ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "color-mix(in oklch, var(--accent-money) 8%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", borderRadius: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                  {selectedLead
+                    ? <>{selectedLead.lead} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {selectedLead.state} · {selectedLead.stage}{selectedLead.product ? " · " + selectedLead.product : ""}</span></>
+                    : <>+ New: {(newLead.firstName || newLead.lastName) ? `${newLead.firstName} ${newLead.lastName}`.trim() : "(name below)"} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· will be added to pipeline</span></>}
+                </span>
+                <button type="button" onClick={clearLead} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 12, padding: "2px 6px" }} aria-label="Change lead">✕ change</button>
+              </div>
+            ) : (
+              <div ref={pickerRef} style={{ position: "relative" }}>
+                <input
+                  style={inp}
+                  type="text"
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setPickerOpen(true); }}
+                  onFocus={() => setPickerOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (exactExistingMatch) {
+                        const hit = eligibleLeads.find(l => (l.lead || "").toLowerCase() === query.trim().toLowerCase());
+                        if (hit) return pickExisting(hit);
+                      }
+                      if (query.trim()) pickNewFromQuery();
+                    } else if (e.key === "Escape") {
+                      setPickerOpen(false);
+                    }
+                  }}
+                  placeholder="Type a name — new or from pipeline"
+                  autoComplete="off"
+                />
+                {pickerOpen && (query.trim() || filteredLeads.length > 0) && (
+                  <div style={{ position: "absolute", zIndex: 5, top: "calc(100% + 4px)", left: 0, right: 0, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", maxHeight: 280, overflowY: "auto" }}>
+                    {query.trim() && !exactExistingMatch && (
+                      <div role="option" onClick={pickNewFromQuery}
+                        style={{ padding: "10px 12px", cursor: "pointer", fontSize: 13, color: "var(--accent-money)", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16, lineHeight: 1 }}>＋</span>
+                        <span><strong>Add new lead:</strong> {query.trim()}</span>
+                      </div>
+                    )}
+                    {filteredLeads.length === 0 && !query.trim() && (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-tertiary)" }}>Type a name to add a new lead, or start typing to filter your pipeline.</div>
+                    )}
+                    {filteredLeads.map(l => (
+                      <div key={l.id} role="option" onClick={() => pickExisting(l)}
+                        style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "var(--text-primary)", borderBottom: "1px solid var(--border-subtle)" }}>
+                        <div style={{ fontWeight: 500 }}>{l.lead}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 1 }}>
+                          {l.state || "—"} · {l.stage}{l.product ? " · " + l.product : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+                  No need to add the lead in CRM first — type their name and we'll create the pipeline row on submit.
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Inline new-lead fields — only shown when "Add new" was picked. */}
+          {newLead && (
+            <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr 90px 1fr", gap: 10, padding: 12, background: "color-mix(in oklch, var(--accent-status) 5%, transparent)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+              <div>
+                <Lbl required>First name</Lbl>
+                <input style={inp} type="text" value={newLead.firstName} autoFocus
+                  onChange={(e) => setNewLead({ ...newLead, firstName: e.target.value })}
+                  placeholder="Jane"/>
+              </div>
+              <div>
+                <Lbl required>Last name</Lbl>
+                <input style={inp} type="text" value={newLead.lastName}
+                  onChange={(e) => setNewLead({ ...newLead, lastName: e.target.value })}
+                  placeholder="Doe"/>
+              </div>
+              <div>
+                <Lbl required>State</Lbl>
+                <select style={inp} value={newLead.state}
+                  onChange={(e) => setNewLead({ ...newLead, state: e.target.value })}>
+                  <option value="">—</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <Lbl>Phone <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(optional)</span></Lbl>
+                <input style={inp} type="tel" value={newLead.phone}
+                  onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
+                  placeholder="555-123-4567"/>
+              </div>
+            </div>
+          )}
 
           <div>
             <Lbl required>Carrier</Lbl>
@@ -303,7 +494,8 @@
 
         <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button className="btn" onClick={() => {
-            setLeadId(""); setCarrierId(""); setProductId(""); setAp(""); setTarget("");
+            setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
+            setCarrierId(""); setProductId(""); setAp(""); setTarget("");
             setCompRate(""); setDraftDate(""); setPolNum(""); setStatus("submitted"); setError(null);
           }} disabled={busy}>Clear</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>
