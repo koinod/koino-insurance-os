@@ -25,7 +25,14 @@ function looksLikeError(action = "") {
 }
 
 function PageAdmin() {
-  const [tab, setTab]                   = React.useState("agencies");
+  // Honor a deep-link from elsewhere (e.g. Vault → "Manage in Admin" on the
+  // Carriers block). The flag is one-shot — consume it on mount so a later
+  // re-render starts fresh.
+  const [tab, setTab] = React.useState(() => {
+    const initial = (typeof window !== "undefined" && window.__adminInitialTab) || "agencies";
+    if (typeof window !== "undefined") delete window.__adminInitialTab;
+    return initial;
+  });
   const [agencies, setAgencies]         = React.useState([]);
   const [memCounts, setMemCounts]       = React.useState({});
   const [agLoading, setAgLoading]       = React.useState(true);
