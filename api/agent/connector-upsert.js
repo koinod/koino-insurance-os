@@ -18,8 +18,24 @@ export default async function handler(req) {
   if (!jwt) return new Response(JSON.stringify({ error: "not authenticated" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
-  if (!body.provider) return new Response(JSON.stringify({ error: "provider required" }), { status: 400, headers: cors() });
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (typeof body.provider !== "string" || body.provider.length === 0 || body.provider.length > 64) {
+    return new Response(JSON.stringify({ error: "provider must be a non-empty string ≤ 64 chars" }), { status: 400, headers: cors() });
+  }
+  if (body.account_label != null && (typeof body.account_label !== "string" || body.account_label.length > 128)) {
+    return new Response(JSON.stringify({ error: "account_label must be a string ≤ 128 chars" }), { status: 400, headers: cors() });
+  }
+  for (const k of ["access_token","refresh_token","api_key","expires_at"]) {
+    if (body[k] != null && typeof body[k] !== "string") {
+      return new Response(JSON.stringify({ error: `${k} must be a string` }), { status: 400, headers: cors() });
+    }
+  }
+  if (body.metadata != null && (typeof body.metadata !== "object" || Array.isArray(body.metadata))) {
+    return new Response(JSON.stringify({ error: "metadata must be an object" }), { status: 400, headers: cors() });
+  }
+  if (body.scopes != null && !Array.isArray(body.scopes)) {
+    return new Response(JSON.stringify({ error: "scopes must be an array" }), { status: 400, headers: cors() });
+  }
 
   const r = await rpc("connector_upsert_token", {
     p_provider: body.provider,

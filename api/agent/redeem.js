@@ -10,8 +10,21 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
-  if (!body.token) return new Response(JSON.stringify({ error: "token required" }), { status: 400, headers: cors() });
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (typeof body.token !== "string" || body.token.length === 0 || body.token.length > 256) {
+    return new Response(JSON.stringify({ error: "token must be a non-empty string ≤ 256 chars" }), { status: 400, headers: cors() });
+  }
+  for (const k of ["hostname","os","cpu","version"]) {
+    if (body[k] != null && (typeof body[k] !== "string" || body[k].length > 200)) {
+      return new Response(JSON.stringify({ error: `${k} must be a string ≤ 200 chars` }), { status: 400, headers: cors() });
+    }
+  }
+  if (body.ram_gb != null && (typeof body.ram_gb !== "number" || !Number.isFinite(Number(body.ram_gb)))) {
+    return new Response(JSON.stringify({ error: "ram_gb must be a number" }), { status: 400, headers: cors() });
+  }
+  if (body.models != null && !Array.isArray(body.models)) {
+    return new Response(JSON.stringify({ error: "models must be an array" }), { status: 400, headers: cors() });
+  }
 
   const r = await rpc("rba_redeem_install_token", {
     p_token: body.token,

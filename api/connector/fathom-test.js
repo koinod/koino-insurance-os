@@ -20,12 +20,15 @@ export default async function handler(req) {
     });
   }
   let body;
-  try { body = await req.json(); } catch { body = {}; }
-  const key = String(body.api_key || "").trim();
-  if (!key) {
-    return new Response(JSON.stringify({ error: "missing_api_key", detail: "Pass { api_key } in the JSON body." }),
+  try { body = await req.json(); } catch {
+    return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: { "content-type": "application/json" } });
+  }
+  body = body || {};
+  if (typeof body.api_key !== "string" || body.api_key.length === 0 || body.api_key.length > 512) {
+    return new Response(JSON.stringify({ error: "missing_api_key", detail: "Pass { api_key } as a non-empty string ≤ 512 chars." }),
       { status: 400, headers: { "content-type": "application/json" } });
   }
+  const key = body.api_key.trim();
 
   // Fathom API base — public docs at developers.fathom.video. Read-only
   // probe: list teams the key has access to.

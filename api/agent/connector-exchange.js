@@ -23,8 +23,13 @@ export default async function handler(req) {
   if (!inst) return new Response(JSON.stringify({ error: "invalid agent token" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
-  if (!body.provider) return new Response(JSON.stringify({ error: "provider required" }), { status: 400, headers: cors() });
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (typeof body.provider !== "string" || body.provider.length === 0 || body.provider.length > 64) {
+    return new Response(JSON.stringify({ error: "provider must be a non-empty string ≤ 64 chars" }), { status: 400, headers: cors() });
+  }
+  if (body.account_label != null && (typeof body.account_label !== "string" || body.account_label.length > 128)) {
+    return new Response(JSON.stringify({ error: "account_label must be a string ≤ 128 chars" }), { status: 400, headers: cors() });
+  }
 
   const labelFilter = body.account_label
     ? `&account_label=eq.${encodeURIComponent(body.account_label)}`

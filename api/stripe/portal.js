@@ -19,8 +19,11 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400 }); }
-  const { agency_id } = body || {};
-  if (!agency_id) return new Response(JSON.stringify({ error: "agency_id required" }), { status: 400 });
+  body = body || {};
+  if (typeof body.agency_id !== "string" || body.agency_id.length === 0 || body.agency_id.length > 64) {
+    return new Response(JSON.stringify({ error: "agency_id must be a non-empty string ≤ 64 chars" }), { status: 400 });
+  }
+  const { agency_id } = body;
 
   // Look up the customer ID under the user's RLS
   const r = await fetch(`${SUPA_URL}/rest/v1/agencies?id=eq.${agency_id}&select=stripe_customer_id`, {

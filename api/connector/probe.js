@@ -83,8 +83,13 @@ export default async function handler(req) {
   if (!isCron && !jwt) return new Response(JSON.stringify({ error: "auth required" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
-  if (!body.vault_id) return new Response(JSON.stringify({ error: "vault_id required" }), { status: 400, headers: cors() });
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (typeof body.vault_id !== "string" || body.vault_id.length === 0 || body.vault_id.length > 64) {
+    return new Response(JSON.stringify({ error: "vault_id must be a non-empty string ≤ 64 chars" }), { status: 400, headers: cors() });
+  }
+  if (body.kind != null && (typeof body.kind !== "string" || !["manual","lazy","nightly"].includes(body.kind))) {
+    return new Response(JSON.stringify({ error: "kind must be one of: manual, lazy, nightly" }), { status: 400, headers: cors() });
+  }
   const kind = ["manual", "lazy", "nightly"].includes(body.kind) ? body.kind : "manual";
 
   const v = await loadVault(body.vault_id);

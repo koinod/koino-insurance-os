@@ -36,8 +36,16 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad json" }, 400); }
-  const { template_id, recipient, lead_id, rep_id } = body || {};
-  if (!template_id) return jsonResponse({ error: "template_id required" }, 400);
+  body = body || {};
+  if (typeof body.template_id !== "string" || body.template_id.length === 0 || body.template_id.length > 64) {
+    return jsonResponse({ error: "template_id must be a non-empty string ≤ 64 chars" }, 400);
+  }
+  for (const k of ["recipient","lead_id","rep_id"]) {
+    if (body[k] != null && (typeof body[k] !== "string" || body[k].length > 320)) {
+      return jsonResponse({ error: `${k} must be a string ≤ 320 chars` }, 400);
+    }
+  }
+  const { template_id, recipient, lead_id, rep_id } = body;
 
   const auth = req.headers.get("authorization") || "";
   const jwt  = auth.replace(/^Bearer\s+/i, "") || ANON;
