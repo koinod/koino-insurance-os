@@ -18,10 +18,19 @@ export default async function handler(req) {
 
   let body = {};
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return new Response(JSON.stringify({ error: "body must be a JSON object" }), { status: 400, headers: cors() });
+  }
 
   // Fathom payload shape varies; accept the union of fields we care about.
   const meeting = body.meeting || body.data || body;
+  if (!meeting || typeof meeting !== "object") {
+    return new Response(JSON.stringify({ error: "missing meeting payload" }), { status: 400, headers: cors() });
+  }
   const eventId = meeting.id || meeting.meeting_id || body.event_id;
+  if (eventId != null && (typeof eventId !== "string" && typeof eventId !== "number")) {
+    return new Response(JSON.stringify({ error: "event id must be a string or number" }), { status: 400, headers: cors() });
+  }
   const attendeeEmails = (meeting.attendees || []).map(a => a.email).filter(Boolean);
   const summary = meeting.summary || (meeting.notes || {}).summary || null;
   const notesMd = meeting.notes_markdown || (meeting.notes || {}).markdown || null;

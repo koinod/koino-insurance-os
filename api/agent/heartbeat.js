@@ -13,7 +13,13 @@ export default async function handler(req) {
   if (!inst) return new Response(JSON.stringify({ error: "invalid agent token" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
+  try { body = await req.json(); } catch { /* body optional for heartbeat */ body = {}; }
+  if (body.version != null && (typeof body.version !== "string" || body.version.length > 64)) {
+    return new Response(JSON.stringify({ error: "version must be a string ≤ 64 chars" }), { status: 400, headers: cors() });
+  }
+  if (body.status != null && typeof body.status !== "string") {
+    return new Response(JSON.stringify({ error: "status must be a string" }), { status: 400, headers: cors() });
+  }
   const patch = {
     last_seen_at: new Date().toISOString(),
     version: body.version || undefined,

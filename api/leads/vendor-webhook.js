@@ -119,6 +119,9 @@ export default async function handler(req) {
 
   // HMAC validation — reject without valid signature
   const rawBody = await req.text();
+  if (rawBody.length > 65_536) {
+    return err(413, "body too large (max 64KB)");
+  }
   const sigHeader = req.headers.get("x-webhook-signature")
                  || req.headers.get("x-repflow-signature")
                  || "";
@@ -126,6 +129,58 @@ export default async function handler(req) {
   if (!hmacOk) {
     console.warn("[vendor-webhook] invalid HMAC", { slug, sigHeader: sigHeader.slice(0, 20) });
     return err(401, "invalid signature — check your HMAC secret");
+  }
+
+  // ─── Replay protection ────────────────────────────────────────────────────
+  // 1) Timestamp window: if vendor sends x-webhook-timestamp (unix seconds),
+  //    reject when drift > 5 minutes. Optional header — many vendors omit it,
+  //    so when absent we fall through to (2) below.
+  // 2) Request-ID dedupe: vendor MAY send x-webhook-id; we record it in
+  //    webhook_replay_seen (best-effort; failure to write doesn't block).
+  //    A duplicate (slug, request_id) returns 200 with { duplicate: true }
+  //    so retries are idempotent without re-firing the pipeline insert.
+  const tsHeader = req.headers.get("x-webhook-timestamp") || "";
+  if (tsHeader) {
+    const t = parseInt(tsHeader, 10);
+    if (!Number.isFinite(t)) return err(400, "x-webhook-timestamp must be a unix-seconds integer");
+    const driftSec = Math.abs(Math.floor(Date.now() / 1000) - t);
+    if (driftSec > 300) {
+      console.warn("[vendor-webhook] timestamp drift", { slug, driftSec });
+      return err(401, "timestamp drift exceeds 5 minutes — request rejected as potential replay");
+    }
+  }
+  const reqIdHeader = (req.headers.get("x-webhook-id") || req.headers.get("x-request-id") || "").slice(0, 128);
+  if (reqIdHeader) {
+    try {
+      // Try to record the request-id. If the underlying table doesn't exist yet
+      // (migration not applied) the insert errors — we treat that as "no
+      // dedupe available" and proceed. When the migration IS applied, a unique
+      // constraint on (slug, request_id) makes the second insert 409, which
+      // we catch and return as a duplicate.
+      const dupCheck = await fetch(
+        `${SUPA_URL}/rest/v1/webhook_replay_seen?on_conflict=slug,request_id`,
+        {
+          method: "POST",
+          headers: {
+            apikey: SERVICE || ANON,
+            authorization: `Bearer ${SERVICE || ANON}`,
+            "content-type": "application/json",
+            prefer: "return=representation,resolution=ignore-duplicates",
+          },
+          body: JSON.stringify({ slug, request_id: reqIdHeader, seen_at: new Date().toISOString() }),
+        }
+      );
+      if (dupCheck.status === 200 || dupCheck.status === 201) {
+        const rows = await dupCheck.json().catch(() => []);
+        // ignore-duplicates returns [] when the row already existed
+        if (Array.isArray(rows) && rows.length === 0) {
+          return ok({ ok: true, duplicate: true, request_id: reqIdHeader, vendor: vendor.vendor_name });
+        }
+      }
+      // Any other status code (table missing, etc) — proceed without dedupe.
+    } catch {
+      // Best-effort; never block ingest on the dedupe-table being unavailable.
+    }
   }
 
   // Parse body (JSON or form-encoded)

@@ -75,8 +75,15 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
   let body;
-  try { body = await req.json(); } catch { body = {}; }
-  const id = (body && body.connector_id) || "";
+  try { body = await req.json(); } catch {
+    return new Response(JSON.stringify({ ok: false, detail: "bad json" }), { status: 400, headers: { "content-type": "application/json" } });
+  }
+  body = body || {};
+  if (typeof body.connector_id !== "string" || body.connector_id.length === 0 || body.connector_id.length > 64) {
+    return new Response(JSON.stringify({ ok: false, detail: "connector_id must be a non-empty string ≤ 64 chars" }),
+      { status: 400, headers: { "content-type": "application/json" } });
+  }
+  const id = body.connector_id;
   const def = CHECKS[id];
   if (!def) {
     return new Response(JSON.stringify({ ok: false, detail: `unknown connector "${id}"` }), {

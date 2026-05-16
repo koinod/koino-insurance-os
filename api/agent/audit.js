@@ -12,8 +12,19 @@ export default async function handler(req) {
   if (!inst) return new Response(JSON.stringify({ error: "invalid agent token" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
-  if (!body.tool || !body.result) return new Response(JSON.stringify({ error: "tool + result required" }), { status: 400, headers: cors() });
+  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  if (typeof body.tool !== "string" || body.tool.length === 0) {
+    return new Response(JSON.stringify({ error: "tool must be a non-empty string" }), { status: 400, headers: cors() });
+  }
+  if (typeof body.result !== "string" || !["ok","denied","error"].includes(body.result)) {
+    return new Response(JSON.stringify({ error: "result must be one of: ok, denied, error" }), { status: 400, headers: cors() });
+  }
+  if (body.args_hash != null && typeof body.args_hash !== "string") {
+    return new Response(JSON.stringify({ error: "args_hash must be a string" }), { status: 400, headers: cors() });
+  }
+  if (body.detail != null && typeof body.detail !== "string") {
+    return new Response(JSON.stringify({ error: "detail must be a string" }), { status: 400, headers: cors() });
+  }
 
   const r = await fetch(`${SUPA_URL}/rest/v1/rba_audit`, {
     method: "POST",

@@ -55,6 +55,12 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
   const body = await req.json().catch(() => ({}));
+  if (body == null || typeof body !== "object" || Array.isArray(body)) {
+    return jsonResponse({ error: "body must be a JSON object" }, 400);
+  }
+  if (body.hint != null && typeof body.hint !== "string") {
+    return jsonResponse({ error: "hint must be a string" }, 400);
+  }
 
   // Bootstrap flow: install.sh sends `_token_lookup` because it already has a
   // token and just needs the public config. No mint. No auth. Returns only

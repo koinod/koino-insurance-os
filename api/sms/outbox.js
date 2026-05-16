@@ -83,7 +83,22 @@ export default async function handler(req) {
   const myRepIds  = agent.agencies.map(a => a.rep_id).filter(Boolean);
 
   let body = {};
-  if (req.method === "POST") { try { body = await req.json(); } catch { body = {}; } }
+  if (req.method === "POST") {
+    try { body = await req.json(); } catch { return err(400, "bad json"); }
+  }
+  body = body || {};
+  if (body.id != null && (typeof body.id !== "string" || body.id.length > 64)) {
+    return err(400, "id must be a string ≤ 64 chars");
+  }
+  if (body.error != null && (typeof body.error !== "string" || body.error.length > 2000)) {
+    return err(400, "error must be a string ≤ 2000 chars");
+  }
+  if (body.agent_id != null && (typeof body.agent_id !== "string" || body.agent_id.length > 128)) {
+    return err(400, "agent_id must be a string ≤ 128 chars");
+  }
+  if (body.max != null && (typeof body.max !== "number" || !Number.isFinite(body.max))) {
+    return err(400, "max must be a number");
+  }
 
   if (op === "claim") {
     const max = Math.min(Math.max(parseInt(body.max || 5, 10), 1), 25);

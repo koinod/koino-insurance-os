@@ -12,7 +12,10 @@ export default async function handler(req) {
   if (!jwt) return new Response(JSON.stringify({ error: "not authenticated" }), { status: 401, headers: cors() });
 
   let body = {};
-  try { body = await req.json(); } catch {}
+  try { body = await req.json(); } catch { /* role is optional */ body = {}; }
+  if (body.role != null && (typeof body.role !== "string" || !["rep","manager","owner","admin","super_admin"].includes(body.role))) {
+    return new Response(JSON.stringify({ error: "role must be one of: rep, manager, owner, admin, super_admin" }), { status: 400, headers: cors() });
+  }
   const role = body.role || null;
 
   const r = await rpc("rba_issue_install_token", { p_role: role }, jwt);

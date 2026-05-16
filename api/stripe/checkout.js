@@ -69,8 +69,21 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400 }); }
-  const { plan = "agency_setup", agency_id, customer_email, trial_7d = false } = body || {};
-  if (!agency_id) return new Response(JSON.stringify({ error: "agency_id required" }), { status: 400, headers: { "content-type": "application/json" }});
+  body = body || {};
+  const ALLOWED_PLANS = ["rep_solo","agency_setup","agency_trial_7d"];
+  if (body.plan != null && (typeof body.plan !== "string" || !ALLOWED_PLANS.includes(body.plan))) {
+    return new Response(JSON.stringify({ error: `plan must be one of: ${ALLOWED_PLANS.join(", ")}` }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  if (typeof body.agency_id !== "string" || body.agency_id.length === 0 || body.agency_id.length > 64) {
+    return new Response(JSON.stringify({ error: "agency_id must be a non-empty string ≤ 64 chars" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  if (body.customer_email != null && (typeof body.customer_email !== "string" || body.customer_email.length > 320)) {
+    return new Response(JSON.stringify({ error: "customer_email must be a string ≤ 320 chars" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  if (body.trial_7d != null && typeof body.trial_7d !== "boolean") {
+    return new Response(JSON.stringify({ error: "trial_7d must be a boolean" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  const { plan = "agency_setup", agency_id, customer_email, trial_7d = false } = body;
 
   const origin = new URL(req.url).origin;
   const success_url = (process.env.STRIPE_SUCCESS_URL || `${origin}/?stripe=ok&session_id={CHECKOUT_SESSION_ID}`).replace("{CHECKOUT_SESSION_ID}", "{CHECKOUT_SESSION_ID}");

@@ -32,7 +32,22 @@ export default async function handler(req) {
 
   let body = {};
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
-  const lead = String(body.lead || "").trim();
+  body = body || {};
+  if (typeof body.lead !== "string" || body.lead.length === 0 || body.lead.length > 200) {
+    return new Response(JSON.stringify({ error: "lead (name) must be a non-empty string ≤ 200 chars" }), { status: 400, headers: cors() });
+  }
+  for (const k of ["phone","email","state","product","source","notes","stage","heat","consent"]) {
+    if (body[k] != null && (typeof body[k] !== "string" || body[k].length > 500)) {
+      return new Response(JSON.stringify({ error: `${k} must be a string ≤ 500 chars` }), { status: 400, headers: cors() });
+    }
+  }
+  if (body.age != null && (typeof body.age !== "number" || !Number.isFinite(body.age) || body.age < 0 || body.age > 130)) {
+    return new Response(JSON.stringify({ error: "age must be a number 0–130" }), { status: 400, headers: cors() });
+  }
+  if (body.ap != null && (typeof body.ap !== "number" || !Number.isFinite(Number(body.ap)))) {
+    return new Response(JSON.stringify({ error: "ap must be a number" }), { status: 400, headers: cors() });
+  }
+  const lead = String(body.lead).trim();
   if (!lead) return new Response(JSON.stringify({ error: "lead (name) required" }), { status: 400, headers: cors() });
 
   const stage   = ALLOWED_STAGES.has(body.stage)   ? body.stage   : "New";

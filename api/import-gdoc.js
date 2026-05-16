@@ -47,7 +47,11 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return err(400, "invalid JSON"); }
-  const url = (body?.url || "").trim();
+  body = body || {};
+  if (typeof body.url !== "string" || body.url.length === 0 || body.url.length > 2000) {
+    return err(400, "url must be a non-empty string ≤ 2000 chars");
+  }
+  const url = body.url.trim();
   if (!url) return err(400, "url required");
 
   const match = PATTERNS.map(p => ({ p, m: p.re.exec(url) })).find(x => x.m);

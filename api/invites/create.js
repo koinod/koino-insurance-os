@@ -18,8 +18,21 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400 }); }
-  const { agency_id, role = "rep", email_hint = null, upline_rep_id = null } = body || {};
-  if (!agency_id) return new Response(JSON.stringify({ error: "agency_id required" }), { status: 400 });
+  body = body || {};
+  if (typeof body.agency_id !== "string" || body.agency_id.length === 0 || body.agency_id.length > 64) {
+    return new Response(JSON.stringify({ error: "agency_id must be a non-empty string ≤ 64 chars" }), { status: 400 });
+  }
+  const ALLOWED_INVITE_ROLES = ["rep","manager","owner","admin"];
+  if (body.role != null && (typeof body.role !== "string" || !ALLOWED_INVITE_ROLES.includes(body.role))) {
+    return new Response(JSON.stringify({ error: `role must be one of: ${ALLOWED_INVITE_ROLES.join(", ")}` }), { status: 400 });
+  }
+  if (body.email_hint != null && (typeof body.email_hint !== "string" || body.email_hint.length > 320)) {
+    return new Response(JSON.stringify({ error: "email_hint must be a string ≤ 320 chars" }), { status: 400 });
+  }
+  if (body.upline_rep_id != null && (typeof body.upline_rep_id !== "string" || body.upline_rep_id.length > 64)) {
+    return new Response(JSON.stringify({ error: "upline_rep_id must be a string ≤ 64 chars" }), { status: 400 });
+  }
+  const { agency_id, role = "rep", email_hint = null, upline_rep_id = null } = body;
 
   const r = await fetch(`${SUPA_URL}/rest/v1/rpc/mint_invite`, {
     method: "POST",

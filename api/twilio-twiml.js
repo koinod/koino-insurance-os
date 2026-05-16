@@ -31,6 +31,13 @@ export default async function handler(req) {
     leadName = url.searchParams.get("leadName") || "";
   }
 
+  // Defensive: cap field lengths so escapeXml output stays bounded.
+  if (typeof to !== "string" || to.length > 32) {
+    return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Say>Invalid destination.</Say></Response>",
+      { status: 400, headers: { "content-type": "application/xml; charset=utf-8" } });
+  }
+  if (leadName && (typeof leadName !== "string" || leadName.length > 200)) leadName = String(leadName).slice(0, 200);
+
   const callerId = process.env.TWILIO_CALLER_ID || "";
   const recordEnabled = (process.env.TWILIO_RECORD || "true") === "true";
 

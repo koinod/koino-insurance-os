@@ -23,8 +23,32 @@ export default async function handler(req) {
   }
 
   try {
-    const body = await req.json();
-    
+    let body;
+    try { body = await req.json(); } catch {
+      return new Response(JSON.stringify({ error: "bad json" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+    body = body || {};
+    // Demo intake — accept only string fields, cap length per field.
+    const STRING_FIELDS = ["first_name","last_name","email","phone","current_situation","motivation","source"];
+    for (const k of STRING_FIELDS) {
+      if (body[k] != null && (typeof body[k] !== "string" || body[k].length > 2000)) {
+        return new Response(JSON.stringify({ error: `${k} must be a string ≤ 2000 chars` }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    }
+    // Email + phone need at least one to be useful
+    if (!body.email && !body.phone) {
+      return new Response(JSON.stringify({ error: "email or phone required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
     // We use the anon key + client-side-style fetch to respect the anon insert policy.
     const r = await fetch(`${SUPABASE_URL}/rest/v1/demo_submissions`, {
       method: "POST",

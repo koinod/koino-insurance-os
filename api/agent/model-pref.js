@@ -34,7 +34,10 @@ export default async function handler(req) {
 
   if (req.method === "POST") {
     let body = {};
-    try { body = await req.json(); } catch {}
+    try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+    if (body.mode != null && (typeof body.mode !== "string" || !["fast","smart"].includes(body.mode))) {
+      return new Response(JSON.stringify({ error: "mode must be 'fast' or 'smart'" }), { status: 400, headers: cors() });
+    }
     const mode = body.mode === "smart" ? "smart" : "fast";
     const next = { ...cfg, agent_mode: mode };
     const r = await fetch(`${SUPA_URL}/rest/v1/agency_members?user_id=eq.${member.user_id}&agency_id=eq.${member.agency_id}`, {

@@ -270,9 +270,18 @@ export default async function handler(req) {
 
   let body;
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: { "content-type": "application/json" }}); }
+  body = body || {};
   // history: [{q, a}] — caller passes last 2-3 turns for short-term memory.
-  const { prompt, context, history } = body || {};
-  if (!prompt || typeof prompt !== "string") return new Response(JSON.stringify({ error: "prompt required" }), { status: 400, headers: { "content-type": "application/json" }});
+  if (typeof body.prompt !== "string" || body.prompt.length === 0 || body.prompt.length > 8000) {
+    return new Response(JSON.stringify({ error: "prompt must be a non-empty string ≤ 8000 chars" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  if (body.context != null && (typeof body.context !== "string" || body.context.length > 16000)) {
+    return new Response(JSON.stringify({ error: "context must be a string ≤ 16000 chars" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  if (body.history != null && !Array.isArray(body.history)) {
+    return new Response(JSON.stringify({ error: "history must be an array" }), { status: 400, headers: { "content-type": "application/json" }});
+  }
+  const { prompt, context, history } = body;
 
   // Forward the user's Supabase JWT so PostgREST applies authenticated RLS.
   const auth = req.headers.get("x-supabase-auth") || req.headers.get("x-user-jwt") || "";

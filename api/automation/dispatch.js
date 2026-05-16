@@ -48,8 +48,20 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ error: "bad json" }, 400); }
-  const { trigger_event, lead_id, lead = {}, rep_id } = body || {};
-  if (!trigger_event) return jsonResponse({ error: "trigger_event required" }, 400);
+  body = body || {};
+  if (typeof body.trigger_event !== "string" || body.trigger_event.length === 0 || body.trigger_event.length > 64) {
+    return jsonResponse({ error: "trigger_event must be a non-empty string ≤ 64 chars" }, 400);
+  }
+  if (body.lead_id != null && (typeof body.lead_id !== "string" || body.lead_id.length > 64)) {
+    return jsonResponse({ error: "lead_id must be a string ≤ 64 chars" }, 400);
+  }
+  if (body.rep_id != null && (typeof body.rep_id !== "string" || body.rep_id.length > 64)) {
+    return jsonResponse({ error: "rep_id must be a string ≤ 64 chars" }, 400);
+  }
+  if (body.lead != null && (typeof body.lead !== "object" || Array.isArray(body.lead))) {
+    return jsonResponse({ error: "lead must be an object" }, 400);
+  }
+  const { trigger_event, lead_id, lead = {}, rep_id } = body;
 
   const auth = req.headers.get("authorization") || "";
   const jwt  = auth.replace(/^Bearer\s+/i, "") || ANON;
