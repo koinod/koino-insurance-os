@@ -31,14 +31,29 @@ async function loadTenant() {
   const email  = session.user.email;
   let members = null;
   let memberError = null;
+  // First try with onboarding_complete so AuthGate can resume the wizard
+  // for owners who exited mid-flow. If the column doesn't exist on this
+  // schema yet (42703), fall back to the legacy select — no onboarding
+  // resume but the user still gets through.
   try {
     const r = await sb.from("agency_members")
-      .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
+      .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state, onboarding_complete)")
       .eq("user_id", userId).eq("active", true);
     members = r.data;
     memberError = r.error;
   } catch (e) {
     memberError = e;
+  }
+  if (memberError && /onboarding_complete|42703/i.test(String(memberError?.message || memberError?.code || memberError))) {
+    try {
+      const r = await sb.from("agency_members")
+        .select("agency_id, role, rep_id, agencies (id, slug, name, plan, state)")
+        .eq("user_id", userId).eq("active", true);
+      members = r.data;
+      memberError = r.error;
+    } catch (e) {
+      memberError = e;
+    }
   }
   if (memberError) {
     // RLS denies, network error, etc. Surface so AuthGate can render a
