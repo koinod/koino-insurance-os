@@ -199,9 +199,37 @@ window.getSupabase = function () {
 window.getActiveAgencyId = function () {
   // GAP-X2 — agency scope priority: explicit switcher → me().agency_id → null.
   // null = unscoped (only acceptable on shared reference tables).
+  //
+  // Self-healing (2026-05-14): a stale or sentinel agency_id in localStorage
+  // (e.g. a demo seed UUID like e0a68c9f-... that doesn't exist in the
+  // `agencies` table) breaks every downstream RPC. We do a cheap synchronous
+  // membership check here against window.me()?.member_agency_ids when
+  // available; if the stored value isn't a legitimate membership we drop it
+  // and fall back to me.agency_id. A separate async one-shot DB validation
+  // (validateActiveAgencyOnce, below) covers the case where me() isn't
+  // populated yet OR member_agency_ids isn't exposed.
   try {
     const explicit = localStorage.getItem("repflow.active_agency");
-    if (explicit) return explicit;
+    if (explicit) {
+      // Cheap synchronous validation against the user's known memberships.
+      // If we can prove the stored ID isn't legit, clear it now. If we
+      // can't prove anything (me not loaded yet, or no member list), trust
+      // it provisionally — the async validator will clean up later.
+      const me = window.me && window.me();
+      const memberIds = me && Array.isArray(me.member_agency_ids) ? me.member_agency_ids : null;
+      const isSuper = window.isSuperAdmin && window.isSuperAdmin();
+      if (isSuper) {
+        // Super admin can pin to any agency; don't gate on membership.
+        return explicit;
+      }
+      if (memberIds && memberIds.length && !memberIds.includes(explicit)) {
+        // Provably stale — clear and fall through.
+        try { localStorage.removeItem("repflow.active_agency"); } catch (_) {}
+        console.warn("[data.activeAgency] stale override cleared (not in memberships):", explicit);
+      } else {
+        return explicit;
+      }
+    }
   } catch (e) { console.warn("[data.activeAgencyRead]", e); }
   if (window.me) {
     const me = window.me();
@@ -210,10 +238,48 @@ window.getActiveAgencyId = function () {
   return null;
 };
 
+// Async one-shot DB-side validation. Fired once on app load (from
+// hydrateFromSupabase) AND can be called manually. If the stored override
+// doesn't resolve to an actual row in `agencies`, it's cleared and a
+// `data:hydrated` event is dispatched so the UI re-renders with the
+// fallback agency. Cached per-id so we don't ping the DB on every call.
+window.__activeAgencyValidated = window.__activeAgencyValidated || new Set();
+window.validateActiveAgencyOnce = async function () {
+  let stored = null;
+  try { stored = localStorage.getItem("repflow.active_agency"); } catch (_) {}
+  if (!stored) return true;
+  if (window.__activeAgencyValidated.has(stored)) return true;
+  const sb = window.getSupabase && window.getSupabase();
+  if (!sb) return true; // can't validate without client; assume good
+  try {
+    const { data, error } = await sb.from("agencies").select("id").eq("id", stored).maybeSingle();
+    if (error) {
+      // Don't punish the user for a transient network/RLS error; just bail.
+      console.warn("[data.activeAgency:validate]", error.message || error);
+      return true;
+    }
+    if (!data) {
+      try { localStorage.removeItem("repflow.active_agency"); } catch (_) {}
+      console.warn("[data.activeAgency] stale UUID cleared (no row in agencies):", stored);
+      try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (_) {}
+      return false;
+    }
+    window.__activeAgencyValidated.add(stored);
+    return true;
+  } catch (e) {
+    console.warn("[data.activeAgency:validate:catch]", e);
+    return true;
+  }
+};
+
 window.hydrateFromSupabase = async function () {
   const sb = window.getSupabase();
   if (!sb) return false;
   try {
+    // Self-healing: validate the stored active_agency override BEFORE we
+    // compute the scope below, so a stale UUID gets cleared and the rest of
+    // the hydrate runs against the user's real agency_id from me().
+    try { await window.validateActiveAgencyOnce(); } catch (_e) { /* non-fatal */ }
     // Multi-tenant scope: if the user has selected an active agency via the switcher,
     // pin every query to it. RLS already restricts reads, but explicit scoping is
     // required when the user is a member of multiple agencies.

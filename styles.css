@@ -625,6 +625,44 @@ input, textarea { font-family: inherit; color: inherit; }
 
 .cell-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
+/* Make every cell in .list-h / .row able to shrink so a long string doesn't
+   force its column to push neighbors out. Combine with .cell-truncate or
+   inline `overflow:hidden;text-overflow:ellipsis;white-space:nowrap` on cells
+   that should truncate. Without min-width:0 the implicit auto min-width
+   (= content) means fixed-pixel sibling tracks overlap the flex tracks. */
+.list-h > *, .row > * { min-width: 0; }
+
+/* Opt-in "card mode" for any .list inside .list-responsive when the panel is
+   narrow (≤900px). Each .row becomes a flex-wrap card; the .list-h is
+   hidden because the labels live next to the values. Applied to settings
+   tables (connectors vault, devices, agents) so they don't overlap below
+   half-screen. Pages that want this just add className="list-responsive". */
+.list-responsive .list-h, .list-responsive .row {
+  /* Force shrinkable tracks even when inline gridTemplateColumns is rigid. */
+  grid-template-columns: var(--list-cols, none);
+}
+@media (max-width: 900px) {
+  .list-responsive .list-h { display: none; }
+  .list-responsive .row {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 14px;
+    row-gap: 4px;
+    height: auto;
+    min-height: var(--row-h);
+    padding: 10px 14px;
+    align-items: center;
+  }
+  .list-responsive .row > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .list-responsive .row > *.list-actions { flex: 0 0 auto; margin-left: auto; }
+}
+
 .avatar-xs {
   width: 18px; height: 18px;
   border-radius: 50%;
