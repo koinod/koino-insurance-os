@@ -408,11 +408,14 @@ function AuthGate({ children }) {
     return <F session={session} onDone={() => refreshTenant()}/>;
   }
   // Member exists, but their agency hasn't completed onboarding AND they're
-  // the owner → resume the agency wizard. Producers (rep/manager) skip this
-  // because they don't own the agency setup.
+  // the owner → resume the agency wizard. Producers (rep) skip this because
+  // they don't own the agency setup. Managers/super_admins are included so
+  // an agency where the DB role is "manager" (the post-retirement default
+  // for what used to be "owner") still resumes correctly.
+  const OWNER_LIKE = new Set(["owner", "manager", "super_admin", "admin", "imo_owner"]);
   if (session && tenant && tenant.member && tenant.agency
       && tenant.agency.onboarding_complete === false
-      && tenant.member.role === "owner"
+      && OWNER_LIKE.has(tenant.member.role)
       && window.PageFirstRun) {
     const F = window.PageFirstRun;
     return <F session={session} resumeAgency={tenant.agency} onDone={() => refreshTenant()}/>;

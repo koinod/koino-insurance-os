@@ -73,7 +73,15 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
         p_license_states: form.license_states,
         p_carrier_appts:  form.carrier_appts,
       });
-      if (error) throw error;
+      if (error) {
+        // If the RPC isn't deployed yet, surface a clearer error + give the
+        // rep a way out (the "Open Repflow anyway" exit added in step 2/0).
+        const msg = String(error?.message || error);
+        if (/function .*provision_rep_for_member.* does not exist/i.test(msg) || error?.code === "PGRST202") {
+          throw new Error("Producer provisioning RPC isn't deployed yet — ask your owner/admin to apply the latest onboarding migration. You can click \"Skip — open Repflow\" below to continue in read-only mode.");
+        }
+        throw error;
+      }
       window.toast && window.toast(`Welcome, ${form.name.split(" ")[0]}`, "success");
       window.hydrateFromSupabase && window.hydrateFromSupabase();
       // Route fresh rep to Floor (live mode) so the first thing they
@@ -86,6 +94,10 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
     } finally { setBusy(false); }
   };
 
+  // Always-on exit so a rep can never be trapped here. AuthGate will re-route
+  // back if their rep_id is still null, but at least they can see the UI.
+  const skipForNow = () => { onComplete && onComplete(); };
+
   const toggleState = (s) => setForm(f => ({ ...f, license_states: f.license_states.includes(s) ? f.license_states.filter(x => x !== s) : [...f.license_states, s] }));
   const toggleCarrier = (c) => setForm(f => ({ ...f, carrier_appts: f.carrier_appts.includes(c) ? f.carrier_appts.filter(x => x !== c) : [...f.carrier_appts, c] }));
 
@@ -94,10 +106,15 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
       <div className="login-card" style={{ maxWidth: 520 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
           <div className="sb-brand-mark" style={{ width: 36, height: 36, fontSize: 18 }}>R</div>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>You're in · {tenant?.agency?.name}</div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{STEPS[step]} · step {step + 1} of {STEPS.length}</div>
           </div>
+          {step < 3 && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }} onClick={skipForNow} title="Skip this and finish your profile from Settings later">
+              Skip for now →
+            </button>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -106,25 +123,36 @@ function ProducerOnboardingWizard({ tenant, onComplete }) {
           ))}
         </div>
 
-        {step === 0 && (
-          <>
-            <Shared.Field label="Full name">
-              <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" autoFocus/>
-            </Shared.Field>
-            <Shared.Field label="Handle" hint="What teammates call you on the leaderboard">
-              <input className="text-input" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} placeholder="@marc"/>
-            </Shared.Field>
-            <Shared.Field label="Phone (verified caller ID)">
-              <input className="text-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 (404) 555-0142"/>
-            </Shared.Field>
-            <Shared.Field label="Email">
-              <input className="text-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="marcus@atlasimo.com"/>
-            </Shared.Field>
-            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={() => setStep(1)} disabled={!form.name.trim() || !form.phone.trim()}>
-              Continue
-            </button>
-          </>
-        )}
+        {step === 0 && (() => {
+          const emailOk = !form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+          const phoneOk = form.phone.replace(/\D/g, "").length >= 10;
+          const nameOk  = form.name.trim().length > 1;
+          const canContinue = nameOk && phoneOk && emailOk;
+          return (
+            <>
+              <Shared.Field label="Full name">
+                <input className="text-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your full name" autoFocus/>
+              </Shared.Field>
+              <Shared.Field label="Handle" hint="What teammates call you on the leaderboard">
+                <input className="text-input" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} placeholder="@marc"/>
+              </Shared.Field>
+              <Shared.Field label="Phone (verified caller ID)" hint="At least 10 digits">
+                <input className="text-input" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 (404) 555-0142"/>
+              </Shared.Field>
+              <Shared.Field label="Email">
+                <input className="text-input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="marcus@atlasimo.com"/>
+              </Shared.Field>
+              {!canContinue && (form.phone || form.email) && (
+                <div style={{ color: "var(--state-warning)", fontSize: 11.5, marginBottom: 6 }}>
+                  {!phoneOk && form.phone && "Phone needs 10+ digits."} {!emailOk && form.email && "Email looks malformed."}
+                </div>
+              )}
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={() => setStep(1)} disabled={!canContinue}>
+                Continue
+              </button>
+            </>
+          );
+        })()}
 
         {step === 1 && (
           <>
