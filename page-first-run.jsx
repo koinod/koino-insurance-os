@@ -500,9 +500,12 @@ function StepProducts({ onSubmit, busy, err }) {
         })}
       </div>
       {err && <div style={{ color: "var(--state-danger)", fontSize: 12, marginTop: 8 }}>{err}</div>}
-      <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} disabled={busy || selected.size === 0} onClick={() => onSubmit({ product_lines: Array.from(selected) })}>
-        {busy ? "Saving…" : "Save products + continue →"}
-      </button>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button className="btn btn-ghost" style={{ flex: 1 }} disabled={busy} onClick={() => onSubmit({ skipped: true })}>Skip for now →</button>
+        <button className="btn btn-primary" style={{ flex: 1 }} disabled={busy || selected.size === 0} onClick={() => onSubmit({ product_lines: Array.from(selected) })}>
+          {busy ? "Saving…" : "Save products + continue →"}
+        </button>
+      </div>
     </>
   );
 }
@@ -534,7 +537,16 @@ function StepConnectors({ sb, onSubmit, busy, err }) {
         <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading connector catalog…</div>
       ) : catalog.length === 0 ? (
         <div style={{ padding: 16, background: "var(--bg-raised)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.55 }}>
-          Connector catalog is empty in your project. You can configure connectors later from Settings → Connectors.
+          Connector catalog is empty in your project. You can configure Twilio + other providers later from <strong>Settings → Connections</strong>. Click "Skip for now" below to keep moving.
+          {window.CONNECTOR_SCHEMAS && Object.keys(window.CONNECTOR_SCHEMAS).length > 0 && (
+            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {["twilio", "vapi", "openai"].filter(k => window.CONNECTOR_SCHEMAS[k]).map(k => (
+                <button key={k} className="btn" style={{ fontSize: 11 }} onClick={() => setConfigFor(k)}>
+                  Set up {window.CONNECTOR_SCHEMAS[k].name.split(" · ")[0]}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
@@ -686,7 +698,16 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
       return null;
     }
   };
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const rowsValid = rows.every(r => !r.email.trim() || EMAIL_RE.test(r.email.trim()));
   const sendAll = async () => {
+    // Reject the entire batch if any non-empty email row is malformed.
+    // Mixed-success here trains the operator to ignore the failed lines
+    // and ship anyway, which leaves "Mint" partly-broken silently.
+    if (!rowsValid) {
+      window.toast && window.toast("Fix the malformed email addresses first", "warn");
+      return;
+    }
     setSending(true);
     const out = [];
     for (const r of rows) {
@@ -696,7 +717,10 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
     }
     setSent(out);
     setSending(false);
-    if (out.length) window.toast && window.toast(`${out.length} invite${out.length === 1 ? "" : "s"} minted`, "success");
+    const minted = out.filter(s => s.link).length;
+    const failed = out.length - minted;
+    if (minted) window.toast && window.toast(`${minted} invite${minted === 1 ? "" : "s"} minted${failed ? ` · ${failed} failed` : ""}`, failed ? "warn" : "success");
+    else if (failed) window.toast && window.toast(`All ${failed} invite mints failed — check signed-in role + agency`, "error");
   };
   return (
     <>
@@ -704,19 +728,29 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
         Generate invite links for your first managers + reps. We won't auto-email — copy the link and send it yourself.
       </div>
       <div style={{ display: "grid", gap: 6 }}>
-        {rows.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
-            <input className="text-input" value={r.email} onChange={(e) => upd(i, "email", e.target.value)} placeholder="teammate@email.com"/>
-            <Shared.Select value={r.role} onChange={(v) => upd(i, "role", v)} options={[
-              { v: "manager", l: "Manager" },
-              { v: "rep",     l: "Rep" },
-              { v: "admin",   l: "Admin" },
-            ]}/>
-          </div>
-        ))}
+        {rows.map((r, i) => {
+          const malformed = r.email.trim() && !EMAIL_RE.test(r.email.trim());
+          return (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
+              <input
+                className="text-input"
+                type="email"
+                value={r.email}
+                onChange={(e) => upd(i, "email", e.target.value)}
+                placeholder="teammate@email.com"
+                style={malformed ? { borderColor: "var(--state-warning)" } : undefined}
+              />
+              <Shared.Select value={r.role} onChange={(v) => upd(i, "role", v)} options={[
+                { v: "manager", l: "Manager" },
+                { v: "rep",     l: "Rep" },
+                { v: "admin",   l: "Admin" },
+              ]}/>
+            </div>
+          );
+        })}
       </div>
       <button className="btn btn-ghost" style={{ marginTop: 8, fontSize: 11.5 }} onClick={() => setRows([...rows, { email: "", role: "rep" }])}>+ Add another</button>
-      <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} disabled={sending || !rows.some(r => r.email.trim())} onClick={sendAll}>
+      <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} disabled={sending || !rowsValid || !rows.some(r => r.email.trim())} onClick={sendAll}>
         {sending ? "Minting…" : "Mint invite links"}
       </button>
       {sent.length > 0 && (
