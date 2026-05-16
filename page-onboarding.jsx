@@ -350,7 +350,7 @@ function ConnectorConfigModal({ connectorId, onClose }) {
       if (sb) await sb.from("connections").update({ config }).eq("id", connectorId);
       await AppData.mutate.connectionStatus(connectorId, config.configured ? "ok" : "warn", config.configured ? "Configured" : "Setup incomplete");
       window.toast && window.toast(`${schema.name} config saved`, "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Connector save failed: ${e?.message || e}`, "error"); console.error("[onboarding.connectionSave]", e); }
     onClose();
   };
 

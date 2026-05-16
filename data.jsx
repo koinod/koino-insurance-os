@@ -131,7 +131,7 @@ window.loadDemoSeed = function () {
   window.AppData.HARDWARE = HARDWARE_SEED.slice();
   window.AppData.AGENTS = AGENTS_SEED.slice();
   window.AppData.WORKFLOWS = WORKFLOWS_SEED.slice();
-  try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (_e) {}
+  try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (e) { console.warn("[data.hydrated:dispatch]", e); }
 };
 
 // If the demo-skip flag was set before this script evaluated (sessionStorage
@@ -141,7 +141,7 @@ try {
   const inDemo = sessionStorage.getItem("repflow.demo") === "1"
               || /[?&]demo=1\b/.test(window.location.search || "");
   if (inDemo) { window.__demoSkip = true; window.loadDemoSeed(); }
-} catch (_e) {}
+} catch (e) { console.warn("[data.demoBootstrap]", e); }
 
 // ─── CSV export helper (GAP-RP1) ─────────────────────────────────────────
 // Used by Inbox / Pipeline / Commissions / Leaderboard. Any page can call:
@@ -202,7 +202,7 @@ window.getActiveAgencyId = function () {
   try {
     const explicit = localStorage.getItem("repflow.active_agency");
     if (explicit) return explicit;
-  } catch (_e) {}
+  } catch (e) { console.warn("[data.activeAgencyRead]", e); }
   if (window.me) {
     const me = window.me();
     if (me && me.agency_id) return me.agency_id;
@@ -824,7 +824,7 @@ window.hydrateFromSupabase = async function () {
       if (allEmpty && (isDemoFromActive || isDemoFromMe || window.__demoSkip)) {
         window.loadDemoSeed && window.loadDemoSeed();
       }
-    } catch (_e) {}
+    } catch (e) { console.warn("[data.demoFallback]", e); }
 
     window.dispatchEvent(new CustomEvent("data:hydrated"));
     return true;
@@ -984,7 +984,7 @@ window.subscribeRealtime = function () {
 };
 
 // Auto-subscribe after first hydrate
-window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (_e) {} }, { once: true });
+window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (e) { console.warn("[data.subscribeRealtime]", e); } }, { once: true });
 
 window.AppData.mutate = {
   async pipelineStage(id, stage) {
@@ -1643,7 +1643,7 @@ window.AppData.mutate = {
       try {
         const { error } = await sb.from("queue").update({ assigned_rep_id: null }).eq("id", queueId);
         if (error && !/column.*does not exist/i.test(error.message || "")) throw error;
-      } catch (_e) {}
+      } catch (e) { console.warn("[data.queueRelease]", e); }
     }
   },
 
@@ -2032,15 +2032,15 @@ window.AppData.mutate.leadQuoteSave = async function ({ leadId, repId, product, 
 (function () {
   const FLAG = "repflow:onboarding:firstDial";
   function maybeFlip() {
-    try { if (sessionStorage.getItem(FLAG)) return; } catch (_e) {}
+    try { if (sessionStorage.getItem(FLAG)) return; } catch (e) { console.warn("[onboarding.firstDialFlagRead]", e); }
     const me = window.me && window.me();
     const repId = me?.rep_id || (window.AppData?.REPS?.[0]?.id);
     if (!repId) return;
     const row = (window.AppData?.ONBOARDING_PROGRESS || []).find(p => p.repId === repId);
-    if (row && row.firstDial) { try { sessionStorage.setItem(FLAG, "1"); } catch (_e) {} return; }
+    if (row && row.firstDial) { try { sessionStorage.setItem(FLAG, "1"); } catch (e) { console.warn("[onboarding.firstDialFlagWrite]", e); } return; }
     if (window.AppData?.mutate?.onboardingStepSet) {
       window.AppData.mutate.onboardingStepSet(repId, "first_dial", true)
-        .then(() => { try { sessionStorage.setItem(FLAG, "1"); } catch (_e) {} })
+        .then(() => { try { sessionStorage.setItem(FLAG, "1"); } catch (e) { console.warn("[onboarding.firstDialFlagWrite]", e); } })
         .catch(() => {});
     }
   }
@@ -2048,6 +2048,6 @@ window.AppData.mutate.leadQuoteSave = async function ({ leadId, repId, product, 
   // Belt-and-suspenders: any direct call to repflowDial / repflowCall flips too.
   const origCall = window.repflowCall;
   if (typeof origCall === "function") {
-    window.repflowCall = function (...args) { try { maybeFlip(); } catch (_e) {} return origCall.apply(this, args); };
+    window.repflowCall = function (...args) { try { maybeFlip(); } catch (e) { console.warn("[onboarding.firstDialFlip]", e); } return origCall.apply(this, args); };
   }
 })();

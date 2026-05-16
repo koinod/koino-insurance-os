@@ -232,7 +232,7 @@
           });
           window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "tasks" }}));
         }
-      } catch (_e) {}
+      } catch (e) { window.toast?.(`Appointment save failed: ${e?.message || e}`, "error"); console.error("[floor.appointmentTaskCreate]", e); }
 
       const cal = calendlyLink();
       if (cal) {
@@ -315,7 +315,7 @@
         priority: "medium",
       });
       window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "tasks" }}));
-    } catch (_e) {}
+    } catch (e) { console.warn("[floor.appLinkTaskCreate]", e); }
   };
 
   // ── Quote Tool modal — wraps the carrier-fit calculator that used to be

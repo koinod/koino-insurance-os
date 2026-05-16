@@ -278,7 +278,7 @@ function AutoDialBar() {
       } else if (outcome === "not_interested" && AppData.mutate) {
         await AppData.mutate.pipelineStage(current.id, "Lost");
       }
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Stage update failed: ${e?.message || e}`, "error"); console.error("[autodialer.pipelineStage]", e); }
 
     // Schedule retry per disposition cadence (no_answer → 2h, voicemail → tomorrow, etc.)
     let cadenceLabel = "";

@@ -74,21 +74,21 @@ const DOC_CATS    = ["Compliance", "Carrier", "Training", "Internal"];
 // ─── localStorage helper ─────────────────────────────────────────────────
 function useLocalArray(key, seed) {
   const [items, setItems] = React.useState(() => {
-    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (_e) {}
+    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (e) { console.warn("[resources.useLocalArray.read]", key, e); }
     return seed;
   });
   React.useEffect(() => {
-    try { localStorage.setItem(key, JSON.stringify(items)); } catch (_e) {}
+    try { localStorage.setItem(key, JSON.stringify(items)); } catch (e) { console.warn("[resources.useLocalArray.write]", key, e); }
   }, [items]);
   return [items, setItems];
 }
 function useLocalValue(key, seed) {
   const [v, setV] = React.useState(() => {
-    try { const raw = localStorage.getItem(key); if (raw != null) return JSON.parse(raw); } catch (_e) {}
+    try { const raw = localStorage.getItem(key); if (raw != null) return JSON.parse(raw); } catch (e) { console.warn("[resources.useLocalValue.read]", key, e); }
     return seed;
   });
   React.useEffect(() => {
-    try { localStorage.setItem(key, JSON.stringify(v)); } catch (_e) {}
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { console.warn("[resources.useLocalValue.write]", key, e); }
   }, [v]);
   return [v, setV];
 }
@@ -291,7 +291,7 @@ function PageResources({ role = "owner" }) {
   );
   const copyScript = (s) => {
     try { navigator.clipboard.writeText(s.body); window.toast && window.toast("Script copied", "success"); }
-    catch (_e) { window.toast && window.toast("Copy failed", "danger"); }
+    catch (_e) { window.toast && window.toast("Copy failed", "error"); }
   };
 
   // ─── Docs (persisted via AppData.mutate.docUpsert / docDelete) ─────────
@@ -304,9 +304,9 @@ function PageResources({ role = "owner" }) {
       setDocDraft({ title: "", cat: "Internal", url: "" });
       setDocAdd(false);
       window.toast && window.toast("Document added", "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Document add failed: ${e?.message || e}`, "error"); console.error("[resources.docAdd]", e); }
   };
-  const removeDoc = async (id) => { try { await window.AppData.mutate.docDelete(id); } catch (_e) {} };
+  const removeDoc = async (id) => { try { await window.AppData.mutate.docDelete(id); } catch (e) { window.toast?.(`Document delete failed: ${e?.message || e}`, "error"); console.error("[resources.docDelete]", e); } };
 
   // ─── File upload (drag-drop) → Supabase storage `vault` bucket ─────────
   const guessCat = (name) => {
@@ -356,7 +356,7 @@ function PageResources({ role = "owner" }) {
     const url = gdocUrl.trim();
     if (!url) return;
     if (!/docs\.google\.com\/(document|spreadsheets|presentation)/.test(url)) {
-      window.toast && window.toast("Not a Google Docs/Sheets/Slides URL", "danger");
+      window.toast && window.toast("Not a Google Docs/Sheets/Slides URL", "error");
       return;
     }
     setImporting(true);
@@ -368,7 +368,7 @@ function PageResources({ role = "owner" }) {
       });
       const data = await r.json();
       if (!data.ok) {
-        window.toast && window.toast(data.error || "Import failed", "danger");
+        window.toast && window.toast(data.error || "Import failed", "error");
         return;
       }
       try {
@@ -380,11 +380,11 @@ function PageResources({ role = "owner" }) {
           gdocKind: data.kind,
           text: data.text || "",
         });
-      } catch (_e) {}
+      } catch (e) { window.toast?.(`Doc import save failed: ${e?.message || e}`, "error"); console.error("[resources.gdocUpsert]", e); }
       setGdocUrl("");
       window.toast && window.toast(`Imported "${data.title}"`, "success");
     } catch (e) {
-      window.toast && window.toast("Import failed: " + (e?.message || "unknown"), "danger");
+      window.toast && window.toast("Import failed: " + (e?.message || "unknown"), "error");
     } finally {
       setImporting(false);
     }
@@ -405,9 +405,9 @@ function PageResources({ role = "owner" }) {
       });
       cancelLink();
       window.toast && window.toast(linkAdd ? "Link added" : "Link updated", "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Link save failed: ${e?.message || e}`, "error"); console.error("[resources.linkUpsert]", e); }
   };
-  const removeLink = async (id) => { try { await window.AppData.mutate.quickLinkDelete(id); window.toast && window.toast("Link removed", "info"); } catch (_e) {} };
+  const removeLink = async (id) => { try { await window.AppData.mutate.quickLinkDelete(id); window.toast && window.toast("Link removed", "info"); } catch (e) { window.toast?.(`Link delete failed: ${e?.message || e}`, "error"); console.error("[resources.linkDelete]", e); } };
   const groupedLinks = LINK_CATEGORIES
     .map(c => ({ cat: c, items: links.filter(l => l.cat === c) }))
     .filter(g => g.items.length > 0 || (linkAdd && linkDraft.cat === g.cat));

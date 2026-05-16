@@ -432,7 +432,7 @@ function TodayRep({ aep }) {
     if (!myManagerRow) return goMessages();
     try {
       await window.AppData.mutate.threadEnsure({ memberHandles: [myRow.handle, myManagerRow.handle], kind: "dm" });
-    } catch (_e) {}
+    } catch (e) { console.warn("[today.dmManager.threadEnsure]", e); }
     goMessages();
   };
 
@@ -952,7 +952,7 @@ function TodayManagerOnboarding({ scopeIds }) {
     try {
       await AppData.mutate.onboardingVerify(repId, val);
       window.toast && window.toast(val ? "Rep verified for production" : "Verification removed", "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`Verify failed: ${e?.message || e}`, "error"); console.error("[today.onboardingVerify]", e); }
   };
 
   return (
@@ -1509,7 +1509,7 @@ function TodayManagerNigo({ scopeIds }) {
     try {
       await AppData.mutate.nigoStatus(id, next);
       window.toast && window.toast(`NIGO marked ${next}`, "success");
-    } catch (_e) {}
+    } catch (e) { window.toast?.(`NIGO update failed: ${e?.message || e}`, "error"); console.error("[today.nigoStatus]", e); }
   };
 
   return (

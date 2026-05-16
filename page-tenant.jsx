@@ -869,7 +869,7 @@ async function twilioReady() {
 window.repflowDialTwilio = async function (phone, leadName) {
   const dev = await twilioReady();
   if (!dev) return false;
-  if (_twActive) { try { _twActive.disconnect(); } catch (_e) {} }
+  if (_twActive) { try { _twActive.disconnect(); } catch (e) { console.warn("[tenant.twilioDisconnect]", e); } }
   _twActive = await dev.connect({ params: { To: phone, leadName: leadName || "" } });
   window.dispatchEvent(new CustomEvent("twilio:active", { detail: { phone, leadName } }));
   window.toast && window.toast(`Dialing ${leadName || phone}`, "info");

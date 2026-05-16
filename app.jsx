@@ -96,7 +96,7 @@ function App() {
           if (effective !== role) setTweak("role", effective);
         }
         synced = true;
-      } catch (_e) {}
+      } catch (e) { console.warn("[app.roleSync]", e); }
     };
     sync();
     const sub = sb.auth.onAuthStateChange((event, _sess) => {

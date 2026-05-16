@@ -23,7 +23,7 @@
       try {
         const c = window.Twilio.Device.activeConnection && window.Twilio.Device.activeConnection();
         if (c) return c;
-      } catch (_e) {}
+      } catch (e) { console.warn("[transcriber.twilioProbe]", e); }
     }
     return null;
   }
@@ -35,7 +35,7 @@
       if (typeof conn.getRemoteStream === "function") return conn.getRemoteStream();
       // Older API: pcStream
       if (conn.mediaStream && conn.mediaStream.remoteStream) return conn.mediaStream.remoteStream;
-    } catch (_e) {}
+    } catch (e) { console.warn("[transcriber.remoteStreamProbe]", e); }
     return null;
   }
 
@@ -135,10 +135,11 @@
     }, [active, source]);
 
     const stop = () => {
-      try { recRef.current && recRef.current.state !== "inactive" && recRef.current.stop(); } catch (_e) {}
+      try { recRef.current && recRef.current.state !== "inactive" && recRef.current.stop(); } catch (e) { console.warn("[transcriber.recorderStop]", e); }
       recRef.current = null;
-      try { ctxRef.current && ctxRef.current.close(); } catch (_e) {}
+      try { ctxRef.current && ctxRef.current.close(); } catch (e) { console.warn("[transcriber.audioCtxClose]", e); }
       ctxRef.current = null;
+      // Per-stream cleanup is a hot loop — swallow individual track-stop errors here.
       for (const s of streamsRef.current) {
         try { s.getTracks().forEach(t => t.stop()); } catch (_e) {}
       }
@@ -229,7 +230,7 @@
           setTranscript(arr => [...arr, seg]);
           onSegment && onSegment(seg);
           window.dispatchEvent(new CustomEvent("transcript:segment", { detail: seg }));
-        } catch (_e) {}
+        } catch (e) { console.warn("[transcriber.chunkPost]", e); }
       };
       rec.onerror   = () => setStatus("error");
       rec.onstart   = () => setStatus("live");

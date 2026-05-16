@@ -129,7 +129,7 @@ function PagePerformance() {
       setOverrides({ ...overrides, [id]: t });
       setHistory([{ who: rep.name, from: rep.tier, to: t, reason: "Manual override", when: "now" }, ...history]);
     }
-    try { await AppData.mutate.tieringOverride(id, t); window.toast && window.toast(`${rep.name} → ${t.toUpperCase()}${AppData.LIVE ? " · saved" : ""}`, "success"); } catch (_e) {}
+    try { await AppData.mutate.tieringOverride(id, t); window.toast && window.toast(`${rep.name} → ${t.toUpperCase()}${AppData.LIVE ? " · saved" : ""}`, "success"); } catch (e) { window.toast?.(`Tier override failed: ${e?.message || e}`, "error"); console.error("[performance.tieringOverride]", e); }
   };
 
   // ─── Forecast math ──────────────────────────────────────────────────────
