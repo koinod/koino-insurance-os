@@ -188,11 +188,11 @@ function PageVault({ role = "owner" }) {
       {tab === "coaching" && <VaultCoachingPane role={role}/>}
       {tab === "courses"  && <ProductTrainingEmbedded role={role}/>}
       {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} canEdit={canEdit} role={role}/>}
-      {tab === "videos"   && <VaultVideosBlock  videos={fVideos}   onOpen={setOpenVideo}/>}
+      {tab === "videos"   && <VaultVideosPane   videos={fVideos}   onOpen={setOpenVideo} canEdit={canEdit}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
       {tab === "segments" && <VaultSegmentsPane canEdit={canEdit}/>}
-      {tab === "carriers" && <VaultCarriersBlock carriers={fCarriers}/>}
-      {tab === "links"    && <VaultLinksBlock   links={fLinks}/>}
+      {tab === "carriers" && <VaultCarriersPane carriers={fCarriers} canEdit={canEdit}/>}
+      {tab === "links"    && <VaultLinksPane    links={fLinks}    canEdit={canEdit}/>}
 
       {openVideo && (
         <Shared.Modal title={openVideo.title} width={800} onClose={() => setOpenVideo(null)}>
@@ -497,6 +497,138 @@ function VaultVideosBlock({ videos, onOpen }) {
   );
 }
 
+/* ── Vault: Videos pane (Block + create modal) ── */
+const VIDEO_PANE_CATS = ["Med Supp","Final Expense","AEP","Life","Annuity","Compliance","Other"];
+
+function VaultVideosPane({ videos, onOpen, canEdit }) {
+  const [addOpen, setAddOpen] = React.useState(false);
+  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
+  const emptyDraft = () => ({ id: null, title: "", cat: "Med Supp", sourceUrl: "", durMin: 0, segmentId: null });
+  const [draft, setDraft] = React.useState(emptyDraft());
+
+  const openCreate = () => { setDraft(emptyDraft()); setAddOpen(true); };
+  const openEdit   = (v) => setDraft({
+    id: v.id, title: v.title || "", cat: v.cat || "Med Supp",
+    sourceUrl: v.sourceUrl || v.src || "", durMin: v.durMin || 0,
+    segmentId: v.segmentId || null,
+  });
+  const save = async () => {
+    const title = draft.title.trim();
+    const url   = draft.sourceUrl.trim();
+    if (!title) return;
+    const src        = toEmbedSrc(url);
+    const thumb      = thumbFromUrl(url);
+    const sourceLabel = detectVideoSourceLabel(url);
+    try {
+      await window.AppData.mutate.videoUpsert({
+        id: draft.id || undefined,
+        title, cat: draft.cat, src,
+        sourceUrl: url, sourceLabel,
+        thumb, durMin: Number(draft.durMin) || 0,
+      });
+      setAddOpen(false);
+      setDraft(emptyDraft());
+      window.toast && window.toast(draft.id ? "Video saved" : "Video added", "success");
+    } catch (_e) {}
+  };
+  const remove = async (id) => {
+    if (!confirm("Delete this video? This can't be undone.")) return;
+    try { await window.AppData.mutate.videoDelete(id); window.toast && window.toast("Video removed", "info"); }
+    catch (_e) {}
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Video size={13}/><h3>Training videos</h3><span className="meta">{videos.length}</span>
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
+            <Icons.Plus size={12}/> New video
+          </button>
+        )}
+      </div>
+      {videos.length === 0 ? (
+        <div style={{ padding: 36, textAlign: "center" }}>
+          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-videos</code>
+          {canEdit && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
+              Paste a Loom, YouTube, Vimeo, or Wistia URL to share a training clip across the agency.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+          {videos.map(v => (
+            <div key={v.id}
+              style={{ background: "var(--bg-raised)", borderRadius: 8, overflow: "hidden", cursor: "pointer", border: "1px solid var(--border-subtle)", position: "relative" }}>
+              <div onClick={() => onOpen(v)} style={{ position: "relative", paddingTop: "56.25%", background: "var(--bg-overlay)" }}>
+                {v.thumb && <img src={v.thumb} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}/>}
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.25)" }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 999, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icons.Play size={14} style={{ color: "white", marginLeft: 2 }}/>
+                  </div>
+                </div>
+                {v.durMin > 0 && (
+                  <div style={{ position: "absolute", bottom: 6, right: 6, padding: "2px 6px", background: "rgba(0,0,0,0.7)", borderRadius: 3, fontSize: 10, color: "white" }}>{v.durMin}m</div>
+                )}
+              </div>
+              <div style={{ padding: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500 }} className="cell-truncate">{v.title}</div>
+                  {v.cat && <div style={{ marginTop: 4 }}><span className="chip" style={{ fontSize: 9.5 }}>{v.cat}</span></div>}
+                </div>
+                {canEdit && (
+                  <div style={{ display: "flex", gap: 2 }}>
+                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); openEdit(v); setAddOpen(true); }} title="Edit"><Icons.Edit size={11}/></button>
+                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); remove(v.id); }} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {addOpen && (
+        <Shared.Modal title={draft.id ? "Edit video" : "New video"} width={560} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!draft.title.trim() || !draft.sourceUrl.trim()}>
+              <Icons.Check size={11}/> {draft.id ? "Save changes" : "Add video"}
+            </button>
+          </>
+        }>
+          <Shared.Field label="Title">
+            <input className="text-input" autoFocus value={draft.title}
+              onChange={e => setDraft({ ...draft, title: e.target.value })}
+              placeholder="Med Supp Plan G — opening + objections"/>
+          </Shared.Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12 }}>
+            <Shared.Field label="Category">
+              <Shared.Select value={draft.cat} onChange={v => setDraft({ ...draft, cat: v })}
+                options={VIDEO_PANE_CATS.map(c => ({ v: c, l: c }))}/>
+            </Shared.Field>
+            <Shared.Field label="Duration (min)">
+              <input className="text-input" type="number" value={draft.durMin}
+                onChange={e => setDraft({ ...draft, durMin: +e.target.value || 0 })}/>
+            </Shared.Field>
+          </div>
+          <Shared.Field label="Video URL (Loom / YouTube / Vimeo / Wistia / direct mp4)">
+            <input className="text-input" value={draft.sourceUrl}
+              onChange={e => setDraft({ ...draft, sourceUrl: e.target.value })}
+              placeholder="https://loom.com/share/…"/>
+          </Shared.Field>
+          {segments.length > 0 && (
+            <Shared.Field label="Segment (optional)">
+              <Shared.Select value={draft.segmentId || ""} onChange={v => setDraft({ ...draft, segmentId: v || null })}
+                options={[{ v: "", l: "— No segment —" }, ...segments.map(s => ({ v: s.id, l: s.name }))]}/>
+            </Shared.Field>
+          )}
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
 /* ── Vault: Documents block (compact, search-friendly) ── */
 function VaultDocsBlock({ docs }) {
   if (!docs.length) {
@@ -563,7 +695,7 @@ function VaultCoursesBlock({ courses, role }) {
   );
 }
 
-/* ── Vault: Carriers (read-only directory) ── */
+/* ── Vault: Carriers — directory preview on All tab (read-only block) ── */
 function VaultCarriersBlock({ carriers }) {
   if (!carriers.length) {
     return (
@@ -574,7 +706,7 @@ function VaultCarriersBlock({ carriers }) {
   }
   return (
     <div className="panel">
-      <div className="panel-h"><Icons.Shield size={13}/><h3>Appointed carriers</h3><span className="meta">{carriers.length}</span></div>
+      <div className="panel-h"><Icons.Shield size={13}/><h3>Carriers directory</h3><span className="meta">{carriers.length}</span></div>
       <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
         {carriers.map(c => (
           <div key={c.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
@@ -590,6 +722,206 @@ function VaultCarriersBlock({ carriers }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ── Vault: Carriers PANE — directory + agency appointments (the operational one)
+   On the dedicated Carriers tab. canEdit gates the create/edit/delete buttons. ── */
+const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+
+function VaultCarriersPane({ carriers, canEdit }) {
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const fn = () => force(n => n + 1);
+    ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.addEventListener(e, fn));
+    return () => ["data:hydrated","data:mutated","data:realtime"].forEach(e => window.removeEventListener(e, fn));
+  }, []);
+
+  const appts = (window.AppData && window.AppData.AGENCY_APPOINTMENTS) || [];
+  const carrierById = Object.fromEntries((carriers || []).map(c => [c.id, c]));
+
+  const emptyDraft = () => ({
+    id: null, carrierId: (carriers[0] && carriers[0].id) || "",
+    carrierName: "", npn: "", compRatePct: "",
+    appointedStates: [], notes: "", active: true,
+  });
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [draft, setDraft]     = React.useState(emptyDraft());
+
+  const openCreate = () => { setDraft(emptyDraft()); setAddOpen(true); };
+  const openEdit   = (a) => {
+    setDraft({
+      id: a.id,
+      carrierId: a.carrierId || "",
+      carrierName: a.carrierName || "",
+      npn: a.npn || "",
+      compRatePct: a.compRatePct != null ? String(a.compRatePct) : "",
+      appointedStates: Array.isArray(a.appointedStates) ? a.appointedStates : [],
+      notes: a.notes || "",
+      active: a.active !== false,
+    });
+    setAddOpen(true);
+  };
+
+  const toggleState = (st) => setDraft(d => ({
+    ...d,
+    appointedStates: d.appointedStates.includes(st)
+      ? d.appointedStates.filter(x => x !== st)
+      : [...d.appointedStates, st],
+  }));
+
+  const save = async () => {
+    const carrier = carrierById[draft.carrierId];
+    const carrierName = (draft.carrierName || (carrier && carrier.name) || "").trim();
+    if (!carrierName) {
+      window.toast && window.toast("Pick a carrier or enter a name", "danger");
+      return;
+    }
+    const comp = draft.compRatePct === "" ? null : Number(draft.compRatePct);
+    try {
+      await window.AppData.mutate.agencyAppointmentUpsert({
+        id: draft.id || undefined,
+        carrierId: draft.carrierId || null,
+        carrierName,
+        npn: draft.npn.trim() || null,
+        compRatePct: comp,
+        appointedStates: draft.appointedStates,
+        notes: draft.notes.trim() || null,
+        active: draft.active,
+      });
+      setAddOpen(false);
+      setDraft(emptyDraft());
+      window.toast && window.toast(draft.id ? "Appointment saved" : "Appointment added", "success");
+    } catch (_e) {}
+  };
+
+  const remove = async (id) => {
+    if (!confirm("Remove this carrier appointment? This can't be undone.")) return;
+    try { await window.AppData.mutate.agencyAppointmentDelete(id); window.toast && window.toast("Removed", "info"); }
+    catch (_e) {}
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Shield size={13}/>
+          <h3>My agency's carrier appointments</h3>
+          <span className="meta">{appts.length}</span>
+          {canEdit && (
+            <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
+              <Icons.Plus size={12}/> New appointment
+            </button>
+          )}
+        </div>
+        {appts.length === 0 ? (
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-appointments</code>
+            {canEdit && (
+              <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
+                Click <strong style={{ color: "var(--text-secondary)" }}>New appointment</strong> after you've been appointed with your first carrier.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="list">
+            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 80px 90px 1.4fr 80px 60px" }}>
+              <div>Carrier</div><div>NPN</div><div className="tabular" style={{ textAlign: "right" }}>Comp %</div><div>States</div><div>Status</div><div></div>
+            </div>
+            {appts.map(a => (
+              <div key={a.id} className="row" style={{ gridTemplateColumns: "1.6fr 80px 90px 1.4fr 80px 60px" }}>
+                <div style={{ fontWeight: 500, fontSize: 12.5 }}>
+                  {a.carrierName || (carrierById[a.carrierId] && carrierById[a.carrierId].name) || "—"}
+                  {a.notes && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }} className="cell-truncate">{a.notes}</div>}
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="mono">{a.npn || "—"}</div>
+                <div className="tabular" style={{ textAlign: "right", fontSize: 11.5 }}>{a.compRatePct != null ? `${a.compRatePct}%` : "—"}</div>
+                <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                  {a.appointedStates.length === 0
+                    ? <span style={{ color: "var(--text-quaternary)", fontSize: 11.5 }}>—</span>
+                    : a.appointedStates.slice(0, 6).map(s => <span key={s} className="chip" style={{ fontSize: 9.5 }}>{s}</span>)}
+                  {a.appointedStates.length > 6 && (
+                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>+{a.appointedStates.length - 6}</span>
+                  )}
+                </div>
+                <div><span className={`chip ${a.active ? "chip-money" : ""}`}>{a.active ? "active" : "inactive"}</span></div>
+                {canEdit
+                  ? (
+                    <div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                      <button className="icon-btn" onClick={() => openEdit(a)} title="Edit"><Icons.Edit size={11}/></button>
+                      <button className="icon-btn" onClick={() => remove(a.id)} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                    </div>
+                  )
+                  : <div/>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {(carriers || []).length > 0 && <VaultCarriersBlock carriers={carriers}/>}
+
+      {addOpen && (
+        <Shared.Modal title={draft.id ? "Edit carrier appointment" : "New carrier appointment"} width={720} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save}><Icons.Check size={11}/> {draft.id ? "Save changes" : "Add appointment"}</button>
+          </>
+        }>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Shared.Field label="Carrier (from directory)">
+              <Shared.Select value={draft.carrierId} onChange={v => setDraft({ ...draft, carrierId: v })}
+                options={[{ v: "", l: "— Custom (type name below) —" }, ...carriers.map(c => ({ v: c.id, l: c.name }))]}/>
+            </Shared.Field>
+            <Shared.Field label="Custom carrier name (if not in directory)">
+              <input className="text-input" value={draft.carrierName}
+                onChange={e => setDraft({ ...draft, carrierName: e.target.value })}
+                placeholder="Leave blank to use directory pick"/>
+            </Shared.Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", gap: 12 }}>
+            <Shared.Field label="NPN">
+              <input className="text-input" value={draft.npn}
+                onChange={e => setDraft({ ...draft, npn: e.target.value })}
+                placeholder="Agency NPN with this carrier"/>
+            </Shared.Field>
+            <Shared.Field label="Comp % (target)">
+              <input className="text-input" type="number" step="0.5" value={draft.compRatePct}
+                onChange={e => setDraft({ ...draft, compRatePct: e.target.value })}
+                placeholder="22"/>
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select value={draft.active ? "active" : "inactive"} onChange={v => setDraft({ ...draft, active: v === "active" })}
+                options={[{ v: "active", l: "Active" }, { v: "inactive", l: "Inactive / terminated" }]}/>
+            </Shared.Field>
+          </div>
+          <Shared.Field label={`Appointed states (${draft.appointedStates.length} selected)`}>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxHeight: 140, overflowY: "auto", padding: 4, background: "var(--bg-raised)", borderRadius: 6 }}>
+              {US_STATES.map(st => {
+                const on = draft.appointedStates.includes(st);
+                return (
+                  <button key={st} type="button" onClick={() => toggleState(st)}
+                    className="chip"
+                    style={{
+                      cursor: "pointer", padding: "3px 8px", fontSize: 10.5,
+                      background: on ? "rgba(0, 212, 170, 0.14)" : "var(--bg-overlay)",
+                      color: on ? "var(--accent-money)" : "var(--text-tertiary)",
+                      borderColor: on ? "var(--accent-money)" : "var(--border-subtle)",
+                      fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                    }}>{st}</button>
+                );
+              })}
+            </div>
+          </Shared.Field>
+          <Shared.Field label="Notes (optional)">
+            <textarea className="text-input" rows={2} value={draft.notes}
+              onChange={e => setDraft({ ...draft, notes: e.target.value })}
+              placeholder="Anything that matters about this appointment — release rules, comp clawback windows, etc."
+              style={{ width: "100%", lineHeight: 1.55 }}/>
+          </Shared.Field>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
@@ -623,6 +955,122 @@ function VaultLinksBlock({ links }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ── Vault: Quick links pane (Block + create modal) ── */
+const LINK_CATS = ["Carrier portal","Compliance","Internal","Training","Other"];
+
+function VaultLinksPane({ links, canEdit }) {
+  const [addOpen, setAddOpen] = React.useState(false);
+  const emptyDraft = () => ({ id: null, label: "", url: "", cat: "Internal", sortOrder: 0 });
+  const [draft, setDraft] = React.useState(emptyDraft());
+
+  const openCreate = () => { setDraft(emptyDraft()); setAddOpen(true); };
+  const openEdit   = (l) => { setDraft({
+    id: l.id, label: l.label || "", url: l.url || "",
+    cat: l.cat || "Internal", sortOrder: l.sortOrder || 0,
+  }); setAddOpen(true); };
+
+  const save = async () => {
+    const label = draft.label.trim();
+    const raw   = draft.url.trim();
+    if (!label || !raw) return;
+    const safeUrl = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    try {
+      await window.AppData.mutate.quickLinkUpsert({
+        id: draft.id || undefined,
+        label, url: safeUrl, cat: draft.cat, sortOrder: Number(draft.sortOrder) || 0,
+      });
+      setAddOpen(false);
+      setDraft(emptyDraft());
+      window.toast && window.toast(draft.id ? "Link saved" : "Link added", "success");
+    } catch (_e) {}
+  };
+  const remove = async (id) => {
+    if (!confirm("Delete this link?")) return;
+    try { await window.AppData.mutate.quickLinkDelete(id); window.toast && window.toast("Link removed", "info"); }
+    catch (_e) {}
+  };
+
+  const groups = links.reduce((acc, l) => { (acc[l.cat || "Internal"] ||= []).push(l); return acc; }, {});
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.ArrowUpRight size={13}/><h3>Quick links</h3><span className="meta">{links.length}</span>
+        {canEdit && (
+          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
+            <Icons.Plus size={12}/> New link
+          </button>
+        )}
+      </div>
+      {links.length === 0 ? (
+        <div style={{ padding: 36, textAlign: "center" }}>
+          <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-quick-links</code>
+          {canEdit && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
+              Pin carrier portals, the AHIP training site, the CMS TPMO PDF — anywhere reps need fast access mid-call.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: 14 }}>
+          {Object.entries(groups).map(([cat, items]) => (
+            <div key={cat} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{cat}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 6 }}>
+                {items.map(l => (
+                  <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", background: "var(--bg-raised)", borderRadius: 5 }}>
+                    <a href={l.url} target="_blank" rel="noopener noreferrer"
+                      style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, color: "var(--text-primary)", textDecoration: "none", minWidth: 0 }}>
+                      <Icons.ArrowUpRight size={11} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                      <span className="cell-truncate" style={{ fontSize: 12, fontWeight: 500 }}>{l.label}</span>
+                    </a>
+                    {canEdit && (
+                      <>
+                        <button className="icon-btn" onClick={() => openEdit(l)} title="Edit"><Icons.Edit size={11}/></button>
+                        <button className="icon-btn" onClick={() => remove(l.id)} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {addOpen && (
+        <Shared.Modal title={draft.id ? "Edit quick link" : "New quick link"} width={520} onClose={() => setAddOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={!draft.label.trim() || !draft.url.trim()}>
+              <Icons.Check size={11}/> {draft.id ? "Save changes" : "Add link"}
+            </button>
+          </>
+        }>
+          <Shared.Field label="Label">
+            <input className="text-input" autoFocus value={draft.label}
+              onChange={e => setDraft({ ...draft, label: e.target.value })}
+              placeholder="UHC Producer Portal"/>
+          </Shared.Field>
+          <Shared.Field label="URL">
+            <input className="text-input" value={draft.url}
+              onChange={e => setDraft({ ...draft, url: e.target.value })}
+              placeholder="https://uhcjarvis.com/"/>
+          </Shared.Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12 }}>
+            <Shared.Field label="Category">
+              <Shared.Select value={draft.cat} onChange={v => setDraft({ ...draft, cat: v })}
+                options={LINK_CATS.map(c => ({ v: c, l: c }))}/>
+            </Shared.Field>
+            <Shared.Field label="Sort order">
+              <input className="text-input" type="number" value={draft.sortOrder}
+                onChange={e => setDraft({ ...draft, sortOrder: e.target.value })}/>
+            </Shared.Field>
+          </div>
+        </Shared.Modal>
+      )}
     </div>
   );
 }
@@ -793,6 +1241,57 @@ function VaultSessionsPane({ sessions }) {
   );
 }
 
+/* ── Vault: per-mime preview renderer for docs.
+   Inline-renders PDFs, images, video/audio, and Google Docs URLs in an iframe.
+   Falls back to "Open in new tab" for unknown formats. ── */
+function DocPreviewBody({ doc, url }) {
+  if (!url) {
+    return <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>Loading preview…</div>;
+  }
+  const mime = (doc.mime || "").toLowerCase();
+  const ext  = (doc.ext  || "").toLowerCase();
+  const isPdf   = mime.includes("pdf")   || ext === "pdf";
+  const isImage = mime.startsWith("image/") || /^(png|jpe?g|gif|webp|svg|bmp)$/i.test(ext);
+  const isVideo = mime.startsWith("video/") || /^(mp4|webm|mov|m4v)$/i.test(ext);
+  const isAudio = mime.startsWith("audio/") || /^(mp3|wav|m4a|ogg)$/i.test(ext);
+  const isGdoc  = /\bdocs\.google\.com|docs\.google|drive\.google|sheets\.google|slides\.google\b/i.test(url);
+
+  const frame = (src) => (
+    <iframe src={src} title={doc.title}
+      style={{ width: "100%", height: 540, border: "1px solid var(--border-subtle)", borderRadius: 6, background: "white" }}
+      allow="accelerometer; encrypted-media; picture-in-picture" allowFullScreen/>
+  );
+
+  return (
+    <div>
+      {isPdf   && frame(url)}
+      {isImage && <img src={url} alt={doc.title} style={{ maxWidth: "100%", maxHeight: 600, borderRadius: 6, background: "var(--bg-raised)" }}/>}
+      {isVideo && <video src={url} controls style={{ width: "100%", maxHeight: 540, background: "black", borderRadius: 6 }}/>}
+      {isAudio && <audio src={url} controls style={{ width: "100%" }}/>}
+      {!isPdf && !isImage && !isVideo && !isAudio && isGdoc && frame(url.replace(/\/edit.*$/, "/preview"))}
+      {!isPdf && !isImage && !isVideo && !isAudio && !isGdoc && (
+        <div style={{ padding: 20, textAlign: "center", background: "var(--bg-raised)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 12.5 }}>
+          Inline preview not supported for this file type.
+          <div style={{ marginTop: 10 }}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ display: "inline-flex" }}>
+              <Icons.ArrowUpRight size={11}/> Open in new tab
+            </a>
+          </div>
+        </div>
+      )}
+      <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-tertiary)" }}>
+        <span className="chip" style={{ fontSize: 9.5 }}>{doc.kind || "link"}</span>
+        {doc.cat && <span className="chip" style={{ fontSize: 9.5 }}>{doc.cat}</span>}
+        {doc.sizeBytes ? <span>{(doc.sizeBytes/1024/1024).toFixed(1)}MB</span> : null}
+        {doc.mime ? <code className="mono" style={{ fontSize: 10.5 }}>{doc.mime}</code> : null}
+        <a href={url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: "auto", color: "var(--text-secondary)" }}>
+          Open in new tab <Icons.ArrowUpRight size={10}/>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /* ── Vault: Documents pane ─────────────────────────────────────────────── */
 function VaultDocsPane({ canEdit }) {
   const [, force] = React.useState(0);
@@ -807,7 +1306,14 @@ function VaultDocsPane({ canEdit }) {
   const [q, setQ]           = React.useState("");
   const [catFilter, setCat] = React.useState("All");
   const [addOpen, setAddOpen] = React.useState(false);
-  const emptyDocDraft = () => ({ id: null, title: "", cat: "Internal", url: "", segmentId: null, targetRoles: ["owner","manager","rep"] });
+  const [preview, setPreview] = React.useState(null);   // currently-previewing doc row
+  const [previewUrl, setPreviewUrl] = React.useState("");
+  const [uploading, setUploading]   = React.useState(false);
+  const emptyDocDraft = () => ({
+    id: null, title: "", cat: "Internal", url: "",
+    segmentId: null, targetRoles: ["owner","manager","rep"],
+    kind: "link", storagePath: null, ext: null, sizeBytes: null, mime: null,
+  });
   const [draft, setDraft]   = React.useState(emptyDocDraft());
   const openCreate = () => { setDraft(emptyDocDraft()); setAddOpen(true); };
   const openEdit   = (d) => {
@@ -816,8 +1322,55 @@ function VaultDocsPane({ canEdit }) {
       url: d.url || "", segmentId: d.segmentId || null,
       targetRoles: Array.isArray(d.targetRoles) && d.targetRoles.length > 0
         ? d.targetRoles : ["owner","manager","rep"],
+      kind: d.kind || "link", storagePath: d.storagePath || null,
+      ext: d.ext || null, sizeBytes: d.sizeBytes || null, mime: null,
     });
     setAddOpen(true);
+  };
+
+  // Drag+drop upload — accepts any file under the bucket's 500MB limit.
+  // Stores in vault/{agency_id}/docs/... then sets the draft to a 'upload' kind row.
+  const ingestFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const up = await window.AppData.mutate.storageUpload(file, "docs");
+      const extMatch = (file.name || "").match(/\.([a-z0-9]{1,8})$/i);
+      const ext = extMatch ? extMatch[1].toLowerCase() : null;
+      setDraft(d => ({
+        ...d,
+        title: d.title || file.name.replace(/\.[a-z0-9]+$/i, ""),
+        url: up.signedUrl || "",
+        kind: "upload",
+        storagePath: up.path,
+        ext, sizeBytes: up.sizeBytes, mime: up.mime,
+      }));
+      window.toast && window.toast(`Uploaded ${file.name}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Upload failed: ${e.message || e}`, "danger");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const onDrop = async (e) => {
+    e.preventDefault();
+    if (!canEdit) return;
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length === 0) return;
+    if (!addOpen) { setDraft(emptyDocDraft()); setAddOpen(true); }
+    await ingestFile(files[0]);
+  };
+  const onDragOver = (e) => { e.preventDefault(); };
+
+  // Open a doc preview — uploads get re-signed; links open inline iframe.
+  const openPreview = async (d) => {
+    setPreview(d); setPreviewUrl("");
+    if (d.kind === "upload" && d.storagePath) {
+      const url = await window.AppData.mutate.storageSign(d.storagePath, 3600);
+      setPreviewUrl(url || "");
+    } else if (d.url) {
+      setPreviewUrl(d.url);
+    }
   };
 
   const cats = ["All", ...Array.from(new Set(docs.map(d => d.cat).filter(Boolean)))];
@@ -838,7 +1391,11 @@ function VaultDocsPane({ canEdit }) {
     try {
       await window.AppData.mutate.docUpsert({
         id: draft.id || undefined,
-        title, cat: draft.cat, url: safeUrl, kind: "link",
+        title, cat: draft.cat, url: safeUrl,
+        kind: draft.kind || (draft.storagePath ? "upload" : "link"),
+        ext: draft.ext || null,
+        sizeBytes: draft.sizeBytes || null,
+        storagePath: draft.storagePath || null,
         segmentId: draft.segmentId || null,
         targetRoles: draft.targetRoles,
       });
@@ -854,7 +1411,15 @@ function VaultDocsPane({ canEdit }) {
   };
 
   return (
-    <div className="panel">
+    <div className="panel" onDrop={onDrop} onDragOver={onDragOver}
+      style={{ position: "relative" }}>
+      {uploading && (
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5 }}>
+          <div style={{ padding: "12px 18px", background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+            Uploading…
+          </div>
+        </div>
+      )}
       <div className="panel-h">
         <Icons.Folder size={13}/>
         <h3>Documents</h3>
@@ -862,6 +1427,11 @@ function VaultDocsPane({ canEdit }) {
         <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search docs…" value={q} onChange={e => setQ(e.target.value)}/>
         {canEdit && <button className="btn btn-primary" onClick={openCreate}><Icons.Plus size={12}/> Add doc</button>}
       </div>
+      {canEdit && (
+        <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text-quaternary)", fontStyle: "italic" }}>
+          Drag any file (PDF, image, video, slide deck) onto this panel to upload it to the agency vault.
+        </div>
+      )}
       <div style={{ padding: "8px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
         {cats.map(c => (
           <button key={c} className="btn btn-ghost" onClick={() => setCat(c)}
@@ -884,9 +1454,10 @@ function VaultDocsPane({ canEdit }) {
             <div key={d.id} className="row" style={{ gridTemplateColumns: "1fr 120px 80px 60px" }}>
               <div style={{ fontWeight: 500, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icons.FileText size={11} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
-                {d.url
-                  ? <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }} className="cell-truncate">{d.title}</a>
+                {(d.url || d.storagePath)
+                  ? <span className="cell-truncate" style={{ cursor: "pointer", color: "inherit" }} onClick={() => openPreview(d)}>{d.title}</span>
                   : <span className="cell-truncate">{d.title}</span>}
+                {d.kind === "upload" && d.sizeBytes ? <span style={{ fontSize: 10.5, color: "var(--text-quaternary)" }}>· {(d.sizeBytes/1024/1024).toFixed(1)}MB</span> : null}
               </div>
               <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{d.cat || "—"}</div>
               <div><span className="chip">{d.kind || "link"}</span></div>
@@ -918,14 +1489,36 @@ function VaultDocsPane({ canEdit }) {
           <Shared.Field label="Category">
             <Shared.Select value={draft.cat} onChange={v => setDraft({...draft, cat: v})} options={["Internal","Training","Carrier","Compliance","Other"].map(c => ({v:c,l:c}))}/>
           </Shared.Field>
-          <Shared.Field label="URL (paste a link — uploads to Storage land later)">
-            <input className="text-input" value={draft.url} onChange={e => setDraft({...draft, url: e.target.value})} placeholder="https://docs.google.com/…"/>
+          <Shared.Field label="Source — paste a URL or upload a file">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, alignItems: "center" }}>
+              <input className="text-input" value={draft.url}
+                onChange={e => setDraft({...draft, url: e.target.value, kind: "link", storagePath: null})}
+                placeholder={draft.storagePath ? "(uploaded file)" : "https://docs.google.com/…"}
+                readOnly={!!draft.storagePath}/>
+              <label className="btn btn-ghost" style={{ cursor: "pointer", whiteSpace: "nowrap" }}>
+                <Icons.ArrowUpRight size={11}/> Upload
+                <input type="file" style={{ display: "none" }} onChange={e => ingestFile(e.target.files?.[0])}/>
+              </label>
+            </div>
+            {draft.storagePath && (
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                Stored at <code className="mono">{draft.storagePath}</code>
+                {draft.sizeBytes ? ` · ${(draft.sizeBytes/1024/1024).toFixed(1)}MB` : ""}
+                {draft.mime ? ` · ${draft.mime}` : ""}
+              </div>
+            )}
           </Shared.Field>
           <Shared.Field label="Segment (optional)">
             <Shared.Select value={draft.segmentId || ""} onChange={v => setDraft({ ...draft, segmentId: v || null })}
               options={[{ v: "", l: "— No segment —" }, ...segments.map(s => ({ v: s.id, l: s.name }))]}/>
           </Shared.Field>
           <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
+        </Shared.Modal>
+      )}
+
+      {preview && (
+        <Shared.Modal title={preview.title} width={920} onClose={() => { setPreview(null); setPreviewUrl(""); }}>
+          <DocPreviewBody doc={preview} url={previewUrl}/>
         </Shared.Modal>
       )}
     </div>
@@ -967,7 +1560,7 @@ function VaultSegmentsPane({ canEdit }) {
 
   const [selId, setSelId]   = React.useState(null);
   const [addOpen, setAddOpen] = React.useState(false);
-  const emptySegDraft = () => ({ name: "", description: "", filterRules: [] });
+  const emptySegDraft = () => ({ id: null, name: "", description: "", filterRules: [] });
   const [draft, setDraft]   = React.useState(emptySegDraft());
 
   const sel        = segments.find(s => s.id === selId) || null;
@@ -979,54 +1572,71 @@ function VaultSegmentsPane({ canEdit }) {
   const updateRule = (i, patch) => setDraft(d => ({ ...d, filterRules: d.filterRules.map((r, j) => j === i ? { ...r, ...patch } : r) }));
   const removeRule = (i) => setDraft(d => ({ ...d, filterRules: d.filterRules.filter((_, j) => j !== i) }));
 
-  const createSegment = async () => {
+  const openCreate = () => { setDraft(emptySegDraft()); setAddOpen(true); };
+  const openEdit   = (s) => {
+    setDraft({
+      id: s.id, name: s.name || "", description: s.description || "",
+      filterRules: Array.isArray(s.filterRules) ? s.filterRules : [],
+    });
+    setAddOpen(true);
+  };
+
+  const saveSegment = async () => {
     if (!draft.name.trim()) return;
     try {
       const sb       = window.getSupabase && window.getSupabase();
       const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
       if (!sb || !agencyId) { window.toast && window.toast("Not connected", "danger"); return; }
-      // Strip empty-value rules so the segment never carries dead filters.
       const rules = draft.filterRules.filter(r => r.field && r.op && (r.value !== "" && r.value != null));
-      // First attempt: include filter_rules (migration 0034). On column-missing,
-      // retry without — keeps the create flow working pre-migration.
       const payload = {
         agency_id:   agencyId,
         name:        draft.name.trim(),
         description: draft.description.trim() || null,
-        sort_order:  segments.length,
         filter_rules: rules,
       };
-      let { data, error } = await sb.from("vault_segments").insert(payload).select().single();
+      let resp;
+      if (draft.id) {
+        resp = await sb.from("vault_segments").update(payload).eq("id", draft.id).select().single();
+      } else {
+        resp = await sb.from("vault_segments").insert({ ...payload, sort_order: segments.length }).select().single();
+      }
+      let { data, error } = resp;
       if (error && /column .* does not exist/i.test(error.message || "")) {
-        console.warn("[vault] filter_rules column missing — retrying without (apply migration 0034)");
+        console.warn("[vault] filter_rules column missing — retrying without");
         delete payload.filter_rules;
-        ({ data, error } = await sb.from("vault_segments").insert(payload).select().single());
+        if (draft.id) ({ data, error } = await sb.from("vault_segments").update(payload).eq("id", draft.id).select().single());
+        else          ({ data, error } = await sb.from("vault_segments").insert({ ...payload, sort_order: segments.length }).select().single());
       }
       if (error) throw error;
-      window.AppData.SEGMENTS = [...segments, {
+      const jsRow = {
         id: data.id, agencyId: data.agency_id,
         name: data.name, description: data.description || null,
         sortOrder: data.sort_order,
         filterRules: Array.isArray(data.filter_rules) ? data.filter_rules : rules,
         isStarter: !!data.is_starter,
-      }];
+      };
+      if (draft.id) {
+        window.AppData.SEGMENTS = segments.map(s => s.id === draft.id ? jsRow : s);
+      } else {
+        window.AppData.SEGMENTS = [...segments, jsRow];
+      }
       window.dispatchEvent(new CustomEvent("data:mutated"));
       setDraft(emptySegDraft());
       setAddOpen(false);
       setSelId(data.id);
-      window.toast && window.toast("Segment created", "success");
+      window.toast && window.toast(draft.id ? "Segment saved" : "Segment created", "success");
     } catch (_e) {
-      window.toast && window.toast("Failed to create segment", "danger");
+      window.toast && window.toast("Failed to save segment", "danger");
     }
   };
 
   // Modal body shared by both empty-state and populated-state Add-segment buttons.
   const segmentModal = addOpen && (
-    <Shared.Modal title="New segment" width={620} onClose={() => setAddOpen(false)} actions={
+    <Shared.Modal title={draft.id ? "Edit segment" : "New segment"} width={620} onClose={() => setAddOpen(false)} actions={
       <>
         <button className="btn btn-ghost" onClick={() => setAddOpen(false)}>Cancel</button>
-        <button className="btn btn-primary" onClick={createSegment} disabled={!draft.name.trim()}>
-          <Icons.Plus size={11}/> Create
+        <button className="btn btn-primary" onClick={saveSegment} disabled={!draft.name.trim()}>
+          <Icons.Check size={11}/> {draft.id ? "Save changes" : "Create"}
         </button>
       </>
     }>
@@ -1088,7 +1698,7 @@ function VaultSegmentsPane({ canEdit }) {
             <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginBottom: 14, maxWidth: 420, margin: "0 auto 14px" }}>
               Segments are saved filters over leads — Lead Drip uses them to target sequences. Examples: "Storm-season Florida warm", "Med Supp T65 cohort", "Cancelled in last 30 days".
             </div>
-            <button className="btn btn-primary" onClick={() => setAddOpen(true)}><Icons.Plus size={12}/> Create first segment</button>
+            <button className="btn btn-primary" onClick={openCreate}><Icons.Plus size={12}/> Create first segment</button>
           </>
         ) : (
           <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Owner or manager must create segments before they appear here.</div>
@@ -1105,7 +1715,7 @@ function VaultSegmentsPane({ canEdit }) {
           <Icons.Bookmark size={13}/>
           <h3>Segments</h3>
           {canEdit && (
-            <button className="btn btn-primary" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 11 }} onClick={() => setAddOpen(true)}>
+            <button className="btn btn-primary" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 11 }} onClick={openCreate}>
               <Icons.Plus size={11}/> New
             </button>
           )}
@@ -1140,6 +1750,11 @@ function VaultSegmentsPane({ canEdit }) {
               <div className="panel-h">
                 <h3>{sel.name}</h3>
                 {sel.isStarter && <span className="chip" style={{ marginLeft: 8, fontSize: 9.5, color: "var(--text-tertiary)" }}>starter</span>}
+                {canEdit && (
+                  <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11 }} onClick={() => openEdit(sel)}>
+                    <Icons.Edit size={11}/> Edit segment
+                  </button>
+                )}
               </div>
               {sel.description && <div style={{ padding: "0 14px 12px", fontSize: 12.5, color: "var(--text-secondary)" }}>{sel.description}</div>}
               {Array.isArray(sel.filterRules) && sel.filterRules.length > 0 && (
@@ -3165,14 +3780,23 @@ function CourseBuilderModal({ course, setCourse, onSave, onCancel }) {
       }),
     });
   };
-  const onUploadVideo = (si, li, file) => {
+  // Upload to Supabase Storage `vault` bucket under {agency_id}/courses/{course_id}/{lesson_idx}-{name}.
+  // Replaces the legacy base64-data-URL pattern (which exploded JSONB at >6MB and broke Realtime).
+  const onUploadVideo = async (si, li, file) => {
     if (!file) return;
-    if (file.size > 6 * 1024 * 1024) {
-      window.toast && window.toast("Files >6MB won't persist in browser storage — paste a Loom link instead", "warn");
+    try {
+      const up = await window.AppData.mutate.storageUpload(file, `courses/${c.id || "draft"}`);
+      // Store the storage_path in videoUrl; the lesson player resolves it via storageSign() at render.
+      updateLesson(si, li, {
+        videoUrl: up.signedUrl,
+        videoStoragePath: up.path,
+        videoMime: up.mime,
+        videoSizeBytes: up.sizeBytes,
+      });
+      window.toast && window.toast(`Uploaded ${file.name}`, "success");
+    } catch (e) {
+      window.toast && window.toast(`Upload failed: ${e.message || e}`, "danger");
     }
-    const reader = new FileReader();
-    reader.onload = () => updateLesson(si, li, { videoUrl: reader.result });
-    reader.readAsDataURL(file);
   };
 
   const canSave = !!c.title.trim();

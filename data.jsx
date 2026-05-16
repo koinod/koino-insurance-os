@@ -112,6 +112,7 @@ window.AppData = {
   ORG_SETTINGS: {},
   TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
   SEGMENTS: [],
+  AGENCY_APPOINTMENTS: [],
   LIVE: false,
 };
 
@@ -353,7 +354,7 @@ window.hydrateFromSupabase = async function () {
     // ────────────────────────────────────────────────────────────────────────
     try {
       const [
-        carriersR, productsR, apptsR,
+        carriersR, productsR, apptsR, agencyApptsR,
         policiesR, commissionsR, payoutsR, clawbacksR,
         leadSourcesR, attributionsR, touchpointsR,
         nigoReasonsR, nigosR,
@@ -379,6 +380,7 @@ window.hydrateFromSupabase = async function () {
         sb.from("carriers").select("*").order("name"),
         sb.from("products").select("*"),
         sb.from("carrier_appointments").select("*"),
+        scope(sb.from("agency_carrier_appointments").select("*")),
         // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
         scope(sb.from("policies").select("*").order("issued_at", { ascending: false })),
         scope(sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500)),
@@ -452,6 +454,16 @@ window.hydrateFromSupabase = async function () {
       window.AppData.APPOINTMENTS = mapRows(apptsR, a => ({
         id: a.id, carrierId: a.carrier_id, repId: a.rep_id, state: a.state,
         status: a.status, appointedAt: a.appointed_at, npn: a.npn
+      }));
+      // Agency-level institutional appointments (carrier appoints the agency).
+      // Distinct from APPOINTMENTS above which is rep-level (carrier appoints
+      // the individual producer). Vault → Carriers reads from this list.
+      window.AppData.AGENCY_APPOINTMENTS = mapRows(agencyApptsR, a => ({
+        id: a.id, agencyId: a.agency_id,
+        carrierId: a.carrier_id, carrierName: a.carrier_name,
+        npn: a.npn, compRatePct: a.comp_rate_pct != null ? Number(a.comp_rate_pct) : null,
+        appointedStates: Array.isArray(a.appointed_states) ? a.appointed_states : [],
+        notes: a.notes, active: a.active !== false, createdAt: a.created_at,
       }));
       window.AppData.POLICIES = mapRows(policiesR, p => ({
         id: p.id, leadId: p.lead_pipeline_id, carrierId: p.carrier_id,
@@ -1834,6 +1846,94 @@ window.AppData.mutate = {
     );
   },
   docDelete: (id) => window.AppData.mutate._resourceDelete("agency_docs", "DOCS", id),
+
+  /* ── Storage uploader (Supabase Storage `vault` bucket, migration 0039) ────
+     uploads a File to vault/{agency_id}/{kind}/{rand}-{name}, returns
+     { path, signedUrl, publicUrl, mime, sizeBytes }. */
+  async storageUpload(file, kind /* 'docs' | 'courses' | 'misc' */) {
+    if (!file) throw new Error("no file");
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) throw new Error("supabase not ready");
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    if (!agencyId) throw new Error("no active agency");
+    const safeName = String(file.name || "file").replace(/[^a-z0-9._-]+/gi, "_");
+    const rand = Math.random().toString(36).slice(2, 10);
+    const path = `${agencyId}/${kind || "misc"}/${Date.now()}-${rand}-${safeName}`;
+    const { error: upErr } = await sb.storage.from("vault").upload(path, file, {
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+    if (upErr) throw upErr;
+    // Sign URL for 1 hour — viewer code re-signs as needed.
+    const { data: signed, error: signErr } = await sb.storage.from("vault").createSignedUrl(path, 3600);
+    if (signErr) throw signErr;
+    return {
+      path,
+      signedUrl: signed?.signedUrl || null,
+      publicUrl: null,
+      mime: file.type || "application/octet-stream",
+      sizeBytes: file.size || 0,
+    };
+  },
+  async storageSign(path, ttlSec = 3600) {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.storage.from("vault").createSignedUrl(path, ttlSec);
+    if (error) { console.warn("[vault] sign failed:", error.message); return null; }
+    return data?.signedUrl || null;
+  },
+
+  /* ── Agency carrier appointments (the agency-level institutional record) ── */
+  async agencyAppointmentUpsert(a) {
+    const list = (window.AppData.AGENCY_APPOINTMENTS = window.AppData.AGENCY_APPOINTMENTS || []);
+    const id = a.id || ("tmp-" + Date.now());
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    const jsRow = {
+      id, agencyId,
+      carrierId: a.carrierId || null,
+      carrierName: a.carrierName || null,
+      npn: a.npn || null,
+      compRatePct: a.compRatePct != null ? Number(a.compRatePct) : null,
+      appointedStates: Array.isArray(a.appointedStates) ? a.appointedStates : [],
+      notes: a.notes || null,
+      active: a.active !== false,
+    };
+    const idx = a.id ? list.findIndex(x => x.id === a.id) : -1;
+    if (idx >= 0) list[idx] = { ...list[idx], ...jsRow };
+    else list.unshift(jsRow);
+
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return jsRow;
+      const dbRow = {
+        agency_id: agencyId,
+        carrier_id: jsRow.carrierId,
+        carrier_name: jsRow.carrierName,
+        npn: jsRow.npn,
+        comp_rate_pct: jsRow.compRatePct,
+        appointed_states: jsRow.appointedStates,
+        notes: jsRow.notes,
+        active: jsRow.active,
+      };
+      let resp;
+      if (a.id && !String(a.id).startsWith("tmp-")) {
+        resp = await sb.from("agency_carrier_appointments").update(dbRow).eq("id", a.id).select().single();
+      } else {
+        resp = await sb.from("agency_carrier_appointments").insert(dbRow).select().single();
+      }
+      const { data, error } = resp;
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      if (data?.id && data.id !== jsRow.id) {
+        const i2 = list.findIndex(x => x.id === jsRow.id);
+        if (i2 >= 0) list[i2].id = data.id;
+        jsRow.id = data.id;
+      }
+    }
+    _emitMutation("agency_carrier_appointments", a.id ? "update" : "insert", jsRow.id);
+    return jsRow;
+  },
+  agencyAppointmentDelete: (id) => window.AppData.mutate._resourceDelete("agency_carrier_appointments", "AGENCY_APPOINTMENTS", id),
 
   quickLinkUpsert(l) {
     const id = l.id || ("tmp-" + Date.now());
