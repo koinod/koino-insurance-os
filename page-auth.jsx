@@ -455,14 +455,25 @@ function AuthGate({ children }) {
   if (redeeming) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Joining your agency...</div></div>;
   }
-  // Unauthed: bounce to /login unless we're already there. Preserve the
-  // requested path (and any search like ?invite= / ?signup=) via ?next so we
-  // can return after sign-in. Demo skip keeps the inline render.
+  // Unauthed visitor routing:
+  //   /login       → render LoginScreen inline (the only path that does)
+  //   /  (bare)    → bounce to /landing (marketing splash; the funnel entry)
+  //   anything else (deep link, ?invite, ?signup, ?next, OAuth callback)
+  //                → bounce to /login?next=… so we preserve their intent
+  //                  and don't drop them on the marketing page after they
+  //                  followed a real link.
   if (!session && !demo) {
-    if (!isLoginPath()) {
-      try {
-        const cur = (window.location.pathname || "/") + (window.location.search || "") + (window.location.hash || "");
-        const incoming = new URLSearchParams(window.location.search);
+    if (isLoginPath()) return <LoginScreen/>;
+    try {
+      const path   = window.location.pathname || "/";
+      const search = window.location.search || "";
+      const hash   = window.location.hash || "";
+      const bareRoot = path === "/" && !search && !hash;
+      if (bareRoot) {
+        window.location.replace("/landing");
+      } else {
+        const cur = path + search + hash;
+        const incoming = new URLSearchParams(search);
         const out = new URLSearchParams();
         const signup = incoming.get("signup");
         const invite = incoming.get("invite");
@@ -471,10 +482,9 @@ function AuthGate({ children }) {
         if (cur && cur !== "/" && cur !== LOGIN_PATH) out.set("next", cur);
         const qs = out.toString();
         window.location.replace(LOGIN_PATH + (qs ? "?" + qs : ""));
-      } catch { window.location.replace(LOGIN_PATH); }
-      return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Redirecting…</div></div>;
-    }
-    return <LoginScreen/>;
+      }
+    } catch { window.location.replace(LOGIN_PATH); }
+    return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Redirecting…</div></div>;
   }
   // Past the login wall (real session OR demo skip) but URL is still /login —
   // send the user to ?next or "/" so app chrome (and the onboarding gating
