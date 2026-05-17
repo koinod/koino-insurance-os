@@ -193,6 +193,13 @@ function App() {
       case "compliance":  return <PageVault role={role}/>;
       case "pay":         return <PageCommissions role={role}/>;
       case "expenses":    return (() => { const P = window.PageExpenses;    return P ? <P role={role}/> : null; })();
+      case "invite-team": return (() => { const P = window.PageInviteTeamRoute; return P ? <P/> : <PageStub title="Invite Team" sub=""/>; })();
+      case "lab":         return (() => {
+        // super_admin-only sandbox. Reps + managers landing here (e.g. via a
+        // bookmarked deep link) fall through to Today so we don't leak.
+        if (role !== "super_admin") return <PageToday aep={aepMode} role={role}/>;
+        const P = window.PageLab; return P ? <P/> : <PageStub title="Lab" sub=""/>;
+      })();
 
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
       // earlier owner nav consolidation. They redirect into related pages.

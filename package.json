@@ -5,7 +5,8 @@
     "build": "node scripts/build-jsx.mjs",
     "vercel-build": "node scripts/build-jsx.mjs",
     "smoke": "node tests/smoke.mjs",
-    "test:vault": "node tests/vault-flows.mjs"
+    "test:vault": "node tests/vault-flows.mjs",
+    "test:nav":   "node tests/nav-trap.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.0",

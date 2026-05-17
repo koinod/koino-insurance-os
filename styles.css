@@ -1299,6 +1299,14 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 .training-embed > .page-pad > .section-pill { display: none; }
 .training-embed > .page-pad > .kpi-row { margin-top: 0; }
 
+/* coaching-embed (CoachingPane inside PageTraining): strip the duplicate
+   page-pad + page-h title, but KEEP the SectionPill so the user always has
+   a way back to Team Board / NIGO / Recruiting / Dispatch. The old class
+   used .training-embed and hid this pill, trapping the user (bug fix 2026-05-16). */
+.coaching-embed > .page-pad { padding: 0; }
+.coaching-embed > .page-pad > .page-h:first-child { display: none; }
+.coaching-embed > .page-pad > .kpi-row { margin-top: 0; }
+
 /* Training section pill — promote it to feel like a real horizontal tab strip */
 .training-tabs.section-pill { margin: 4px 0 16px; padding: 4px; font-size: 13px; }
 .training-tabs.section-pill > button { padding: 7px 16px; font-size: 13px; }
