@@ -4,6 +4,9 @@
   "outputDirectory": ".",
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    { "source": "/login", "destination": "/index.html" }
+  ],
   "functions": {
     "api/agent/runtime-file.js": {
       "includeFiles": "agent/**"
