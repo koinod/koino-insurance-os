@@ -218,6 +218,10 @@ function App() {
       case "compliance":  return F("PageVault",       { role });
       case "pay":         return F("PageCommissions", { role });
       case "expenses":    return F("PageExpenses",    { role });
+      case "invite-team": return F("PageInviteTeamRoute");
+      case "lab":         return role === "super_admin"
+                                ? F("PageLab")
+                                : F("PageToday", { aep: aepMode, role });
 
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
       // earlier owner nav consolidation. They redirect into related pages.

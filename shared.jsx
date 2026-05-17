@@ -61,48 +61,49 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
 /* ───── Sidebar ─────
    Pages shared across roles render role-aware variants (driven by `role` prop).
    The NAV map decides which role sees which page in their sidebar. */
+// NAV restructure 2026-05-16 — per operator directive. Pre-cull, the sidebar
+// had grown to 7+ entries per role with overlapping surfaces (Floor, CRM,
+// Lead Drip, Quote Tool, Messages, Leaderboard, Recruits) that competed for
+// attention. The new shape collapses each role to its highest-frequency
+// surfaces. Pages removed from the sidebar are NOT deleted; they remain
+// reachable via:
+//   • Direct deep-link (app.jsx still resolves the case)
+//   • /lab tile grid (super_admin only — see PageLab in page-admin.jsx)
+//   • In-context buttons / SectionPills inside other pages
 const NAV = {
-  // Each role's nav is graded by frequency × depth. Daily glance items live
-  // at top; workspaces (commissions deep dive, training, etc.) get folded in.
-  // Commissions is now context-rebound:
-  //   rep    → folded into Today as a Pay tab (glance only)
-  //   manager→ standalone "Pay" workspace (downline payouts + override review)
-  //   owner  → folded into P&L as a Comp tab (aggregate line item)
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
-    { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
-    { id: "messages",    label: "Messages",     icon: "MessageSquare" },
-    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
+    { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
+    { id: "quote",       label: "Quote",        icon: "Sparkles" },
+    { id: "settings",    label: "Settings",     icon: "Settings" },
   ],
-  // Single manager role 2026-05-14: "owner" is gone. Managers can have reps
-  // and other managers under them (nested tree). Role-aware visibility inside
-  // each page component via `role` prop.
-  // Old sidebar-only routes (pnl, org, pay, etc.) still resolve in app.jsx
-  // for deep-link back-compat.
   manager: [
-    { id: "today",    label: "Today",       icon: "Home" },
-    { id: "book",     label: "Client Book", icon: "Activity" },
-    { id: "crm",      label: "CRM",         icon: "Users" },
-    { id: "leaddrip", label: "Lead Drip",   icon: "Bolt" },
-    { id: "quote",    label: "Quote Tool",  icon: "Sparkles" },
-    { id: "vault",    label: "Vault",       icon: "Folder" },
-    { id: "floor",    label: "Floor",       icon: "Phone" },
-    { id: "recruits", label: "Recruits",    icon: "ArrowUpRight" },
+    { id: "today",       label: "Today",        icon: "Home" },
+    { id: "pnl",         label: "P&L",          icon: "Wallet" },
+    { id: "leaddrip",    label: "Lead Drip",    icon: "Bolt" },
+    { id: "vault",       label: "Vault",        icon: "Folder" },
+    { id: "tree",        label: "Tree",         icon: "Workflow" },
+    { id: "settings",    label: "Settings",     icon: "Settings" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
   ],
 };
 
-// ─── Role aliases & super_admin panel ────────────────────────────────────────
-// "owner" and other legacy roles collapse to manager in the UI.
-// super_admin is a FOCUSED platform-management surface — single Admin tab.
-// To run an agency, super_admin flips to "Mgr" or "Rep" via the role-switch.
-NAV.owner       = NAV.manager;   // back-compat for any DB rows with role='owner'
-NAV.admin       = NAV.manager;
-NAV.imo_owner   = NAV.manager;
+// Owner = manager + Expenses + Invite Team.
+NAV.owner = [
+  ...NAV.manager,
+  { id: "expenses",     label: "Expenses",     icon: "Wallet" },
+  { id: "invite-team",  label: "Invite Team",  icon: "Users" },
+];
+NAV.admin     = NAV.owner;  // legacy alias
+NAV.imo_owner = NAV.owner;
+
+// super_admin = full owner nav + Lab (unwired pages tile grid) + Admin panel.
 NAV.super_admin = [
+  ...NAV.owner,
+  { id: "lab",   label: "Lab",   icon: "Sparkles" },
   { id: "admin", label: "Admin", icon: "Shield" },
 ];
 
@@ -136,8 +137,65 @@ const SidebarBrand = () => {
   );
 };
 
+/* Composer interest modal — captures signal for sidebar customizer (v2 ship).
+   Writes (user_id, feature='sidebar_composer') to feature_interest_signups
+   (migration 0041). RLS lets a user read/write their own row only. */
+function ComposerInterestModal({ onClose }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const notifyMe = async () => {
+    setSubmitting(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) throw new Error("supabase not ready");
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) { window.toast && window.toast("Sign in to register interest", "warn"); setSubmitting(false); return; }
+      const me = window.me && window.me();
+      const agencyId = me?.agency_id || null;
+      const { error } = await sb.from("feature_interest_signups")
+        .upsert({ user_id: user.id, agency_id: agencyId, feature: "sidebar_composer" },
+                { onConflict: "user_id,feature" });
+      if (error) throw error;
+      setDone(true);
+      window.toast && window.toast("We'll let you know when it ships.", "success");
+    } catch (e) {
+      window.toast && window.toast(`Could not register: ${e.message || e}`, "danger");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <Modal title="Customize your sidebar" width={460} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>{done ? "Close" : "Got it"}</button>
+        {!done && (
+          <button className="btn btn-primary" onClick={notifyMe} disabled={submitting}>
+            <Icons.Bell size={11}/> {submitting ? "…" : "Notify me when ready"}
+          </button>
+        )}
+      </>
+    }>
+      <div style={{ padding: "4px 0", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+        Drag-and-drop widgets coming in v2. You'll be able to pin any module —
+        Quote, Floor, NIGO, custom KPI cards — to your sidebar in the order
+        that fits your day.
+        {done && (
+          <div style={{ marginTop: 14, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--accent-money)" }}>
+            ✓ You're on the list. We'll email when it ships.
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const items = NAV[role];
+  // Composer interest icon — manager/owner/super_admin only. Click → small
+  // modal capturing "notify me when sidebar composer ships". Not the actual
+  // composer; just a signal-collector that writes feature_interest_signups.
+  const showComposerIcon = role === "manager" || role === "owner" || role === "super_admin";
+  const [composerOpen, setComposerOpen] = useState(false);
   return (
     <nav className="sidebar">
       <SidebarBrand/>
@@ -164,7 +222,19 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
             </button>
           );
         })}
+        {showComposerIcon && (
+          <button
+            className="sb-item sb-item-composer"
+            title="Customize your sidebar"
+            onClick={() => setComposerOpen(true)}
+            style={{ opacity: 0.6 }}
+          >
+            <Icons.MoreHorizontal size={15}/>
+            <span style={{ fontStyle: "italic", color: "var(--text-tertiary)" }}>Customize…</span>
+          </button>
+        )}
       </div>
+      {composerOpen && <ComposerInterestModal onClose={() => setComposerOpen(false)}/>}
 
       <div className="sb-section">Operations</div>
       <div className="sb-nav">

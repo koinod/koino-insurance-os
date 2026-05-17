@@ -533,6 +533,104 @@ function PageAdmin() {
 }
 window.PageAdmin = PageAdmin;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   PageLab — tile grid of pages that exist in the codebase but aren't (yet)
+   pinned to any role's default sidebar after the NAV cull (2026-05-16).
+   super_admin-only. Each tile is a one-click teleport via window.gotoPage
+   so the operator can sanity-check whether a page is real before deciding
+   to add it back to the default nav or finally delete the file.
+   ───────────────────────────────────────────────────────────────────────── */
+const LAB_PAGES = [
+  { id: "floor",       label: "Floor",            note: "Live dial workspace + autodial bar" },
+  { id: "messages",    label: "Messages",         note: "SMS/email thread inbox" },
+  { id: "leaderboard", label: "Leaderboard",      note: "Performance ranking — folded into P&L" },
+  { id: "performance", label: "Performance",      note: "Detailed perf breakdowns" },
+  { id: "team",        label: "Team Board",       note: "Manager floor + coaching dispatch" },
+  { id: "coaching",    label: "Coaching",         note: "Coaching cards + call replay" },
+  { id: "training",    label: "Training",         note: "Courses + Call Library + Product" },
+  { id: "calls",       label: "Calls",            note: "Recorded calls archive" },
+  { id: "crm",         label: "CRM",              note: "Lead detail + pipeline cards" },
+  { id: "quote",       label: "Quote Tool",       note: "Manual carrier quoting" },
+  { id: "auto-quoter", label: "Auto-Quoter",      note: "Agentic carrier rate engine" },
+  { id: "library",     label: "Library",          note: "Legacy resources hub" },
+  { id: "resources",   label: "Resources",        note: "Legacy carriers + scrubbers" },
+  { id: "pay",         label: "Pay / Commissions",note: "Folded into P&L → Comp tab" },
+  { id: "commissions", label: "Commissions",      note: "Per-policy commission ledger" },
+  { id: "attribution", label: "Attribution",      note: "Lead-source ROI" },
+  { id: "nigo",        label: "NIGO Queue",       note: "Not-in-good-order policy fix queue" },
+  { id: "recruiting",  label: "Recruiting",       note: "Pipeline + interviews" },
+  { id: "pipeline",    label: "Pipeline",         note: "Legacy pipeline kanban" },
+  { id: "queue",       label: "Dispatch Queue",   note: "Routing dispatcher (manager)" },
+  { id: "org",         label: "Org Tree",         note: "Org chart (alias of Tree)" },
+];
+
+function PageLab() {
+  const goto = (p) => window.gotoPage && window.gotoPage(p);
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Lab</div>
+          <div className="page-sub">Pages not yet wired into default nav. Click any tile to open.</div>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Sparkles size={13}/>
+          <h3>Unwired pages</h3>
+          <span className="meta">{LAB_PAGES.length} surfaces · super_admin only</span>
+        </div>
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          {LAB_PAGES.map(p => (
+            <button key={p.id} onClick={() => goto(p.id)}
+              className="btn btn-ghost"
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "stretch",
+                padding: 14, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+                borderRadius: 8, cursor: "pointer", textAlign: "left", gap: 6,
+              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.ArrowUpRight size={13} style={{ color: "var(--text-tertiary)" }}/>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{p.label}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>{p.note}</div>
+              <code className="mono" style={{ fontSize: 10.5, color: "var(--text-quaternary)" }}>/{p.id}</code>
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-subtle)", fontSize: 11, color: "var(--text-tertiary)" }}>
+          Pages here are still loaded by app.jsx case handlers; they just don't appear in the default sidebar.
+          To pin one back, add an entry to the role's NAV array in shared.jsx.
+          To kill a page, remove the case in app.jsx AND the file.
+        </div>
+      </div>
+    </div>
+  );
+}
+window.PageLab = PageLab;
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PageInviteTeamRoute — thin wrapper that mounts InviteTeamPanel as a full
+   routed page (was previously only available as an embedded panel).
+   ───────────────────────────────────────────────────────────────────────── */
+function PageInviteTeamRoute() {
+  const Panel = window.InviteTeamPanel;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Invite Team</div>
+          <div className="page-sub">Mint magic-link invites for new reps + managers. Single-tenancy enforced on redemption.</div>
+        </div>
+      </div>
+      {Panel
+        ? <Panel/>
+        : <div className="panel" style={{ padding: 30, color: "var(--text-tertiary)", fontSize: 13 }}>Invite panel loading…</div>}
+    </div>
+  );
+}
+window.PageInviteTeamRoute = PageInviteTeamRoute;
+
 // ─── Hierarchy view ─────────────────────────────────────────────────────
 function HierarchyView({ agencies, reps, members, hierAgency, setHierAgency, loading, onReassign, agNameById }) {
   const selectedAgencyId = hierAgency || (agencies[0]?.id ?? null);

@@ -2675,6 +2675,14 @@ const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity",
    ───────────────────────────────────────────────────────────────────────── */
 function PageTraining({ role = "rep", defaultTab = "coaching" }) {
   const [tab, setTab] = React.useState(defaultTab);
+  // BUG FIX (2026-05-16): sub-tab state was bleeding across outer routes.
+  // App.jsx routes both /training and /coaching to <PageTraining/>, with
+  // different defaultTab props. React reused the same fiber, so useState
+  // kept whatever the user had last picked. Result: hitting "Coaching" in
+  // the sidebar after touring /training landed you on the WRONG tab AND
+  // left you trapped because CoachingPane previously suppressed the
+  // Team Board return SectionPill via .training-embed. Reset on prop change.
+  React.useEffect(() => { setTab(defaultTab); }, [defaultTab]);
   const store = ProductTraining.useStore();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   // Real rep id when signed in. In demo-agency mode fall back to the first
@@ -2724,17 +2732,20 @@ function PageTraining({ role = "rep", defaultTab = "coaching" }) {
 /* Defer to the existing PageCoaching — it already handles all three roles.
    We strip its outer page-pad since we're already inside one. */
 function CoachingPane({ role }) {
-  // Render the role-specific inner component (CoachingRep / CoachingManager /
-  // CoachingOwner) directly. The .training-embed class hides the duplicate
-  // page-h title AND the manager's inner dashboard SectionPill (which would
-  // otherwise surface unrelated nav links: Floor / NIGO / Dispatch).
+  // Render the role-specific inner component. The CoachingManager component
+  // ships its own SectionPill with Floor / Coaching / NIGO / Recruiting /
+  // Dispatch links — that pill is the user's ONLY way back to Team Board,
+  // since Team Board isn't in any sidebar NAV. Previously this wrapper
+  // applied .training-embed which CSS-hid that pill, trapping the user
+  // (bug repro: Home → Coaching → Team Board → click Coaching = dead-end).
+  // Pill stays visible now; the two nav rows have different scopes and that's OK.
   const Inner = role === "manager" ? window.CoachingManager
               : role === "owner"   ? window.CoachingOwner
               : window.CoachingRep;
   const Fallback = window.PageCoaching;
   if (!Inner && !Fallback) return <div style={{ padding: 30, color: "var(--text-tertiary)" }}>Coaching module loading…</div>;
   return (
-    <div className="training-embed">
+    <div className="coaching-embed">
       {Inner ? <Inner/> : <Fallback role={role}/>}
     </div>
   );
