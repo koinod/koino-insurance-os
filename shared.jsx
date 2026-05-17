@@ -229,7 +229,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
             onClick={() => setComposerOpen(true)}
             style={{ opacity: 0.6 }}
           >
-            <Icons.MoreHorizontal size={15}/>
+            <Icons.Plus size={13}/>
             <span style={{ fontStyle: "italic", color: "var(--text-tertiary)" }}>Customize…</span>
           </button>
         )}
