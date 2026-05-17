@@ -6,7 +6,7 @@
 // per-script scoping that Babel-in-browser used to give us.
 
 import { build } from "esbuild";
-import { readdir, mkdir, rm, readFile } from "node:fs/promises";
+import { readdir, mkdir, rm, readFile, writeFile, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename } from "node:path";
@@ -212,3 +212,15 @@ await build({
 });
 
 console.log(`built ${entries.length} jsx files -> dist/`);
+
+// Mirror index.html → login.html so Vercel's cleanUrls serves the SPA at
+// the /login path. (The rewrite in vercel.json was unreliable: cleanUrls'
+// 308 on `/index.html` was racing the internal rewrite and yielding 404.)
+// Keeping the file build-generated avoids drift — every deploy regenerates
+// it from the canonical index.html.
+try {
+  await copyFile(join(root, "index.html"), join(root, "login.html"));
+  console.log("mirrored index.html -> login.html");
+} catch (e) {
+  console.error("login.html mirror failed:", e.message);
+}
