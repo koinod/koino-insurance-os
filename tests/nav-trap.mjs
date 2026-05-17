@@ -72,7 +72,8 @@ await check("coaching-pill-visible-after-direct-nav", async () => {
 await check("coaching-to-team-board-via-pill", async () => {
   await page.getByRole("button", { name: /^Floor$/ }).first().click({ timeout: 3000 });
   await page.waitForTimeout(700);
-  const teamTitle = await page.getByRole("heading", { name: /Team Board/i }).count();
+  // Page title is a div.page-title, not a <h1>, so we match by class text.
+  const teamTitle = await page.locator('.page-title').filter({ hasText: /Team Board/i }).count();
   if (teamTitle === 0) throw new Error("did not land on Team Board after clicking Floor");
 });
 
