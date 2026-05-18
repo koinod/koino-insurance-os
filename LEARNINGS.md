@@ -417,3 +417,110 @@ HTML page; if so, run from a browser DevTools fetch to bypass.
 *Generated 2026-05-07 by the Dispatch session that built tenant isolation, invite hierarchy, expenses, and the UEP marketing site. Update as you learn more.*
 
 *Appended 2026-05-16 by the session that wired Quote tool to `product_underwriting_rules`, built the Connect-Source wizard, and hardened `app.jsx` against cross-IIFE crashes.*
+
+---
+
+## 2026-05-17 — Invite mint sweep, self-healing UI scope, OCI runtime
+
+### "Promote a user to super_admin" silently breaks every role-gated path
+
+After I changed Ian's `koino-imo` membership role from `owner` → `super_admin`
+so the sidebar role-switcher would appear, **every** SQL helper and RLS
+policy that hard-codes `role = 'owner'` or `role IN ('owner','manager')`
+started rejecting him. Six policies + three RPCs were affected:
+
+- `mint_invite` (RPC) — invitee teamlinks UI 500'd
+- `update_agency_onboarding` (RPC) — 9-step wizard broke for super_admin
+- `viewer_owner_agency_ids` (SQL helper) — gates `agency_members` writes
+- `agencies.owner write agency` policy — Settings → Org saves
+- `agency_audit_log.owners read audit`
+- `agency_invites.owners read invites` + `owners write invites`
+- `stripe_events.owners read stripe events`
+
+**Fix shipped** (migration `widen_owner_to_admin_roles`): widened all of
+the above to `owner | super_admin | admin | imo_owner` (and `manager` for
+read/audit/invite paths). Left `agency_expenses.manager insert downline-tied
+spend` narrow on purpose — it's specifically the manager downline path.
+
+**Pattern for the future:** when promoting a role, `grep -rE "role = 'owner'|role IN \\('owner','manager'\\)"` across `pg_proc` and `pg_policies` before declaring victory. Recommended canonical role set for "the management surface":
+`('owner','super_admin','admin','imo_owner')` plus `manager` for non-write helpers.
+
+### `mint_invite` taught me the FK-violation-disguised-as-RLS pattern
+
+After the role widening, Ian still couldn't mint invites. Logs showed his UI
+sending `agency_id = e0a68c9f-cf48-47b0-bef7-dba3f27db0b9` — the **demo
+sentinel UUID** hardcoded as `DEMO_AGENCY_ID` in the frontend. That UUID
+doesn't exist in `public.agencies`. The original `mint_invite` body would
+23503 inside the `insert into agency_members` line, which got reported up
+as "you are not an active member of this agency" because the membership
+check ran first.
+
+**Fix:** `mint_invite_super_admin_bypass_and_clearer_errors` migration —
+two guards:
+1. `select exists(... agencies where id = p_agency_id)` first → clear error
+   if agency doesn't exist
+2. `is_super_admin()` shortcut that skips the active-member check entirely
+   (super_admin can mint anywhere)
+
+### Self-healing localStorage `active_agency`
+
+The deeper lesson from the mint-invite bug: a stale or sentinel value in
+`localStorage.repflow.active_agency` cascades into every RPC + RLS query as
+a silent breakage. UI fix in `data.jsx`:
+
+- `getActiveAgencyId()` does a cheap synchronous check against
+  `window.me()?.member_agency_ids`. Super admins exempt; everyone else
+  whose stored override isn't in their membership list gets it cleared.
+- `validateActiveAgencyOnce()` (async, runs on `hydrateFromSupabase`) hits
+  `sb.from('agencies').select('id').eq('id', stored).maybeSingle()`. If
+  no row, `localStorage.removeItem` + dispatch `data:hydrated`. Result
+  cached per-validated-id.
+
+**Tested live** against the rebuilt dist via mock-Supabase Playwright
+harness (3/3 cases pass: clear sentinel, preserve real UUID, getter post-clear
+returns null). Vercel bot-detection blocks headless Playwright on
+production URL, so verifying live deploys against `repflow.koino.capital`
+requires either a stealth-flag setup or a same-content local server with
+a mocked Supabase client.
+
+### Settings → Agents / Connectors responsive
+
+Fixed in the same session. The repeating pattern: tables use rigid
+`grid-template-columns: <px> <px> <px>...` which overflow when the panel
+is narrower than fullscreen. Cure:
+- baseline `.list-h > *, .row > * { min-width: 0 }` in styles.css so every
+  grid-tracked table cell can actually shrink
+- replace fixed pixel tracks with `minmax(120px, 1fr) minmax(140px, 1.5fr) ...`
+- `.list-responsive` modifier collapses to flex-wrap cards at ≤900px
+- ellipsis truncation on individual cells: `overflow:hidden; text-overflow:ellipsis; white-space:nowrap`
+
+### Concurrent-writer chaos hasn't stopped
+
+Same pattern as 2026-05-16: every commit needs `git stash push -u` of
+5-7 dirty files from parallel sprint agents. No process change yet.
+
+### OCI runtime (not in this repo, but a learning that maps back)
+
+Outside the koino-insurance-os repo I built a real perceive→decide→act
+loop for the deprecated OCI agent at `~/.openclaw/agents/oci/runtime/oci.py`.
+Three providers (Gemini, Moonshot, Ollama), real tool-call dispatch,
+draft-only outbound per CLAUDE.md. Lessons that apply here too:
+
+- **Small Ollama models flunk tool-calling format.** `granite3.1-moe:1b`
+  and `llama3.2:1b` advertise `tools` capability but emit text-that-looks-
+  like-a-tool-call rather than proper `tool_calls` JSON on this Intel CPU.
+  Smallest reliable Ollama tool-caller observed: `qwen2.5:3b`.
+- **macOS Chrome cookie encryption is keychain-bound to the original
+  profile path.** Rsyncing `~/Library/Application Support/Google/Chrome/Default`
+  to `/tmp/...` and pointing Playwright at it does NOT bring the Google
+  session along — cookies are encrypted with a key tied to the original
+  path. Real Playwright reuse of an existing Chrome session requires
+  exclusive ownership of the real profile dir (after Chrome is quit).
+- **Gemini API has two auth modes:** `?key=AIza...` URL param (long-lived
+  API key from aistudio.google.com/apikey) vs `Bearer ya29...` OAuth
+  token (lasts ~1 hour). Production code should prefer URL-key.
+  The runtime detects which by inspecting the key prefix.
+
+---
+
+*Appended 2026-05-17 by the session that fixed the role-widening sweep, shipped self-healing active_agency, and stood up the OCI runtime at `~/.openclaw/agents/oci/runtime/`.*
