@@ -322,9 +322,9 @@
     };
     const [osTab, setOsTab] = useState(detectOs);
     const INSTALL_CMDS = {
-      macos:   `KOINO_REP_ID=${repId} curl -sSL https://koino-insurance-os.vercel.app/agent/install.sh | bash`,
-      linux:   `KOINO_REP_ID=${repId} curl -sSL https://koino-insurance-os.vercel.app/agent/install.sh | bash`,
-      windows: `$env:KOINO_REP_ID="${repId}"; iwr -useb https://koino-insurance-os.vercel.app/agent/install.ps1 | iex`,
+      macos:   `KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
+      linux:   `KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
+      windows: `$env:KOINO_REP_ID="${repId}"; iwr -useb "https://koino-insurance-os.vercel.app/agent/install.ps1" | iex`,
     };
     const OS_LABELS = {
       macos:   { label: "macOS",   sub: "bash · launchd" },

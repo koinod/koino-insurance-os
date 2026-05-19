@@ -23,16 +23,54 @@ BASE_URL="${KOINO_AGENT_BASE:-https://koino-insurance-os.vercel.app/agent}"
 echo "▸ Koino Auto Quoter installer"
 echo "  installing to: ${INSTALL_DIR}"
 
-# ── 1. Python check ─────────────────────────────────────────────────────────
-PY=""
-for cand in python3.12 python3.11 python3.10 python3; do
-  if command -v "$cand" &>/dev/null; then
-    ver=$("$cand" -c 'import sys; print(sys.version_info.major*100+sys.version_info.minor)')
-    if [ "$ver" -ge 310 ]; then PY="$cand"; break; fi
+# ── 0. Prerequisite: curl exists (note: pasted command already used curl,
+#    but this is a sanity check for sub-fetches below). ─────────────────────
+if ! command -v curl >/dev/null 2>&1; then
+  echo "✗ curl not found — re-open Terminal and try again, or install Xcode CLI tools:" >&2
+  echo "    xcode-select --install" >&2
+  exit 1
+fi
+
+# ── 1. Python check (auto-install via Homebrew on macOS if missing) ────────
+find_python() {
+  for cand in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$cand" >/dev/null 2>&1; then
+      ver=$("$cand" -c 'import sys; print(sys.version_info.major*100+sys.version_info.minor)' 2>/dev/null || echo 0)
+      if [ "$ver" -ge 310 ]; then echo "$cand"; return 0; fi
+    fi
+  done
+  return 1
+}
+
+PY=$(find_python || true)
+if [ -z "$PY" ] && [[ "$OSTYPE" == "darwin"* ]]; then
+  echo "  python 3.10+ not found — attempting to install via Homebrew…"
+  if ! command -v brew >/dev/null 2>&1; then
+    # Homebrew install is non-interactive when NONINTERACTIVE=1, but still
+    # needs sudo for the initial /opt/homebrew or /usr/local writes. If sudo
+    # is non-interactive (passwordless) it proceeds; otherwise it prompts.
+    NONINTERACTIVE=1 /bin/bash -c \
+      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+      </dev/null || true
+    # Make brew available in this shell for the next command (Apple Silicon
+    # default path; Intel falls through to existing PATH).
+    if [ -x /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -x /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
   fi
-done
+  if command -v brew >/dev/null 2>&1; then
+    brew install python@3.12 >/dev/null 2>&1 || brew install python >/dev/null 2>&1 || true
+  fi
+  PY=$(find_python || true)
+fi
 if [ -z "$PY" ]; then
-  echo "✗ Python 3.10+ not found — install from python.org first" >&2
+  echo "✗ Python 3.10+ install failed." >&2
+  echo "  Manual fix on macOS: install Homebrew from https://brew.sh, then run:" >&2
+  echo "    brew install python@3.12" >&2
+  echo "  Or download the installer from https://www.python.org/downloads/" >&2
+  echo "  Then re-run this one-liner." >&2
   exit 1
 fi
 echo "  python: $($PY --version) at $(command -v $PY)"

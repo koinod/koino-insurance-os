@@ -4835,7 +4835,7 @@ function SettingsAgents({ role = "owner" }) {
 
   const apiBase = (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.host}` : "https://repflow.koino.capital");
   const installCmds = (token) => ({
-    bash:  `curl -fsSL ${apiBase}/api/agent/install.sh?token=${token} | bash`,
+    bash:  `curl -fsSL "${apiBase}/api/agent/install.sh?token=${token}" | bash`,
     pwsh:  `iwr -useb "${apiBase}/api/agent/install.ps1?token=${token}" | iex`,
     docker: `docker run -d --name repflow-agent -e RBA_TOKEN=${token} -e API_BASE=${apiBase} -v "$HOME/.repflow/agent:/agent" ghcr.io/koinod/repflow-agent:latest`,
   });

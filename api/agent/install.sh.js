@@ -92,16 +92,36 @@ elif [ "\$OS" = "linux" ]; then
 fi
 echo "[rba] os=\$OS cpu=\$CPU ram_gb=\$RAM_GB"
 
-# ─── 2. Python 3.10+ + venv ────────────────────────────────────────────
-PY=""
-for cand in python3.13 python3.12 python3.11 python3.10 python3; do
-  if command -v "\$cand" >/dev/null 2>&1; then
-    ver=\$("\$cand" -c 'import sys; print(sys.version_info.major*100+sys.version_info.minor)' 2>/dev/null || echo 0)
-    if [ "\$ver" -ge 310 ]; then PY="\$cand"; break; fi
+# ─── 2. Python 3.10+ + venv (auto-install via Homebrew on macOS if missing)
+find_python() {
+  for cand in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "\$cand" >/dev/null 2>&1; then
+      ver=\$("\$cand" -c 'import sys; print(sys.version_info.major*100+sys.version_info.minor)' 2>/dev/null || echo 0)
+      if [ "\$ver" -ge 310 ]; then echo "\$cand"; return 0; fi
+    fi
+  done
+  return 1
+}
+PY=\$(find_python || true)
+if [ -z "\$PY" ] && [ "\$OS" = "macos" ]; then
+  echo "[rba] python 3.10+ not found — attempting to install via Homebrew"
+  if ! command -v brew >/dev/null 2>&1; then
+    NONINTERACTIVE=1 /bin/bash -c \\
+      "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \\
+      </dev/null || true
+    if [ -x /opt/homebrew/bin/brew ]; then
+      eval "\$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -x /usr/local/bin/brew ]; then
+      eval "\$(/usr/local/bin/brew shellenv)"
+    fi
   fi
-done
+  if command -v brew >/dev/null 2>&1; then
+    brew install python@3.12 >/dev/null 2>&1 || brew install python >/dev/null 2>&1 || true
+  fi
+  PY=\$(find_python || true)
+fi
 if [ -z "\$PY" ]; then
-  echo "[rba] python 3.10+ not found. install from python.org or 'brew install python@3.12' then re-run."
+  echo "[rba] python 3.10+ install failed. install Homebrew from https://brew.sh then 'brew install python@3.12', or download from python.org. Re-run after."
   exit 1
 fi
 echo "[rba] python: \$(\$PY --version) at \$(command -v \$PY)"
