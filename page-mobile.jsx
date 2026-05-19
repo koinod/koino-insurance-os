@@ -9,6 +9,9 @@ function MobileRep({ onExitMobile } = {}) {
   const [actionFlash, setActionFlash] = React.useState(null);
   const startRef = React.useRef(null);
   const [hydrated, setHydrated] = React.useState(!!window.AppData);
+  const [vaultCat, setVaultCat] = React.useState("scripts");
+  const [vaultQ, setVaultQ] = React.useState("");
+  const [vaultOpenScript, setVaultOpenScript] = React.useState(null);
 
   React.useEffect(() => {
     const onHydrate = () => setHydrated(true);
@@ -320,7 +323,185 @@ function MobileRep({ onExitMobile } = {}) {
             </>
           )}
 
-          {tab === "vault" && window.MScreenVault && (() => { const C = window.MScreenVault; return <C onNav={setTab}/>; })()}
+          {tab === "vault" && (() => {
+            // Mobile vault — focused on the high-frequency mid-call surfaces:
+            // Scripts (tap to expand + copy with live-call token sub),
+            // Videos / Docs / Carriers / Links (tap to open).
+            // Mirrors PageVault's roleAllowed filter and vaultSubstitute()
+            // tokens so the rep sees the same content the desktop scopes.
+            const role = meIdent?.role || "rep";
+            const roleOk = (target) => {
+              if (!Array.isArray(target) || target.length === 0) return true;
+              if (role === "super_admin" || role === "owner") return true;
+              return target.includes(role);
+            };
+            const sub = (body) => {
+              if (!body) return "";
+              const map = {
+                lead_name: "your lead", lead_first: "your lead", lead_state: "your state",
+                product: "your coverage",
+                rep_first: myFirst, rep_full: meIdent?.full_name || myFirst,
+                agency: meIdent?.agency_name || "the agency",
+                n_orgs: "8", n_plans: "32",
+              };
+              return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (full, k) => map[k.toLowerCase()] != null ? map[k.toLowerCase()] : full);
+            };
+            const A = (k) => (window.AppData && window.AppData[k]) || [];
+            const ql = vaultQ.trim().toLowerCase();
+            const m = (s) => !ql || (s || "").toLowerCase().includes(ql);
+
+            const scripts  = A("SCRIPTS_LIB").filter(s => roleOk(s.targetRoles)).filter(s => m(s.title) || m(s.body) || m(s.cat));
+            const videos   = A("VIDEOS").filter(v => m(v.title) || m(v.cat));
+            const docs     = A("DOCS").filter(d => roleOk(d.targetRoles)).filter(d => m(d.title) || m(d.cat) || m(d.text));
+            const carriers = A("CARRIERS").filter(c => m(c.name) || m(c.category || ""));
+            const links    = A("QUICK_LINKS").filter(l => m(l.label) || m(l.cat));
+
+            const cats = [
+              { k: "scripts",  l: "Scripts",  n: scripts.length },
+              { k: "videos",   l: "Videos",   n: videos.length },
+              { k: "docs",     l: "Docs",     n: docs.length },
+              { k: "carriers", l: "Carriers", n: carriers.length },
+              { k: "links",    l: "Links",    n: links.length },
+            ];
+
+            const copyScript = (s) => {
+              try {
+                navigator.clipboard.writeText(sub(s.body));
+                window.toast && window.toast("Script copied", "success");
+              } catch (_e) {}
+            };
+            const openExternal = (url) => { if (url) window.open(url, "_blank", "noopener"); };
+
+            const activeRows = vaultCat === "scripts" ? scripts
+              : vaultCat === "videos"   ? videos
+              : vaultCat === "docs"     ? docs
+              : vaultCat === "carriers" ? carriers
+              : vaultCat === "links"    ? links
+              : [];
+
+            return (
+              <>
+                <div style={{ margin: "4px 0 10px" }}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Vault</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Scripts · videos · docs · carriers · links</div>
+                </div>
+                <input
+                  className="text-input"
+                  type="search"
+                  placeholder="Search the vault…"
+                  value={vaultQ}
+                  onChange={(e) => setVaultQ(e.target.value)}
+                  style={{ width: "100%", marginBottom: 10 }}
+                />
+                <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 10, paddingBottom: 2 }}>
+                  {cats.map(c => (
+                    <button
+                      key={c.k}
+                      className={`chip ${vaultCat === c.k ? "chip-info" : ""}`}
+                      onClick={() => setVaultCat(c.k)}
+                      style={{ flexShrink: 0, cursor: "pointer", border: 0 }}>
+                      {c.l} · {c.n}
+                    </button>
+                  ))}
+                </div>
+
+                {vaultCat === "scripts" && (
+                  <div className="panel">
+                    {scripts.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>No scripts.</div>}
+                    {scripts.map(s => {
+                      const open = vaultOpenScript === s.id;
+                      return (
+                        <div key={s.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                          <div
+                            onClick={() => setVaultOpenScript(open ? null : s.id)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer" }}>
+                            <Icons.FileText size={13} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.title}</div>
+                              {s.cat && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.cat}</div>}
+                            </div>
+                            <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyScript(s); }} title="Copy"><Icons.Copy size={13}/></button>
+                          </div>
+                          {open && (
+                            <div style={{ padding: "0 12px 12px 30px", fontSize: 12, color: "var(--text-secondary)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                              {sub(s.body)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {vaultCat === "videos" && (
+                  <div className="panel">
+                    {videos.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>No videos.</div>}
+                    {videos.map(v => (
+                      <div key={v.id}
+                        onClick={() => openExternal(v.url)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}>
+                        <Icons.Video size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.title}</div>
+                          {v.cat && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{v.cat}{v.duration ? ` · ${v.duration}` : ""}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {vaultCat === "docs" && (
+                  <div className="panel">
+                    {docs.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>No docs.</div>}
+                    {docs.map(d => (
+                      <div key={d.id}
+                        onClick={() => d.url && openExternal(d.url)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderBottom: "1px solid var(--border-subtle)", cursor: d.url ? "pointer" : "default" }}>
+                        <Icons.Folder size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.title}</div>
+                          {d.cat && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{d.cat}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {vaultCat === "carriers" && (
+                  <div className="panel">
+                    {carriers.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>No carriers.</div>}
+                    {carriers.map(c => (
+                      <div key={c.id || c.name}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderBottom: "1px solid var(--border-subtle)" }}>
+                        <Icons.Shield size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                          {c.category && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{c.category}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {vaultCat === "links" && (
+                  <div className="panel">
+                    {links.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "var(--text-tertiary)" }}>No links.</div>}
+                    {links.map(l => (
+                      <div key={l.id || l.label}
+                        onClick={() => openExternal(l.url)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}>
+                        <Icons.ArrowUpRight size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.label}</div>
+                          {l.cat && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{l.cat}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {tab === "me" && (() => {
             // Real signed-in identity only. We don't borrow REPS[0] anymore —
