@@ -70,10 +70,6 @@
     {
       "path": "/api/cron/invite-health",
       "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/cron/reset-demo",
-      "schedule": "0 */4 * * *"
     }
   ]
 }
