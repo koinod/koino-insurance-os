@@ -2,10 +2,10 @@
  *
  * Builds a detailed lead profile, runs it through window.RateEngine, and
  * returns dollar-denominated monthly premiums per appointed carrier with
- * UW class assignment + decline reasons. The recommendation cites the
-
- * actual producer-guide rule (sourced from public.product_underwriting_rules
- * with a fallback to /lib/carrier-underwriting.json) that drove the pick.
+ * UW class assignment + decline reasons. Every underwriting rule and
+ * narrative bullet ("Best pick · per official underwriting") comes from
+ * `public.product_underwriting_rules` (DB-only as of migration 0058).
+ * The legacy `lib/carrier-underwriting.deprecated.json` is no longer read.
  *
  * Sections:
  *   1. Lead profile  — name + contact + state + age + height/weight (auto BMI)
@@ -311,7 +311,7 @@
         if (rate.decline) {
           return { carrier, decline: true, reason: rate.reason, source: rate.source };
         }
-        const reco = window.RateEngine.recommendReasons?.(carrier, productKey, profileForEngine, rate) || { reasons: [], sources: [] };
+        const reco = window.RateEngine.recommendReasons?.(carrier, productKey, profileForEngine, rate) || { reasons: [], sources: [], dbGrounded: false };
         return {
           carrier,
           premium: rate.premium,
@@ -322,6 +322,7 @@
           reasons: reco.reasons,
           sources: reco.sources,
           confidence: reco.confidence,
+          dbGrounded: !!reco.dbGrounded,
         };
       });
 
@@ -331,10 +332,14 @@
       });
       const declined = results.filter(r => r.decline);
       return { quoted, declined };
-    }, [JSON.stringify(profileForEngine), niches.length, appointedIds,
+    }, [JSON.stringify(profileForEngine), niches.length, appointedIds, groundingTick,
         selectedCarrierIds === null ? "" : [...selectedCarrierIds].sort().join(",")]);
 
-    const best = quoteResults.quoted[0];
+    // Best pick prefers a DB-grounded carrier so we don't recommend
+    // binding against an unverified carrier. Falls back to the cheapest
+    // overall only if NO DB-grounded carrier is eligible (caller is then
+    // shown a "verify producer guide" caveat via the dbGrounded badge).
+    const best = quoteResults.quoted.find(r => r.dbGrounded) || quoteResults.quoted[0];
 
     const applyPreset = (p) => {
       setProfile(prev => ({ ...prev, ...p.patch }));
@@ -420,6 +425,16 @@
     const totalAppointed = niches.filter(c => c.products.includes(profile.product))
       .filter(c => appointedIds === null || appointedIds.has(c.id))?.length;
 
+    // Subscribe to the rate-engine's UW grounding status so the footer +
+    // header indicator update live when the DB hydrate completes.
+    const [groundingTick, setGroundingTick] = useState(0);
+    useEffect(() => {
+      const fn = () => setGroundingTick(n => n + 1);
+      window.addEventListener("carrier-uw:loaded", fn);
+      return () => window.removeEventListener("carrier-uw:loaded", fn);
+    }, []);
+    const grounding = window.UW_GROUNDING || { status: "loading", carriers: 0, products: 0, rules: 0 };
+
     return (
       <div className="page-pad">
         <div className="page-h">
@@ -428,6 +443,29 @@
             <div className="page-sub">
               Real-rate engine · {totalAppointed} appointed carrier{totalAppointed === 1 ? "" : "s"} for {PRODUCT_LABELS[profile.product]} ·
               {appointedIds === null ? " (demo: all carriers shown)" : ` filtered to your appointments`}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              {grounding.status === "ready" && (
+                <>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    padding: "1px 7px", borderRadius: 10, fontSize: 10.5, fontWeight: 600,
+                    background: "color-mix(in oklch, var(--accent-money) 12%, transparent)",
+                    color: "var(--accent-money)",
+                    border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)",
+                  }}>● DB-grounded</span>
+                  <span>{grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} approved rule{grounding.rules === 1 ? "" : "s"} loaded from <code style={{ fontSize: 10 }}>product_underwriting_rules</code></span>
+                </>
+              )}
+              {grounding.status === "loading" && (
+                <span>Loading underwriting rules from database…</span>
+              )}
+              {grounding.status === "empty" && (
+                <span style={{ color: "var(--state-warning)" }}>⚠ Underwriting DB is empty — recommendations are roster-only until rules are approved.</span>
+              )}
+              {grounding.status === "error" && (
+                <span style={{ color: "var(--state-danger)" }}>⚠ Underwriting DB unreachable: {grounding.error || "unknown error"}. Verify by manual producer-guide check before binding.</span>
+              )}
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -800,15 +838,40 @@
               <div style={{ padding: 10 }}>
                 {quoteResults.quoted.map((r, i) => {
                   const c = r.carrier;
+                  // Prefer the DB-sourced guide for the displayed UW metadata;
+                  // fall back to the inline CARRIER_NICHES roster fields only
+                  // when the carrier has no DB grounding (badge will warn).
+                  const guide = window.RateEngine?.getGuide?.(c.id, profile.product) || null;
                   const uw = c.underwriting || {};
+                  const tobPct = guide?.tobacco_rateup_pct != null ? guide.tobacco_rateup_pct : uw.tobaccoRateUpPct;
+                  const uwClasses = Array.isArray(guide?.uw_classes) ? guide.uw_classes : uw.uwClasses;
                   const reasonText = (r.reasons || []).slice(0, 2).map(x => x.text).join(" · ")
                     || (r.methodology || []).slice(-2).join(" · ")
                     || "—";
                   return (
-                    <div key={c.id} className={"quote-row" + (i === 0 ? " is-best" : "")}>
+                    <div key={c.id} className={"quote-row" + (r === best ? " is-best" : "")}>
                       <div>
                         <div className="qr-name">{c.name}
-                          {i === 0 && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>best match</span>}
+                          {r === best && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>best match</span>}
+                          {r.dbGrounded ? (
+                            <span title="Underwriting rules sourced from approved product_underwriting_rules rows"
+                                  style={{
+                                    marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                    borderRadius: 3, fontWeight: 600,
+                                    background: "color-mix(in oklch, var(--accent-money) 12%, transparent)",
+                                    color: "var(--accent-money)",
+                                    border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)",
+                                  }}>DB ✓</span>
+                          ) : (
+                            <span title="No approved underwriting rules in the database for this carrier — verify against the producer guide before binding."
+                                  style={{
+                                    marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                    borderRadius: 3, fontWeight: 600,
+                                    background: "color-mix(in oklch, var(--state-warning) 10%, transparent)",
+                                    color: "var(--state-warning)",
+                                    border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)",
+                                  }}>no DB rules</span>
+                          )}
                           {/* Live agent result badge */}
                           {agentResults[c.id] && (() => {
                             const ar = agentResults[c.id];
@@ -837,8 +900,8 @@
                           )}
                         </div>
                         <div className="qr-meta">
-                          {uw.tobaccoRateUpPct != null && <span>tob+{uw.tobaccoRateUpPct}% · </span>}
-                          {Array.isArray(uw.uwClasses) && <span>{uw.uwClasses.length}-class UW</span>}
+                          {tobPct != null && <span>tob+{tobPct}% · </span>}
+                          {Array.isArray(uwClasses) && <span>{uwClasses.length}-class UW</span>}
                           {r.confidence && <span> · {r.confidence} confidence</span>}
                         </div>
                       </div>
@@ -869,7 +932,7 @@
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  Engine estimates from <code style={{ fontSize: 10.5 }}>window.RateEngine</code> + underwriting rules (<code style={{ fontSize: 10.5 }}>product_underwriting_rules</code> table, edits via Admin → Carriers). Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
+                  Premium = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. <strong>Every underwriting rule (decline lists, BMI bands, tobacco, age bands, state availability) and every narrative line (sweet spot, discounts, citations) comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code></strong> — edit via Admin → Carriers; no JSON or hardcoded fallback is consulted. Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
                 </div>
 
                 {/* Run Quote Agent — inserts into auto_quote_requests; RBA picks up */}
