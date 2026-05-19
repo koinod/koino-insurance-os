@@ -41,7 +41,17 @@
     annuity: "Annuity (MYGA)",
   };
 
-  const PRESETS = [
+  function loadPresets() {
+    try {
+      const v = JSON.parse(localStorage.getItem("repflow:quote-presets") || "null");
+      return Array.isArray(v) ? v : DEFAULT_PRESETS;
+    } catch { return DEFAULT_PRESETS; }
+  }
+  function savePresetsLS(presets) {
+    try { localStorage.setItem("repflow:quote-presets", JSON.stringify(presets)); } catch {}
+  }
+
+  const DEFAULT_PRESETS = [
     { id: "t65-clean",  label: "T65 · clean health",
       patch: { age: 65, tobacco: false, heightFeet: 5, heightInches: 7, weightLbs: 165,
                healthDetail: emptyHealth({ diabetesType: "none", bpHigh: "none" }), product: "medsupp" }},
@@ -131,6 +141,8 @@
   function PageQuote({ role = "owner" }) {
     const [profile, setProfile] = useState(DEFAULT_PROFILE);
     const [quotes,  setQuotes]  = useState(loadQuotes);
+    const [presets, setPresets] = useState(loadPresets);
+    const [presetsEdit, setPresetsEdit] = useState(false);
 
     // Re-render whenever CARRIERS, CARRIER_NICHES or the carrier UW guide
     // JSON finishes loading.
@@ -329,6 +341,36 @@
       window.toast && window.toast(`Loaded preset: ${p.label}`, "info");
     };
 
+    const savePresetFromProfile = () => {
+      const label = (window.prompt("Preset name?", "") || "").trim();
+      if (!label) return;
+      const { name, phone, email, ...patch } = profile;
+      const next = [...presets, { id: "p-" + Date.now(), label, patch }];
+      setPresets(next); savePresetsLS(next);
+      window.toast && window.toast(`Preset saved: ${label}`, "success");
+    };
+    const deletePreset = (id) => {
+      const next = presets.filter(p => p.id !== id);
+      setPresets(next); savePresetsLS(next);
+    };
+    const renamePreset = (p) => {
+      const label = (window.prompt("Rename preset:", p.label) || "").trim();
+      if (!label || label === p.label) return;
+      const next = presets.map(x => x.id === p.id ? { ...x, label } : x);
+      setPresets(next); savePresetsLS(next);
+    };
+    const overwritePreset = (p) => {
+      if (!window.confirm(`Overwrite "${p.label}" with current profile?`)) return;
+      const { name, phone, email, ...patch } = profile;
+      const next = presets.map(x => x.id === p.id ? { ...x, patch } : x);
+      setPresets(next); savePresetsLS(next);
+      window.toast && window.toast(`Preset updated: ${p.label}`, "success");
+    };
+    const resetPresets = () => {
+      if (!window.confirm("Reset presets to defaults? Custom presets will be lost.")) return;
+      setPresets(DEFAULT_PRESETS); savePresetsLS(DEFAULT_PRESETS);
+    };
+
     const saveQuote = () => {
       const q = {
         id: "q-" + Date.now(),
@@ -414,13 +456,52 @@
           <div className="panel-h">
             <Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/>
             <h3>Quick presets</h3>
-            <span className="meta">click to load</span>
+            <span className="meta">
+              {presetsEdit ? "click name to rename · ↻ to overwrite · × to delete" : "click to load"}
+            </span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px" }}
+                      onClick={savePresetFromProfile} title="Save current profile as a new preset">
+                <Icons.Plus size={11}/> Save current
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px" }}
+                      onClick={() => setPresetsEdit(v => !v)}>
+                {presetsEdit ? "Done" : "Edit"}
+              </button>
+              {presetsEdit && (
+                <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "2px 8px", color: "var(--text-dim)" }}
+                        onClick={resetPresets} title="Reset to default presets">
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
           <div style={{ padding: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {PRESETS.map(p => (
-              <button key={p.id} className="btn btn-ghost" style={{ fontSize: 11.5 }} onClick={() => applyPreset(p)}>
-                {p.label}
-              </button>
+            {presets.length === 0 && (
+              <span className="meta" style={{ fontSize: 11, padding: "4px 2px" }}>
+                No presets — click "Save current" to capture this profile.
+              </span>
+            )}
+            {presets.map(p => (
+              <span key={p.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <button className="btn btn-ghost" style={{ fontSize: 11.5 }}
+                        onClick={() => presetsEdit ? renamePreset(p) : applyPreset(p)}
+                        title={presetsEdit ? "Click to rename" : "Click to load"}>
+                  {p.label}
+                </button>
+                {presetsEdit && (
+                  <>
+                    <button className="btn btn-ghost"
+                            style={{ fontSize: 11, padding: "2px 6px" }}
+                            onClick={() => overwritePreset(p)}
+                            title="Overwrite with current profile">↻</button>
+                    <button className="btn btn-ghost"
+                            style={{ fontSize: 12, padding: "2px 6px", color: "var(--accent-danger, #ef4444)" }}
+                            onClick={() => deletePreset(p.id)}
+                            title="Delete preset">×</button>
+                  </>
+                )}
+              </span>
             ))}
           </div>
         </div>
