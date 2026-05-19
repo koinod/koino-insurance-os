@@ -2,6 +2,7 @@ node_modules
 .next
 out
 dist/
+login.html
 .env
 .env.local
 .env.*.local

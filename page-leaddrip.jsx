@@ -225,8 +225,155 @@ function EnrollModal({ seqId, sequences, onClose }) {
   );
 }
 
+/* ─── Edit sequence modal ─────────────────────────────────────────────── */
+function EditSeqModal({ seq, onClose, onSaved }) {
+  const [name, setName]               = React.useState(seq.name || "");
+  const [description, setDescription] = React.useState(seq.description || "");
+  const [active, setActive]           = React.useState(seq.active !== false);
+  const [steps, setSteps]             = React.useState(() => {
+    const s = Array.isArray(seq.steps) ? seq.steps : [];
+    return s.map((st, i) => ({
+      day:      st.day ?? i,
+      ch:       st.ch || st.channel || "SMS",
+      template: st.template || st.body || "",
+    }));
+  });
+  const [saving, setSaving] = React.useState(false);
+
+  const updateStep = (i, patch) =>
+    setSteps(prev => prev.map((s, j) => j === i ? { ...s, ...patch } : s));
+  const removeStep = (i) =>
+    setSteps(prev => prev.filter((_, j) => j !== i));
+  const addStep = () => setSteps(prev => {
+    const lastDay = prev.length ? (Number(prev[prev.length - 1].day) || 0) : -2;
+    return [...prev, { day: lastDay + 2, ch: "SMS", template: "" }];
+  });
+  const moveStep = (i, dir) => setSteps(prev => {
+    const next = prev.slice();
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return prev;
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
+
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    const sb = window.getSupabase && window.getSupabase();
+    const cleanSteps = steps.map(s => ({
+      day:      Math.max(0, parseInt(s.day, 10) || 0),
+      ch:       s.ch || "SMS",
+      template: (s.template || "").trim(),
+    }));
+    try {
+      if (sb && AppData.LIVE) {
+        const { error } = await sb.from("sequences").update({
+          name:        name.trim(),
+          description: description.trim() || null,
+          is_active:   !!active,
+          steps:       cleanSteps,
+        }).eq("id", seq.id);
+        if (error) throw error;
+      }
+      window.toast && window.toast(`Sequence "${name.trim()}" saved`, "success");
+      window.dispatchEvent(new CustomEvent("data:mutated", { detail: { table: "sequences" }}));
+      onSaved && onSaved();
+      onClose();
+    } catch (e) {
+      window.toast && window.toast("Save failed: " + (e.message || e), "error");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Shared.Modal title={`Edit · ${seq.name}`} width={640} onClose={onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={!name.trim() || saving}>
+          <Icons.Check size={11}/> {saving ? "Saving…" : "Save changes"}
+        </button>
+      </>
+    }>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Shared.Field label="Sequence name">
+          <input className="text-input" autoFocus value={name} onChange={e => setName(e.target.value)}/>
+        </Shared.Field>
+        <Shared.Field label="Description">
+          <textarea className="text-input" rows={2} value={description} onChange={e => setDescription(e.target.value)}
+            placeholder="Optional internal note — when to use this sequence"/>
+        </Shared.Field>
+        <Shared.Field label="Status">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+            <input type="checkbox" id="seq-active" checked={active} onChange={e => setActive(e.target.checked)}/>
+            <label htmlFor="seq-active" style={{ fontSize: 12.5, cursor: "pointer" }}>
+              Active (drip-runner will advance enrollments)
+            </label>
+          </div>
+        </Shared.Field>
+
+        <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Steps ({steps.length})</div>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={addStep}>
+              <Icons.Plus size={11}/> Add step
+            </button>
+          </div>
+
+          {steps.length === 0 && (
+            <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, border: "1px dashed var(--border-subtle)", borderRadius: 6 }}>
+              No steps. Add one to start the cadence.
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {steps.map((step, i) => (
+              <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 7, border: "1px solid var(--border-subtle)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "80px 110px 1fr auto", gap: 8, alignItems: "end", marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 2 }}>Day</div>
+                    <input className="text-input" type="number" min={0} value={step.day}
+                      onChange={e => updateStep(i, { day: e.target.value })}
+                      style={{ fontSize: 12 }}/>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 2 }}>Channel</div>
+                    <Shared.Select value={step.ch} onChange={v => updateStep(i, { ch: v })}
+                      options={[{ v: "SMS", l: "SMS" }, { v: "Email", l: "Email" }, { v: "Task", l: "Task" }]}/>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", paddingBottom: 6 }}>
+                    Step {i + 1} of {steps.length}
+                  </div>
+                  <div style={{ display: "flex", gap: 2, paddingBottom: 2 }}>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} disabled={i === 0}
+                      title="Move up" onClick={() => moveStep(i, -1)}>↑</button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px" }} disabled={i === steps.length - 1}
+                      title="Move down" onClick={() => moveStep(i, 1)}>↓</button>
+                    <button className="btn btn-ghost" style={{ padding: "3px 6px", color: "var(--state-warning)" }}
+                      title="Remove step" onClick={() => removeStep(i)}>
+                      <Icons.X size={11}/>
+                    </button>
+                  </div>
+                </div>
+                <textarea className="text-input" rows={2}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}
+                  value={step.template}
+                  onChange={e => updateStep(i, { template: e.target.value })}
+                  placeholder="Hi {{first}}, this is {{rep}} — …"/>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 8, lineHeight: 1.5 }}>
+            Placeholders: <code>{"{{first}}"}</code>, <code>{"{{rep}}"}</code>, <code>{"{{product}}"}</code>. Day = days after enrollment.
+          </div>
+        </div>
+      </div>
+    </Shared.Modal>
+  );
+}
+
 /* ─── Sequence step detail panel ──────────────────────────────────────── */
-function SeqDetail({ seq, enrollments, onEnroll }) {
+function SeqDetail({ seq, enrollments, onEnroll, onEdit }) {
   const enrolled = enrollments.filter(e => e.sequenceId === seq.id);
   const active   = enrolled.filter(e => e.status === "active").length;
   const done     = enrolled.filter(e => e.status === "completed").length;
@@ -240,6 +387,7 @@ function SeqDetail({ seq, enrollments, onEnroll }) {
         <h3>{seq.name}</h3>
         {!seq.active && <span className="chip" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>inactive</span>}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={onEdit}><Icons.Edit size={11}/> Edit</button>
           <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={onEnroll}><Icons.Plus size={11}/> Enroll lead</button>
         </div>
       </div>
@@ -1195,6 +1343,7 @@ function PageLeadDrip({ role = "owner" }) {
   const [inner,    setInner]    = React.useState("inflow");
   const [seqSel,   setSeqSel]   = React.useState(null);
   const [newOpen,  setNewOpen]  = React.useState(false);
+  const [editSeqId, setEditSeqId] = React.useState(null);
   const [enrollFor, setEnrollFor] = React.useState(null);
 
   const sequences   = AppData.SEQUENCES           || [];
@@ -1315,7 +1464,9 @@ function PageLeadDrip({ role = "owner" }) {
           </div>
 
           {activeSeq
-            ? <SeqDetail seq={activeSeq} enrollments={enrollments} onEnroll={() => setEnrollFor(activeSeq.id)}/>
+            ? <SeqDetail seq={activeSeq} enrollments={enrollments}
+                onEnroll={() => setEnrollFor(activeSeq.id)}
+                onEdit={() => setEditSeqId(activeSeq.id)}/>
             : (
               <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
                 Select a sequence or <button className="btn btn-primary" style={{ marginLeft: 6 }} onClick={() => setNewOpen(true)}>create one</button>
@@ -1414,6 +1565,11 @@ function PageLeadDrip({ role = "owner" }) {
       {enrollFor && (
         <EnrollModal seqId={enrollFor !== "any" ? enrollFor : null} sequences={sequences} onClose={() => setEnrollFor(null)}/>
       )}
+      {editSeqId && (() => {
+        const seq = sequences.find(s => s.id === editSeqId);
+        if (!seq) return null;
+        return <EditSeqModal seq={seq} onClose={() => setEditSeqId(null)}/>;
+      })()}
     </div>
   );
 }

@@ -166,7 +166,7 @@ function App() {
       return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
     };
     if (mobile && role === "rep") return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
-    if (mobile) return F("MobileRep");
+    if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { aep: aepMode, role });
       case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
@@ -284,6 +284,7 @@ function App() {
       {(() => { const NP = window.PerAgencyNotificationsPanel || NotificationsPanel; return <NP open={notifOpen} onClose={() => setNotifOpen(false)} goto={goto}/>; })()}
       {window.AutoDialBar && (() => { const A = window.AutoDialBar; return <A/>; })()}
       {window.FloorActionsHost && (() => { const F = window.FloorActionsHost; return <F/>; })()}
+      {window.RepflowFAB && (() => { const RF = window.RepflowFAB; return <RF/>; })()}
       {window.RBAConfirmationsHost && (() => { const C = window.RBAConfirmationsHost; return <C/>; })()}
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall lead={callLead} callSid={callSid} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); setCallSid(null); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
