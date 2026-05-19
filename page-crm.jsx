@@ -220,7 +220,7 @@ function PageCrm({ role = "owner" }) {
       owner: form.owner || (reps[0]?.id),
       consent: "verified", heat: "fresh",
     };
-    if (mut?.pipelineCreate) mut.pipelineCreate(row);
+    if (mut?.pipelineInsert) mut.pipelineInsert(row);
     else if (window.AppData?.PIPELINE) window.AppData.PIPELINE.unshift(row);
     setAddLeadOpen(false);
     window.toast && window.toast(`Added ${form.name}`, "success");

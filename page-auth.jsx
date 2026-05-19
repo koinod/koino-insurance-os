@@ -298,10 +298,20 @@ function LoginScreen() {
               className="btn btn-ghost"
               onClick={async () => {
                 const search = pendingInvite ? `?invite=${encodeURIComponent(pendingInvite)}` : "";
-                await sb.auth.signInWithOAuth({
+                const { error } = await sb.auth.signInWithOAuth({
                   provider: "google",
                   options: { redirectTo: window.location.origin + LOGIN_PATH + search }
                 });
+                if (error) {
+                  // Common path: provider disabled in Supabase Auth dashboard.
+                  // Surface something useful instead of silently failing.
+                  setStage("error");
+                  setErrMsg(
+                    /provider is not enabled/i.test(error.message || "")
+                      ? "Google sign-in isn't set up yet. Use the email link above."
+                      : `Google sign-in failed: ${error.message}`
+                  );
+                }
               }}
               style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 13 }}
             >
