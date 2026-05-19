@@ -386,9 +386,48 @@ function TodayRep({ aep }) {
     + ` · ${todayHrs}h of dial time`
     + ` · ${tierCopy}`;
 
-  // Sparklines remain demo for now (need historical aggregation table — Sprint-1 work).
-  const spark1 = [12,18,15,22,30,28,35,42];
-  const spark2 = [4,6,5,8,11,9,12,14];
+  // Sparklines — 8-day rolling buckets (oldest→today) computed from hot
+  // AppData. No historical-rollup table yet, so we re-bin on each render
+  // from COMMISSIONS / POLICIES / RECORDINGS keyed on the rep's id. Empty
+  // history renders a flat line — truthful, not padded.
+  const SPARK_DAYS = 8;
+  const dayKeys = (() => {
+    const out = [];
+    const base = new Date();
+    for (let i = SPARK_DAYS - 1; i >= 0; i--) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  })();
+  const dayIndex = new Map(dayKeys.map((k, i) => [k, i]));
+  const toIsoDay = (s) => {
+    if (!s) return null;
+    if (typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(s);
+    return isNaN(d.valueOf()) ? null : d.toISOString().slice(0, 10);
+  };
+  const bucket = () => Array.from({ length: SPARK_DAYS }, () => 0);
+  const spark1 = bucket();
+  for (const c of (COMMISSIONS || [])) {
+    if (c.repId !== myRow.id) continue;
+    const idx = dayIndex.get(toIsoDay(c.paidAt) || toIsoDay(c.earnedAt));
+    if (idx != null) spark1[idx] += (c.amount || 0);
+  }
+  const spark2 = bucket();
+  for (const p of (POLICIES || [])) {
+    if (p.owner !== myRow.id) continue;
+    const idx = dayIndex.get(toIsoDay(p.issuedAt || p.issued_at));
+    if (idx != null) spark2[idx] += 1;
+  }
+  const spark3 = bucket();
+  for (const r of (RECORDINGS || [])) {
+    const rid = r.repId || r.rep_id;
+    if (rid !== myRow.id) continue;
+    const idx = dayIndex.get(toIsoDay(r.recordedAt || r.recorded_at || r.date));
+    if (idx != null) spark3[idx] += 1;
+  }
 
   // First-action CTA. Show a hero banner whenever the rep has done
   // nothing today (no dials, no apps, no commissions) so a brand-new producer
@@ -566,13 +605,28 @@ function TodayRep({ aep }) {
           return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
         }).length;
         const cpa = issuedMtd > 0 ? Math.round(leadSpendMtd / issuedMtd) : null;
+        // NIGO drag — sum AP at risk on open NIGOs owned by me. Mirrors the
+        // projection TodayManagerNigo uses (policy.ap || lead.ap, in dollars).
+        const leadById = new Map((AppData.PIPELINE || []).map(l => [l.id, l]));
+        const policyById = new Map((AppData.POLICIES || []).map(p => [p.id, p]));
+        const nigoDragDollars = (AppData.NIGOS || [])
+          .filter(n => n.status !== "resolved" && n.status !== "wont_fix")
+          .filter(n => {
+            const owner = n.assignedTo || (n.pipelineId && leadById.get(n.pipelineId)?.owner);
+            return owner === myRow.id;
+          })
+          .reduce((a, n) => {
+            const pol = n.policyId ? policyById.get(n.policyId) : null;
+            const lead = n.pipelineId ? leadById.get(n.pipelineId) : null;
+            return a + (pol?.ap || lead?.ap || 0);
+          }, 0);
         const isDemo = window.isDemoAgency && window.isDemoAgency();
         return (
           <SpendStrip items={[
             { l: "Cost / issued",  v: cpa != null ? `$${cpa}` : (isDemo ? "$112" : "—"), tone: "money" },
             { l: "Lead spend MTD", v: leadSpendMtd > 0 ? `$${leadSpendMtd.toLocaleString()}` : (isDemo ? "$680" : "$0") },
             { l: "Issued MTD",     v: issuedMtd > 0 ? String(issuedMtd) : (isDemo ? "—" : "0"), tone: "money" },
-            { l: "NIGO drag",      v: "$0", tone: "money" },
+            { l: "NIGO drag",      v: nigoDragDollars > 0 ? `$${nigoDragDollars.toLocaleString()}` : "$0", tone: "money" },
           ]}/>
         );
       })()}
@@ -580,7 +634,7 @@ function TodayRep({ aep }) {
       <div className="kpi-row">
         <Shared.KpiCard hero label="Today's Commission" value={todayCommission.toLocaleString()} prefix="$" sub={`MTD: $${mtdNum.toLocaleString()}`} trend={todayCommission > 0 ? "up" : undefined} spark={spark1}/>
         <Shared.KpiCard label="Apps submitted (today)" value={appsToday} sub={`tier: ${(myRow.tier || "—").toUpperCase()}`} spark={spark2}/>
-        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined} spark={[60,72,68,75,80,78,85,87]}/>
+        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined} spark={spark3}/>
       </div>
 
       <TasksPanel repId={myRow?.id} limit={5}/>

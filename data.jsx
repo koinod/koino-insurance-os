@@ -404,6 +404,7 @@ window.hydrateFromSupabase = async function () {
     if (canWrite(recordings)) {
       window.AppData.RECORDINGS = recordings.data.map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
+        recordedAt: r.recorded_at,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
         durSec: r.duration_sec, talkRatio: r.talk_ratio_pct, openQ: r.open_questions,
         ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
