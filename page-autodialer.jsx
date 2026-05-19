@@ -105,7 +105,7 @@ function PipelineAutoDialButton({ leads, onClose }) {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>Hotkeys during autodial: <span className="kbd mono">Space</span> pause · <span className="kbd mono">S</span> skip · <span className="kbd mono">X</span> stop · <span className="kbd mono">D</span> re-dial current · <span className="kbd mono">V</span> voicemail script · <span className="kbd mono">1-5</span> log outcome</div>
+          <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>Hotkeys during autodial: <span className="kbd mono">Space</span> pause · <span className="kbd mono">S</span> skip · <span className="kbd mono">X</span> stop · <span className="kbd mono">D</span> re-dial current · <span className="kbd mono">E</span> open dashboard · <span className="kbd mono">V</span> voicemail script · <span className="kbd mono">1-5</span> log outcome</div>
         </Shared.Modal>
       )}
     </>
@@ -244,6 +244,12 @@ function AutoDialBar() {
           window.toast && window.toast(`Re-dialing ${current.lead}`, "info");
         }
       }
+      else if (e.key === "e" || e.key === "E") {
+        // E = expand/re-open the call dashboard for the current lead after dismissing it
+        if (current && stage !== "idle") {
+          window.dispatchEvent(new CustomEvent("incall:open", { detail: { lead: current, autodial: true } }));
+        }
+      }
       else if (e.key === "v" || e.key === "V") {
         // V = copy voicemail script for current lead — rep can paste/read it after the beep
         const first = (current?.lead || "").split(" ")[0] || "there";
@@ -306,8 +312,18 @@ function AutoDialBar() {
   if (queue.length === 0) return null;
   if (incallOpen) return null;
 
+  // Re-pop the rich dashboard for the current lead (used when rep dismissed it mid-session).
+  const reopenDashboard = () => {
+    if (!current) return;
+    window.dispatchEvent(new CustomEvent("incall:open", { detail: { lead: current, autodial: true } }));
+  };
+
   return (
-    <div className="autodial-bar">
+    <div className="autodial-bar" onClick={(e) => {
+      // Click anywhere on the bar (except a button) re-opens the dashboard.
+      if (e.target.closest("button")) return;
+      reopenDashboard();
+    }} style={{ cursor: "pointer" }} title="Click to re-open the call dashboard">
       <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
         <span className="dot dot-live"></span>
         <div style={{ flex: 1 }}>
@@ -320,6 +336,9 @@ function AutoDialBar() {
           </div>
         </div>
       </div>
+      <button className="btn btn-primary" onClick={reopenDashboard} title="Open call dashboard (E)" style={{ fontSize: 11 }}>
+        <Icons.ArrowUp size={11}/> Open dashboard
+      </button>
       {stage === "outcome" ? (
         <div style={{ display: "flex", gap: 4 }}>
           <button className="btn btn-ghost" onClick={() => recordOutcome("no_answer")}><span className="kbd mono">1</span> No answer</button>
