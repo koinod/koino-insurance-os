@@ -5991,6 +5991,11 @@ function SettingsProfile({ role }) {
   // preserves untouched keys (the contract per the RPC spec).
   const [form,  setForm]  = React.useState({});
   const [dirty, setDirty] = React.useState({});
+  // Avatar load-state hook MUST be declared up here, before any early
+  // return. If hoisted below the `if (loading) return …` block, the first
+  // render skips it and the second render adds it → React error #310
+  // ("Rendered more hooks than during the previous render").
+  const [avatarOk, setAvatarOk] = React.useState(true);
   const update = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(d => ({ ...d, [k]: true })); };
   const updateNotif = (k, v) => {
     setForm(f => ({ ...f, notification_prefs: { ...(f.notification_prefs || {}), [k]: v } }));
@@ -6042,6 +6047,9 @@ function SettingsProfile({ role }) {
     } finally { setLoading(false); }
   }, [sb]);
   React.useEffect(() => { load(); }, [load]);
+  // Reset avatar-load flag whenever the avatar URL changes (declared up here
+  // for the same hooks-order reason as the useState above).
+  React.useEffect(() => { setAvatarOk(true); }, [form.avatar_url]);
 
   const save = async () => {
     if (!sb) return;
@@ -6111,8 +6119,8 @@ function SettingsProfile({ role }) {
 
   // Live avatar — if avatar_url is present and loads, render the image;
   // on error fall through to Shared.Avatar's initials block.
-  const [avatarOk, setAvatarOk] = React.useState(true);
-  React.useEffect(() => { setAvatarOk(true); }, [form.avatar_url]);
+  // (avatarOk state + effect declared at the top of the component to keep
+  // hooks order stable across loading→loaded transitions.)
   const previewName = form.display_name || form.full_name || form.email || "—";
   const previewHandle = form.display_name ? "@" + form.display_name.split(/\s+/)[0].toLowerCase() : "";
   const avatarBlock = (form.avatar_url && avatarOk) ? (
