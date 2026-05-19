@@ -975,6 +975,17 @@ window.subscribeRealtime = function () {
     lead_vendor_webhooks:    "VENDOR_WEBHOOKS",
     // 0026 — vault segments
     vault_segments:          "SEGMENTS",
+    // 0055 — Phase 2 realtime publication: false-live UI fix
+    // NotificationsBell (page-admin), chat (page-messages), vault carriers
+    // (page-extras) all listened for data:realtime on these tables before
+    // they were in the channel. Pass-through mapper (raw row) is fine —
+    // the consumers re-fetch on event rather than reading AppData[key].
+    agency_notifications:    "AGENCY_NOTIFICATIONS",
+    messages:                "MESSAGES_RT",
+    threads:                 "THREADS_RT",
+    thread_members:          "THREAD_MEMBERS_RT",
+    carriers:                "CARRIERS_RT",
+    carrier_appointments:    "CARRIER_APPOINTMENTS_RT",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table

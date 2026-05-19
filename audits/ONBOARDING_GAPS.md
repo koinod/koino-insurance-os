@@ -1,12 +1,30 @@
-# Onboarding E2E Audit — 2026-05-15
+# Onboarding E2E Audit — 2026-05-15 (updated 2026-05-16)
 
-## TODO (top of file) — backend work required before onboarding fully works
+## STATUS UPDATE (2026-05-16): all 10 backend items live in deployed DB
+
+The audit below was written against the **local** `supabase/migrations/` tree, which
+hasn't received `provision_sub_agency` etc. as canonical 00NN_* files. But the deployed
+Supabase project (`jfphwmzwteermalzwojp`) has all 10 items installed via timestamp-format
+migrations: `agencies.onboarding_complete`, `agency_onboarding_steps`, `connector_catalog`,
+`role_agent_defaults`, `suggested_agents_for_role()`, `provision_sub_agency()`,
+`start_agency_onboarding()`, `complete_onboarding_step()`, `v_agency_onboarding_status`,
+`provision_rep_for_member()`, `connections.config`.
+
+Onboarding e2e should work in prod. The "this RPC isn't deployed yet" friendly errors
+in the frontend (per the fixes below) will simply never fire against prod. Verified
+2026-05-16 via `information_schema` queries — see `audits/MIGRATION_APPLY_2026-05-16.md`
+for the migration tracker reconciliation context.
+
+The historical record of what the local migration tree was missing follows.
+
+---
+
+## TODO (top of file) — backend work that was missing from the LOCAL tree
 
 The frontend onboarding wizards (`page-first-run.jsx`, `page-onboarding.jsx`) target a
-Supabase schema that **has not landed in `main`'s migrations**. The frontend changes in
-this sprint make the wizards survive the gap (fallback to localStorage, "Skip to Today"
-escape hatches, clearer error messages), but a real owner cannot complete onboarding to
-the database without these:
+Supabase schema that **has not landed in `main`'s migrations** (but IS deployed; see
+status update above). The frontend changes in this sprint make the wizards survive the
+gap (fallback to localStorage, "Skip to Today" escape hatches, clearer error messages):
 
 1. **`agencies.onboarding_complete boolean default false`** column. Drives AuthGate's
    resume detection. `loadTenant` now selects it with a 42703 fallback, but the column

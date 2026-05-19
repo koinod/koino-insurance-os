@@ -19,6 +19,28 @@
 
 (function () {
 
+const LOGIN_PATH = "/login";
+
+function isLoginPath() {
+  try {
+    const p = window.location.pathname || "/";
+    return p === LOGIN_PATH || p === LOGIN_PATH + "/";
+  } catch { return false; }
+}
+
+// Honor ?next= from /login. Sanitize to a same-origin pathname+search so a
+// crafted ?next=https://evil.example/ can't bounce the user off-site after
+// sign-in. Defaults to "/".
+function nextFromUrl() {
+  try {
+    const raw = new URLSearchParams(window.location.search).get("next");
+    if (!raw) return "/";
+    const u = new URL(raw, window.location.origin);
+    if (u.origin !== window.location.origin) return "/";
+    return (u.pathname || "/") + (u.search || "") + (u.hash || "");
+  } catch { return "/"; }
+}
+
 function stashInviteFromUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -32,6 +54,14 @@ function stashInviteFromUrl() {
 }
 
 function LoginScreen() {
+  // intent: "signin" (returning user) | "signup" (new account → onboarding).
+  // Seeded from ?signup=1 so landing-page CTAs still land on the right screen.
+  const initialIntent = (() => {
+    try { return new URLSearchParams(window.location.search).get("signup") === "1" ? "signup" : "signin"; }
+    catch { return "signin"; }
+  })();
+  const [intent, setIntent]   = React.useState(initialIntent);
+  const isSignup              = intent === "signup";
   const [email, setEmail]     = React.useState("");
   const [password, setPassword] = React.useState("");
   const [mode, setMode]       = React.useState("magic"); // magic | password
@@ -39,16 +69,23 @@ function LoginScreen() {
   const [errMsg, setErrMsg]   = React.useState("");
   const sb = window.getSupabase();
   const pendingInvite = stashInviteFromUrl();
-  // ?signup=1 — landing-page CTA path. Focus email + show "Create account" header.
-  const isSignup = React.useMemo(() => {
-    try { return new URLSearchParams(window.location.search).get("signup") === "1"; }
-    catch { return false; }
-  }, []);
   const emailRef = React.useRef(null);
   React.useEffect(() => {
-    if (isSignup && emailRef.current) {
+    if (emailRef.current) {
       try { emailRef.current.focus(); } catch {}
     }
+  }, [isSignup]);
+
+  // Keep ?signup= in the URL in sync with the toggle so a refresh + magic-link
+  // round-trip preserve the user's intent. replaceState so we don't pollute
+  // back-button history.
+  React.useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (isSignup) url.searchParams.set("signup", "1");
+      else url.searchParams.delete("signup");
+      window.history.replaceState({}, "", url.toString());
+    } catch {}
   }, [isSignup]);
 
   const signInWithPassword = async () => {
@@ -58,6 +95,26 @@ function LoginScreen() {
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw error;
       // onAuthStateChange in App will pick up the session
+    } catch (e) {
+      setErrMsg(e.message || String(e));
+      setStage("error");
+    }
+  };
+
+  // Sign-up path: creates the auth user. AuthGate then sees session+no
+  // agency_member → renders PageFirstRun → ProducerOnboardingWizard. If email
+  // confirmation is enabled in Supabase, the user gets the same "check your
+  // email" UX as a magic link (Supabase returns session=null until confirm).
+  const signUpWithPassword = async () => {
+    if (!email.trim() || !password) return;
+    setStage("sending"); setErrMsg("");
+    try {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      // No session means email confirmation is required — surface the "sent" UI
+      // so the user knows to check their inbox. Confirmed signups drop straight
+      // into AuthGate which routes them to onboarding.
+      if (!data?.session) setStage("sent");
     } catch (e) {
       setErrMsg(e.message || String(e));
       setStage("error");
@@ -89,7 +146,9 @@ function LoginScreen() {
       const PROD_ORIGIN = ALLOWED_ORIGINS[0];
       const here = window.location.origin;
       const origin = ALLOWED_ORIGINS.includes(here) ? here : PROD_ORIGIN;
-      const redirectTo = origin + (window.location.pathname || "/") + search;
+      // Magic-link round-trip ALWAYS lands on /login so AuthGate runs the
+      // post-signin redirect + onboarding gating in one place.
+      const redirectTo = origin + LOGIN_PATH + search;
 
       if (origin !== here) {
         console.info("[auth] redirect origin mismatch — using allowlisted origin:", origin);
@@ -120,17 +179,34 @@ function LoginScreen() {
   return (
     <div className="login-shell">
       <div className="login-card">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
           <div className="sb-brand-mark" style={{ width: 36, height: 36, fontSize: 18 }}>R</div>
           <div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>
               {isSignup ? "Create your account" : "Repflow"}
             </div>
             <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
-              {isSignup ? "Enter your work email — we'll send a sign-in link." : "Operator-grade for life & health distribution"}
+              {isSignup ? "Sign up — we'll walk you through onboarding next." : "Operator-grade for life & health distribution"}
             </div>
           </div>
         </div>
+
+        {/* Top-level Sign in / Sign up toggle. Hidden after the email-sent
+            confirmation so we don't tempt the user to switch mid-flow. */}
+        {stage !== "sent" && (
+          <div className="os-glass-bar" role="tablist" aria-label="Account intent" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
+            <button role="tab" aria-selected={!isSignup} onClick={() => { setIntent("signin"); setErrMsg(""); }}
+              className={"os-glass-btn" + (!isSignup ? " is-active" : "")}>
+              <div className="os-glass-label" style={{ fontSize: 12 }}>Sign in</div>
+              <div className="os-glass-sub">EXISTING ACCOUNT</div>
+            </button>
+            <button role="tab" aria-selected={isSignup} onClick={() => { setIntent("signup"); setErrMsg(""); }}
+              className={"os-glass-btn" + (isSignup ? " is-active" : "")}>
+              <div className="os-glass-label" style={{ fontSize: 12 }}>Sign up</div>
+              <div className="os-glass-sub">NEW · ONBOARDING</div>
+            </button>
+          </div>
+        )}
 
         {pendingInvite && stage !== "sent" && (
           <div style={{ marginBottom: 12, padding: 10, background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 30%, transparent)", borderRadius: 6, color: "var(--accent-status)", fontSize: 12, lineHeight: 1.5 }}>
@@ -141,7 +217,7 @@ function LoginScreen() {
         {stage === "sent" ? (
           <>
             <div style={{ padding: 14, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", borderRadius: 8, color: "var(--accent-money)", fontSize: 13, lineHeight: 1.5 }}>
-              <Icons.Check size={14}/> Magic link sent to <strong>{email}</strong>. Click it to sign in.
+              <Icons.Check size={14}/> {isSignup ? "Confirmation" : "Magic"} link sent to <strong>{email}</strong>. Click it to {isSignup ? "finish signing up — onboarding starts right after" : "sign in"}.
             </div>
             <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
               The link points at <code style={{ fontSize: 10.5 }}>{(window.location.origin || "").replace(/^https?:\/\//, "")}</code> — the same domain you opened from.
@@ -169,7 +245,11 @@ function LoginScreen() {
               </button>
             </div>
 
-            <div className="field-l">{mode === "magic" ? "Sign in with email" : "Email + password"}</div>
+            <div className="field-l">
+              {mode === "magic"
+                ? (isSignup ? "Sign up with email" : "Sign in with email")
+                : (isSignup ? "Pick a password" : "Email + password")}
+            </div>
             <input
               ref={emailRef}
               className="text-input"
@@ -177,7 +257,11 @@ function LoginScreen() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@agency.com"
-              onKeyDown={(e) => e.key === "Enter" && (mode === "magic" ? send() : signInWithPassword())}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                if (mode === "magic") return send();
+                return isSignup ? signUpWithPassword() : signInWithPassword();
+              }}
               autoFocus
               style={{ marginTop: 6, fontSize: 14, padding: "10px 12px" }}
             />
@@ -187,23 +271,28 @@ function LoginScreen() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                onKeyDown={(e) => e.key === "Enter" && signInWithPassword()}
+                placeholder={isSignup ? "Create a password" : "Password"}
+                onKeyDown={(e) => e.key === "Enter" && (isSignup ? signUpWithPassword() : signInWithPassword())}
                 style={{ marginTop: 8, fontSize: 14, padding: "10px 12px" }}
               />
             )}
             <button
               className="btn btn-primary"
-              onClick={mode === "magic" ? send : signInWithPassword}
+              onClick={mode === "magic" ? send : (isSignup ? signUpWithPassword : signInWithPassword)}
               disabled={stage === "sending" || !email.trim() || (mode === "password" && !password)}
               style={{ width: "100%", justifyContent: "center", marginTop: 10, padding: "10px 14px", fontSize: 13 }}
             >
               {stage === "sending"
-                ? "Signing in…"
+                ? (isSignup ? "Creating account…" : "Signing in…")
                 : mode === "magic"
-                  ? <><Icons.Send size={12}/> Email me a sign-in link</>
-                  : <><Icons.Shield size={12}/> Sign in</>}
+                  ? <><Icons.Send size={12}/> {isSignup ? "Email me a sign-up link" : "Email me a sign-in link"}</>
+                  : <><Icons.Shield size={12}/> {isSignup ? "Create account & continue" : "Sign in"}</>}
             </button>
+            {isSignup && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5, textAlign: "center" }}>
+                After {mode === "magic" ? "you click the email link" : "you create your account"}, we'll walk you through agency setup.
+              </div>
+            )}
 
             <button
               className="btn btn-ghost"
@@ -211,12 +300,12 @@ function LoginScreen() {
                 const search = pendingInvite ? `?invite=${encodeURIComponent(pendingInvite)}` : "";
                 await sb.auth.signInWithOAuth({
                   provider: "google",
-                  options: { redirectTo: window.location.origin + window.location.pathname + search }
+                  options: { redirectTo: window.location.origin + LOGIN_PATH + search }
                 });
               }}
               style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 13 }}
             >
-              <Icons.Chrome size={12} style={{ marginRight: 6 }}/> Sign in with Google
+              <Icons.Chrome size={12} style={{ marginRight: 6 }}/> {isSignup ? "Sign up with Google" : "Sign in with Google"}
             </button>
             {stage === "error" && (
               <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>
@@ -366,7 +455,45 @@ function AuthGate({ children }) {
   if (redeeming) {
     return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Joining your agency...</div></div>;
   }
-  if (!session && !demo) return <LoginScreen/>;
+  // Unauthed visitor routing:
+  //   /login       → render LoginScreen inline (the only path that does)
+  //   /  (bare)    → bounce to /landing (marketing splash; the funnel entry)
+  //   anything else (deep link, ?invite, ?signup, ?next, OAuth callback)
+  //                → bounce to /login?next=… so we preserve their intent
+  //                  and don't drop them on the marketing page after they
+  //                  followed a real link.
+  if (!session && !demo) {
+    if (isLoginPath()) return <LoginScreen/>;
+    try {
+      const path   = window.location.pathname || "/";
+      const search = window.location.search || "";
+      const hash   = window.location.hash || "";
+      const bareRoot = path === "/" && !search && !hash;
+      if (bareRoot) {
+        window.location.replace("/landing");
+      } else {
+        const cur = path + search + hash;
+        const incoming = new URLSearchParams(search);
+        const out = new URLSearchParams();
+        const signup = incoming.get("signup");
+        const invite = incoming.get("invite");
+        if (signup) out.set("signup", signup);
+        if (invite) out.set("invite", invite);
+        if (cur && cur !== "/" && cur !== LOGIN_PATH) out.set("next", cur);
+        const qs = out.toString();
+        window.location.replace(LOGIN_PATH + (qs ? "?" + qs : ""));
+      }
+    } catch { window.location.replace(LOGIN_PATH); }
+    return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>Redirecting…</div></div>;
+  }
+  // Past the login wall (real session OR demo skip) but URL is still /login —
+  // send the user to ?next or "/" so app chrome (and the onboarding gating
+  // below) renders under the right URL.
+  if ((session || demo) && isLoginPath()) {
+    const target = nextFromUrl();
+    window.location.replace(target);
+    return <div className="login-shell"><div style={{ color: "var(--text-tertiary)", fontSize: 13 }}>{session ? "Signing you in…" : "Loading demo…"}</div></div>;
+  }
   // Tenant lookup failed — give the user a real path forward instead of an
   // infinite spinner. Reload re-runs the whole AuthGate, Sign out wipes state.
   if (session && tenantError) {
