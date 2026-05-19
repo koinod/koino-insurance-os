@@ -104,11 +104,22 @@ NAV.owner = [
 NAV.admin     = NAV.owner;  // legacy alias
 NAV.imo_owner = NAV.owner;
 
-// super_admin = full owner nav + Lab (unwired pages tile grid) + Admin panel.
+// super_admin = SaaS platform / business operator only. Insurance-agency
+// operator pages (Today, P&L, Lead Drip, Vault, Tree, Expenses, Invite Team)
+// are scoped to owner/manager/rep — super_admin runs the *software*: client
+// agencies, subscriptions, security, carriers config, onboarding, and the
+// growth funnel for the software business itself. Each entry deep-links into
+// a PageAdmin tab via initialTab.
 NAV.super_admin = [
-  ...NAV.owner,
-  { id: "lab",   label: "Lab",   icon: "Sparkles" },
-  { id: "admin", label: "Admin", icon: "Shield" },
+  { id: "admin",          label: "Clients",        icon: "Building"  }, // agencies overview
+  { id: "admin-billing",  label: "Subscriptions",  icon: "Wallet"    }, // billing tab
+  { id: "admin-members",  label: "Users",          icon: "Users"     }, // cross-agency users
+  { id: "admin-invites",  label: "Onboarding",     icon: "Bell"      }, // pending invites = clients in flight
+  { id: "admin-carriers", label: "Carriers",       icon: "Plug"      }, // carrier config that ships to all tenants
+  { id: "admin-security", label: "Security",       icon: "Shield"    }, // advisor + RLS
+  { id: "admin-audit",    label: "Audit",          icon: "Activity"  },
+  { id: "lab",            label: "Lab",            icon: "Sparkles"  }, // unwired pages tile grid
+  { id: "settings",       label: "Settings",       icon: "Settings"  },
 ];
 
 const SidebarBrand = () => {

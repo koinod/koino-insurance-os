@@ -198,8 +198,17 @@ function App() {
       case "recruits":    return F("PageRecruits",   { role });
       case "settings":    return F("PageSettings",   { role });
       // admin: super_admin gets the real PageAdmin panel; everyone else falls
-      // through to Today so old deep links don't 404.
-      case "admin":       return role === "super_admin" ? F("PageAdmin", { role }) : F("PageToday", { aep: aepMode, role });
+      // through to Today so old deep links don't 404. The admin-* deep-link
+      // ids drive the super_admin sidebar — each lands on a specific PageAdmin
+      // tab. `key` forces a remount so PageAdmin's useState picks up the new
+      // initialTab.
+      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="agencies" role={role} initialTab="agencies"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="billing"  role={role} initialTab="billing"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="members"  role={role} initialTab="members"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="invites"  role={role} initialTab="invites"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="carriers" role={role} initialTab="carriers"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="security" role={role} initialTab="security"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="audit"    role={role} initialTab="audit"/>    : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
       case "platform":
       case "agencies":
       case "users":

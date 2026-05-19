@@ -24,11 +24,15 @@ function looksLikeError(action = "") {
       || s.includes("broken") || s.includes("revoke") || s.includes("crash");
 }
 
-function PageAdmin() {
-  // Honor a deep-link from elsewhere (e.g. Vault → "Manage in Admin" on the
-  // Carriers block). The flag is one-shot — consume it on mount so a later
-  // re-render starts fresh.
+function PageAdmin({ initialTab } = {}) {
+  // Honor a deep-link from elsewhere. Two sources:
+  //   1. initialTab prop (from app.jsx routing — super_admin sidebar entries)
+  //   2. window.__adminInitialTab (legacy: Vault → "Manage in Admin" on
+  //      Carriers block, set imperatively before navigation)
+  // The window flag is one-shot — consumed on mount so a later re-render
+  // starts fresh.
   const [tab, setTab] = React.useState(() => {
+    if (initialTab) return initialTab;
     const initial = (typeof window !== "undefined" && window.__adminInitialTab) || "agencies";
     if (typeof window !== "undefined") delete window.__adminInitialTab;
     return initial;
