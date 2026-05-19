@@ -213,18 +213,34 @@ function PageAdmin() {
   const connDown    = conns.filter(c => c.status === "down" || c.status === "error").length;
   const hwHealthy   = hardware.filter(h => h.status === "ok").length;
 
-  const TABS = [
-    { k: "agencies",  l: "Agencies",   icon: "Building"    },
-    { k: "members",   l: "Members",    icon: "Users"       },
-    { k: "hierarchy", l: "Hierarchy",  icon: "Workflow"    },
-    { k: "invites",   l: "Invites",    icon: "Bell"        },
-    { k: "billing",   l: "Billing",    icon: "Wallet"      },
-    { k: "carriers",  l: "Carriers",   icon: "Shield"      },
-    { k: "scrape",    l: "UW Queue",   icon: "Bell"        },
-    { k: "devices",   l: "Devices",    icon: "Cpu"         },
-    { k: "security",  l: "Security",   icon: "Shield"      },
-    { k: "audit",     l: "Audit Log",  icon: "Activity"    },
+  // Tab bar consolidation 2026-05-18 — collapse 10 flat tabs into 5 groups
+  // with sub-tabs. The sub-tab key set is unchanged so deep-links via
+  // `window.__adminInitialTab` still work. Each group's first sub-tab is its
+  // default landing. Single-child groups skip the sub-row.
+  const TAB_GROUPS = [
+    { k: "admin",    l: "Admin",    icon: "Shield",   subs: [
+      { k: "agencies", l: "Agencies", icon: "Building" },
+      { k: "members",  l: "Members",  icon: "Users"    },
+      { k: "invites",  l: "Invites",  icon: "Bell"     },
+      { k: "billing",  l: "Billing",  icon: "Wallet"   },
+    ]},
+    { k: "tree",     l: "Tree",     icon: "Workflow", subs: [
+      { k: "hierarchy", l: "Hierarchy", icon: "Workflow" },
+    ]},
+    { k: "carriers", l: "Carriers", icon: "Shield",   subs: [
+      { k: "carriers", l: "Carriers", icon: "Shield" },
+      { k: "scrape",   l: "UW Queue", icon: "Bell"   },
+    ]},
+    { k: "lab",      l: "Lab",      icon: "Sparkles", subs: [
+      { k: "lab", l: "Unwired pages", icon: "Sparkles" },
+    ]},
+    { k: "audit",    l: "Audit",    icon: "Activity", subs: [
+      { k: "audit",    l: "Audit Log", icon: "Activity" },
+      { k: "security", l: "Security",  icon: "Shield"   },
+      { k: "devices",  l: "Devices",   icon: "Cpu"      },
+    ]},
   ];
+  const activeGroup = TAB_GROUPS.find(g => g.subs.some(s => s.k === tab)) || TAB_GROUPS[0];
 
   return (
     <div className="page-pad">
@@ -258,16 +274,32 @@ function PageAdmin() {
         <Shared.KpiCard label="Open issues"     value={issuesCount}                                  sub={issuesCount ? "see Management panel" : "all clear"} trend={issuesCount === 0 ? "up" : undefined}/>
       </div>
 
-      <div className="tab-bar" style={{ marginBottom: 14 }}>
-        {TABS.map(t => {
-          const Ic = Icons[t.icon];
+      <div className="tab-bar" style={{ marginBottom: activeGroup.subs.length > 1 ? 8 : 14 }}>
+        {TAB_GROUPS.map(g => {
+          const Ic = Icons[g.icon];
+          const isActive = activeGroup.k === g.k;
           return (
-            <button key={t.k} className={`tab ${tab === t.k ? "tab-active" : ""}`} onClick={() => setTab(t.k)}>
-              {Ic && <Ic size={12}/>} {t.l}
+            <button key={g.k} className={`tab ${isActive ? "tab-active" : ""}`}
+              onClick={() => setTab(g.subs[0].k)}>
+              {Ic && <Ic size={12}/>} {g.l}
             </button>
           );
         })}
       </div>
+      {activeGroup.subs.length > 1 && (
+        <div className="tab-bar" style={{ marginBottom: 14, opacity: 0.95 }}>
+          {activeGroup.subs.map(s => {
+            const Ic = Icons[s.icon];
+            return (
+              <button key={s.k} className={`tab ${tab === s.k ? "tab-active" : ""}`}
+                style={{ fontSize: 11.5, padding: "5px 10px" }}
+                onClick={() => setTab(s.k)}>
+                {Ic && <Ic size={11}/>} {s.l}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Agencies ───────────────────────────────────────────── */}
       {tab === "agencies" && (
@@ -438,6 +470,9 @@ function PageAdmin() {
         </div>
       )}
 
+      {/* ── Lab (unwired pages tile grid, embedded) ────────────── */}
+      {tab === "lab" && <PageLab embedded/>}
+
       {/* ── Security advisor ───────────────────────────────────── */}
       {tab === "security" && <SecurityAdvisorView/>}
 
@@ -564,16 +599,9 @@ const LAB_PAGES = [
   { id: "org",         label: "Org Tree",         note: "Org chart (alias of Tree)" },
 ];
 
-function PageLab() {
+function PageLab({ embedded = false } = {}) {
   const goto = (p) => window.gotoPage && window.gotoPage(p);
-  return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Lab</div>
-          <div className="page-sub">Pages not yet wired into default nav. Click any tile to open.</div>
-        </div>
-      </div>
+  const inner = (
       <div className="panel">
         <div className="panel-h">
           <Icons.Sparkles size={13}/>
@@ -604,6 +632,17 @@ function PageLab() {
           To kill a page, remove the case in app.jsx AND the file.
         </div>
       </div>
+  );
+  if (embedded) return inner;
+  return (
+    <div className="page-pad">
+      <div className="page-h">
+        <div>
+          <div className="page-title">Lab</div>
+          <div className="page-sub">Pages not yet wired into default nav. Click any tile to open.</div>
+        </div>
+      </div>
+      {inner}
     </div>
   );
 }
