@@ -74,6 +74,7 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
+    { id: "auto-quoter", label: "Auto-Quoter",  icon: "Bolt" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   manager: [
@@ -83,7 +84,9 @@ const NAV = {
     { id: "book",        label: "Client Book",  icon: "Activity" },
     { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "leaddrip",    label: "Lead Drip",    icon: "Bolt" },
+    { id: "recruiting",  label: "Recruiting",   icon: "Users" },
     { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
+    { id: "auto-quoter", label: "Auto-Quoter",  icon: "Bolt" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
     { id: "tree",        label: "Tree",         icon: "Workflow" },
   ],
