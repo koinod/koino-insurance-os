@@ -61,30 +61,31 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
 /* ───── Sidebar ─────
    Pages shared across roles render role-aware variants (driven by `role` prop).
    The NAV map decides which role sees which page in their sidebar. */
-// NAV restructure 2026-05-16 — per operator directive. Pre-cull, the sidebar
-// had grown to 7+ entries per role with overlapping surfaces (Floor, CRM,
-// Lead Drip, Quote Tool, Messages, Leaderboard, Recruits) that competed for
-// attention. The new shape collapses each role to its highest-frequency
-// surfaces. Pages removed from the sidebar are NOT deleted; they remain
-// reachable via:
-//   • Direct deep-link (app.jsx still resolves the case)
-//   • /lab tile grid (super_admin only — see PageLab in page-admin.jsx)
-//   • In-context buttons / SectionPills inside other pages
+// NAV 2026-05-19 — restored Floor + workhorse pages per operator directive
+// after the 2026-05-16 cull stripped Floor / Messages / Leaderboard / CRM /
+// Quote / Book from the sidebar. Keeping the new wired pages (P&L, Tree,
+// Lead Drip) since those still add value. Settings stays deep-link only
+// (it was pre-cull) to avoid sidebar bloat.
 const NAV = {
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
+    { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
+    { id: "messages",    label: "Messages",     icon: "MessageSquare" },
+    { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "book",        label: "Client Book",  icon: "Activity" },
-    { id: "vault",       label: "Vault",        icon: "Folder" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
-    { id: "settings",    label: "Settings",     icon: "Settings" },
+    { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
+    { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "pnl",         label: "P&L",          icon: "Wallet" },
+    { id: "book",        label: "Client Book",  icon: "Activity" },
+    { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "leaddrip",    label: "Lead Drip",    icon: "Bolt" },
+    { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
     { id: "tree",        label: "Tree",         icon: "Workflow" },
-    { id: "settings",    label: "Settings",     icon: "Settings" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
