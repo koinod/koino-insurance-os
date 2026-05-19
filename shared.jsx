@@ -544,7 +544,10 @@ async function enqueueAgentJob(action, extraContext) {
     // condition on it without breaking the existing typed payload contract.
     const ctx = window.__collectAwareness ? window.__collectAwareness() : {};
     const merged = { ...payload, context: { ...ctx, ...(extraContext || {}) } };
-    const r = await fetch("/api/agent/jobs/enqueue", {
+    // Bridge: hit /commands/enqueue (writes rba_commands, the live agent queue).
+    // /jobs/enqueue (agent_jobs) is the newer destination but the agent doesn't
+    // poll it yet — switch when the agent runtime migrates.
+    const r = await fetch("/api/agent/commands/enqueue", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${jwt}` },
       body: JSON.stringify({ kind, payload: merged, policy }),

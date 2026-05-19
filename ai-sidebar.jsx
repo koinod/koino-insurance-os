@@ -8,7 +8,7 @@
  *      intent, focus app/idle if the agent reports them) and ships it with
  *      every enqueue under payload.context.
  *   2. Renders role-gated action buttons from AGENT_ACTIONS.
- *   3. Subscribes to public.agent_jobs via Supabase realtime and renders
+ *   3. Subscribes to public.rba_commands via Supabase realtime and renders
  *      the last 20 jobs with live status (queued → running → done/failed/
  *      pending_approval).
  *
@@ -262,7 +262,7 @@ const AISidebar = ({ open, onClose }) => {
     setAwareness(window.__collectAwareness?.() || {});
   }, [clipboardSnippet]);
 
-  // ── Realtime agent_jobs subscription ─────────────────────────────────
+  // ── Realtime rba_commands subscription ─────────────────────────────────
   useEffect(() => {
     if (!open) return;
     const sb = window.getSupabase?.();
@@ -274,8 +274,8 @@ const AISidebar = ({ open, onClose }) => {
       const jwt = sess?.session?.access_token;
       if (!jwt) return;
       const { data, error } = await sb
-        .from("agent_jobs")
-        .select("id, kind, status, payload, result, error, created_at, started_at, finished_at, agency_id, rep_id")
+        .from("rba_commands")
+        .select("id, kind, status, payload, result, error, created_at, started_at, completed_at, agency_id, device_id, posted_by")
         .order("created_at", { ascending: false })
         .limit(JOB_FETCH_LIMIT);
       if (!cancelled && data) setJobs(data);
@@ -283,7 +283,7 @@ const AISidebar = ({ open, onClose }) => {
 
     const channel = sb
       .channel("ai-sidebar-jobs")
-      .on("postgres_changes", { event: "*", schema: "public", table: "agent_jobs" }, (payload) => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "rba_commands" }, (payload) => {
         setJobs((prev) => {
           const incoming = payload.new || payload.old;
           if (!incoming) return prev;
@@ -301,10 +301,11 @@ const AISidebar = ({ open, onClose }) => {
   const runAction = useCallback(async (action, extraPayload) => {
     const merged = { ...action, payload: { ...(action.payload || {}), ...(extraPayload || {}) } };
     const result = await window.enqueueAgentJob(merged);
-    if (result?.job_id) {
+    if (result?.command_id || result?.job_id) {
+      const newId = result.command_id || result.job_id;
       // Pre-populate the list so the UI feels immediate even before realtime
       // delivers the INSERT event.
-      setJobs((prev) => [{ id: result.job_id, kind: action.kind, status: result.status || "queued", payload: merged.payload, created_at: new Date().toISOString() }, ...prev].slice(0, JOB_FETCH_LIMIT));
+      setJobs((prev) => [{ id: newId, kind: action.kind, status: result.status || "queued", payload: merged.payload, created_at: new Date().toISOString() }, ...prev].slice(0, JOB_FETCH_LIMIT));
       setTab("jobs");
     }
   }, []);
