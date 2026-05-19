@@ -92,7 +92,78 @@ elif [ "\$OS" = "linux" ]; then
 fi
 echo "[rba] os=\$OS cpu=\$CPU ram_gb=\$RAM_GB"
 
-# ─── 2. Python 3.10+ + venv (auto-install via Homebrew on macOS if missing)
+# Planned models — computed from RAM up front so we can redeem the token
+# before any slow downloads. Actual ollama pull happens later.
+SMART="qwen2.5:3b"
+if [ "\$RAM_GB" -ge 16 ]; then SMART="qwen2.5:7b"; fi
+if [ "\$RAM_GB" -ge 8 ]; then
+  MODELS=\$(printf '["qwen2.5:1.5b","%s"]' "\$SMART")
+else
+  MODELS='["qwen2.5:1.5b"]'
+fi
+
+# ─── 2. Redeem install token FIRST ──────────────────────────────────────
+# The token expires 5 minutes after issue (migration 0030). Pip install,
+# Playwright chromium download, and Ollama model pulls easily exceed that
+# on a fresh machine, so we redeem before the heavy lifting and write
+# config.yaml immediately. A second run with an existing config.yaml
+# (e.g. after an ollama-pull crash) re-uses the prior install instead of
+# trying to redeem a now-burned token.
+CFG_PATH="\$RBA_HOME/config.yaml"
+AGENT_TOKEN=""; DEVICE_ID=""; AGENCY_ID=""; ROLE=""
+if [ -f "\$CFG_PATH" ]; then
+  AGENT_TOKEN=\$(grep -E '^agent_token:' "\$CFG_PATH" 2>/dev/null | awk '{print \$2}' || true)
+  DEVICE_ID=\$(grep -E '^device_id:'   "\$CFG_PATH" 2>/dev/null | awk '{print \$2}' || true)
+  AGENCY_ID=\$(grep -E '^agency_id:'   "\$CFG_PATH" 2>/dev/null | awk '{print \$2}' || true)
+  ROLE=\$(grep -E '^role:'             "\$CFG_PATH" 2>/dev/null | awk '{print \$2}' || true)
+  if [ -n "\$AGENT_TOKEN" ]; then
+    echo "[rba] re-using existing install at \$CFG_PATH (device \$DEVICE_ID)"
+  fi
+fi
+
+if [ -z "\$AGENT_TOKEN" ]; then
+  HOSTNAME_RAW="$(hostname 2>/dev/null || echo unknown)"
+  echo "[rba] redeeming install token"
+  REDEEM_TMP="\$RBA_HOME/.redeem-response"
+  REDEEM_STATUS=\$(curl -sS -o "\$REDEEM_TMP" -w '%{http_code}' \\
+    -X POST "\$API_BASE/api/agent/redeem" \\
+    -H 'content-type: application/json' \\
+    -d "{\\"token\\":\\"\$TOKEN\\",\\"hostname\\":\\"\$HOSTNAME_RAW\\",\\"os\\":\\"\$OS\\",\\"cpu\\":\\"\$CPU\\",\\"ram_gb\\":\$RAM_GB,\\"version\\":\\"0.2.0\\",\\"models\\":\$MODELS}" \\
+    || echo "000")
+  if [ "\$REDEEM_STATUS" != "200" ]; then
+    echo "[rba] redeem failed (HTTP \$REDEEM_STATUS): $(cat "\$REDEEM_TMP" 2>/dev/null)"
+    echo "[rba] install tokens expire 5 minutes after issue. open Settings -> Agents and click 'Install on a machine' for a fresh token, then re-run."
+    rm -f "\$REDEEM_TMP"
+    exit 1
+  fi
+  REDEEM=\$(cat "\$REDEEM_TMP")
+  rm -f "\$REDEEM_TMP"
+  DEVICE_ID=\$(printf '%s' "\$REDEEM"   | grep -oE '"device_id":"[^"]+"'   | head -1 | cut -d\\" -f4)
+  AGENT_TOKEN=\$(printf '%s' "\$REDEEM" | grep -oE '"agent_token":"[^"]+"' | head -1 | cut -d\\" -f4)
+  AGENCY_ID=\$(printf '%s' "\$REDEEM"   | grep -oE '"agency_id":"[^"]+"'   | head -1 | cut -d\\" -f4)
+  ROLE=\$(printf '%s' "\$REDEEM"        | grep -oE '"role":"[^"]+"'        | head -1 | cut -d\\" -f4)
+  if [ -z "\$AGENT_TOKEN" ]; then
+    echo "[rba] redeem returned no agent_token: \$REDEEM"
+    exit 1
+  fi
+
+  # Write config.yaml NOW so a re-run after later failures skips redeem.
+  cat >"\$CFG_PATH" <<YAML
+api_base: \$API_BASE
+device_id: \$DEVICE_ID
+agency_id: \$AGENCY_ID
+role: \$ROLE
+agent_token: \$AGENT_TOKEN
+default_model: qwen2.5:1.5b
+smart_model: \$SMART
+ollama_url: http://127.0.0.1:11434
+heartbeat_interval_seconds: 60
+version: 0.2.0
+YAML
+  chmod 600 "\$CFG_PATH"
+fi
+
+# ─── 3. Python 3.10+ + venv (auto-install via Homebrew on macOS if missing)
 find_python() {
   for cand in python3.13 python3.12 python3.11 python3.10 python3; do
     if command -v "\$cand" >/dev/null 2>&1; then
@@ -136,7 +207,7 @@ echo "[rba] installing python deps"
 pip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright
 python -m playwright install --with-deps chromium 2>/dev/null || python -m playwright install chromium
 
-# ─── 3. Ollama + models ────────────────────────────────────────────────
+# ─── 4. Ollama + models ────────────────────────────────────────────────
 if ! command -v ollama >/dev/null 2>&1; then
   echo "[rba] installing ollama"
   if [ "\$OS" = "macos" ] || [ "\$OS" = "linux" ]; then
@@ -148,17 +219,11 @@ if ! pgrep -x ollama >/dev/null 2>&1; then
   sleep 2
 fi
 ollama pull qwen2.5:1.5b
-MODELS='["qwen2.5:1.5b"]'
-SMART="qwen2.5:3b"
-if [ "\$RAM_GB" -ge 16 ]; then
-  SMART="qwen2.5:7b"
-fi
 if [ "\$RAM_GB" -ge 8 ]; then
   ollama pull "\$SMART"
-  MODELS=\$(printf '["qwen2.5:1.5b","%s"]' "\$SMART")
 fi
 
-# ─── 4. Pull runtime files ─────────────────────────────────────────────
+# ─── 5. Pull runtime files ─────────────────────────────────────────────
 FILES=(${fileList})
 echo "[rba] downloading \${#FILES[@]} runtime files"
 for rel in "\${FILES[@]}"; do
@@ -172,36 +237,6 @@ for rel in "\${FILES[@]}"; do
     echo "[rba] WARN failed to fetch \$dest_rel — skipping"
   fi
 done
-
-# ─── 5. Redeem install token → write config.yaml ───────────────────────
-HOSTNAME_RAW="$(hostname 2>/dev/null || echo unknown)"
-echo "[rba] redeeming install token"
-REDEEM=$(curl -fsS -X POST "\$API_BASE/api/agent/redeem" \\
-  -H 'content-type: application/json' \\
-  -d "{\\"token\\":\\"\$TOKEN\\",\\"hostname\\":\\"\$HOSTNAME_RAW\\",\\"os\\":\\"\$OS\\",\\"cpu\\":\\"\$CPU\\",\\"ram_gb\\":\$RAM_GB,\\"version\\":\\"0.2.0\\",\\"models\\":\$MODELS}")
-DEVICE_ID=\$(printf '%s' "\$REDEEM" | grep -oE '"device_id":"[^"]+"' | head -1 | cut -d\\" -f4)
-AGENT_TOKEN=\$(printf '%s' "\$REDEEM" | grep -oE '"agent_token":"[^"]+"' | head -1 | cut -d\\" -f4)
-AGENCY_ID=\$(printf '%s' "\$REDEEM" | grep -oE '"agency_id":"[^"]+"' | head -1 | cut -d\\" -f4)
-ROLE=\$(printf '%s' "\$REDEEM" | grep -oE '"role":"[^"]+"' | head -1 | cut -d\\" -f4)
-
-if [ -z "\$AGENT_TOKEN" ]; then
-  echo "[rba] redeem failed: \$REDEEM"
-  exit 1
-fi
-
-cat >"\$RBA_HOME/config.yaml" <<YAML
-api_base: \$API_BASE
-device_id: \$DEVICE_ID
-agency_id: \$AGENCY_ID
-role: \$ROLE
-agent_token: \$AGENT_TOKEN
-default_model: qwen2.5:1.5b
-smart_model: \$SMART
-ollama_url: http://127.0.0.1:11434
-heartbeat_interval_seconds: 60
-version: 0.2.0
-YAML
-chmod 600 "\$RBA_HOME/config.yaml"
 
 # ─── 6. Long-running service ───────────────────────────────────────────
 PY_BIN="\$RBA_HOME/venv/bin/python"

@@ -77,12 +77,97 @@ New-Item -ItemType Directory -Force -Path $RbaHome, $Workspace, (Join-Path $RbaH
 Start-Transcript -Path $Log -Append | Out-Null
 Write-Host "[rba] $(Get-Date -Format 'u') install begins"
 
-# ── 1. RAM ────────────────────────────────────────────────────────────
+# ── 1. RAM / CPU probe ────────────────────────────────────────────────
 $RamGB = [int]([math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB))
 $Cpu   = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
 Write-Host "[rba] os=windows cpu='$Cpu' ram_gb=$RamGB"
 
-# ── 2. Python 3.10+ ───────────────────────────────────────────────────
+# Planned models — computed from RAM up front so we can redeem the token
+# before any slow downloads. Actual ollama pull happens later.
+$Models = @('qwen2.5:1.5b')
+$Smart  = 'qwen2.5:3b'
+if ($RamGB -ge 16) { $Smart = 'qwen2.5:7b' }
+if ($RamGB -ge 8)  { $Models += $Smart }
+$ModelsJson = ($Models | ConvertTo-Json -Compress)
+
+# ── 2. Redeem install token FIRST ─────────────────────────────────────
+# The token expires 5 minutes after issue (migration 0030). Pip install,
+# Playwright chromium download, and Ollama model pulls easily exceed that
+# on a fresh machine, so we redeem before the heavy lifting and write
+# config.yaml immediately. A second run with an existing config.yaml
+# (e.g. after an ollama-pull crash) re-uses the prior install instead of
+# trying to redeem a now-burned token.
+$cfgPath = Join-Path $RbaHome 'config.yaml'
+$AgentToken = $null; $DeviceId = $null; $AgencyId = $null; $Role = $null
+if (Test-Path $cfgPath) {
+  $existing = Get-Content $cfgPath -Raw
+  if ($existing -match 'agent_token:\s*(\S+)') { $AgentToken = $matches[1] }
+  if ($existing -match 'device_id:\s*(\S+)')   { $DeviceId   = $matches[1] }
+  if ($existing -match 'agency_id:\s*(\S+)')   { $AgencyId   = $matches[1] }
+  if ($existing -match 'role:\s*(\S+)')        { $Role       = $matches[1] }
+  if ($AgentToken) {
+    Write-Host "[rba] re-using existing install at $cfgPath (device $DeviceId)"
+  }
+}
+
+if (-not $AgentToken) {
+  Write-Host "[rba] redeeming install token"
+  $redeemBody = @{
+    token = $Token; hostname = $env:COMPUTERNAME; os = 'windows'; cpu = $Cpu;
+    ram_gb = $RamGB; version = '0.2.0'; models = $Models
+  } | ConvertTo-Json -Compress
+  $redeem = $null
+  try {
+    $redeem = Invoke-RestMethod -Uri "$ApiBase/api/agent/redeem" -Method POST -Body $redeemBody -ContentType 'application/json'
+  } catch {
+    # Surface the server response body — Invoke-RestMethod throws on 4xx
+    # without printing the body by default, which hid 'token expired' for
+    # a long time. Read the response stream manually.
+    $status = $null; $errBody = ''
+    if ($_.Exception.Response) {
+      $status = $_.Exception.Response.StatusCode.value__
+      try {
+        $stream = $_.Exception.Response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($stream)
+        $errBody = $reader.ReadToEnd()
+      } catch {}
+    }
+    Write-Host ("[rba] redeem failed (HTTP {0}): {1}" -f $status, $errBody)
+    Write-Host "[rba] install tokens expire 5 minutes after issue. open Settings -> Agents and click 'Install on a machine' for a fresh token, then re-run."
+    Stop-Transcript | Out-Null
+    exit 1
+  }
+  if (-not $redeem.agent_token) {
+    Write-Host "[rba] redeem returned no agent_token: $($redeem | ConvertTo-Json -Compress)"
+    Stop-Transcript | Out-Null
+    exit 1
+  }
+  $AgentToken = $redeem.agent_token; $DeviceId = $redeem.device_id
+  $AgencyId   = $redeem.agency_id;   $Role     = $redeem.role
+
+  # Write config.yaml NOW so a re-run after later failures skips redeem.
+  $cfg = @"
+api_base: $ApiBase
+device_id: $DeviceId
+agency_id: $AgencyId
+role: $Role
+agent_token: $AgentToken
+default_model: qwen2.5:1.5b
+smart_model: $Smart
+ollama_url: http://127.0.0.1:11434
+heartbeat_interval_seconds: 60
+version: 0.2.0
+"@
+  [System.IO.File]::WriteAllText($cfgPath, $cfg)
+  # Restrict ACL to current user only — equivalent of chmod 600.
+  $acl = Get-Acl $cfgPath
+  $acl.SetAccessRuleProtection($true, $false)
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, 'FullControl', 'Allow')
+  $acl.AddAccessRule($rule)
+  Set-Acl $cfgPath $acl
+}
+
+# ── 3. Python 3.10+ ───────────────────────────────────────────────────
 $Py = $null
 foreach ($cand in @('python3.13','python3.12','python3.11','python3.10','python3','python','py')) {
   try {
@@ -106,7 +191,7 @@ Write-Host "[rba] installing python deps"
 & $VPy -m pip install --quiet 'requests>=2.31' 'scrapling[fetchers]>=0.4.7' playwright pywinauto 2>&1 | Out-Null
 & $VPy -m playwright install chromium 2>&1 | Out-Null
 
-# ── 3. Ollama ─────────────────────────────────────────────────────────
+# ── 4. Ollama ─────────────────────────────────────────────────────────
 $ollama = Get-Command ollama -ErrorAction SilentlyContinue
 if (-not $ollama) {
   Write-Host "[rba] downloading Ollama for Windows"
@@ -120,13 +205,9 @@ if (-not (Get-Process -Name ollama -ErrorAction SilentlyContinue)) {
   Start-Sleep -Seconds 2
 }
 & ollama pull qwen2.5:1.5b
-$Models = @('qwen2.5:1.5b')
-$Smart  = 'qwen2.5:3b'
-if ($RamGB -ge 16) { $Smart = 'qwen2.5:7b' }
-if ($RamGB -ge 8)  { & ollama pull $Smart; $Models += $Smart }
-$ModelsJson = ($Models | ConvertTo-Json -Compress)
+if ($RamGB -ge 8) { & ollama pull $Smart }
 
-# ── 4. Pull runtime files ─────────────────────────────────────────────
+# ── 5. Pull runtime files ─────────────────────────────────────────────
 $Files = @(
   ${fileArr}
 )
@@ -143,39 +224,6 @@ foreach ($rel in $Files) {
   }
 }
 
-# ── 5. Redeem install token ───────────────────────────────────────────
-Write-Host "[rba] redeeming install token"
-$redeemBody = @{
-  token = $Token; hostname = $env:COMPUTERNAME; os = 'windows'; cpu = $Cpu;
-  ram_gb = $RamGB; version = '0.2.0'; models = $Models
-} | ConvertTo-Json -Compress
-$redeem = Invoke-RestMethod -Uri "$ApiBase/api/agent/redeem" -Method POST -Body $redeemBody -ContentType 'application/json'
-if (-not $redeem.agent_token) {
-  Write-Host "[rba] redeem failed: $($redeem | ConvertTo-Json -Compress)"
-  exit 1
-}
-
-$cfg = @"
-api_base: $ApiBase
-device_id: $($redeem.device_id)
-agency_id: $($redeem.agency_id)
-role: $($redeem.role)
-agent_token: $($redeem.agent_token)
-default_model: qwen2.5:1.5b
-smart_model: $Smart
-ollama_url: http://127.0.0.1:11434
-heartbeat_interval_seconds: 60
-version: 0.2.0
-"@
-$cfgPath = Join-Path $RbaHome 'config.yaml'
-[System.IO.File]::WriteAllText($cfgPath, $cfg)
-# Restrict ACL to current user only — equivalent of chmod 600.
-$acl = Get-Acl $cfgPath
-$acl.SetAccessRuleProtection($true, $false)
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, 'FullControl', 'Allow')
-$acl.AddAccessRule($rule)
-Set-Acl $cfgPath $acl
-
 # ── 6. Scheduled Task — run agent at logon, restart on crash ──────────
 $taskName = 'RepflowAgent'
 $action   = New-ScheduledTaskAction -Execute $VPy -Argument '-m runtime.agent' -WorkingDirectory $RbaHome
@@ -189,13 +237,13 @@ Start-ScheduledTask -TaskName $taskName
 # ── 7. First heartbeat ────────────────────────────────────────────────
 try {
   $hbBody = (@{ version = '0.2.0'; status = 'active' } | ConvertTo-Json -Compress)
-  Invoke-RestMethod -Uri "$ApiBase/api/agent/heartbeat" -Method POST -Headers @{ 'x-agent-token' = $redeem.agent_token } -Body $hbBody -ContentType 'application/json' | Out-Null
+  Invoke-RestMethod -Uri "$ApiBase/api/agent/heartbeat" -Method POST -Headers @{ 'x-agent-token' = $AgentToken } -Body $hbBody -ContentType 'application/json' | Out-Null
 } catch {}
 
 Write-Host ""
 Write-Host "[rba] OK install complete"
-Write-Host "[rba]    device:    $($redeem.device_id)"
-Write-Host "[rba]    role:      $($redeem.role)"
+Write-Host "[rba]    device:    $DeviceId"
+Write-Host "[rba]    role:      $Role"
 Write-Host "[rba]    workspace: $RbaHome"
 Write-Host "[rba]    models:    $ModelsJson"
 Write-Host "[rba]    task:      Scheduled Task '$taskName' (runs at logon, restarts on crash)"
