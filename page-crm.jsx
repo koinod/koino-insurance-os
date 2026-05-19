@@ -348,10 +348,18 @@ const CSV_FIELDS = [
   { k: "state",   l: "State",   aliases: ["state", "state_code", "region"] },
   { k: "product", l: "Product", aliases: ["product", "product_interest", "plan"] },
   { k: "source",  l: "Source",  aliases: ["source", "lead_source", "vendor", "utm_source"] },
+  { k: "monthly", l: "Monthly $ (auto × 12 → AP)", aliases: ["monthly", "monthly_premium", "monthly_amount", "monthly_contribution", "mo_contribution", "desired_mo_contribution", "desired_monthly_contribution", "desired_monthly", "contribution"] },
   { k: "ap",      l: "AP $",    aliases: ["ap", "annual_premium", "premium"] },
-  { k: "stage",   l: "Stage",   aliases: ["stage", "status"] },
+  { k: "stage",   l: "Stage",   aliases: ["stage"] },
 ];
 const SKIP_VALUE = "__skip__";
+const ALLOWED_STAGES = new Set(["New", "Contacted", "Quoted", "App In", "Issued", "Cancelled", "Lost"]);
+function parseMonthly(raw) {
+  if (!raw) return 0;
+  const nums = String(raw).match(/\d[\d,]*(?:\.\d+)?/g);
+  if (!nums || !nums.length) return 0;
+  return parseFloat(nums[0].replace(/,/g, "")) || 0;
+}
 
 // RFC-4180-ish CSV row parser. Handles quoted fields with embedded commas
 // and "" escapes. Does NOT handle multi-line quoted values across newlines —
@@ -421,14 +429,26 @@ function CsvImportModal({ reps, onClose }) {
       const get = (k) => mapping[k] != null && mapping[k] !== SKIP_VALUE ? cells[mapping[k]] : "";
       let name = get("name");
       if (!name) {
-        // Try first_name + last_name composition
-        const fnIdx = headers.findIndex(h => /^first[ _]?name$/i.test(h));
-        const lnIdx = headers.findIndex(h => /^last[ _]?name$/i.test(h));
+        // Try first_name + last_name composition. Also match short forms
+        // ("F Name" / "L Name", "fname" / "lname") used by UEP / aged lead
+        // exports.
+        const fnIdx = headers.findIndex(h => /^(first|f)[ _]?name$|^fname$/i.test(h));
+        const lnIdx = headers.findIndex(h => /^(last|l)[ _]?name$|^lname$/i.test(h));
         if (fnIdx >= 0 || lnIdx >= 0) name = [cells[fnIdx], cells[lnIdx]].filter(Boolean).join(" ");
       }
       if (!name) { errors++; setProgress(p => ({ ...p, errors })); continue; }
+      // Prefer monthly column when mapped — most lead exports carry monthly
+      // contribution, not AP. AP = monthly × 12.
+      const monthlyRaw = get("monthly");
       const apRaw = get("ap");
-      const ap = apRaw ? parseFloat(String(apRaw).replace(/[^0-9.]/g, "")) : 0;
+      const ap = monthlyRaw
+        ? parseMonthly(monthlyRaw) * 12
+        : (apRaw ? parseFloat(String(apRaw).replace(/[^0-9.]/g, "")) || 0 : 0);
+      // Whitelist stage — CSV "Status" columns often hold call dispositions
+      // (Appointment Booked / Bad Number / Follow-Up) that violate
+      // pipeline_stage_check. Anything not in the allowed set → "New".
+      const stageRaw = get("stage");
+      const stage = ALLOWED_STAGES.has(stageRaw) ? stageRaw : "New";
       const row = {
         id: "tmp-" + Date.now() + "-" + done,
         lead: name,
@@ -438,7 +458,7 @@ function CsvImportModal({ reps, onClose }) {
         state: (get("state") || "").toUpperCase().slice(0, 2) || null,
         product: get("product") || "Med Supp Plan G",
         source: get("source") || defaultSource,
-        stage: get("stage") || "New",
+        stage,
         ap,
         days: 0,
         last: "Imported just now",

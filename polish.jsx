@@ -163,10 +163,19 @@ const CSV_FIELD_ALIASES = {
   age:    ["age", "yearsold"],
   state:  ["state", "stateabbrev", "stateabbreviation", "region"],
   product: ["product", "plan", "policy", "interest"],
-  ap:     ["ap", "annualizedpremium", "premium", "ann premium"],
-  source: ["source", "leadsource", "campaign", "vendor"],
+  monthly: ["monthly", "monthlypremium", "monthlyamount", "monthlycontribution", "mocontribution", "desiredmocontribution", "desiredmonthlycontribution", "desiredmonthly", "contribution"],
+  ap:     ["ap", "annualizedpremium", "premium", "annpremium"],
+  source: ["source", "leadsource", "campaign", "vendor", "ad", "platform"],
   owner:  ["owner", "ownerrepid", "rep", "agent", "assignedto", "assignedrep"],
 };
+// Pull the first number out of a monthly-contribution cell — handles
+// "$100-$250" (lower bound), "Minimum of $100", "$100 - $249", etc.
+function parseMonthlyContribution(raw) {
+  if (!raw) return 0;
+  const nums = String(raw).match(/\d[\d,]*(?:\.\d+)?/g);
+  if (!nums || !nums.length) return 0;
+  return parseFloat(nums[0].replace(/,/g, "")) || 0;
+}
 function normHeader(h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ""); }
 function autoMapHeaders(headers) {
   const map = {};  // field -> headerName | ""
@@ -227,6 +236,11 @@ function CSVImport({ onClose }) {
       const owner = get("owner")
         || (REPS.find(r => r.handle === get("owner") || r.id === get("owner") || r.name === get("owner"))?.id)
         || myRepId;
+      // AP preference: monthly × 12 when monthly column mapped, else AP column.
+      const monthlyRaw = get("monthly");
+      const ap = monthlyRaw
+        ? parseMonthlyContribution(monthlyRaw) * 12
+        : (parseFloat(String(get("ap")).replace(/[$,]/g, "")) || 0);
       return {
         lead:    get("lead"),
         phone,
@@ -235,7 +249,7 @@ function CSVImport({ onClose }) {
         state:   (get("state") || "").toUpperCase().slice(0, 2),
         stage:   "New",
         product: get("product") || null,
-        ap:      parseFloat(String(get("ap")).replace(/[$,]/g, "")) || 0,
+        ap,
         source:  get("source") || "CSV import",
         owner,
         consent: "verified",
