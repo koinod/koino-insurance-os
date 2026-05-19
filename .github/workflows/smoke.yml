@@ -1,0 +1,79 @@
+name: smoke
+
+# Run the Playwright smoke against prod after every deploy to main.
+# Catches the class of failure that today's CI doesn't:
+#   - Role-stripped sidebars (item count below floor)
+#   - Pages rendering "Could not find the function" or "schema cache"
+#     banners (i.e. frontend ↔ DB drift that survived the migration gate)
+#   - React error-boundary triggers on a per-role/per-page basis
+#
+# This is the post-deploy safety net. The migration-gate workflow is
+# the pre-merge gate; this is the "did the live system actually work"
+# check.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'audits/**'
+      - '.github/workflows/agent-image.yml'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Smoke target URL (defaults to repflow.koino.capital)'
+        required: false
+        default: 'https://repflow.koino.capital'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Wait for Vercel to serve fresh bundle
+        if: github.event_name == 'push'
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          # Vercel auto-deploys main in ~60-90s. Poll the live HTML for
+          # any change vs current served, capped at 4 minutes.
+          BASE="https://repflow.koino.capital"
+          echo "Polling $BASE for fresh deploy..."
+          for i in $(seq 1 24); do
+            if curl -fsS "$BASE/" >/dev/null 2>&1; then
+              echo "  attempt $i: $BASE responding"
+              sleep 10
+              # Give it one more round-trip beyond first 200
+              if [ $i -ge 9 ]; then break; fi
+            fi
+            sleep 10
+          done
+
+      - name: Run smoke
+        env:
+          SMOKE_URL: ${{ github.event.inputs.url || 'https://repflow.koino.capital' }}
+        run: npm run smoke
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-artifacts
+          path: smoke-artifacts/
+          retention-days: 14

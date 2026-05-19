@@ -201,8 +201,16 @@
         const repIds = curRows.map((r) => r.rep_id);
         await loadTrend(sb, repIds);
       } catch (e) {
-        setErr(e.message || String(e));
+        const msg = e.message || String(e);
+        setErr(msg);
         setRows([]);
+        // High-signal: surface RPC-missing / schema-cache misses to the
+        // /api/client-error pipeline so the Telegram drift alert fires.
+        // (Caught errors don't hit window.onerror, so we route manually.)
+        if (typeof window !== "undefined" && window.reportClientError &&
+            /Could not find the function|schema cache|PGRST20/i.test(msg)) {
+          try { window.reportClientError({ message: msg, kind: "rpc-drift", source: "page-pnl/manager_pnl_snapshot" }); } catch {}
+        }
       } finally {
         setLoading(false);
       }

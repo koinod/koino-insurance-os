@@ -1,0 +1,60 @@
+name: migration-apply-gate
+
+# Blocks merging/pushing a commit that adds a new supabase/migrations/*.sql
+# file unless that migration has already been applied to the prod project
+# (jfphwmzwteermalzwojp). Closes the gap that caused the 2026-05-19 P&L
+# regression: migration file shipped to repo, RPC never appeared in prod.
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/migration-gate.yml'
+      - '.github/scripts/migration-gate.mjs'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/migration-gate.yml'
+      - '.github/scripts/migration-gate.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine new migration files
+        id: diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=50
+            BASE="origin/${{ github.base_ref }}"
+            HEAD_REF="HEAD"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BASE="${{ github.event.before }}"
+            HEAD_REF="${{ github.event.after }}"
+            # First-push edge case: before is all zeros. Fall back to HEAD~1.
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE="HEAD~1"
+            fi
+          else
+            BASE="HEAD~1"; HEAD_REF="HEAD"
+          fi
+          NEW=$(git diff --name-only --diff-filter=A "$BASE" "$HEAD_REF" -- 'supabase/migrations/*.sql' | tr '\n' '|')
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Newly added migration files: ${NEW:-<none>}"
+
+      - name: Check apply status against prod
+        if: steps.diff.outputs.new != ''
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: jfphwmzwteermalzwojp
+          NEW_FILES: ${{ steps.diff.outputs.new }}
+        run: node .github/scripts/migration-gate.mjs
