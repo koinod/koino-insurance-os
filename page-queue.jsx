@@ -1739,7 +1739,122 @@ function InCallQuoteAssist({ lead }) {
   );
 }
 
-function InCall({ onClose, lead, autodial }) {
+/* Live call transcript — subscribes to live_transcript_segments via Supabase
+   realtime for the active call_sid. Gates:
+   • No callSid → "Transcript available for Twilio-bridge calls only"
+   • No segments after 15s → "No transcript yet — check DEEPGRAM_API_KEY"
+   Speaker colors: rep = accent-money (green), lead = accent-status (blue) */
+function LiveCallTranscript({ callSid }) {
+  const [segments, setSegments]     = React.useState([]);
+  const [noSignal, setNoSignal]     = React.useState(false);
+  const bottomRef                   = React.useRef(null);
+  const channelRef                  = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!callSid) return;
+    setSegments([]);
+    setNoSignal(false);
+
+    // 15-second "no signal" timer — fires if Deepgram isn't producing output
+    const timer = setTimeout(() => setNoSignal(true), 15000);
+
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { clearTimeout(timer); return; }
+
+    // Fetch any segments that already exist for this call (page reload case)
+    sb.from("live_transcript_segments")
+      .select("id,speaker,text,is_final,ts_offset_ms,created_at")
+      .eq("call_sid", callSid)
+      .order("created_at", { ascending: true })
+      .limit(200)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setSegments(data);
+          clearTimeout(timer);
+          setNoSignal(false);
+        }
+      });
+
+    // Realtime subscription for new segments
+    const ch = sb.channel(`transcript:${callSid}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table:  "live_transcript_segments",
+        filter: `call_sid=eq.${callSid}`,
+      }, (payload) => {
+        clearTimeout(timer);
+        setNoSignal(false);
+        setSegments(prev => {
+          // Replace interim segment from same speaker if previous was non-final
+          if (!payload.new.is_final && prev.length > 0) {
+            const last = prev[prev.length - 1];
+            if (!last.is_final && last.speaker === payload.new.speaker) {
+              return [...prev.slice(0, -1), payload.new];
+            }
+          }
+          return [...prev, payload.new];
+        });
+      })
+      .subscribe();
+
+    channelRef.current = ch;
+    return () => {
+      clearTimeout(timer);
+      sb.removeChannel(ch);
+    };
+  }, [callSid]);
+
+  // Auto-scroll to bottom on new segments
+  React.useEffect(() => {
+    bottomRef.current && bottomRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [segments]);
+
+  if (!callSid) {
+    return (
+      <div style={{ padding: 14, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55, background: "var(--bg-raised)", borderRadius: 6 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4, color: "var(--text-secondary)" }}>Live transcript</div>
+        Transcript is available for calls placed via the Twilio bridge (connector_vault).
+        Direct-dial and desktop helper calls are not streamed.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>
+        <span className="dot dot-live" style={{ width: 6, height: 6 }}></span>
+        Live transcript
+        <span style={{ marginLeft: "auto", color: "var(--text-quaternary)" }}>{segments.filter(s => s.is_final).length} utterances</span>
+      </div>
+
+      {noSignal && segments.length === 0 ? (
+        <div style={{ padding: 12, fontSize: 12, color: "var(--state-warning)", background: "color-mix(in oklch, var(--state-warning) 8%, transparent)", borderRadius: 6, lineHeight: 1.5 }}>
+          No transcript signal after 15s. Check that <code className="mono" style={{ fontSize: 11 }}>DEEPGRAM_API_KEY</code> is set in Vercel env.
+          Recording still saves — transcript will appear post-call via the transcription cron.
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 2 }}>
+          {segments.length === 0 && (
+            <div style={{ fontSize: 11.5, color: "var(--text-quaternary)", padding: "8px 0" }}>Waiting for speech…</div>
+          )}
+          {segments.map((seg, i) => (
+            <div key={seg.id || i} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={{
+                fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em",
+                color: seg.speaker === "rep" ? "var(--accent-money)" : seg.speaker === "lead" ? "var(--accent-status)" : "var(--text-quaternary)",
+              }}>{seg.speaker === "rep" ? "You" : seg.speaker === "lead" ? "Lead" : "—"}</span>
+              <span style={{ fontSize: 12.5, color: seg.is_final ? "var(--text-primary)" : "var(--text-tertiary)", lineHeight: 1.5 }}>{seg.text}</span>
+            </div>
+          ))}
+          <div ref={bottomRef}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InCall({ onClose, lead, callSid, autodial }) {
   const [tab, setTab] = React.useState("script");
   const [tpmoFired, setTpmoFired] = React.useState(false);
   const [sec, setSec] = React.useState(0);
@@ -1890,6 +2005,7 @@ function InCall({ onClose, lead, autodial }) {
               { k: "script",    l: "Scripts" },
               { k: "quote",     l: "Quote" },
               { k: "rebuttals", l: "Rebuttals" },
+              { k: "transcript",l: "Transcript" },
               { k: "detail",    l: "Lead detail" },
             ].map(t => (
               <button key={t.k} onClick={() => setTab(t.k)} className={tab === t.k ? "btn" : "btn btn-ghost"} style={{ padding: "3px 10px" }}>{t.l}</button>
@@ -1897,8 +2013,9 @@ function InCall({ onClose, lead, autodial }) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", fontSize: 12.5, lineHeight: 1.55, color: "var(--text-secondary)", paddingRight: 4 }}>
-            {tab === "script"    && <InCallScripts lead={activeLead}/>}
-            {tab === "quote"     && <InCallQuoteAssist lead={activeLead}/>}
+            {tab === "script"     && <InCallScripts lead={activeLead}/>}
+            {tab === "quote"      && <InCallQuoteAssist lead={activeLead}/>}
+            {tab === "transcript" && <LiveCallTranscript callSid={callSid}/>}
             {tab === "rebuttals" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {[

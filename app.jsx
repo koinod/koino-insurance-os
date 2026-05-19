@@ -15,6 +15,7 @@ function App() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [callLead, setCallLead] = useState(null);
+  const [callSid, setCallSid] = useState(null);
   const [callAutodial, setCallAutodial] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -53,11 +54,12 @@ function App() {
     const onOpen = (e) => {
       setCallLead(e.detail?.lead || null);
       setCallAutodial(!!e.detail?.autodial);
+      setCallSid(e.detail?.callSid || null);
       setCallOpen(true);
       window.dispatchEvent(new CustomEvent("incall:opened"));
     };
     const onDismiss = () => {
-      setCallOpen(false); setCallAutodial(false);
+      setCallOpen(false); setCallAutodial(false); setCallSid(null);
       window.dispatchEvent(new CustomEvent("incall:closed"));
     };
     window.addEventListener("incall:open",    onOpen);
@@ -294,7 +296,7 @@ function App() {
       {window.RepflowFAB && (() => { const RF = window.RepflowFAB; return <RF/>; })()}
       {window.RBAConfirmationsHost && (() => { const C = window.RBAConfirmationsHost; return <C/>; })()}
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
-      {callOpen && <InCall lead={callLead} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
+      {callOpen && <InCall lead={callLead} callSid={callSid} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); setCallSid(null); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="View"/>

@@ -1412,6 +1412,13 @@ function CoachingManager() {
         </div>
       </div>
 
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h"><Icons.Sparkles size={13}/><h3>AI Call Analysis · Team</h3><span className="meta">recent calls</span></div>
+        <div style={{ padding: "0 0 8px" }}>
+          <CoachingScoresPanel/>
+        </div>
+      </div>
+
       {replay && <ReplayMomentModal card={replay} onClose={() => setReplay(null)}/>}
       {noteFor && <CoachingNoteModal rep={noteFor} onClose={() => setNoteFor(null)}/>}
     </div>
@@ -1468,6 +1475,148 @@ function ReplayMomentModal({ card, onClose }) {
   );
 }
 
+/* ── Shared: AI coaching scores panel for any role ─────────────────────── */
+function CoachingScoresPanel({ repId, label = "My recent calls" }) {
+  const [scores, setScores]       = React.useState(null);  // null = loading
+  const [sel, setSel]             = React.useState(null);
+  const [loadErr, setLoadErr]     = React.useState(null);
+
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setScores([]); return; }
+    let q = sb.from("call_coaching_scores")
+      .select("id,call_recording_id,rep_id,score,summary,talk_ratio_pct,filler_count,objections,action_items,coaching_points,sentiment_arc,model_used,scored_at,call_recordings(id,lead_name,duration_sec,ended_at)")
+      .order("scored_at", { ascending: false })
+      .limit(20);
+    if (repId) q = q.eq("rep_id", repId);
+    q.then(({ data, error }) => {
+      if (error) { setLoadErr(error.message); setScores([]); }
+      else { setScores(data || []); }
+    });
+  }, [repId]);
+
+  if (scores === null) {
+    return <div style={{ padding: 20, color: "var(--text-tertiary)", fontSize: 12 }}>Loading AI coaching scores…</div>;
+  }
+  if (loadErr) {
+    return (
+      <div style={{ padding: 12, background: "color-mix(in oklch, var(--state-danger) 8%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>
+        Scores load error: {loadErr}
+      </div>
+    );
+  }
+  if (scores.length === 0) {
+    return (
+      <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.55 }}>
+        <div style={{ fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6 }}>No coaching scores yet</div>
+        Coaching analysis runs automatically every 30 min for calls with transcripts.
+        Requires <code className="mono" style={{ fontSize: 11 }}>OPENAI_API_KEY</code> or{" "}
+        <code className="mono" style={{ fontSize: 11 }}>ANTHROPIC_API_KEY</code> in Vercel env.
+      </div>
+    );
+  }
+
+  const detail = sel ? scores.find(s => s.id === sel) : null;
+
+  return (
+    <div>
+      {/* List */}
+      {!detail && (
+        <div>
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 80px 80px 90px 80px", padding: "6px 12px" }}>
+            <div>Lead</div><div>Score</div><div>Talk%</div><div>Date</div><div>Duration</div>
+          </div>
+          {scores.map(s => {
+            const rec  = s.call_recordings;
+            const date = s.scored_at ? new Date(s.scored_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+            const dur  = rec?.duration_sec ? `${Math.floor(rec.duration_sec / 60)}:${String(rec.duration_sec % 60).padStart(2, "0")}` : "—";
+            return (
+              <div key={s.id} className="row" style={{ gridTemplateColumns: "1fr 80px 80px 90px 80px", cursor: "pointer" }} onClick={() => setSel(s.id)}>
+                <div style={{ fontWeight: 500, fontSize: 12.5 }}>{rec?.lead_name || "—"}</div>
+                <div>
+                  {s.score != null
+                    ? <span className={`chip ${s.score >= 80 ? "chip-money" : s.score >= 60 ? "chip-status" : ""}`}>{s.score}</span>
+                    : <span style={{ color: "var(--text-quaternary)" }}>—</span>}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{s.talk_ratio_pct != null ? `${Math.round(s.talk_ratio_pct)}%` : "—"}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{date}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{dur}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Detail */}
+      {detail && (
+        <div>
+          <button className="btn btn-ghost" style={{ fontSize: 11, marginBottom: 10 }} onClick={() => setSel(null)}>
+            <Icons.ArrowLeft size={11}/> Back to list
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, color: detail.score >= 80 ? "var(--accent-money)" : detail.score >= 60 ? "var(--state-warning)" : "var(--state-danger)" }}>
+              {detail.score ?? "—"}
+            </span>
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{detail.call_recordings?.lead_name || "Call"}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                Talk ratio: {detail.talk_ratio_pct != null ? `${Math.round(detail.talk_ratio_pct)}% rep` : "—"} ·
+                Fillers: {detail.filler_count ?? "—"} ·
+                Model: {detail.model_used || "—"}
+              </div>
+            </div>
+          </div>
+
+          {detail.summary && (
+            <div style={{ marginBottom: 12, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>
+              {detail.summary}
+            </div>
+          )}
+
+          {Array.isArray(detail.coaching_points) && detail.coaching_points.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="field-l" style={{ marginBottom: 6 }}>Next-call coaching points</div>
+              {detail.coaching_points.slice(0, 3).map((p, i) => (
+                <div key={i} style={{ padding: 10, marginBottom: 6, background: "color-mix(in oklch, var(--accent-status) 8%, transparent)", borderRadius: 6, border: "1px solid color-mix(in oklch, var(--accent-status) 20%, transparent)" }}>
+                  <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--accent-status)" }}>{p.point}</div>
+                  {p.example && <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 3 }}>"{p.example}"</div>}
+                  {p.improvement && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>→ {p.improvement}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {Array.isArray(detail.objections) && detail.objections.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="field-l" style={{ marginBottom: 6 }}>Objections</div>
+              {detail.objections.map((o, i) => (
+                <div key={i} style={{ padding: "8px 12px", marginBottom: 4, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12 }}>
+                  <div style={{ fontWeight: 500 }}>{o.objection}</div>
+                  <div style={{ color: "var(--text-tertiary)", marginTop: 2 }}>{o.handling}</div>
+                  <span className={`chip ${o.verdict === "good" ? "chip-money" : o.verdict === "missed" ? "" : "chip-status"}`} style={{ marginTop: 4, fontSize: 10 }}>{o.verdict}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {Array.isArray(detail.action_items) && detail.action_items.length > 0 && (
+            <div>
+              <div className="field-l" style={{ marginBottom: 6 }}>Action items</div>
+              {detail.action_items.map((a, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12 }}>
+                  <Icons.Check size={11} style={{ marginTop: 2, color: "var(--accent-money)", flexShrink: 0 }}/>
+                  <span>{a.item}</span>
+                  <span className="chip" style={{ fontSize: 10, marginLeft: "auto" }}>{a.owner}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CoachingRep() {
   useMeReady();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
@@ -1517,6 +1666,14 @@ function CoachingRep() {
         <Shared.KpiCard label="Open cards" value={String(openCards.length || cards.length)} sub={`${dueToday} due today`}/>
         <Shared.KpiCard label="Drills this week" value={String(drillsThisWeek)} sub={drillsThisWeek > 0 ? "logged" : "log your first"} trend={drillsThisWeek > 0 ? "up" : undefined}/>
         <Shared.KpiCard label="Notes received" value={String(myNotes.length)} sub={myNotes.length > 0 ? "from manager" : "none yet"} trend={myNotes.length > 0 ? "up" : undefined}/>
+      </div>
+
+      {/* AI call scores — real data from call_coaching_scores table */}
+      <div className="panel" style={{ marginTop: 12 }}>
+        <div className="panel-h"><Icons.Sparkles size={13}/><h3>AI Call Analysis</h3><span className="meta">recent calls</span></div>
+        <div style={{ padding: "0 0 8px" }}>
+          <CoachingScoresPanel repId={myRepId}/>
+        </div>
       </div>
 
       <div className="panel" style={{ marginTop: 12 }}>
@@ -1618,6 +1775,13 @@ function CoachingOwner() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h"><Icons.Sparkles size={13}/><h3>AI Call Analysis · Org</h3><span className="meta">recent calls</span></div>
+        <div style={{ padding: "0 0 8px" }}>
+          <CoachingScoresPanel/>
         </div>
       </div>
     </div>

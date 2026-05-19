@@ -198,21 +198,63 @@ const _origRepflowCall = function (phone, leadName) {
 };
 window.__repflowSystemDial = _origRepflowCall;
 
-// Public dial entrypoint: Twilio in-browser softphone if connector configured,
-// otherwise fall through to repflow:// (desktop helper) → tel: (system dialer).
-// page-tenant.jsx exposes `window.repflowDialTwilio(phone, leadName)` returning
-// a boolean — true means Twilio took the call and we shouldn't fall through.
-window.repflowCall = async function (phone, leadName) {
+// Public dial entrypoint — cascade in priority order:
+//   1. REST bridge via /api/dial/outbound (connector_vault Twilio, bridge to rep phone)
+//      Gate: "twilio_not_connected" → explicit toast + hard stop (never silent no-op)
+//   2. In-browser Twilio Voice SDK softphone (env-var Twilio, page-tenant.jsx)
+//   3. repflow:// custom URL scheme (Repflow Desktop helper)
+//   4. tel: system dialer (last resort)
+//
+// Accepts opts.lead_id for REST bridge → call_events linkage.
+// Accepts opts.autodial to carry autodial context through incall:open.
+window.repflowCall = async function (phone, leadName, opts) {
+  if (phone) {
+    try {
+      const resp = await fetch("/api/dial/outbound", {
+        method:  "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone,
+          lead_name: leadName || "",
+          lead_id:   (opts && opts.lead_id)   || null,
+          rep_phone: (opts && opts.rep_phone)  || null,
+        }),
+      });
+      const j = await resp.json().catch(() => ({}));
+
+      if (j.gate) {
+        // Explicit prerequisite gate — name the gap, hard stop, never fall through.
+        window.toast && window.toast(j.message || "Twilio not connected", "error");
+        return false;
+      }
+      if (j.ok && j.call_sid) {
+        window.dispatchEvent(new CustomEvent("incall:open", { detail: {
+          lead:     { id: (opts && opts.lead_id) || null, lead: leadName || phone, phone },
+          callSid:  j.call_sid,
+          status:   "Ringing",
+          autodial: !!(opts && opts.autodial),
+        }}));
+        return true;
+      }
+      if (!resp.ok) {
+        window.toast && window.toast(j.message || `Dial error (${resp.status})`, "error");
+        return false;
+      }
+    } catch (_e) { /* REST bridge unreachable — fall through to softphone */ }
+  }
+
+  // Fallback 2: in-browser Twilio Voice SDK (requires TWILIO_TWIML_APP_SID env var)
   if (typeof window.repflowDialTwilio === "function") {
     try {
       const took = await window.repflowDialTwilio(phone, leadName);
       if (took) return true;
     } catch (_e) { /* fall through to system dial */ }
   }
+  // Fallback 3: repflow:// scheme + tel:
   return _origRepflowCall(phone, leadName);
 };
 // Backwards-compat alias — old callsites that expected window.repflowDial keep working.
-window.repflowDial = function (phone, leadName) { return window.repflowCall(phone, leadName); };
+window.repflowDial = function (phone, leadName, opts) { return window.repflowCall(phone, leadName, opts); };
 
 /* ─── Settings: Calling tab — Repflow Desktop helper install ─────────── */
 /* ─── Capability probes — each hits its API endpoint; 503 means env vars
