@@ -478,14 +478,93 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
 );
 
 /* ───── Cmd K ───── */
+// Agent actions — clicking one POSTs /api/agent/jobs/enqueue with `kind`.
+// `roles` is the role allow-list (must match seeded role_actions rows in 0026).
+// `payload` is the static job payload; runtime context (latest call, top NIGO,
+// etc.) is left to the worker that picks up the job — keeping the panel a
+// thin trigger surface.
+const AGENT_ACTIONS = [
+  // Built-in flows (composite worker logic, kind matches role_actions in 0026)
+  { kind: "recruiting_scan",     roles: ["manager","owner","imo_owner","admin","super_admin"], label: "Run recruiting scan",                        icon: "ArrowUpRight" },
+  { kind: "pull_carrier_appts",  roles: ["manager","owner","imo_owner","admin","super_admin"], label: "Sync carrier appointments",                  icon: "Shield"       },
+  { kind: "pull_comp_statement", roles: ["owner","imo_owner","admin","super_admin"],           label: "Pull latest commission statement",           icon: "Wallet"       },
+  { kind: "transcribe_call",     roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Transcribe my most recent call",       icon: "Headset",     payload: { latest: true } },
+  { kind: "nigo_followup",       roles: ["rep"],                                               label: "Send NIGO follow-up to top stalled deal",     icon: "Bell",        payload: { latest: true } },
+  { kind: "coaching_drop",       roles: ["manager","imo_owner"],                               label: "Drop coaching note on a rep",                 icon: "Users",       payload: { latest: true } },
+  { kind: "quote_carrier",       roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Quote current carrier rate sheet",     icon: "Wallet"       },
+  { kind: "send_sms",            roles: ["rep","manager"],                                     label: "Send SMS to current lead",                    icon: "Phone",       payload: { latest: true } },
+  { kind: "mint_install_token",  roles: ["admin","owner","imo_owner","super_admin"],           label: "Generate local agent install token",          icon: "Plug",        policy: { requires_approval: true } },
+
+  // Direct-mapped agent tool kinds (one-to-one with runtime/tools/<kind>.py; seeded in 0031)
+  { kind: "create_lead",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Capture this lead into pipeline",      icon: "Sparkles",   group: "intake" },
+  { kind: "draft_email",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Draft an email (local LLM)",           icon: "FileText",   group: "compose" },
+  { kind: "draft_sms",           roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Draft an SMS (local LLM)",             icon: "Phone",      group: "compose" },
+  { kind: "script_review",       roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "QA a script (tone + compliance)",      icon: "Shield",     group: "review" },
+  { kind: "file_review",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Summarize a file in the workspace",    icon: "Folder",     group: "review" },
+  { kind: "twilio_dial",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Dial current lead via Twilio",         icon: "Phone",      group: "comms" },
+  { kind: "phone_link_dial",     roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Dial current lead via Phone Link",     icon: "Phone",      group: "comms" },
+  { kind: "sendblue_send",       roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Send iMessage (Sendblue)",             icon: "Phone",      group: "comms" },
+  { kind: "ig_dm_reply",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Reply to IG DMs",                      icon: "Sparkles",   group: "social" },
+  { kind: "meta_dm_send",        roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Send a Meta DM",                       icon: "Sparkles",   group: "social" },
+  { kind: "linkedin_send",       roles: ["manager","owner","imo_owner","admin","super_admin"],       label: "Send a LinkedIn message",              icon: "Sparkles",   group: "social" },
+  { kind: "linkedin_inbox_scan", roles: ["manager","owner","imo_owner","admin","super_admin"],       label: "Scan LinkedIn inbox",                  icon: "Sparkles",   group: "social" },
+  { kind: "fathom_pull_notes",   roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Pull notes from latest Fathom call",   icon: "Headset",    group: "pull" },
+  { kind: "fb_pull_lead_forms",  roles: ["manager","owner","imo_owner","admin","super_admin"],       label: "Pull Facebook lead forms",             icon: "Sparkles",   group: "pull" },
+  { kind: "auto_quote",          roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Run auto-quote across carriers",       icon: "Wallet",     group: "quote" },
+  { kind: "browser_run",         roles: ["manager","owner","imo_owner","admin","super_admin"],       label: "Run a guided Playwright task",         icon: "Plug",       group: "browser" },
+];
+
+// Awareness collector — the sidebar (and any other caller) folds these into
+// every enqueue so the worker has a snapshot of what the user was doing.
+// Window-global so non-React surfaces (e.g. CmdK) can also include context.
+window.__aiAwareness = window.__aiAwareness || {};
+window.__collectAwareness = function () {
+  try {
+    const sel = (typeof window !== "undefined" && window.getSelection)
+      ? String(window.getSelection() || "").slice(0, 240) : "";
+    const route = window.location?.hash || window.location?.pathname || "";
+    const title = (typeof document !== "undefined" ? document.title : "") || "";
+    const merged = { ...(window.__aiAwareness || {}), route, title, selection: sel,
+                     captured_at: new Date().toISOString() };
+    return merged;
+  } catch { return {}; }
+};
+
+async function enqueueAgentJob(action, extraContext) {
+  const { kind, payload = {}, policy = {} } = action;
+  try {
+    let jwt = null;
+    const sb = window.getSupabase && window.getSupabase();
+    if (sb) {
+      const { data } = await sb.auth.getSession();
+      jwt = data?.session?.access_token || null;
+    }
+    if (!jwt) { window.toast?.("Sign in to run agent actions", "error"); return; }
+    // Fold the awareness snapshot in under payload.context so workers can
+    // condition on it without breaking the existing typed payload contract.
+    const ctx = window.__collectAwareness ? window.__collectAwareness() : {};
+    const merged = { ...payload, context: { ...ctx, ...(extraContext || {}) } };
+    const r = await fetch("/api/agent/jobs/enqueue", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ kind, payload: merged, policy }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok)         { window.toast?.(`Agent: ${body.error || r.status}`, "error"); return null; }
+    if (body.denied)   { window.toast?.(`Denied (${body.ring}): ${body.reason}`, "error"); return null; }
+    if (body.idempotent) { window.toast?.(`${kind} already queued`, "info"); return body; }
+    if (body.status === "pending_approval") { window.toast?.(`${kind} pending approval`, "info"); return body; }
+    window.toast?.(`Queued: ${kind}`, "success");
+    return body;
+  } catch (e) {
+    window.toast?.(`Agent error: ${e.message || e}`, "error");
+    return null;
+  }
+}
+window.enqueueAgentJob = enqueueAgentJob;
+
 const CMD_ITEMS = {
-  Actions: [
-    { label: "Dial next lead in queue",                       kbd: "D", icon: "Phone",    nav: "queue" },
-    { label: "Send SOA to current lead",                      kbd: "S", icon: "Shield",   nav: "vault" },
-    { label: "Log a sale",                                    kbd: "L", icon: "Wallet",   nav: "commissions" },
-    { label: "Schedule callback",                                       icon: "Calendar", nav: "today" },
-    { label: "Draft rebuttal: 'I already have coverage'",               icon: "Sparkles" },
-  ],
+  Actions: AGENT_ACTIONS.map(a => ({ label: a.label, icon: a.icon, _kind: "agent_action", _action: a })),
   Navigate: [
     { label: "Today",              icon: "Home",         nav: "today" },
     { label: "Pipeline",           icon: "Pipeline",     nav: "pipeline" },
@@ -524,8 +603,19 @@ const CmdK = ({ open, onClose, goto }) => {
   // pipeline row + every doc/script that mentions her. Pages stay top of list.
   const dataset = useMemo(() => {
     const items = [];
+    const role = (typeof window !== "undefined" && window.me && window.me()?.role) || null;
     Object.entries(CMD_ITEMS).forEach(([sec, list]) => {
-      list.forEach(i => items.push({ ...i, sec, _kind: "page" }));
+      list.forEach(i => {
+        // Carry the source _kind through (agent_action / page) but tag with sec.
+        const base = { ...i, sec };
+        if (i._kind === "agent_action") {
+          // Role-filter: hide actions the caller's role can't dispatch.
+          if (role && Array.isArray(i._action?.roles) && !i._action.roles.includes(role)) return;
+          items.push(base);
+        } else {
+          items.push({ ...base, _kind: "page" });
+        }
+      });
     });
     if (q && q.length >= 2) {
       const ql = q.toLowerCase();
@@ -577,13 +667,14 @@ const CmdK = ({ open, onClose, goto }) => {
   }, [q]);
 
   const flat = useMemo(() => {
-    if (!q) return dataset.filter(i => i._kind === "page");
+    if (!q) return dataset.filter(i => i._kind === "page" || i._kind === "agent_action");
     const ql = q.toLowerCase();
     return dataset.filter(i => i.label.toLowerCase().includes(ql) || (i.sub || "").toLowerCase().includes(ql))?.slice(0, 50);
   }, [dataset, q]);
 
   const run = (it) => {
     if (!it) return onClose();
+    if (it._kind === "agent_action") { enqueueAgentJob(it._action); onClose(); return; }
     if (it._kind === "page" && it.nav && goto) { goto(it.nav); onClose(); return; }
     if (it._kind === "lead")    { goto && goto("crm");     window.dispatchEvent(new CustomEvent("crm:focusLead", { detail: it._payload })); onClose(); return; }
     if (it._kind === "rep")     { goto && goto("team");                                                                                    onClose(); return; }
@@ -622,11 +713,12 @@ const CmdK = ({ open, onClose, goto }) => {
                 const idx = flat.indexOf(it);
                 return (
                   <div key={i} className={`cmdk-item ${idx === sel ? "sel" : ""}`} onMouseEnter={() => setSel(idx)} onClick={() => run(it)}>
-                    <Ico size={14} style={{ color: "var(--text-tertiary)" }}/>
+                    <Ico size={14} style={{ color: it._kind === "agent_action" ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 500 }}>{it.label}</div>
                       {it.sub && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{it.sub}</div>}
                     </div>
+                    {it._kind === "agent_action" && <span className="kbd" style={{ background: "color-mix(in oklch, var(--accent-money) 18%, transparent)", color: "var(--accent-money)", border: 0 }}>agent</span>}
                     {it.kbd && <span className="kbd">{it.kbd}</span>}
                   </div>
                 );

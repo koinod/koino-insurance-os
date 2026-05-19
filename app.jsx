@@ -295,6 +295,7 @@ function App() {
       {window.FloorActionsHost && (() => { const F = window.FloorActionsHost; return <F/>; })()}
       {window.RepflowFAB && (() => { const RF = window.RepflowFAB; return <RF/>; })()}
       {window.RBAConfirmationsHost && (() => { const C = window.RBAConfirmationsHost; return <C/>; })()}
+      {window.AICopilotMount && (() => { const C = window.AICopilotMount; return <C/>; })()}
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)}/>
       {callOpen && <InCall lead={callLead} callSid={callSid} autodial={callAutodial} onClose={() => { setCallOpen(false); setCallAutodial(false); setCallSid(null); window.dispatchEvent(new CustomEvent("incall:closed")); }}/>}
 

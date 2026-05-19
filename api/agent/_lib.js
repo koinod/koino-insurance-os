@@ -52,6 +52,53 @@ export function readUserJwt(req) {
   return a.replace(/^Bearer\s+/i, "") || null;
 }
 
+// Resolve the calling user's identity by calling public.me() with their JWT.
+// Returns { user_id, agency_id, role, rep_id, full_name } or null on failure.
+export async function loadCallerFromJwt(jwt) {
+  if (!jwt) return null;
+  const r = await rpc("me", null, jwt);
+  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) return null;
+  const row = r.data[0];
+  return {
+    user_id:  row.user_id,
+    agency_id: row.agency_id,
+    role:     row.role,
+    rep_id:   row.rep_id,
+    full_name: row.full_name,
+  };
+}
+
+// Insert one row into public.agent_audit using service-role.
+// Returns true on success, false otherwise. Never throws — audit failures must
+// not block the surrounding request from returning a useful error to the caller.
+export async function writeAgentAudit(row) {
+  if (!SERVICE) return false;
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/agent_audit`, {
+      method: "POST",
+      headers: {
+        "apikey": SERVICE,
+        "authorization": `Bearer ${SERVICE}`,
+        "content-type": "application/json",
+        "prefer": "return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Stable stringify for client-side idempotency: sort object keys recursively.
+// JSON.stringify isn't deterministic across runtimes when key order differs.
+export function canonicalJson(v) {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
+  const keys = Object.keys(v).sort();
+  return "{" + keys.map(k => JSON.stringify(k) + ":" + canonicalJson(v[k])).join(",") + "}";
+}
+
 // Capability ledger — what each role's local agent is allowed to call.
 // The web app's RLS still gates database writes; this gates LOCAL tools that
 // don't touch the DB (shell, fs, browser automation).
