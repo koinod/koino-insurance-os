@@ -164,7 +164,7 @@ function App() {
       return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
     };
     if (mobile && role === "rep") return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
-    if (mobile) return F("MobileRep");
+    if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { aep: aepMode, role });
       case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
