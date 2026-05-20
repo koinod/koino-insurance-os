@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="/icon.svg"/>
 <!-- Load FIRST so it catches errors thrown by every subsequent script. -->
 <script src="lib/error-reporter.js?v=1"></script>
+<script src="dist/posthog-init.js?v=1"></script>
 <script>if ("serviceWorker" in navigator) { window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {})); }</script>
 <meta name="theme-color" content="#14171c"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
