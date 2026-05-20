@@ -390,26 +390,17 @@
   }
 
   /* ── RepflowFAB ──────────────────────────────────────────────────────── */
+  // FAB removed — Deal / Expense buttons now live in the topbar (shared.jsx
+  // Topbar). This component is kept as a headless modal host so the existing
+  // `quicklog:deal` / `quicklog:expense` window events still surface the
+  // QuickLogDeal / QuickLogExpense modals (fired by topbar buttons + CmdK).
   function RepflowFAB() {
-    const [open,     setOpen]     = useState(false);
     const [showDeal, setShowDeal] = useState(false);
     const [showExp,  setShowExp]  = useState(false);
-    const wrapRef = useRef(null);
 
-    // Close popover on outside click
     useEffect(() => {
-      if (!open) return;
-      const fn = (e) => {
-        if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-      };
-      document.addEventListener("mousedown", fn);
-      return () => document.removeEventListener("mousedown", fn);
-    }, [open]);
-
-    // Listen for global open events (e.g. from CmdK "Log a sale")
-    useEffect(() => {
-      const onDeal = () => { setShowDeal(true); setOpen(false); };
-      const onExp  = () => { setShowExp(true);  setOpen(false); };
+      const onDeal = () => setShowDeal(true);
+      const onExp  = () => setShowExp(true);
       window.addEventListener("quicklog:deal",    onDeal);
       window.addEventListener("quicklog:expense", onExp);
       return () => {
@@ -418,69 +409,11 @@
       };
     }, []);
 
-    // Hide if not signed in
     const me = window.me && window.me();
     if (!me || !me.authenticated) return null;
 
     return (
       <>
-        <div ref={wrapRef} style={{ position: "fixed", bottom: 24, right: 24, zIndex: 100 }}>
-          {/* Popover */}
-          {open && (
-            <div style={{
-              position:     "absolute",
-              bottom:       58,
-              right:        0,
-              minWidth:     190,
-              background:   "var(--bg-raised)",
-              border:       "1px solid var(--border-subtle)",
-              borderRadius: 10,
-              padding:      6,
-              boxShadow:    "0 12px 40px color-mix(in oklch, black 30%, transparent)",
-              display:      "flex",
-              flexDirection:"column",
-              gap:          2,
-            }}>
-              <button className="btn btn-ghost"
-                style={{ justifyContent: "flex-start", padding: "11px 14px", fontSize: 13.5, fontWeight: 500, gap: 10 }}
-                onClick={() => { setShowDeal(true); setOpen(false); }}
-              >
-                <Icons.FileText size={15} style={{ color: "var(--accent-money)" }}/> Log deal
-              </button>
-              <button className="btn btn-ghost"
-                style={{ justifyContent: "flex-start", padding: "11px 14px", fontSize: 13.5, fontWeight: 500, gap: 10 }}
-                onClick={() => { setShowExp(true); setOpen(false); }}
-              >
-                <Icons.Wallet size={15} style={{ color: "var(--accent-status)" }}/> Log expense
-              </button>
-            </div>
-          )}
-
-          {/* FAB button */}
-          <button
-            onClick={() => setOpen((o) => !o)}
-            title="Log deal or expense"
-            style={{
-              width:        52,
-              height:       52,
-              borderRadius: "50%",
-              background:   "var(--accent-money)",
-              border:       "none",
-              cursor:       "pointer",
-              display:      "flex",
-              alignItems:   "center",
-              justifyContent: "center",
-              boxShadow:    "0 4px 20px color-mix(in oklch, var(--accent-money) 40%, transparent)",
-              transition:   "transform 130ms, box-shadow 130ms",
-              transform:    open ? "rotate(45deg)" : "rotate(0)",
-              color:        "#0a0d12",
-            }}
-          >
-            <Icons.Plus size={22}/>
-          </button>
-        </div>
-
-        {/* Modals — rendered outside the FAB container so z-index is clean */}
         {showDeal && <QuickLogDeal onClose={() => setShowDeal(false)}/>}
         {showExp  && <QuickLogExpense onClose={() => setShowExp(false)}/>}
       </>

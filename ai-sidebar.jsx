@@ -16,8 +16,15 @@
  */
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-const AI_SIDEBAR_WIDTH = 380;
+const AI_SIDEBAR_WIDTH = 400;
+const AI_SIDEBAR_INSET = 12;
 const JOB_FETCH_LIMIT = 20;
+const CHAT_HISTORY_TURNS = 3;
+
+// Liquid-glass surface — used by the outer aside + a few inner panels.
+const GLASS_BG = "color-mix(in oklch, var(--bg-base) 62%, transparent)";
+const GLASS_BG_RAISED = "color-mix(in oklch, var(--bg-raised) 70%, transparent)";
+const GLASS_BORDER = "1px solid color-mix(in oklch, white 9%, transparent)";
 
 // Tools that need extra inputs before we can enqueue — we render a tiny
 // inline form instead of firing immediately. Keep this list short — most
@@ -213,12 +220,164 @@ const AwarenessPanel = ({ awareness, clipboardSnippet, onPasteClipboard }) => (
   </div>
 );
 
+// ── Chat tab — converse with the copilot via /api/copilot (same Edge fn
+//    the older AIRail used; supports Supabase JWT for live data + recent
+//    turn memory). Renders into the sidebar's main panel area.
+const ChatTab = ({ awareness }) => {
+  const [val, setVal] = useState("");
+  const [history, setHist] = useState([]); // [{role:'user'|'assistant', text, ms?, err?}]
+  const [busy, setBusy] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history.length, busy]);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const ask = useCallback(async (prompt) => {
+    if (!prompt.trim() || busy) return;
+    const q = prompt.trim();
+    setHist(h => [...h, { role: "user", text: q }]);
+    setVal("");
+    setBusy(true);
+    try {
+      let jwt = null;
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) {
+        const { data } = await sb.auth.getSession();
+        jwt = data?.session?.access_token || null;
+      }
+      const headers = { "content-type": "application/json" };
+      if (jwt) headers["x-supabase-auth"] = `Bearer ${jwt}`;
+      // Last N turns as {q,a} so the copilot has short-term memory.
+      const recent = [];
+      const h = history;
+      for (let i = h.length - 1; i >= 0 && recent.length < CHAT_HISTORY_TURNS; i--) {
+        if (h[i].role === "assistant" && i > 0 && h[i-1]?.role === "user") {
+          recent.unshift({ q: h[i-1].text || "", a: h[i].text || "" });
+        }
+      }
+      const context = awareness?.route || "";
+      const resp = await fetch("/api/copilot", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ prompt: q, context, history: recent }),
+      });
+      const j = await resp.json();
+      if (!resp.ok) throw new Error((j.error || "request failed") + (j.detail ? " — " + String(j.detail).slice(0, 200) : ""));
+      setHist(h2 => [...h2, { role: "assistant", text: j.text || "(no response)", ms: j.ms, model: j.model }]);
+    } catch (e) {
+      setHist(h2 => [...h2, { role: "assistant", text: "Couldn't reach the model. " + (e.message || ""), err: true }]);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, history, awareness?.route]);
+
+  // Seedable from anywhere: window.dispatchEvent(new CustomEvent('ai:ask',{detail:{prompt}}))
+  useEffect(() => {
+    const onAsk = (e) => { const p = e.detail?.prompt; if (p) ask(p); };
+    window.addEventListener("ai:ask", onAsk);
+    return () => window.removeEventListener("ai:ask", onAsk);
+  }, [ask]);
+
+  const submit = (e) => { e.preventDefault?.(); ask(val); };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      <div style={{ overflow: "auto", flex: 1, padding: "10px 12px" }}>
+        {history.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5, padding: "4px 2px" }}>
+            Ask anything about <strong style={{ color: "var(--text-primary)" }}>{awareness?.route || "this page"}</strong>. The copilot sees your route, selection, and recent turns.
+          </div>
+        )}
+        {history.map((m, i) => (
+          <div key={i} style={{
+            display: "flex",
+            justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+            marginBottom: 8,
+          }}>
+            <div style={{
+              maxWidth: "86%",
+              padding: "7px 10px",
+              borderRadius: 12,
+              fontSize: 12.5,
+              lineHeight: 1.45,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              background: m.role === "user"
+                ? "color-mix(in oklch, var(--accent-money) 22%, transparent)"
+                : m.err
+                  ? "color-mix(in oklch, var(--state-danger, #ef4444) 14%, transparent)"
+                  : GLASS_BG_RAISED,
+              border: m.role === "user"
+                ? "1px solid color-mix(in oklch, var(--accent-money) 36%, transparent)"
+                : GLASS_BORDER,
+              color: "var(--text-primary)",
+            }}>
+              {m.text}
+              {m.role === "assistant" && (m.ms != null || m.model) && (
+                <div style={{ fontSize: 9.5, color: "var(--text-tertiary)", marginTop: 4, fontFamily: "JetBrains Mono, monospace" }}>
+                  {m.model || ""}{m.model && m.ms != null ? " · " : ""}{m.ms != null ? `${m.ms}ms` : ""}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {busy && (
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", padding: "4px 2px" }}>thinking…</div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+      <form onSubmit={submit} style={{
+        padding: 10,
+        borderTop: GLASS_BORDER,
+        display: "flex",
+        gap: 6,
+        background: "color-mix(in oklch, var(--bg-base) 50%, transparent)",
+      }}>
+        <textarea
+          ref={inputRef}
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(e); }
+          }}
+          placeholder="Ask the copilot…  (Enter to send, Shift+Enter for newline)"
+          rows={1}
+          style={{
+            flex: 1,
+            resize: "none",
+            padding: "8px 10px",
+            fontSize: 12.5,
+            lineHeight: 1.4,
+            maxHeight: 120,
+            background: GLASS_BG_RAISED,
+            border: GLASS_BORDER,
+            borderRadius: 10,
+            color: "var(--text-primary)",
+            fontFamily: "inherit",
+            outline: "none",
+          }}/>
+        <button type="submit" disabled={!val.trim() || busy} style={{
+          padding: "0 14px",
+          background: val.trim() && !busy ? "var(--accent-money, #10b981)" : "color-mix(in oklch, var(--accent-money) 30%, transparent)",
+          color: "#0a0d12",
+          border: "none",
+          borderRadius: 10,
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: val.trim() && !busy ? "pointer" : "not-allowed",
+        }}>Send</button>
+      </form>
+    </div>
+  );
+};
+
 const AISidebar = ({ open, onClose }) => {
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [awareness, setAwareness] = useState(() => window.__collectAwareness?.() || {});
   const [clipboardSnippet, setClipboardSnippet] = useState("");
-  const [tab, setTab] = useState("actions"); // 'actions' | 'jobs'
+  const [tab, setTab] = useState("chat"); // 'chat' | 'actions' | 'jobs'
   const [filter, setFilter] = useState("");
 
   const role = useMemo(() => (typeof window !== "undefined" && window.me && window.me()?.role) || null, []);
@@ -341,50 +500,72 @@ const AISidebar = ({ open, onClose }) => {
         onClick={onClose}
         style={{
           position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.18)",
+          background: "rgba(0,0,0,0.22)",
           opacity: open ? 1 : 0,
           pointerEvents: open ? "auto" : "none",
-          transition: "opacity 0.15s",
+          transition: "opacity 0.18s",
           zIndex: 8999,
         }}/>
       <aside
         style={{
-          position: "fixed", top: 0, right: 0, bottom: 0,
-          width: AI_SIDEBAR_WIDTH, maxWidth: "100vw",
-          background: "var(--bg-base, #14171c)",
-          borderLeft: "1px solid var(--border-subtle, #1f242c)",
-          boxShadow: "-8px 0 32px rgba(0,0,0,0.35)",
-          transform: open ? "translateX(0)" : `translateX(${AI_SIDEBAR_WIDTH + 16}px)`,
-          transition: "transform 0.18s ease-out",
+          position: "fixed",
+          top: AI_SIDEBAR_INSET,
+          right: AI_SIDEBAR_INSET,
+          bottom: AI_SIDEBAR_INSET,
+          width: AI_SIDEBAR_WIDTH,
+          maxWidth: `calc(100vw - ${AI_SIDEBAR_INSET * 2}px)`,
+          background: GLASS_BG,
+          backdropFilter: "blur(28px) saturate(160%)",
+          WebkitBackdropFilter: "blur(28px) saturate(160%)",
+          border: GLASS_BORDER,
+          borderRadius: 18,
+          boxShadow: [
+            "inset 0 1px 0 color-mix(in oklch, white 10%, transparent)",
+            "inset 0 -1px 0 color-mix(in oklch, black 28%, transparent)",
+            "0 24px 60px rgba(0,0,0,0.45)",
+          ].join(", "),
+          transform: open ? "translateX(0)" : `translateX(calc(100% + ${AI_SIDEBAR_INSET * 2}px))`,
+          opacity: open ? 1 : 0,
+          transition: "transform 0.22s cubic-bezier(0.32,0.72,0.24,1.06), opacity 0.18s ease-out",
           display: "flex", flexDirection: "column",
+          overflow: "hidden",
           zIndex: 9000,
           color: "var(--text-primary, #e8ebee)",
         }}>
         <header style={{
-          padding: "10px 12px", borderBottom: "1px solid var(--border-subtle, #1f242c)",
+          padding: "10px 14px",
+          borderBottom: GLASS_BORDER,
           display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "color-mix(in oklch, var(--bg-base) 30%, transparent)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: "var(--accent-money, #10b981)",
+              boxShadow: "0 0 8px color-mix(in oklch, var(--accent-money) 70%, transparent)",
+            }}/>
             <span style={{ fontWeight: 700, fontSize: 13 }}>AI Copilot</span>
             <span style={{ fontSize: 10, color: "var(--text-tertiary, #6b7480)", fontFamily: "JetBrains Mono, monospace" }}>{role || "—"}</span>
           </div>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }} aria-label="Close">×</button>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 0, width: 24, height: 24 }} aria-label="Close">×</button>
         </header>
 
         <AwarenessPanel awareness={awareness} clipboardSnippet={clipboardSnippet} onPasteClipboard={usePasteClipboard}/>
 
-        <div style={{ display: "flex", borderBottom: "1px solid var(--border-subtle, #1f242c)" }}>
-          {["actions", "jobs"].map(t => (
+        <div style={{ display: "flex", borderBottom: GLASS_BORDER, padding: "0 6px" }}>
+          {["chat", "actions", "jobs"].map(t => (
             <button key={t} onClick={() => { setTab(t); setSelectedJob(null); }} style={{
-              flex: 1, padding: "7px 10px", background: tab === t ? "var(--bg-raised)" : "transparent",
+              flex: 1, padding: "8px 10px", background: "transparent",
               border: "none", color: tab === t ? "var(--accent-money)" : "var(--text-tertiary)",
               cursor: "pointer", fontSize: 11, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase",
               borderBottom: tab === t ? "2px solid var(--accent-money)" : "2px solid transparent",
             }}>
-              {t === "actions" ? "Actions" : `Jobs (${jobs.length})`}
+              {t === "chat" ? "Chat" : t === "actions" ? "Actions" : `Jobs (${jobs.length})`}
             </button>
           ))}
         </div>
+
+        {tab === "chat" && <ChatTab awareness={awareness}/>}
 
         {tab === "actions" && (
           <div style={{ overflow: "auto", flex: 1, padding: 10 }}>
@@ -426,23 +607,11 @@ const AISidebar = ({ open, onClose }) => {
   );
 };
 
-// ── Floating toggle button (always present) ─────────────────────────────
-const AISidebarToggle = ({ open, onToggle }) => (
-  <button
-    onClick={onToggle}
-    aria-label="Toggle AI Copilot"
-    style={{
-      position: "fixed", right: 16, bottom: 16,
-      width: 48, height: 48, borderRadius: "50%",
-      background: "linear-gradient(135deg, var(--accent-money, #10b981), #0ea5e9)",
-      border: "none", color: "#000", cursor: "pointer",
-      fontSize: 22, fontWeight: 700,
-      boxShadow: "0 8px 24px rgba(16,185,129,0.35)",
-      zIndex: open ? 0 : 9001,
-      opacity: open ? 0 : 1,
-      transition: "opacity 0.18s",
-    }}>✦</button>
-);
+// ── Floating toggle button — REMOVED ────────────────────────────────────
+// AI Copilot is now opened from the topbar Sparkles button (shared.jsx
+// Topbar → window.toggleAISidebar()) and from the Cmd+J hotkey. Keeping a
+// no-op component so the AICopilotMount JSX below doesn't have to change.
+const AISidebarToggle = () => null;
 
 // ── Mount point — wraps the toggle + sidebar together so the host App only
 //    has to render <AICopilotMount/> once.

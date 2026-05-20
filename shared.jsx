@@ -449,16 +449,31 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
       <span>Search or run a command</span>
       <span className="kbd">⌘K</span>
     </button>
-    <button className="lb-pill">
-      <Icons.Trophy size={13} style={{ color: "var(--accent-status)" }}/>
-      <span className="rank tabular">#3</span>
-      <span className="delta-up tabular"><Icons.ArrowUp size={10}/>2</span>
+    <button
+      className="topbar-action"
+      onClick={() => window.dispatchEvent(new CustomEvent("quicklog:deal"))}
+      title="Log a deal"
+    >
+      <Icons.FileText size={13} style={{ color: "var(--accent-money)" }}/>
+      <span>Deal</span>
+    </button>
+    <button
+      className="topbar-action"
+      onClick={() => window.dispatchEvent(new CustomEvent("quicklog:expense"))}
+      title="Log an expense"
+    >
+      <Icons.Wallet size={13} style={{ color: "var(--accent-status)" }}/>
+      <span>Expense</span>
     </button>
     <button className="icon-btn" onClick={openMobile} title="Open rep mobile prototype">
       <Icons.Phone size={15}/>
     </button>
-    <button className="icon-btn" onClick={toggleRail} title="Toggle AI co-pilot">
-      <Icons.Sparkles size={15} style={{ color: railOn ? "var(--accent-money)" : undefined }}/>
+    <button
+      className="icon-btn"
+      onClick={() => { if (window.toggleAISidebar) window.toggleAISidebar(); else if (toggleRail) toggleRail(); }}
+      title="AI Copilot (⌘J)"
+    >
+      <Icons.Sparkles size={15} style={{ color: "var(--accent-money)" }}/>
     </button>
     <button className="icon-btn" onClick={openNotifications} title="Notifications" style={{ position: "relative" }}>
       <Icons.Bell size={15}/>

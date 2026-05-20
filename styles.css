@@ -258,6 +258,26 @@ input, textarea { font-family: inherit; color: inherit; }
   background: color-mix(in oklch, var(--bg-base) 60%, transparent);
   border-color: color-mix(in oklch, var(--border-subtle) 60%, transparent);
 }
+.topbar .topbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--border-subtle) 60%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 130ms, border-color 130ms, color 130ms;
+}
+.topbar .topbar-action:hover {
+  background: color-mix(in oklch, var(--bg-base) 60%, transparent);
+  border-color: color-mix(in oklch, var(--border-subtle) 90%, transparent);
+  color: var(--text-primary);
+}
 .topbar .live-badge { margin-left: 6px; height: 22px; }
 .topbar .aep-pill { background: color-mix(in oklch, var(--accent-heat) 18%, transparent); }
 
