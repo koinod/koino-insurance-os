@@ -34,12 +34,12 @@
 <script src="dist/tweaks-panel.js?v=74"></script>
 <script src="dist/data.js?v=84"></script>
 <script src="dist/icons.js?v=90"></script>
-<script src="dist/shared.js?v=94"></script>
+<script src="dist/shared.js?v=95"></script>
 <script src="dist/ai-sidebar.js?v=82"></script>
 <script src="dist/page-today.js?v=86"></script>
 <script src="dist/page-pipeline-sequences.js?v=74"></script>
 <script src="dist/page-pipeline.js?v=80"></script>
-<script src="dist/page-queue.js?v=92"></script>
+<script src="dist/page-queue.js?v=93"></script>
 <!-- page-manager.jsx deleted 2026-05-13: manager routes to same pages as owner via unified NAV -->
 <script src="dist/page-owner.js?v=79"></script>
 <script src="dist/page-leaddrip.js?v=98"></script>
@@ -83,7 +83,12 @@
 <script src="dist/page-mobile.js?v=77"></script>
 <script src="dist/quick-log.js?v=1"></script>
 <script src="dist/page-pnl.js?v=2"></script>
-<script src="dist/app.js?v=97"></script>
+<!-- Host wrappers — must load AFTER all pages they mount as tabs
+     (PageCrm, PageBook, PageAttribution, PageLeadDrip, PageNIGO,
+     PageVault, PageOrgTree) and BEFORE app.js which routes to them. -->
+<script src="dist/page-book-host.js?v=1"></script>
+<script src="dist/page-vault-host.js?v=1"></script>
+<script src="dist/app.js?v=98"></script>
 <!-- rba-dial.js loads LAST so its hijack of window.repflowCall wins
      against any earlier definitions in app.js / page-*.js. -->
 <script src="dist/rba-dial.js?v=3"></script>

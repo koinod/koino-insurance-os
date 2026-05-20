@@ -881,13 +881,17 @@ const CARRIER_NICHES = [
     },
   },
   {
-    id: "aig", name: "AIG (Corebridge)", products: ["fe", "term"],
+    id: "aig", name: "AIG / Corebridge", products: ["fe", "term", "iul", "annuity"],
     underwriting: {
       term: { tobaccoRateUpPct: 100, bmiRange: [18.5, 33], autoDecline: ["HIV+", "Type-1 Diabetes", "Organ Transplant"] },
       giwl: { faceMin: 5000, faceMax: 25000, gradedMonths: 24, healthQs: false },
+      iul:  { product: "Corebridge QoL Max Accumulator+ III", bmiRange: [18.5, 33], tobaccoLookbackMonths: 12 },
+      annuity: { product: "Corebridge American Pathway Fixed 5/7 MYGA", maxIssueAge: 90 },
       sweetSpot_term: "30-55yo non-standard term lengths (Flex Term has 18 durations); convertible to permanent without evidence to 70",
       sweetSpot_fe: "GIWL for health-impaired declines elsewhere; $5K–$25K with 2yr graded benefit",
-      sources: ["AIG Corebridge UW Guide AGLC101638", "Flex Term product brochure"],
+      sweetSpot_iul: "Accumulation IUL for 35-55 affluent clients; AU+ no-exam path up to $2M",
+      sweetSpot_annuity: "Pre-retiree MYGA with 5/7-yr guaranteed rate; $100K+ premium tier earns top rates",
+      sources: ["AIG Corebridge UW Guide AGLC101638", "Flex Term product brochure", "QoL Max Accumulator+ III Producer Guide", "American Pathway Fixed 5/7 rate flyer"],
     },
     fit: (i) => {
       let score = 0;
@@ -1038,6 +1042,37 @@ const CARRIER_NICHES = [
       if (i.tobacco) score -= 6;
       if ((i.flags || 0) >= 2) { score -= 12; reasons.push("substandard not its sweet spot"); }
       return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  /* ─── Americo (FE + term) — added 2026-05-19 ──────────────────────────── */
+  {
+    id: "americo", name: "Americo Financial", products: ["fe", "term"],
+    underwriting: {
+      issueAges: { fe: [50, 85], term: [20, 75] },
+      uwClasses: ["Standard Non-Nicotine", "Standard Nicotine"],
+      fe:   { product: "Eagle Premier / Ultra Protector", faceMax: 30000, tobaccoLookbackMonths: 12 },
+      term: { product: "Continuous Protection Term (CPT)", faceMax: 450000, tobaccoLookbackMonths: 24, instantDecision: true },
+      sweetSpot_fe:   "Eagle Premier Level for healthy 50-85; Ultra Protector II keeps insulin diabetics with retinopathy/neuropathy declined elsewhere; UP III GI safety-net",
+      sweetSpot_term: "Simplified-issue term to $450K with no medical exam — built-in living benefits (terminal/chronic/critical) at no extra cost",
+      sources: ["Americo Eagle Premier Agent Guide", "Americo Term Series Agent Guide", "Americo UW Reference Guide"],
+    },
+    fit: (i) => {
+      const reasons = [];
+      let score = 0;
+      if (i.product === "fe") {
+        if (i.age < 50 || i.age > 85) return { score: 0, reason: "FE issue 50-85" };
+        score = 78;
+        if (i.tobacco) { score -= 4; reasons.push("12mo cigarette lookback (cigars/pipe OK)"); }
+        if (i.diabetes && (i.flags || 0) >= 1) { score += 8; reasons.push("UP II keeps insulin+complications"); }
+        else if (!i.diabetes && !i.bpHigh) reasons.push("Eagle Premier Level full day-one DB");
+      } else if (i.product === "term") {
+        if (i.age < 20 || i.age > 75) return { score: 0, reason: "Term issue 20-75" };
+        score = 78;
+        if (i.tobacco) { score -= 8; reasons.push("24mo nicotine lookback (strict)"); }
+        else reasons.push("$450K non-medical instant decision");
+        if ((i.flags || 0) >= 2) { score -= 10; reasons.push("accept/reject — no substandard"); }
+      }
+      return { score, reason: reasons.slice(0, 2).join(" · ") || "no exam · instant decision" };
     },
   },
 ];

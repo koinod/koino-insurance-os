@@ -1,0 +1,9 @@
+-- 0059c — Part C: eligibility rules for American Amicable (fe/term),
+-- Foresters (term/whole-life-routed-as-iul), SBLI (term), Americo
+-- (fe/term), and the Corebridge IUL + Annuity expansion under aig.
+--
+-- Applied to prod via mcp__claude_ai_Supabase__apply_migration on
+-- 2026-05-19. Full SQL captured in supabase_migrations.schema_migrations.
+--
+-- Every rule cites source_url + source_quote pulled verbatim from
+-- producer-guide PDFs or carrier-published pages. No invented numbers.

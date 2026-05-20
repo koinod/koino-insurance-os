@@ -1,0 +1,10 @@
+-- 0059b — Part B: backfill source_url + source_quote on the 55 prior
+-- approved rules that lacked citations, and seed eligibility rules for
+-- Transamerica (term/fe/iul) + Ethos (term).
+--
+-- Applied to prod via mcp__claude_ai_Supabase__apply_migration on
+-- 2026-05-19. Full SQL captured in supabase_migrations.schema_migrations
+-- and reproducible from the corresponding git commit history.
+--
+-- Outcome: every non-narrative approved rule now carries source_url +
+-- source_quote pointing at a producer-guide PDF or carrier-published page.

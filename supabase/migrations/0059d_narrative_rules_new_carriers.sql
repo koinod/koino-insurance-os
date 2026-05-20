@@ -1,0 +1,12 @@
+-- 0059d — Part D: narrative rows for the 16 new products from 0059a.
+-- Instabrain narratives carry an aggregator_note flagging that
+-- Instabrain is a digital quote/bind platform, not a carrier — the
+-- underlying issuer is Fidelity Life.
+--
+-- Applied to prod via mcp__claude_ai_Supabase__apply_migration on
+-- 2026-05-19. Full SQL captured in supabase_migrations.schema_migrations.
+--
+-- After this migration, every approved product has at least one
+-- narrative row, so recommendReasons() in lib/rate-engine.js can
+-- surface sweet-spot, tobacco-notes, build-notes, and citations on
+-- the quote tool's "Best pick · per official underwriting" panel.
