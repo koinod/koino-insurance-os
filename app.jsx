@@ -208,6 +208,7 @@ function App() {
       // ids drive the super_admin sidebar — each lands on a specific PageAdmin
       // tab. `key` forces a remount so PageAdmin's useState picks up the new
       // initialTab.
+      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="hq" role={role}/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
       case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="agencies" role={role} initialTab="agencies"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
       case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="billing"  role={role} initialTab="billing"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
       case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="members"  role={role} initialTab="members"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });

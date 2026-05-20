@@ -34,7 +34,7 @@
 <script src="dist/tweaks-panel.js?v=74"></script>
 <script src="dist/data.js?v=84"></script>
 <script src="dist/icons.js?v=90"></script>
-<script src="dist/shared.js?v=95"></script>
+<script src="dist/shared.js?v=96"></script>
 <script src="dist/ai-sidebar.js?v=84"></script>
 <script src="dist/page-today.js?v=86"></script>
 <script src="dist/page-pipeline-sequences.js?v=74"></script>
@@ -67,7 +67,7 @@
      wins. app.js sets repflowCall globally; loading rba-dial.js before it
      gets the hijack overwritten. -->
 <!-- Moved below app.js script tag — see further down. -->
-<!-- page-platform-admin.jsx source deleted in 34dcba4 — not restored. -->
+<script src="dist/page-platform-admin.js?v=1"></script>
 <script src="dist/page-billing.js?v=74"></script>
 <script src="dist/page-autodialer.js?v=75"></script>
 <script src="dist/page-deal-write.js?v=93"></script>
@@ -88,7 +88,7 @@
      PageVault, PageOrgTree) and BEFORE app.js which routes to them. -->
 <script src="dist/page-book-host.js?v=1"></script>
 <script src="dist/page-vault-host.js?v=1"></script>
-<script src="dist/app.js?v=98"></script>
+<script src="dist/app.js?v=99"></script>
 <!-- rba-dial.js loads LAST so its hijack of window.repflowCall wins
      against any earlier definitions in app.js / page-*.js. -->
 <script src="dist/rba-dial.js?v=3"></script>

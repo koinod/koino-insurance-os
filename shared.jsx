@@ -106,6 +106,7 @@ NAV.imo_owner = NAV.owner;
 // growth funnel for the software business itself. Each entry deep-links into
 // a PageAdmin tab via initialTab.
 NAV.super_admin = [
+  { id: "admin-hq",       label: "HQ",             icon: "BarChart3" }, // cross-agency KPIs + drillable platform admin
   { id: "admin",          label: "Clients",        icon: "Building"  }, // agencies overview
   { id: "admin-billing",  label: "Subscriptions",  icon: "Wallet"    }, // billing tab
   { id: "admin-members",  label: "Users",          icon: "Users"     }, // cross-agency users
