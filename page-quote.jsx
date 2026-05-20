@@ -282,6 +282,18 @@
     const bmi = window.RateEngine?.bmiFrom?.(totalInches, profile.weightLbs);
     const profileForEngine = { ...profile, heightInches: totalInches, bmi };
 
+    // Subscribe to the rate-engine's UW grounding status so the footer +
+    // header indicator update live when the DB hydrate completes.
+    // MUST be declared above the quoteResults useMemo below — that useMemo's
+    // dep array references groundingTick. Moved up to avoid the TDZ
+    // ReferenceError ("Cannot access 'groundingTick' before initialization").
+    const [groundingTick, setGroundingTick] = useState(0);
+    useEffect(() => {
+      const fn = () => setGroundingTick(n => n + 1);
+      window.addEventListener("carrier-uw:loaded", fn);
+      return () => window.removeEventListener("carrier-uw:loaded", fn);
+    }, []);
+
     // Run rate engine across appointed + user-selected carriers for this product.
     const quoteResults = useMemo(() => {
       if (!window.RateEngine) return { quoted: [], declined: [] };
@@ -425,14 +437,8 @@
     const totalAppointed = niches.filter(c => c.products.includes(profile.product))
       .filter(c => appointedIds === null || appointedIds.has(c.id))?.length;
 
-    // Subscribe to the rate-engine's UW grounding status so the footer +
-    // header indicator update live when the DB hydrate completes.
-    const [groundingTick, setGroundingTick] = useState(0);
-    useEffect(() => {
-      const fn = () => setGroundingTick(n => n + 1);
-      window.addEventListener("carrier-uw:loaded", fn);
-      return () => window.removeEventListener("carrier-uw:loaded", fn);
-    }, []);
+    // (groundingTick state + listener declared earlier — above quoteResults
+    // useMemo — so the dep array can reference it without hitting TDZ.)
     const grounding = window.UW_GROUNDING || { status: "loading", carriers: 0, products: 0, rules: 0 };
 
     return (
