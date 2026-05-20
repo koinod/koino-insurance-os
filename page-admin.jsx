@@ -278,31 +278,22 @@ function PageAdmin({ initialTab } = {}) {
         <Shared.KpiCard label="Open issues"     value={issuesCount}                                  sub={issuesCount ? "see Management panel" : "all clear"} trend={issuesCount === 0 ? "up" : undefined}/>
       </div>
 
-      <div className="tab-bar" style={{ marginBottom: activeGroup.subs.length > 1 ? 8 : 14 }}>
-        {TAB_GROUPS.map(g => {
-          const Ic = Icons[g.icon];
-          const isActive = activeGroup.k === g.k;
-          return (
-            <button key={g.k} className={`tab ${isActive ? "tab-active" : ""}`}
-              onClick={() => setTab(g.subs[0].k)}>
-              {Ic && <Ic size={12}/>} {g.l}
-            </button>
-          );
-        })}
-      </div>
+      {/* Tab groups — use the shared SectionPill convention so the buttons
+          actually render as rounded pills. Prior `.tab` / `.tab-active`
+          classes had no CSS rules in styles.css, so the buttons rendered
+          as bare text. */}
+      <Shared.SectionPill
+        items={TAB_GROUPS.map(g => ({ k: g.k, l: g.l, icon: g.icon }))}
+        value={activeGroup.k}
+        onChange={(k) => { const g = TAB_GROUPS.find(x => x.k === k); if (g) setTab(g.subs[0].k); }}
+      />
       {activeGroup.subs.length > 1 && (
-        <div className="tab-bar" style={{ marginBottom: 14, opacity: 0.95 }}>
-          {activeGroup.subs.map(s => {
-            const Ic = Icons[s.icon];
-            return (
-              <button key={s.k} className={`tab ${tab === s.k ? "tab-active" : ""}`}
-                style={{ fontSize: 11.5, padding: "5px 10px" }}
-                onClick={() => setTab(s.k)}>
-                {Ic && <Ic size={11}/>} {s.l}
-              </button>
-            );
-          })}
-        </div>
+        <Shared.SectionPill
+          items={activeGroup.subs.map(s => ({ k: s.k, l: s.l, icon: s.icon }))}
+          value={tab}
+          onChange={setTab}
+          dense
+        />
       )}
 
       {/* ── Agencies ───────────────────────────────────────────── */}
