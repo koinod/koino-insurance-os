@@ -188,14 +188,18 @@ function App() {
       case "calls":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "history" });
       case "commissions": return F("PageCommissions", { role });
       case "training":    return F("PageTraining", { role });
-      case "vault":       return F("PageVault", { role });
+      // NAV restructure 2026-05-19: vault + book route through host
+      // wrappers that surface sub-tabs (see page-vault-host.jsx /
+      // page-book-host.jsx). Old direct routes below still resolve for
+      // deep-link back-compat.
+      case "vault":       return F("PageVaultHost", { role });
+      case "book":        return F("PageBookHost");
       case "leaddrip":    return F("PageLeadDrip",   { role });
       case "resources":   return F("PageResources",  { role });
       case "crm":         return F("PageCrm",        { role });
       case "messages":    return F("PageMessages",   { role });
       case "quote":       return F("PageQuote",      { role });
       case "auto-quoter": return F("PageAutoQuoter", { role });
-      case "book":        return F("PageBook");
       case "recruiting":  return F("PageRecruiting", { role });
       case "recruits":    return F("PageRecruits",   { role });
       case "settings":    return F("PageSettings",   { role });

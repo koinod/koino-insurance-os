@@ -61,34 +61,29 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
 /* ───── Sidebar ─────
    Pages shared across roles render role-aware variants (driven by `role` prop).
    The NAV map decides which role sees which page in their sidebar. */
-// NAV 2026-05-19 — restored Floor + workhorse pages per operator directive
-// after the 2026-05-16 cull stripped Floor / Messages / Leaderboard / CRM /
-// Quote / Book from the sidebar. Keeping the new wired pages (P&L, Tree,
-// Lead Drip) since those still add value. Settings stays deep-link only
-// (it was pre-cull) to avoid sidebar bloat.
+// NAV 2026-05-19 — manager sidebar collapsed 11 → 7 items. Lifecycle
+// surfaces fold into their host page as sub-tabs (CRM/LeadDrip/NIGO →
+// Book; AutoQuoter → Quote; Tree → Vault). Deep links into the old
+// routes (crm, leaddrip, auto-quoter, tree, etc.) still resolve via the
+// switch in app.jsx — they just no longer occupy sidebar real estate.
 const NAV = {
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
-    { id: "book",        label: "Client Book",  icon: "Activity" },
+    { id: "book",        label: "Book",         icon: "Activity" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
-    { id: "auto-quoter", label: "Auto-Quoter",  icon: "Bolt" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
+    { id: "book",        label: "Book",         icon: "Activity" },
+    { id: "quote",       label: "Quote",        icon: "Sparkles" },
     { id: "pnl",         label: "P&L",          icon: "Wallet" },
-    { id: "book",        label: "Client Book",  icon: "Activity" },
-    { id: "crm",         label: "CRM",          icon: "Users" },
-    { id: "leaddrip",    label: "Lead Drip",    icon: "Bolt" },
-    { id: "recruiting",  label: "Recruiting",   icon: "Users" },
-    { id: "quote",       label: "Quote Tool",   icon: "Sparkles" },
-    { id: "auto-quoter", label: "Auto-Quoter",  icon: "Bolt" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
-    { id: "tree",        label: "Tree",         icon: "Workflow" },
+    { id: "recruiting",  label: "Recruiting",   icon: "Users" },
   ],
   ops: [
     { id: "connections", label: "Connections",  icon: "Plug" },
