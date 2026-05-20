@@ -12,6 +12,7 @@
 function PageBookHost() {
   const TABS = [
     { k: "crm",       l: "CRM",        icon: "Users"        },
+    { k: "clients",   l: "Clients",    icon: "Wallet"       },
     { k: "analytics", l: "Analytics",  icon: "Activity"     },
     { k: "sources",   l: "Sources",    icon: "ArrowUpRight" },
     { k: "sequences", l: "Sequences",  icon: "Bolt"         },
@@ -50,6 +51,7 @@ function PageBookHost() {
       <Shared.SectionPill items={TABS} value={tab} onChange={setTab}/>
 
       {tab === "crm"       && Stub("PageCrm")}
+      {tab === "clients"   && Stub("PageClientBook")}
       {tab === "analytics" && Stub("PageBook")}
       {tab === "sources"   && Stub("PageAttribution")}
       {tab === "sequences" && Stub("PageLeadDrip")}
