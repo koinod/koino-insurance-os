@@ -1,0 +1,18 @@
+-- 0060 — Seed products.rate_table with state-specific Med Supp premiums
+-- (Plan G + Plan N) for the 5 in-DB Med Supp carriers across TX/FL/GA
+-- plus partial OH/PA coverage. Source: producer-guide + comparison-site
+-- research, 2026-05-20. Every cell carries a source_url + source_quote
+-- in supabase_migrations.schema_migrations.
+--
+-- Applied to prod via mcp__claude_ai_Supabase__apply_migration on
+-- 2026-05-20. This file is a ledger marker.
+--
+-- Shape: rate_table.plans.{G,N}.{base_monthly_cents, state_factors,
+-- tobacco_uplift_pct, age_factor_per_year, notes}. Consumed by
+-- /api/quote (edge fn). lib/rate-engine.js wire-up is the planned
+-- next step so the manual Quote tool also uses these state-specific
+-- numbers rather than the current national-average baseline.
+--
+-- Confidence: medium for MOO/Humana/Aetna/Cigna G in TX/FL/GA (real
+-- comparison-site citations); low for AARP/UHC (no public state table).
+-- Replace with producer-portal CSV once RBA capture is live.

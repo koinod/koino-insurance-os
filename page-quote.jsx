@@ -406,15 +406,87 @@
       window.toast && window.toast(`Quote saved · best: ${best?.carrier.name || "no match"}`, "success");
     };
 
-    const sendQuote = (q) => {
-      const channel = q.profile.phone ? "SMS" : q.profile.email ? "email" : null;
+    // Compose a short SMS-style body summarising the best pick. Stays
+    // under ~320 chars so it lands as one or two segments without
+    // truncation. Format: greeting + carrier · premium · class · CTA.
+    const composeQuoteMessage = (q) => {
+      const best = (q.ranked || [])[0];
+      const leadFirst = (q.profile?.name || "").split(" ")[0] || "there";
+      const productLabel = PRODUCT_LABELS[q.profile?.product] || q.profile?.product || "your coverage";
+      const meIdent = (window.me && window.me()) || {};
+      const repFirst = (meIdent.full_name || meIdent.name || "").split(" ")[0] || "your producer";
+      if (!best) {
+        return `Hi ${leadFirst}, here's a quick note from ${repFirst} on your ${productLabel} — give me a call to walk through the carrier options.`;
+      }
+      const price = best.displayValue || (best.premium ? `$${best.premium}/mo` : "—");
+      const klass = best.uwClass ? ` (${best.uwClass})` : "";
+      return `Hi ${leadFirst}, it's ${repFirst}. Pulled your ${productLabel}: best fit is ${best.name} at ${price}${klass}. Reply YES to lock it in or call me with questions.`;
+    };
+
+    const sendQuote = async (q) => {
+      const phone = (q.profile.phone || "").trim();
+      const email = (q.profile.email || "").trim();
+      const channel = phone ? "SMS" : email ? "email" : null;
       if (!channel) {
         window.toast && window.toast("Add a phone or email to the lead before sending", "warn");
         return;
       }
-      const next = quotes.map(x => x.id === q.id ? { ...x, sentTo: channel, status: "sent" } : x);
-      setQuotes(next); saveQuotes(next);
-      window.toast && window.toast(`Quote sent via ${channel} to ${q.profile.name || "lead"}`, "success");
+      const messageBody = composeQuoteMessage(q);
+      const meIdent = (window.me && window.me()) || {};
+
+      // Optimistic UI: mark sending. Revert if the network fails.
+      const markStatus = (status, extra = {}) => {
+        const next = quotes.map(x => x.id === q.id ? { ...x, status, ...extra } : x);
+        setQuotes(next); saveQuotes(next);
+      };
+      markStatus("sending");
+
+      if (channel === "SMS") {
+        try {
+          const r = await fetch("/api/twilio-sms", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              to: phone,
+              body: messageBody,
+              agency_id: meIdent.agency_id || null,
+              rep_id:    meIdent.rep_id    || null,
+              source:    "quote_send",
+              lead_id:   q.profile?.lead_id || null,
+            }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok && r.status !== 202) {
+            markStatus("draft", { sentTo: null });
+            window.toast && window.toast(`SMS send failed: ${j.error || r.status}`, "error");
+            return;
+          }
+          // 200 (Twilio) or 202 (local-agent outbox) both count as sent
+          markStatus("sent", { sentTo: "SMS", sentAt: new Date().toISOString(), deliveryDetail: j.delivery || (j.sid ? "twilio" : "queued") });
+          window.toast && window.toast(
+            `Quote sent via SMS to ${q.profile.name || phone}` + (j.delivery === "local_agent" ? " (queued to local agent)" : ""),
+            "success"
+          );
+        } catch (e) {
+          markStatus("draft", { sentTo: null });
+          window.toast && window.toast("SMS network error: " + (e.message || e), "error");
+        }
+        return;
+      }
+
+      // Email channel — no server endpoint wired yet, so open the rep's
+      // default mail client pre-filled. Reliable on every device, no
+      // creds needed, and the rep can edit before sending.
+      try {
+        const subject = `Your ${PRODUCT_LABELS[q.profile?.product] || "insurance"} quote`;
+        const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(messageBody)}`;
+        window.open(href, "_blank");
+        markStatus("sent", { sentTo: "email", sentAt: new Date().toISOString(), deliveryDetail: "mailto_handoff" });
+        window.toast && window.toast(`Email draft opened for ${q.profile.name || email}`, "success");
+      } catch (e) {
+        markStatus("draft", { sentTo: null });
+        window.toast && window.toast("Email handoff failed: " + (e.message || e), "error");
+      }
     };
 
     const markConverted = (q) => {

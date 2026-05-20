@@ -28,6 +28,20 @@
         { "key": "Content-Type",  "value": "text/x-python; charset=utf-8" },
         { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
       ]
+    },
+    {
+      "source": "/agent/install\\.ps1",
+      "headers": [
+        { "key": "Content-Type",  "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
+      ]
+    },
+    {
+      "source": "/agent/install\\.sh",
+      "headers": [
+        { "key": "Content-Type",  "value": "text/x-sh; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
+      ]
     }
   ],
   "crons": [
