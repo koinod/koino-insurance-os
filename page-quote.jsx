@@ -269,7 +269,7 @@
         if (error) throw error;
         setAgentReqId(data.id);
         window.toast && window.toast(
-          `Agent queued · ${toRun.length} carrier${toRun.length === 1 ? "" : "s"} · RBA picks up when running`,
+          `Live rates requested · ${toRun.length} carrier${toRun.length === 1 ? "" : "s"} · results stream in as the agent finishes each portal`,
           "info"
         );
       } catch (e) {
@@ -440,6 +440,48 @@
     // (groundingTick state + listener declared earlier — above quoteResults
     // useMemo — so the dep array can reference it without hitting TDZ.)
     const grounding = window.UW_GROUNDING || { status: "loading", carriers: 0, products: 0, rules: 0 };
+
+    // Recent live-rate runs (last 5 RBA sessions for this rep). Surfaces
+    // historical agent dispatches inline so the rep can flip back to a
+    // 10-min-old result without leaving the Quote tab. Folds the former
+    // /auto-quoter page into Quote tool — credentials + install screens
+    // still live under Admin → Auto-Quoter.
+    const [recentRuns, setRecentRuns] = useState([]);
+    useEffect(() => {
+      const sb = window.getSupabase && window.getSupabase();
+      const meIdent = window.me && window.me();
+      if (!sb || !meIdent?.rep_id || !window.AppData?.LIVE) return;
+      let cancelled = false;
+      const fetchRuns = async () => {
+        try {
+          const { data } = await sb
+            .from("auto_quote_requests")
+            .select("id, profile, status, created_at, auto_quote_results(status, carrier_id, premium_cents)")
+            .eq("rep_id", meIdent.rep_id)
+            .order("created_at", { ascending: false })
+            .limit(5);
+          if (!cancelled) setRecentRuns(data || []);
+        } catch (_) {}
+      };
+      fetchRuns();
+      const iv = setInterval(fetchRuns, 8000);
+      return () => { cancelled = true; clearInterval(iv); };
+    }, [agentReqId, agentRunStatus]);
+
+    const loadRunIntoProfile = (run) => {
+      if (!run?.profile) return;
+      setProfile(p => ({ ...p, ...run.profile }));
+      window.toast && window.toast("Profile loaded from prior live-rates run", "info");
+    };
+
+    const timeAgo = (iso) => {
+      if (!iso) return "—";
+      const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+      if (s < 60)    return `${s}s ago`;
+      if (s < 3600)  return `${Math.round(s / 60)}m ago`;
+      if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+      return `${Math.round(s / 86400)}d ago`;
+    };
 
     return (
       <div className="page-pad">
@@ -938,10 +980,15 @@
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  Premium = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. <strong>Every underwriting rule (decline lists, BMI bands, tobacco, age bands, state availability) and every narrative line (sweet spot, discounts, citations) comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code></strong> — edit via Admin → Carriers; no JSON or hardcoded fallback is consulted. Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Click <strong>Run Quote Agent</strong> to fetch live rates from carrier portals.
+                  <strong>Engine estimate</strong> = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. Every underwriting rule and narrative line comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code> (edit via Admin → Carriers; no JSON or hardcoded fallback). Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Hit <strong>Get live carrier rates</strong> below to replace the engine estimates with binding numbers pulled from each carrier's actual portal.
                 </div>
 
-                {/* Run Quote Agent — inserts into auto_quote_requests; RBA picks up */}
+                {/* Get live carrier rates — dispatches the RBA (Role-Based
+                    Agent) to log into each appointed carrier's portal and
+                    return binding quotes. Inserts auto_quote_requests row;
+                    the local Playwright agent on the rep's machine polls
+                    that table, runs the carrier flows, and streams results
+                    back into agentResults (badges render on each carrier row). */}
                 <div style={{
                   marginTop: 10, padding: "10px 12px",
                   background: "color-mix(in oklch, var(--accent-money) 5%, var(--bg-elevated))",
@@ -955,7 +1002,7 @@
                     style={{ padding: "8px 14px", fontSize: 12.5 }}
                   >
                     <Icons.Sparkles size={13}/>
-                    Run Quote Agent
+                    Get live carrier rates
                     {(agentRunStatus === "queued" || agentRunStatus === "running") && (
                       <span style={{ marginLeft: 6, fontSize: 10.5, opacity: 0.75 }}>{agentRunStatus}…</span>
                     )}
@@ -974,18 +1021,63 @@
 
                   {agentRunStatus === "idle" && (
                     <span style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
-                      Inserts into <code style={{ fontSize: 10 }}>auto_quote_requests</code> ·
-                      your local RBA (Playwright agent) picks up the row, navigates each carrier portal,
-                      and streams results back here.
+                      Replaces engine estimates above with binding quotes pulled from each carrier's portal (~60-90s). Requires the local RBA agent + carrier creds — set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "admin" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
                     </span>
                   )}
 
                   {agentRunStatus !== "idle" && agentReqId && (
-                    <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                    <span style={{ fontSize: 10, color: "var(--text-tertiary)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
                       req {agentReqId.slice(0, 8)}…
                     </span>
                   )}
                 </div>
+
+                {/* Recent live runs — last 5 RBA dispatches for this rep.
+                    Click a row to re-populate the profile from that run so
+                    the rep can flip back to a 10-min-old quote without
+                    leaving the Quote tab. */}
+                {recentRuns.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, paddingLeft: 2 }}>
+                      Recent live runs · {recentRuns.length}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {recentRuns.map(run => {
+                        const results = Array.isArray(run.auto_quote_results) ? run.auto_quote_results : [];
+                        const okCount   = results.filter(r => r.status === "ok").length;
+                        const failCount = results.filter(r => r.status && r.status !== "ok").length;
+                        const p = run.profile || {};
+                        const productLabel = PRODUCT_LABELS[p.product] || p.product || "—";
+                        const isActive = run.id === agentReqId;
+                        return (
+                          <div key={run.id}
+                               onClick={() => loadRunIntoProfile(run)}
+                               title="Load this profile back into the form"
+                               style={{
+                                 display: "grid", gridTemplateColumns: "70px 100px 70px 1fr auto",
+                                 alignItems: "center", gap: 10, padding: "6px 10px",
+                                 borderRadius: 5, cursor: "pointer", fontSize: 11.5,
+                                 background: isActive ? "color-mix(in oklch, var(--accent-money) 10%, transparent)" : "var(--bg-raised)",
+                                 border: "1px solid " + (isActive ? "color-mix(in oklch, var(--accent-money) 35%, transparent)" : "var(--border-subtle)"),
+                               }}>
+                            <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10.5 }}>{timeAgo(run.created_at)}</span>
+                            <span className="chip" style={{ fontSize: 10 }}>{productLabel}</span>
+                            <span style={{ color: "var(--text-secondary)" }}>{p.state || "—"} · {p.age || "—"}</span>
+                            <span style={{ color: "var(--text-secondary)" }}>
+                              {okCount > 0 && <span style={{ color: "var(--accent-money)", fontWeight: 600 }}>{okCount} live</span>}
+                              {okCount > 0 && failCount > 0 && <span style={{ color: "var(--text-tertiary)" }}> · </span>}
+                              {failCount > 0 && <span style={{ color: "var(--text-tertiary)" }}>{failCount} skipped</span>}
+                              {okCount === 0 && failCount === 0 && <span style={{ color: "var(--text-tertiary)" }}>{run.status || "pending"}</span>}
+                            </span>
+                            <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
+                              {run.id.slice(0, 6)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
