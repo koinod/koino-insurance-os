@@ -64,6 +64,126 @@ Three load-bearing pieces:
    `agency_notifications` rows to owners/admins/imo_owners/super_admins
    on any non-zero count, idempotent within 22h.
 
+### Migration `0058_db_only_underwriting_narrative` — DB is the SOLE UW source
+
+The earlier "JSON narrative survives DB hydrate" merge from commit
+`d732233` (above) was a stepping stone. After 0058, **there is no
+JSON merge.** `lib/rate-engine.js::loadGuides()` and the `fetch(
+"/lib/carrier-underwriting.json")` call are **deleted.** `UW_GUIDES`
+starts empty and is populated solely by `hydrateFromSupabase()`.
+`lib/carrier-underwriting.json` is renamed to `.deprecated.json` so
+no future fetch can find it.
+
+`rule_type='narrative'` is the new vocabulary entry — added to the
+CHECK constraint in 0058 via DROP+ADD (there's no `ALTER CONSTRAINT`
+for CHECK lists). Narrative rows carry `sweet_spot`, `discounts`,
+`uw_classes_notes`, `tobacco_notes`, `build_notes`, `confidence`,
+`graded_period_months`, etc. in `payload`. `rulesToGuide()` merges
+those keys into the product body.
+
+`window.UW_GROUNDING = { source, status, carriers, products, rules,
+loadedAt, error }` is the public signal. UI listens for
+`carrier-uw:loaded`.
+
+**Do not** revive the JSON fetch. **Do not** treat `CARRIER_NICHES.
+underwriting` blobs as authoritative for eligibility — they are
+roster + `fit()` scoring hints only.
+
+### Migration `0059a–d` — 7 new carriers + Corebridge IUL/MYGA + source backfill
+
+7 carriers added: `transamerica`, `ethos`, `americanamicable`,
+`foresters`, `sbli`, `instabrain` (aggregator — Fidelity Life paper),
+`americo`. Plus two new products under existing `aig` carrier:
+Corebridge QoL Max Accumulator+ III IUL and Corebridge American
+Pathway Fixed 5/7 MYGA.
+
+Each new (carrier, product) carries eligibility rules + a narrative
+row, all citing producer-guide form numbers or carrier-published
+pages. **Every rule has `source_url` + `source_quote`** — research
+agents were instructed to omit rather than invent.
+
+0059b also backfilled `source_url` on the 55 prior approved rules
+that lacked citations. Prod state: 171 approved rules, 100% with
+sources, 28 products / 100% with a narrative.
+
+**Do not** insert an approved rule without `source_url` +
+`source_quote`. Add a `RAISE EXCEPTION` verify block in any migration
+that adds eligibility rules.
+
+### Migration `0060_state_rate_sheets_medsupp` — `rate_table.plans.{G,N}` shape
+
+State-specific Med Supp premiums seeded into `products.rate_table`
+for 5 carriers × Plan G + Plan N. The shape:
+
+```json
+{
+  "plans": {
+    "G": { "base_monthly_cents": 19100, "state_factors": {"TX": 1.0, "FL": 1.84, ...}, "tobacco_uplift_pct": 10, "age_factor_per_year": 300 },
+    "N": { ... }
+  },
+  "confidence": "medium|low",
+  "sources": [...],
+  "captured_at": "..."
+}
+```
+
+`base_monthly_cents` anchors at the lowest-rate state; other states
+are multiplicative factors. Plan G and Plan N share the same product
+row (1 product per carrier in DB) — hence the `plans` wrapper.
+
+**TODO**: `/api/quote` currently reads `rate_table.base_monthly_cents`
+flat. To honor variant pricing it needs to read
+`rate_table.plans[<variant>]`. Same for `lib/rate-engine.js` if we
+want the manual Quote tool to use these DB-sourced state rates.
+
+### `page-quote.jsx::sendQuote()` — wired to real endpoints
+
+No longer a localStorage stub. SMS goes through `/api/twilio-sms`
+(existing edge fn with two-tier delivery: Twilio primary →
+`sms_outbox` fallback for the rep's local Repflow Agent). Email opens
+`mailto:<addr>?subject=...&body=...` in the rep's default client —
+no SMTP creds, no server endpoint needed, works on every device.
+
+`composeQuoteMessage()` generates a 320-char SMS body summarising the
+best pick. Optimistic UI: `draft → sending → sent` with
+`deliveryDetail` tracking the path (`twilio` / `local_agent` /
+`mailto_handoff`). Reverts to `draft` on network failure.
+
+**Do not** delete the mailto: branch in favour of an SMTP endpoint
+without first adding sender-domain + DKIM + reply-tracking. The
+mailto handoff is a deliberate v1 choice.
+
+### `vercel.json` — install routes need explicit Content-Type
+
+Static files in `/agent/` that aren't `.py` (i.e. `install.ps1`,
+`install.sh`) are served with the wrong MIME unless explicit headers
+are declared. PowerShell's `iwr -useb ... | iex` install one-liner
+silently breaks on wrong content-type — and the 200 status hides it
+from monitoring.
+
+The `headers` block has explicit entries for `/agent/install\\.ps1`
+(`text/plain`) and `/agent/install\\.sh` (`text/x-sh`). **Do not
+remove these** unless you've moved the installers under `public/agent/`
+or otherwise verified `curl -I` returns the correct Content-Type.
+
+### Quote tool + Auto-Quoter unification
+
+Quote tool (`page-quote.jsx`) is the single rep-facing surface for
+both engine estimates AND live carrier-portal quoting. The
+`/auto-quoter` route stays alive for Admin (carrier creds + session
+capture + Playwright install screens), but it has no sidebar entry.
+
+The "Get live carrier rates" button in Quote tool inserts into
+`auto_quote_requests`; the local Playwright daemon (`agent/quote_agent.py`)
+picks it up and writes results to `auto_quote_results`. Realtime sub
+in `page-quote.jsx` streams them into the carrier rows as `live $X/mo`
+badges. A "Recent live runs" strip below the CTA shows the last 5
+RBA sessions for this rep with click-to-load profile re-population.
+
+**Do not** re-add Auto-Quoter to any sidebar (rep, manager). Reps
+manage everything from the Quote tab; admin manages creds from
+Admin → Auto-Quoter.
+
 ---
 
 ## Repo architecture (the non-obvious parts)
@@ -128,8 +248,19 @@ DB. For DB-grounded smokes use real agencies:
 
 ## Useful entry points
 
-- **Quote tool:** `page-quote.jsx` + `lib/rate-engine.js` +
-  `lib/carrier-underwriting.json` + `public.product_underwriting_rules`.
+- **Quote tool (manual estimates):** `page-quote.jsx` +
+  `lib/rate-engine.js` + `public.product_underwriting_rules` +
+  `page-queue.jsx` (`CARRIER_NICHES` roster).
+- **Quote tool (live carrier rates / RBA):** "Get live carrier rates"
+  button → `auto_quote_requests` row → `agent/quote_agent.py`
+  (local Playwright daemon) picks it up → writes `auto_quote_results`
+  → realtime sub in `page-quote.jsx:449-469` streams them back. Admin
+  surface for creds + install + session capture: `page-auto-quoter.jsx`
+  reachable from Admin nav (no sidebar entry). Delivery plan:
+  `RBA-DELIVERY-PLAN-2026-05-20.md`.
+- **Send quote:** `page-quote.jsx::sendQuote()` → `/api/twilio-sms`
+  for SMS (existing edge fn, two-tier delivery) or `mailto:` handoff
+  for email.
 - **Invites:** `page-invite-team.jsx` → `api/invites/create.js` →
   `mint_invite` RPC → `?invite=<token>` → `redeem_invite` RPC →
   `page-auth.jsx` handles redemption on first auth event.

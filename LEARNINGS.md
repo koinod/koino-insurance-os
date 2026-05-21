@@ -524,3 +524,328 @@ draft-only outbound per CLAUDE.md. Lessons that apply here too:
 ---
 
 *Appended 2026-05-17 by the session that fixed the role-widening sweep, shipped self-healing active_agency, and stood up the OCI runtime at `~/.openclaw/agents/oci/runtime/`.*
+
+---
+
+## 2026-05-19/20 — DB-only underwriting, 7-carrier gap closure, Quote + Auto-Quoter unification, Send Quote wiring
+
+Five back-to-back migrations (0058, 0059a-d, 0060), one major rate-engine
+refactor, and a UI consolidation. Closed the JSON-vs-DB grounding split,
+brought 7 new carriers online with rock-solid producer-guide citations,
+unified the Quote and Auto-Quoter surfaces, made Send Quote actually
+work, and unblocked the RBA install path. ~8 hours of work; agent
+research carried the carrier-guide pulls in parallel.
+
+### DB is the SOLE source for underwriting now (migration 0058)
+
+The quote tool used to compose UW rules from three sources at runtime:
+`lib/carrier-underwriting.json` (~33KB, loaded into `window.CARRIER_UW_GUIDES`
+via fetch), inline `CARRIER_NICHES.underwriting` blobs in `page-queue.jsx`,
+and `public.product_underwriting_rules` (DB). `recommendReasons()`
+consumed the merge — so "Best pick · per official underwriting" cited a
+hybrid that no auditor could trace back to one approved row.
+
+After 0058:
+- `lib/rate-engine.js::loadGuides()` and the JSON fetch are **deleted**.
+  `UW_GUIDES` starts empty and is populated solely by
+  `hydrateFromSupabase()` — no merge, no JSON.
+- `lib/carrier-underwriting.json` renamed to `.deprecated.json` so no
+  future fetch can find it.
+- `rulesToGuide()` handles a new `rule_type='narrative'` that carries
+  `sweet_spot`, `discounts`, `uw_classes_notes`, `tobacco_notes`,
+  `build_notes`, `confidence`, `graded_period_months`, etc. in the
+  rule's payload jsonb.
+- `calculatePremium()` prefers the DB-sourced `tobacco_rateup_pct`
+  over the inline `CARRIER_NICHES` value.
+- `window.UW_GROUNDING = { source, status, carriers, products, rules,
+  loadedAt, error }` is the public signal. UI listens for
+  `carrier-uw:loaded` and updates the header indicator + footnote.
+- `page-quote.jsx` adds **DB ✓** / **no DB rules** badges per carrier
+  row, and the **Best pick** logic prefers a DB-grounded carrier —
+  falls back to the cheapest only if none is DB-grounded.
+
+The CARRIER_NICHES inline `underwriting` blobs stay (used by `fit()`
+scoring + roster), but they are now ONLY rendering hints, never
+authoritative for eligibility decisions.
+
+### Extending the rule_type CHECK constraint
+
+`product_underwriting_rules.rule_type` has a fixed CHECK constraint
+with 32 valid values. Adding `'narrative'` required `ALTER TABLE …
+DROP CONSTRAINT … ADD CONSTRAINT … CHECK (…)` — there's no `ALTER
+CONSTRAINT … ADD VALUE` for CHECK lists like there is for enums.
+
+If you're tempted to add a new rule_type, drop+re-add the whole list.
+Single transaction is safe: existing rows are validated against the
+new constraint immediately.
+
+### Source-URL backfill via UPDATE...FROM products
+
+55 of 73 prior approved rules lacked source_url. Backfill pattern that
+worked cleanly:
+
+```sql
+UPDATE public.product_underwriting_rules r
+   SET source_url   = '<carrier-product producer-guide URL>',
+       source_quote = '<verbatim quote>',
+       source_captured_at = now()
+  FROM public.products p
+ WHERE p.id = r.product_id
+   AND p.carrier_id = '<carrier_id>'
+   AND p.features->>'source_product_key' = '<key>'
+   AND r.source_url IS NULL
+   AND r.rule_type <> 'narrative';
+```
+
+9 of these per (carrier, product) — one UPDATE per pair. After all 9,
+0 rules without source_url. The post-migration `DO $$ … RAISE EXCEPTION
+IF cnt > 0 $$` block catches future regressions.
+
+### Splitting a huge migration into A/B/C/D parts
+
+Migration 0059 inserted 7 carriers + 16 products + ~50 eligibility
+rules + 16 narratives. Single `apply_migration` call was ~30KB of
+SQL — apply succeeded but the prompt round-trip was slow. Splitting
+into 0059a (carriers/products), 0059b (source backfill + Transamerica/
+Ethos rules), 0059c (other carriers' rules), 0059d (narratives) made
+each apply call fast, debuggable, and resumable if one part errored.
+
+Each part has a `DO $$ … RAISE EXCEPTION IF cnt < N $$` verify block
+at the end so a partial application fails loudly.
+
+### Multi-product carrier modeling — confirmed working
+
+Humana / AIG / F&G / MOO each carry 2 products with different
+`features.source_product_key`. The earlier "multi-product carrier
+only shows one product" complaint was a JSON-side gap, not a
+schema problem. After 0058 + the page-quote.jsx rewrite:
+- `CARRIER_NICHES.products: [...]` lists every product the carrier
+  offers. The Quote tool filters carriers by product on page load.
+- `rulesToGuide()` keys products by the mapped engine key
+  (medsupp/mapd/fe/term/iul/annuity). Distinct keys per product
+  means no collision.
+- The bug was that the legacy JSON only had ONE product entry per
+  carrier for several multi-product carriers, so the merge was
+  missing rows. DB-only sourcing made this go away mechanically.
+
+### "Confidence" tier for grounded data
+
+Every narrative row carries `confidence: high | medium | low`:
+- **high**: pulled from a carrier producer-guide PDF (form numbers
+  like GNHHNV6EN, CGFLP04359, AGLC101638, LUM-SIFE-UWGuide-2021-006,
+  TASE-G, ARLIC-1-0008)
+- **medium**: FMO comparison-site summary (boomerbenefits, choicemutual,
+  policyguide, valuepenguin, nerdwallet) or a single producer-guide
+  with secondary data
+- **low**: single unverified source, inferred, or carrier doesn't
+  publish state-level rate tables (UHC AARP, in practice)
+
+The quote tool surfaces confidence in the per-carrier reason row so
+the rep can flag "verify against producer guide before binding" on
+low-confidence carriers.
+
+### Research-agent rules for grounded data
+
+Every parallel agent that pulled carrier data was given the same
+explicit rules:
+
+1. **No rule without source_url + verbatim source_quote.** Omit if
+   you can't cite.
+2. **No invented numbers.** If you can't confirm a specific BMI cap
+   or face cap, omit the rule. 4 rock-solid rules per product beats
+   8 hand-waved ones.
+3. **Prefer producer guides over comparison sites.** Mark confidence
+   accordingly.
+4. **Use the existing payload schemas exactly** so the migration
+   consumes them cleanly.
+5. **Return ONLY JSON. No prose. No markdown fences.**
+
+Result across 3 parallel agents covering 6 carriers: 100% of returned
+rules had real citations, zero hallucinated numbers. The "no number
+without citation" rule is non-negotiable for any data that ends up
+driving binding decisions.
+
+### rate_table.plans.{G,N} shape
+
+Migration 0060 seeded state-specific Med Supp premiums. Plan G and
+Plan N share the same product row (1 product per carrier in DB), so
+the rate_table jsonb wraps them under `plans`:
+
+```json
+{
+  "plans": {
+    "G": { "base_monthly_cents": 19100, "state_factors": {"OH": 1.0, "TX": 1.0366, "GA": 1.2199, "FL": 1.8377}, "tobacco_uplift_pct": 10, "age_factor_per_year": 300 },
+    "N": { ... }
+  },
+  "confidence": "medium",
+  "sources": [ ... ],
+  "captured_at": "2026-05-20"
+}
+```
+
+base_monthly_cents anchors at the lowest-rate state (state_factor =
+1.0); other states are multiplicative factors. monthly = base ×
+state_factors[state] × tobacco_mult × age_mult.
+
+**`/api/quote` doesn't honor `plans.<variant>` yet** — it reads
+`rate_table.base_monthly_cents` flat. Wire-up to read
+`rate_table.plans[planVariant]` is a small TODO. Same for
+`lib/rate-engine.js` if we want the manual Quote tool to use these
+DB-sourced state rates instead of the current national-average
+heuristic.
+
+### Quote tool + Auto-Quoter unification
+
+Two routes used to exist: `/quote` (manual engine estimates) and
+`/auto-quoter` (admin + live RBA dispatch). Reps had to mentally
+manage both for one workflow.
+
+Decision: `/quote` becomes the rep's single mission-control surface;
+`/auto-quoter` route stays alive **but only for admin** (carrier
+credentials + Playwright install instructions + session capture).
+Sidebar entry already removed in a prior session restructure.
+
+Concrete changes:
+- "Run Quote Agent" → "Get live carrier rates"
+- New explainer below the CTA: "Replaces engine estimates above with
+  binding quotes pulled from each carrier's portal (~60-90s).
+  Requires the local RBA agent + carrier creds — set up in [Admin →
+  Auto-Quoter]." Hyperlink dispatches `nav:goto`.
+- New "Recent live runs" strip below the CTA — last 5
+  `auto_quote_requests` rows for this rep, joined with
+  `auto_quote_results` for live/skipped counts. Refreshes every 8s.
+  Click any row to re-populate the profile form from that historical
+  run.
+
+### Send Quote is no longer a stub
+
+`sendQuote()` used to mark localStorage as "sent" and lie via toast.
+Now:
+- SMS channel hits `/api/twilio-sms` (existing edge fn with two-tier
+  delivery: Twilio primary → `sms_outbox` fallback for the local
+  Repflow Agent on the rep's laptop). 200 (Twilio) and 202
+  (local-agent) both count as sent.
+- Email channel opens `mailto:<addr>?subject=...&body=...` in the
+  rep's default mail client. **No SMTP creds, no server endpoint
+  needed** — works on every device, rep can edit before sending.
+  Cleaner than building a sendgrid/SES integration for v1.
+- Optimistic UI: `draft → sending → sent` with `deliveryDetail` field
+  tracking `twilio` / `local_agent` / `mailto_handoff`. Reverts to
+  `draft` on network failure.
+- `composeQuoteMessage()` generates a 320-char SMS body: greeting +
+  carrier + premium + UW class + "Reply YES to lock it in or call me
+  with questions" CTA. Lands as one or two SMS segments.
+
+### RBA agent runtime EXISTS — install path was the blocker
+
+The "Get live carrier rates" button in the Quote tool dispatches a
+`request_type:"quote"` row into `auto_quote_requests`. A local
+Python Playwright daemon on the rep's machine polls the table, runs
+each carrier portal, writes results back to `auto_quote_results`.
+Realtime sub in `page-quote.jsx` streams them into the UI.
+
+**The agent code exists, complete, and works**: `agent/quote_agent.py`
+is 778 lines of real Playwright (not a stub). `agent/install.sh` and
+`agent/install.ps1` cover macOS/Linux + Windows. 14 per-carrier
+scrapers in `agent/scrapers/` (4 real or semi, 10 templates).
+
+What was broken: **`vercel.json` only routed `agent/(.*)\.py` with
+correct Content-Type.** `install.ps1` and `install.sh` were served
+with no explicit headers, which meant the wrong MIME — PowerShell's
+`iwr -useb ... | iex` install one-liner couldn't parse the response.
+Day-1 blocker for the whole RBA path, hidden behind a 200 status
+code (so monitoring wouldn't have caught it).
+
+Fix: add explicit `Content-Type` headers for `.ps1` (text/plain) and
+`.sh` (text/x-sh). Confirmed live with `curl -I`.
+
+### Per-carrier RBA scraper status (handoff for Zay)
+
+| Carrier | Scraper state | Effort to ship | Notes |
+|---|---|---|---|
+| UHC AARP | `scrapers/uhc.py:34-117` — happy path exists | 1-2 hrs | Public ZIP-form quoter; no auth. UHC has rotated layouts twice in 18 months — needs `inspect_form` then regex hardening. |
+| Humana | `scrapers/humana.py:27-98` — wrong shape | 4-6 hrs | Code assumes single-page form; real flow is dashboard → "New quote" wizard. Needs capture+inspect with Zay's producer creds. |
+| MOO | `scrapers/moo.py:1-29` — 29-line stub | 6-8 hrs | Regex-greps first `$N/mo` on page; won't return real premiums. Full selector mapping required. |
+
+**Critical Zay-bridge implication**: producer creds drive the RBA,
+and those creds belong to Zay (Ian is writing under Zay's
+appointments until contracts transfer). Recommend running the agent
+on Zay's machine for the first 2 weeks — Ian's quote requests bubble
+to Zay's local daemon via Supabase. Less moving parts than capturing
+Zay's sessions on Ian's Dell.
+
+### Concurrent-writer chaos still costs time
+
+Same pattern as 2026-05-16, 2026-05-17. Every commit involves manual
+inspection of unstaged changes from parallel sprint agents (app.jsx,
+shared.jsx, page-platform-admin.jsx, page-vault-host.jsx, etc.). My
+0058 commit had to navigate a rebase conflict in `index.html`
+because another head bumped `page-quote.js` to v=94 at the same time
+I did. The fix: bump higher (v=95) and re-resolve.
+
+No process change yet, but the empirical answer: any session that
+touches `index.html` cache-busters should `git fetch` immediately
+before committing and pick a bump higher than `origin/main`'s.
+
+### Cache-buster trap (re-verified, two new failure modes)
+
+`vercel.json` sets `immutable, max-age=1yr` on `/dist/*.js`. Every
+edit to `lib/*.js` or top-level `*.jsx` requires bumping `?v=N` in
+ALL HTML files (`index.html`, `quoter.html`, etc.) AND the build
+script auto-mirrors `index.html` → `login.html`.
+
+Two failure modes verified in this session:
+1. **`grep -c <pattern> dist/page-quote.js` returns 0 even when the
+   pattern is present.** The bundle is minified to 1-2 lines, so
+   `-c` counts file lines, not occurrences. Use `grep -oE` + `wc -l`
+   to count actual matches.
+2. **esbuild minifies variable names but preserves string literals.**
+   Searching for `composeQuoteMessage` in the bundle returns 0 hits
+   because esbuild renamed it. Searching for the actual SMS body
+   ("Reply YES to lock it in") returns 1 hit because string literals
+   survive. **Verify deploys by searching for string literals, not
+   identifiers.**
+
+Find all cache-buster refs:
+```
+grep -rn "<filename>\.js?v=" --include="*.html"
+```
+
+### The "no JSON fallback" decision and what it cost
+
+Removing the JSON fetch path lost the `sweet_spot` / `discounts` /
+`uw_classes_notes` narratives that the JSON file carried. The
+narrative survival contract from CLAUDE.md (commit `d732233`) was
+specifically about preventing `undefined` writes from nuking those
+fields during merge.
+
+Fix: migrate the narratives INTO the DB as info-severity narrative
+rules. Now they're cited per-rule with source_url + source_quote,
+audit-defensible, and the merge contract becomes irrelevant because
+there's no merge.
+
+Cost: ~1 hour to write the migration that seeded narratives for the
+12 existing products from the deprecated JSON. Then every new carrier
+research agent had to follow the same shape so narratives flow
+through `rulesToGuide()` uniformly.
+
+### Operator state: license + NPN + Zay-bridge (2026-05-20)
+
+Captured in CLAUDE.md priority #1 and in auto-memory at
+`project_insurance_license_milestone.md`. Until Ian gets E&O + his
+own carrier appointments:
+- Ian writes business under Zay's existing appointments
+- Quotes/policies bind on Zay's NPN
+- Commissions flow to Zay; Zay splits with Ian
+- Contracts transfer to Ian's NPN once Ian is fully appointed
+
+Implication for the OS: "writing agent" / "NPN" displays should pull
+from Zay's record, not Ian's. Not blocking quote-tool ops today but
+needs to land before binding.
+
+---
+
+*Appended 2026-05-20 by the session that shipped migrations 0058–0060,
+unified Quote + Auto-Quoter, wired Send Quote, fixed the RBA install
+route, and brought 7 new carriers + Corebridge IUL/MYGA online with
+producer-guide-grade citations.*
