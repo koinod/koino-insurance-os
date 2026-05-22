@@ -268,6 +268,19 @@
         }).select("id").single();
         if (error) throw error;
         setAgentReqId(data.id);
+        // Analytics: capture for PostHog funnel (lead → quote → deal).
+        try {
+          window.posthog && window.posthog.capture && window.posthog.capture("quote_run", {
+            request_id:    data.id,
+            carrier_count: toRun.length,
+            carriers:      toRun,
+            product:       profileForEngine?.product || null,
+            state:         profileForEngine?.state || null,
+            age:           profileForEngine?.age || null,
+            bmi:           bmi || null,
+            request_type:  "quote",
+          });
+        } catch (_e) { /* analytics never blocks the request */ }
         window.toast && window.toast(
           `Live rates requested · ${toRun.length} carrier${toRun.length === 1 ? "" : "s"} · results stream in as the agent finishes each portal`,
           "info"

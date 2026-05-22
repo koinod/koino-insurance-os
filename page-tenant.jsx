@@ -92,6 +92,13 @@ async function maybeRedeemInvite() {
     window.toast && window.toast(`Invite: ${error.message}`, "error");
     return null;
   }
+  // Analytics: capture for PostHog activation funnel.
+  try {
+    window.posthog && window.posthog.capture && window.posthog.capture("invite_redeemed", {
+      source:       "tenant_picker",
+      token_prefix: String(token).slice(0, 8),
+    });
+  } catch (_e) { /* analytics never blocks */ }
   // Strip the invite from the URL
   const url = new URL(window.location.href);
   url.searchParams.delete("invite");
@@ -125,6 +132,15 @@ function OnboardingWizard({ onComplete }) {
       const { data, error } = await sb.rpc("create_agency", { p_name: form.name, p_slug: form.slug, p_state: form.state });
       if (error) throw error;
       setAgencyId(data);
+      // Analytics: capture for PostHog SaaS-side new-tenant funnel.
+      try {
+        window.posthog && window.posthog.capture && window.posthog.capture("agency_created", {
+          agency_id: data,
+          name:      form.name,
+          state:     form.state,
+          source:    "tenant_setup_wizard",
+        });
+      } catch (_e) { /* analytics never blocks */ }
       window.toast && window.toast("Agency created · " + form.name, "success");
       setStep(1);
     } catch (e) {

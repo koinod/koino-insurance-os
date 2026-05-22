@@ -289,6 +289,16 @@
         });
         if (error) throw error;
         const token = typeof data === "string" ? data : (data?.token || null);
+        // Analytics: capture for PostHog recruiter funnel.
+        try {
+          window.posthog && window.posthog.capture && window.posthog.capture("invite_minted", {
+            role:        "rep",
+            source:      "recruiting",
+            email_hint:  a.email || a.handle || null,
+            has_upline:  !!me.rep_id,
+            has_token:   !!token,
+          });
+        } catch (_e) { /* analytics never blocks */ }
         if (token) {
           const link = `${window.location.origin}/?invite=${token}`;
           try { await navigator.clipboard.writeText(link); } catch (_e) {}

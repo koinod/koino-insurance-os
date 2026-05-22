@@ -6065,6 +6065,17 @@ function SettingsProfile({ role }) {
       }
       const r = await sb.rpc("save_profile", { p: patch });
       if (r.error) throw r.error;
+      // Analytics: capture for PostHog onboarding-completion signal.
+      try {
+        window.posthog && window.posthog.capture && window.posthog.capture("profile_saved", {
+          source:        "settings",
+          fields:        Object.keys(patch),
+          field_count:   Object.keys(patch).length,
+          has_avatar:    !!patch.avatar_url,
+          has_npn:       !!patch.npn,
+          has_licensing: Array.isArray(patch.licensed_states) && patch.licensed_states.length > 0,
+        });
+      } catch (_e) { /* analytics never blocks */ }
       setSaveMsg("Saved.");
       window.toast && window.toast("Profile saved", "success");
       // Refresh me() so any header chip / sidebar greeting picks up the new

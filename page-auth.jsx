@@ -390,6 +390,13 @@ function AuthGate({ children }) {
         if (error) {
           window.toast && window.toast(`Invite: ${error.message}`, "error");
         } else {
+          // Analytics: capture for PostHog activation funnel.
+          try {
+            window.posthog && window.posthog.capture && window.posthog.capture("invite_redeemed", {
+              source:       "auth_flow",
+              token_prefix: String(token).slice(0, 8),
+            });
+          } catch (_e) { /* analytics never blocks */ }
           window.toast && window.toast("Joined the agency · welcome", "success");
         }
       } catch (e) {

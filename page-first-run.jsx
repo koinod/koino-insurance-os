@@ -199,6 +199,13 @@ function StartPicker({ session, onPicked }) {
     try {
       const { error } = await sb.rpc("redeem_invite", { p_token: inviteToken.trim() });
       if (error) throw error;
+      // Analytics: capture for PostHog activation funnel.
+      try {
+        window.posthog && window.posthog.capture && window.posthog.capture("invite_redeemed", {
+          source:       "first_run",
+          token_prefix: inviteToken.trim().slice(0, 8),
+        });
+      } catch (_e) { /* analytics never blocks */ }
       window.toast && window.toast("Invite redeemed · welcome", "success");
       onPicked({ joined: true });
     } catch (e) {
@@ -693,6 +700,17 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
         const j = await r2.json().catch(() => ({}));
         token = j?.token || null;
       }
+      // Analytics: capture for PostHog recruiter funnel.
+      if (token) {
+        try {
+          window.posthog && window.posthog.capture && window.posthog.capture("invite_minted", {
+            role:       role,
+            source:     "first_run",
+            email_hint: email,
+            has_token:  true,
+          });
+        } catch (_e) { /* analytics never blocks */ }
+      }
       return token;
     } catch (e) {
       return null;
@@ -979,6 +997,15 @@ function AgencyWizard({ agency, onDone }) {
           if (payload.npn)           userPatch.npn       = payload.npn;
           if (Object.keys(userPatch).length > 0) {
             await sb.rpc("save_profile", { p: userPatch });
+            // Analytics: capture for PostHog onboarding-completion signal.
+            try {
+              window.posthog && window.posthog.capture && window.posthog.capture("profile_saved", {
+                source:      "first_run",
+                fields:      Object.keys(userPatch),
+                field_count: Object.keys(userPatch).length,
+                has_npn:     !!userPatch.npn,
+              });
+            } catch (_e) { /* analytics never blocks */ }
           }
         } catch (_userErr) { /* non-blocking — agency profile still saves below */ }
       }
