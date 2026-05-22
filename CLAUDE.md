@@ -8,6 +8,99 @@ both if you haven't seen this repo before.
 
 ---
 
+## Guiding principles for wider-view coding
+
+These exist because granular "MUST NOT BREAK" entries below catch
+*known* regressions; this section is for the *class* of mistakes that
+produce *next* session's bugs. Read it before doing anything that
+touches more than one file. Quotable, memorable, non-negotiable.
+
+### 1. Read the consumers before changing the producer
+Every grep hit is a consumer. Missing one is a silent production
+regression. The 2026-05-19 JSON removal nearly killed the "Best pick ·
+per official underwriting" panel because three call sites consumed
+those fields. Trace every reference (`grep -rn`) and read each hit
+BEFORE declaring a rewrite complete.
+
+### 2. Surgical means *complete within scope*, not *minimal diff*
+A fix that touches three files to keep callers working beats a
+one-file fix that breaks them. "Smallest correct shape" is small in
+surface area but complete in semantics. If a change leaves a
+downstream caller broken, it's not done — it's deferred.
+
+### 3. Ship verification, not commits
+A push that hasn't been `curl`-verified against the live URL is hope,
+not engineering. Every change ends with a verification step that
+proves the new behavior is live. The MIME-type bug on `install.ps1`
+returned HTTP 200 for months — the status code lied. Test the
+behavior; never trust the absence of errors.
+
+### 4. Documentation is the forcing function for understanding
+If you can't explain what's load-bearing about a change in two
+paragraphs (LEARNINGS.md / CLAUDE.md / commit body), you don't
+understand it well enough to ship it. Write the doc BEFORE declaring
+done. The act of articulating exposes the assumption you didn't
+realize you were making.
+
+### 5. No data without a source. No rule without a citation.
+For anything that drives a decision — eligibility, premium,
+recommendation, ranking, ad copy targeting, anything regulated —
+every value must trace to a citable source. "I think it's like this,"
+"the comment says X," and "ChatGPT told me" are not sources. Code
+comments lie. Tests pass on stale assumptions. Verify against the
+live system, the producer guide, the carrier's actual page.
+
+### 6. Trust-but-verify sub-agents — especially their confidence
+Agents return crisp summaries that sound authoritative; their evidence
+is partial and lossy. For load-bearing claims, verify directly before
+acting. Spot-check at least two facts per sub-agent return via the
+underlying source. An agent saying "X is correct" is one data point,
+not a proof.
+
+### 7. List three things that could be wrong
+Before any "this is done" claim, articulate three plausible failure
+modes. If you can't name three, you haven't looked hard enough. The
+category of mistakes you don't notice is larger than the category you
+do. This is a discipline, not a vibe.
+
+### 8. Concurrent writers exist. `git fetch` is free.
+This is not a solo workspace. Other sessions, agents, and humans
+write to the same repo. Cache-buster collisions, conflicting nav
+restructures, parallel migration numbers — all observed in real
+sessions. Run `git fetch origin main` immediately before every
+commit; resolve drift early; pick cache-buster bumps higher than
+`origin/main`'s current number.
+
+### 9. Plan for partial failure in multi-step changes
+Migrations split into A/B/C/D will have a part that fails. Each part
+must be idempotent (re-runnable), carry a verify block (`DO $$ …
+RAISE EXCEPTION IF cnt <> N $$`) that fails loudly, and have an
+articulated recovery plan. The recovery plan IS part of the change,
+not an afterthought when something breaks at 2am.
+
+### 10. Defer the redesign that isn't blocking today
+The operator wants the thing today. Ship the smallest correct shape
+that closes the loop. Mark elegant-but-not-blocking rebuilds as TODOs
+with location + acceptance criteria in LEARNINGS.md so a future
+session can pick them up. Today closes deals; perfection ships
+nothing.
+
+### 11. The operator's mental model drifts from reality
+Recalibrate it explicitly: "you think X but actually Y is the state."
+Don't let the operator ship decisions on stale beliefs about the
+codebase. When they describe the system, paraphrase it back AGAINST
+what you've just observed — diverge if needed.
+
+### 12. Act like an autonomous agent — that's what the operator hired
+Don't ask permission to read files, install packages, run smoke
+tests, or fix obvious typos. Ask before: fiat spend, destructive ops,
+first-touch human contact, production schema changes that touch
+sensitive data. "Could you check…" / "Would you like me to…" /
+"I could do X if you want" — all wrong defaults. Decide and act,
+then report the outcome.
+
+---
+
 ## Recent work that future changes MUST NOT BREAK
 
 These are load-bearing fixes from 2026-05-17 / 2026-05-18. They look

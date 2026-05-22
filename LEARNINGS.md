@@ -849,3 +849,180 @@ needs to land before binding.
 unified Quote + Auto-Quoter, wired Send Quote, fixed the RBA install
 route, and brought 7 new carriers + Corebridge IUL/MYGA online with
 producer-guide-grade citations.*
+
+---
+
+## Meta-learnings — the class of mistakes that recurs
+
+The granular "fix this specific thing" entries above prevent known
+regressions from coming back. This section is the higher-altitude
+view: the *categories* of mistake that keep producing new bugs each
+session. Distilled from this repo's history (2026-05-03 through
+2026-05-22) and the 12 Guiding Principles now in CLAUDE.md.
+
+The principles in CLAUDE.md are the rules; this section is the WHY
+behind them — concrete failure modes observed and what they cost.
+
+### Mistake class 1: tunnel vision on the literal request
+
+Sessions execute the user's request as stated without questioning
+whether the request is the right shape. Examples:
+
+- "Use ONLY the DB table" (2026-05-19) — taken literally, would have
+  deleted the JSON fetch and lost narrative fields. The right shape
+  was: migrate narratives INTO the DB first, then delete JSON.
+- "Tackle all 4 in parallel" — surgical parallel execution is great
+  but ignores that the 4 tasks have implicit dependencies (the
+  install.ps1 fix is a prereq to the RBA scoping plan being useful).
+- "Just delete the auto-quoter route" — would have lost the
+  carrier-creds + Playwright install screens. The right shape was to
+  unify the UX without deleting the admin surface.
+
+**Habit to build:** before executing, paraphrase the request back as
+the *intended outcome* (not the literal action). If the literal
+action wouldn't achieve the outcome, ship the shape that does — and
+flag the difference for the operator.
+
+### Mistake class 2: validation theater
+
+Running tests/checks that don't actually validate the behavior in
+question. Examples from this session alone:
+
+- `grep -c "composeQuoteMessage" dist/page-quote.js` returned 0 — but
+  esbuild minified the variable name. The function was in the bundle;
+  the grep lied.
+- `wc -l dist/page-quote.js` returned 2 lines — looked broken, was
+  fine (minified single-line output).
+- `curl -I https://repflow.koino.capital/agent/install.ps1` returned
+  HTTP 200 for months — but the Content-Type was wrong and PowerShell
+  silently failed. Status code lied.
+- "build succeeded" — esbuild can output a bundle that parses but is
+  missing your changes if the build ran before the file flushed.
+
+**Habit to build:** verify the BEHAVIOR, not the absence of errors.
+For deploys: curl the live URL, grep for a string literal you added
+(not an identifier — esbuild renames). For migrations: query the DB
+state directly with a count + structure check. For UI: render it in
+a browser if possible.
+
+### Mistake class 3: trust-but-no-verify on sub-agents
+
+Sub-agents return confident summaries. The summary is one data point,
+not proof. Examples:
+
+- 2026-05-19 sub-agent claimed all multi-product carriers had rules
+  on both products. True, as it turned out — but I verified via SQL
+  before acting, and that verification was the load-bearing step.
+- A sub-agent returns "researched 6 carriers, all rules cited" — the
+  citation quality varies wildly. Spot-check the lowest-confidence
+  citations because that's where invented numbers hide.
+- Agents that timeout silently lose context. "Done" is not the same
+  as "complete" — verify the actual output landed.
+
+**Habit to build:** for any sub-agent claim that drives a decision,
+spot-check at least two facts via the underlying source. If the agent
+provides a URL + quote, click through and verify the quote exists.
+
+### Mistake class 4: single-system blindness
+
+Fixing one surface without considering its peers. Examples:
+
+- The 2026-05-20 migration 0060 seeded `rate_table.plans.{G,N}` but
+  `/api/quote` still reads `rate_table.base_monthly_cents` flat. The
+  data is there; the consumer wasn't updated. (Documented as TODO in
+  CLAUDE.md so future sessions don't lose it.)
+- The 2026-05-17 work added `viewer_agency_ids()` for RLS but didn't
+  update every legacy view that hardcoded `agency_id = current_agency()`.
+- Quote tool got the DB-only treatment but `page-quote-card.jsx` (the
+  AI sidebar) still hits `/api/quote` which uses a different schema.
+
+**Habit to build:** before any "this is done," grep for all consumers
+of the data shape you just changed. If you can't update them in the
+same change, document the gap explicitly with a location + acceptance
+criteria so it doesn't rot.
+
+### Mistake class 5: scope creep disguised as "highest quality"
+
+When the operator says "highest quality standards," that's a quality
+bar, not infinite scope. The temptation is to redesign everything
+adjacent to the actual problem. Cost: shipped nothing, operator
+closes no deals.
+
+**Habit to build:** the operator's word "today" / "ASAP" is the
+constraint. Ship the smallest correct shape. Defer expansion to
+LEARNINGS.md TODOs. If the redesign is genuinely required to ship
+correctly today, name that explicitly: "to fix X, I have to also
+touch Y because…" — get buy-in or break it down.
+
+### Mistake class 6: documentation as afterthought
+
+The LEARNINGS doc is not a chore done after shipping; it's the
+forcing function for understanding the change well enough to ship.
+If you can't write two paragraphs describing what's load-bearing,
+you don't own the change — you've patched something whose blast
+radius you haven't traced.
+
+**Habit to build:** write the LEARNINGS / CLAUDE.md entry BEFORE
+declaring done. Read it back. If it makes you nervous, the change
+isn't ready.
+
+### Mistake class 7: concurrent-writer surprise
+
+This repo has had `git stash` chaos for at least 3 sessions running.
+Real causes: parallel sprint agents, half-finished commits from
+prior sessions, build artifacts in version control. The
+2026-05-19 commit had to rebase mid-push because a concurrent head
+bumped the same cache-buster.
+
+**Habit to build:** `git fetch origin main` IMMEDIATELY before every
+commit. Bump cache-busters one higher than `origin/main`'s current
+value. Run `git status` and scrutinize every unstaged file before
+staging — if you didn't write it, don't stage it.
+
+### Mistake class 8: assuming the operator's model is current
+
+The operator described the Quote + Auto-Quoter split as two tabs
+that needed merging. Reading the actual code revealed the
+integration was already half-built. If I'd executed the literal
+request ("delete the route"), I would have nuked working
+infrastructure.
+
+**Habit to build:** when the operator describes the system, paraphrase
+back what you've observed in the code. If they diverge, surface the
+divergence before acting. "You're describing two tabs; the code
+suggests these are already connected via X — is that what you mean?"
+
+### Mistake class 9: not knowing what you don't know
+
+Before claiming done, name three plausible failure modes. If you
+can't, you haven't looked hard enough. Examples of things sessions
+miss because they don't ask:
+
+- Cache-buster bumped in `index.html` but `quoter.html` was also
+  serving the same script with a stale `?v=`.
+- Migration ran fine in dev but failed in prod because the
+  `pg_extension` row order was different.
+- Build succeeded but the dist artifact was 2KB because the JSX had
+  a syntax error esbuild swallowed.
+
+**Habit to build:** the three-failures discipline. State them out
+loud. If you can't, search for more.
+
+### Mistake class 10: optimization premature, automation premature
+
+The "Get live carrier rates" RBA was scaffolded months ago. It still
+doesn't return a real number to the rep. Cost: months of build
+sitting idle, an admin page that nobody uses. Meanwhile the simpler
+shape — engine estimates from DB-grounded UW rules — wasn't shipped
+until 2026-05-19.
+
+**Habit to build:** ship the simple shape that produces value today.
+Layer the elegant automation later. The pattern "we can automate
+this" rarely beats "this works manually right now and a rep just
+closed a deal with it."
+
+---
+
+*Appended 2026-05-22. The 12 Guiding Principles in CLAUDE.md are the
+rules; the 10 mistake classes above are the observed failure modes
+they prevent. Read them together.*
