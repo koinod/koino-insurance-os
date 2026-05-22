@@ -147,6 +147,26 @@ export default async function handler(req) {
     }
   }
 
+  // ── 5b. Resolve caller's rep_id via me() so call_events attributes the dial.
+  // Best-effort: if me() fails (e.g. user just signed in, no reps row yet),
+  // skip rep_id rather than 500 the dial.
+  let rep_id = null;
+  try {
+    const meR = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE, authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    if (meR.ok) {
+      const rows = await meR.json();
+      rep_id = (Array.isArray(rows) ? rows[0]?.rep_id : rows?.rep_id) || null;
+      if (!agency_id) agency_id = (Array.isArray(rows) ? rows[0]?.agency_id : rows?.agency_id) || null;
+    }
+  } catch { /* keep rep_id null */ }
+
   // ── 6. Write initial call_events row (best-effort; does not block response)
   if (SERVICE) {
     await fetch(`${SUPA_URL}/rest/v1/call_events`, {
@@ -163,6 +183,7 @@ export default async function handler(req) {
         from_number:  caller_id,
         lead_id:      lead_id || null,
         agency_id:    agency_id || null,
+        rep_id:       rep_id || null,
       }),
     }).catch(() => {});
 
