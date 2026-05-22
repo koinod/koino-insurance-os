@@ -378,6 +378,22 @@ window.hydrateFromSupabase = async function () {
         upline_id: r.upline_id,
         baseCompPct: r.base_comp_pct != null ? Number(r.base_comp_pct) : 50.0
       }));
+      // Overlay live "dials today" from call_events via 0065 RPC. The reps.dials
+      // column is a stale counter (never incremented in any code path); replace
+      // it with a real count for the current agency's reps. Best-effort: leave
+      // the seeded values in place if the RPC fails (preserves demo agency UX).
+      try {
+        const meIdent = window.me && window.me();
+        const agencyId = meIdent && meIdent.agency_id;
+        if (agencyId && !meIdent.is_demo) {
+          const dr = await sb.rpc("dials_today_by_rep", { p_agency: agencyId });
+          if (!dr.error && Array.isArray(dr.data)) {
+            const byRep = {};
+            dr.data.forEach(row => { byRep[row.rep_id] = row.dials_today; });
+            window.AppData.REPS = window.AppData.REPS.map(r => ({ ...r, dials: byRep[r.id] || 0 }));
+          }
+        }
+      } catch (e) { console.warn("[data.dials_today_by_rep]", e); }
     }
     if (canWrite(pipeline)) {
       window.AppData.PIPELINE = pipeline.data.map(p => ({

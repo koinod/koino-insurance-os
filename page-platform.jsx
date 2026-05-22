@@ -228,6 +228,18 @@ window.repflowCall = async function (phone, leadName, opts) {
         return false;
       }
       if (j.ok && j.call_sid) {
+        // Analytics: capture the dial event for PostHog cohort analysis
+        // (per-rep dial volume, source attribution, autodial vs manual).
+        // No-op if posthog-init.js hasn't loaded a key yet.
+        try {
+          window.posthog && window.posthog.capture && window.posthog.capture("dial_started", {
+            lead_id:  (opts && opts.lead_id) || null,
+            has_lead: !!leadName,
+            autodial: !!(opts && opts.autodial),
+            source:   (opts && opts.source) || "manual",
+            call_sid: j.call_sid,
+          });
+        } catch (_e) { /* analytics never blocks a dial */ }
         window.dispatchEvent(new CustomEvent("incall:open", { detail: {
           lead:     { id: (opts && opts.lead_id) || null, lead: leadName || phone, phone },
           callSid:  j.call_sid,
