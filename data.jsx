@@ -1126,8 +1126,38 @@ window.AppData.mutate = {
       if (sb) {
         const { error } = await sb.from("pipeline").update({ stage, updated_at: new Date().toISOString(), last_activity_text: "Just now" }).eq("id", id);
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+        // Fire automation_rules for lead_stage_changed. The agency_id /
+        // owner_rep_id come from the in-memory row (pipeline already hydrated).
+        // Best-effort — automation failure must not break the stage move.
+        try {
+          const meIdent = window.me && window.me();
+          if (row && meIdent?.agency_id && previousStage !== stage) {
+            await sb.rpc("automation_fire", {
+              p_agency_id: meIdent.agency_id,
+              p_trigger:   "lead_stage_changed",
+              p_rep_id:    row.owner || meIdent.rep_id || null,
+              p_context: {
+                lead_id:        id,
+                previous_stage: previousStage,
+                stage:          stage,
+                phone:          row.phone || null,
+                email:          row.email || null,
+                source:         row.source || null,
+                product:        row.product || null,
+              },
+            });
+          }
+        } catch (_e) { /* swallow */ }
       }
     }
+    // Analytics: PostHog stage transition (independent of automation_fire).
+    try {
+      window.posthog && window.posthog.capture && window.posthog.capture("lead_stage_changed", {
+        lead_id:        id,
+        previous_stage: previousStage,
+        stage:          stage,
+      });
+    } catch (_e) { /* analytics never blocks */ }
     // ── Side-effect: keep POLICIES + commission ledger in sync ────────────
     // Stage transitions used to be cosmetic. Now App In / Issued auto-create
     // (or update) a POLICIES row so Today's number, Commissions, Performance,
@@ -1286,6 +1316,34 @@ window.AppData.mutate = {
         has_phone:  !!row.phone,
       });
     } catch (_e) { /* analytics never blocks the write */ }
+    // Fire automation_rules for lead_created so any "new lead → first-touch
+    // SMS / assignment / notification" rule in Settings → Automation actually
+    // runs. Server-side dispatcher (0067 RPC) inserts automation_runs rows
+    // that the sms-flush / drip-runner crons then ship.
+    if (window.AppData.LIVE) {
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const meIdent = window.me && window.me();
+        if (sb && row.id && meIdent?.agency_id) {
+          await sb.rpc("automation_fire", {
+            p_agency_id: meIdent.agency_id,
+            p_trigger:   "lead_created",
+            p_rep_id:    row.owner || meIdent.rep_id || null,
+            p_context: {
+              lead_id: row.id,
+              phone:   row.phone || null,
+              email:   row.email || null,
+              source:  row.source || "manual",
+              status:  row.stage || "New",
+              product: row.product || null,
+              state:   row.state || null,
+              ap_dollars: row.ap || 0,
+              heat:    row.heat || null,
+            },
+          });
+        }
+      } catch (_e) { /* swallow — lead insert succeeded; automation is best-effort */ }
+    }
     window.AppData.PIPELINE.unshift(row);
     _emitMutation("pipeline", "insert", row.id);
   },
