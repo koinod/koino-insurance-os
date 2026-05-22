@@ -267,6 +267,51 @@
       return () => window.removeEventListener("data:mutated", h);
     }, [refresh]);
 
+    // Auto-record on autodial. When the autodialer fires a dial, capture audio
+    // for the duration — covers both pickup and voicemail without needing the
+    // agent to differentiate. Skip if the rep is already recording (manual or
+    // a prior leg of the same multi-dial). Per-commandId guard avoids re-arming
+    // when a multi-dial sequence sleeps + redials.
+    const armedCommandRef = React.useRef(null);
+    useEffect(() => {
+      const onStart = async (e) => {
+        const commandId = e?.detail?.commandId || null;
+        if (!commandId) return;
+        if (armedCommandRef.current === commandId) return;
+        if (state !== "idle") return;
+        if (!window.CallRecorder) return;
+        armedCommandRef.current = commandId;
+        try {
+          const rec = new window.CallRecorder({
+            mode, repId,
+            leadId: e.detail.leadId || null,
+            onTick:  (s) => setElapsed(s),
+            onState: (s) => setState(s),
+            onLevel: (l) => setLevel(l),
+          });
+          recorderRef.current = rec;
+          await rec.start();
+        } catch (err) {
+          armedCommandRef.current = null;
+          window.toast && window.toast(`Auto-record failed: ${err?.message || err}`, "warn");
+        }
+      };
+      const onEnd = (e) => {
+        const commandId = e?.detail?.commandId || null;
+        if (!commandId || armedCommandRef.current !== commandId) return;
+        armedCommandRef.current = null;
+        // Only stop if we're still in an auto-armed recording — if the rep
+        // manually hit Stop already, recorderRef.current?.stop() is a no-op.
+        try { recorderRef.current?.stop(); } catch {}
+      };
+      window.addEventListener("autodial:call:start", onStart);
+      window.addEventListener("autodial:call:end",   onEnd);
+      return () => {
+        window.removeEventListener("autodial:call:start", onStart);
+        window.removeEventListener("autodial:call:end",   onEnd);
+      };
+    }, [state, mode, repId]);
+
     const start = async () => {
       if (!window.CallRecorder) return window.toast?.("Recorder not loaded — refresh the page", "warn");
       const rec = new window.CallRecorder({
@@ -539,7 +584,7 @@
     );
   }
 
-  function LiveMode({ onCall, role, autodialer, setAutodialer }) {
+  function LiveMode({ onCall, role }) {
     const Queue = window.PageQueue;
     const Redial = window.RedialQueuePanel;
     const Pacing = window.PacingBadge;
@@ -563,19 +608,13 @@
     return (
       <div>
         <div style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "12px 16px", marginBottom: 12,
-          background: "var(--surface-elev)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: 10,
-          gap: 14, flexWrap: "wrap",
+          display: "flex", justifyContent: "flex-end", alignItems: "center",
+          padding: "8px 0 12px",
+          gap: 10, flexWrap: "wrap",
         }}>
-          <AutodialBar state={autodialer} setState={setAutodialer}/>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>press <span className="kbd mono" style={{ fontSize: 10 }}>R</span> to pull due retries</span>
-            {Pacing && (() => { const P = Pacing; return <P/>; })()}
-            {twStatus === "unconfigured" && <TwilioCTA/>}
-          </div>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>press <span className="kbd mono" style={{ fontSize: 10 }}>R</span> to pull due retries</span>
+          {Pacing && (() => { const P = Pacing; return <P/>; })()}
+          {twStatus === "unconfigured" && <TwilioCTA/>}
         </div>
 
         <PinnedAutodialPanel/>
@@ -1308,12 +1347,31 @@
           </div>
         </div>
 
+        {/* Autodialer strip — the headline capability of the Floor. Always
+            visible regardless of mode so the rep can start, pause, resume,
+            or stop the dialer without leaving Pipeline / Deals / History.
+            Auto-record is wired in CallRecorderPanel via autodial:call:start
+            and autodial:call:end events. */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", marginBottom: 12,
+          background: "var(--surface-elev)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: 10,
+          gap: 14, flexWrap: "wrap",
+        }}>
+          <AutodialBar state={autodialer} setState={setAutodialer}/>
+          <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textAlign: "right", flex: "0 1 auto" }}>
+            Auto-records every dial · pickup or voicemail
+          </span>
+        </div>
+
         {/* Always-visible call recorder + recent-calls list (role-aware via RLS) */}
         <CallRecorderPanel role={role}/>
 
         {mode === "live" && <FloorTopStrip role={role}/>}
 
-        {mode === "live"      && <LiveMode      role={role} onCall={onCall} autodialer={autodialer} setAutodialer={setAutodialer}/>}
+        {mode === "live"      && <LiveMode      role={role} onCall={onCall}/>}
         {mode === "pipeline"  && <PipelineMode  role={role}/>}
         {mode === "deals"     && <DealsMode     role={role}/>}
         {mode === "history"   && <HistoryMode   role={role}/>}

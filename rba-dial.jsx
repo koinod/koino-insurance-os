@@ -72,6 +72,19 @@ function clearDialState(commandId, finalStatus, lingerMs = 8000) {
   if (!cur) return;
   window.repflowActiveDials.set(commandId, { ...cur, status: finalStatus, last_poll_at: Date.now() });
   notifyMonitor();
+  // Surface a terminal event so listeners (e.g. CallRecorder auto-stop) can
+  // react without polling repflowActiveDials.
+  try {
+    window.dispatchEvent(new CustomEvent("autodial:call:end", {
+      detail: {
+        commandId,
+        finalStatus,
+        leadId: cur.lead_id || null,
+        leadName: cur.lead_name || null,
+        toNumber: cur.to_number || null,
+      },
+    }));
+  } catch {}
   setTimeout(() => {
     window.repflowActiveDials.delete(commandId);
     notifyMonitor();
@@ -214,11 +227,27 @@ window.repflowDialViaAgent = async function (args) {
   setDialState(queued.command_id, {
     to_number:  queued.to_number || args.to_number,
     lead_name:  args.lead_name || null,
+    lead_id:    args.lead_id || null,
     count, interval,
     attempt:    0,
     status:     "queued",
     started_at: Date.now(),
   });
+  // Surface a start event so listeners (e.g. CallRecorder auto-start) can
+  // capture audio for the duration of the dial — covers both pickup and
+  // voicemail since the agent doesn't differentiate.
+  try {
+    window.dispatchEvent(new CustomEvent("autodial:call:start", {
+      detail: {
+        commandId: queued.command_id,
+        leadId:    args.lead_id || null,
+        leadName:  args.lead_name || null,
+        toNumber:  queued.to_number || args.to_number,
+        provider:  queued.provider || null,
+        count, interval,
+      },
+    }));
+  } catch {}
   window.toast && window.toast(
     `Agent received command (${queued.kind}, provider: ${queued.provider}). Waiting for result…`,
     "info"

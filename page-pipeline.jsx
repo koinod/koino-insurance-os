@@ -38,18 +38,6 @@ function PagePipeline({ role = "owner" }) {
     window.addEventListener("data:hydrated", onHydrate);
     return () => window.removeEventListener("data:hydrated", onHydrate);
   }, []);
-  // Publish in-session pipeline state so MobileRep (and any other viewer
-  // sharing the tab) can mirror the same filters / optimistic edits /
-  // open lead / view mode. Cleared on unmount so a stale session doesn't
-  // outlive the desktop page.
-  React.useEffect(() => {
-    window.PipelineSession = { filters, extra, overrides, openLead, view };
-    window.dispatchEvent(new CustomEvent("pipeline:session", { detail: window.PipelineSession }));
-  }, [filters, extra, overrides, openLead, view]);
-  React.useEffect(() => () => {
-    window.PipelineSession = null;
-    window.dispatchEvent(new CustomEvent("pipeline:session", { detail: null }));
-  }, []);
   const [drag, setDrag] = React.useState(null);
   const [openLead, setOpenLead] = React.useState(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
@@ -60,6 +48,20 @@ function PagePipeline({ role = "owner" }) {
   });
   const [activeViewIdx, setActiveViewIdx] = React.useState(-1);
   const [csvOpen, setCsvOpen] = React.useState(false);
+  // Publish in-session pipeline state so MobileRep (and any other viewer
+  // sharing the tab) can mirror the same filters / optimistic edits /
+  // open lead / view mode. Cleared on unmount so a stale session doesn't
+  // outlive the desktop page. Must come AFTER `openLead` is declared —
+  // the dep array is evaluated synchronously and a TDZ ReferenceError on
+  // `openLead` here is what was crashing the panel.
+  React.useEffect(() => {
+    window.PipelineSession = { filters, extra, overrides, openLead, view };
+    window.dispatchEvent(new CustomEvent("pipeline:session", { detail: window.PipelineSession }));
+  }, [filters, extra, overrides, openLead, view]);
+  React.useEffect(() => () => {
+    window.PipelineSession = null;
+    window.dispatchEvent(new CustomEvent("pipeline:session", { detail: null }));
+  }, []);
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
