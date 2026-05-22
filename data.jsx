@@ -378,22 +378,35 @@ window.hydrateFromSupabase = async function () {
         upline_id: r.upline_id,
         baseCompPct: r.base_comp_pct != null ? Number(r.base_comp_pct) : 50.0
       }));
-      // Overlay live "dials today" from call_events via 0065 RPC. The reps.dials
-      // column is a stale counter (never incremented in any code path); replace
-      // it with a real count for the current agency's reps. Best-effort: leave
-      // the seeded values in place if the RPC fails (preserves demo agency UX).
+      // Overlay live counters from RPCs. The reps.{dials,today_cents,mtd_cents}
+      // columns are stale (never incremented); replace with real-time counts
+      // derived from call_events (dials) and policies (revenue) for real
+      // agencies only. Demo Atlas keeps its seeded leaderboard values.
       try {
         const meIdent = window.me && window.me();
         const agencyId = meIdent && meIdent.agency_id;
         if (agencyId && !meIdent.is_demo) {
-          const dr = await sb.rpc("dials_today_by_rep", { p_agency: agencyId });
-          if (!dr.error && Array.isArray(dr.data)) {
-            const byRep = {};
-            dr.data.forEach(row => { byRep[row.rep_id] = row.dials_today; });
-            window.AppData.REPS = window.AppData.REPS.map(r => ({ ...r, dials: byRep[r.id] || 0 }));
-          }
+          // Parallel: dials_today + revenue_today + mtd
+          const [dr, rr] = await Promise.all([
+            sb.rpc("dials_today_by_rep",          { p_agency: agencyId }),
+            sb.rpc("revenue_today_and_mtd_by_rep",{ p_agency: agencyId }),
+          ]);
+          const dialsByRep = {}, revByRep = {};
+          if (!dr.error && Array.isArray(dr.data))
+            dr.data.forEach(row => { dialsByRep[row.rep_id] = row.dials_today; });
+          if (!rr.error && Array.isArray(rr.data))
+            rr.data.forEach(row => { revByRep[row.rep_id] = { today: row.today_dollars, mtd: row.mtd_dollars }; });
+          window.AppData.REPS = window.AppData.REPS.map(r => {
+            const rev = revByRep[r.id] || {};
+            return {
+              ...r,
+              dials: dialsByRep[r.id] || 0,
+              today: rev.today != null ? Number(rev.today) : 0,
+              mtd:   rev.mtd   != null ? Number(rev.mtd)   : 0,
+            };
+          });
         }
-      } catch (e) { console.warn("[data.dials_today_by_rep]", e); }
+      } catch (e) { console.warn("[data.live_stats_overlay]", e); }
     }
     if (canWrite(pipeline)) {
       window.AppData.PIPELINE = pipeline.data.map(p => ({
@@ -1259,6 +1272,20 @@ window.AppData.mutate = {
         if (data?.id) row.id = data.id;
       }
     }
+    // Analytics: capture every lead-insert (covers CRM, first-run, CSV import).
+    // No-op until POSTHOG_KEY env activates.
+    try {
+      window.posthog && window.posthog.capture && window.posthog.capture("lead_created", {
+        lead_id:    row.id || null,
+        source:     row.source || "manual",
+        product:    row.product || null,
+        stage:      row.stage || null,
+        state:      row.state || null,
+        ap_dollars: row.ap || 0,
+        heat:       row.heat || null,
+        has_phone:  !!row.phone,
+      });
+    } catch (_e) { /* analytics never blocks the write */ }
     window.AppData.PIPELINE.unshift(row);
     _emitMutation("pipeline", "insert", row.id);
   },

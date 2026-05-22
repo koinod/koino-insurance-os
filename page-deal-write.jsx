@@ -247,6 +247,21 @@
         if (sb) {
           const { data, error } = await sb.from("policies").insert(row).select().single();
           if (error) throw error;
+          // Analytics: capture for PostHog cohort + funnel analysis.
+          // No-op until POSTHOG_KEY env activates.
+          try {
+            window.posthog && window.posthog.capture && window.posthog.capture("deal_written", {
+              policy_id:           data.id,
+              ap_dollars:          Math.round(row.ap_cents / 100),
+              expected_commission: expectedCommission,
+              carrier_id:          carrierId,
+              product_id:          productId,
+              product_name:        product?.name || null,
+              status:              row.status,
+              has_lead:            !!lead,
+              state:               row.state,
+            });
+          } catch (_e) { /* analytics never blocks the write */ }
           // If status === 'submitted' and lead.stage isn't past, advance the pipeline row.
           if (lead && (lead.stage === "New" || lead.stage === "Contacted" || lead.stage === "Quoted") && typeof lead.id === "string") {
             await sb.from("pipeline").update({ stage: "App In", updated_at: new Date().toISOString(), last_activity_text: "Deal written" }).eq("id", lead.id);
