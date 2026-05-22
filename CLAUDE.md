@@ -101,6 +101,86 @@ then report the outcome.
 
 ---
 
+## Pre-commit ritual (operationalizes the 12 principles)
+
+Run this checklist before every commit that touches production code
+in this repo. Each step maps to a real failure mode observed in this
+codebase — skipping any of them has cost real time. **Treat this as
+a hard gate, not a suggestion.**
+
+### Before staging
+
+1. **`git fetch origin main` and inspect divergence.**
+   ```
+   git fetch origin main && git log --oneline HEAD..origin/main | head
+   ```
+   If anything is upstream, rebase BEFORE staging. Concurrent-writer
+   cache-buster collisions (e.g. two heads both bumping `page-quote.js`
+   to v=94 on the same day, 2026-05-19) cost a forced rebase mid-push.
+
+2. **`git status --porcelain` line-by-line.** If you see a modified
+   file you didn't touch (` M app.jsx`, ` M shared.jsx`,
+   `?? page-vault-host.jsx`), DO NOT stage it. Parallel sprint agents
+   stash dirty files into your workspace constantly. Stage by name
+   (`git add <file>`), never `git add -A` or `git add .`.
+
+3. **Bump cache-busters above `origin/main`'s current value.** Grep
+   every reference:
+   ```
+   grep -rn "<filename>\.js?v=" --include="*.html"
+   ```
+   AND verify the live URL of the OLD version no longer caches by
+   `curl`-checking after deploy.
+
+### Before declaring done
+
+4. **`node -c <plain .js>` + `node scripts/build-jsx.mjs` clean.**
+   esbuild can write a 2KB dist artifact on a swallowed JSX error
+   and still exit 0. Eyeball the build output line by line.
+
+5. **Migration verify block.** Every migration that inserts/updates
+   data ends with:
+   ```sql
+   DO $$
+   DECLARE cnt int;
+   BEGIN
+     SELECT count(*) INTO cnt FROM <table> WHERE <expected>;
+     IF cnt <> <N> THEN
+       RAISE EXCEPTION 'expected % rows, got %', <N>, cnt;
+     END IF;
+   END $$;
+   ```
+   Catches partial applications. Migration 0058 / 0059a-d / 0060 all
+   carry one — keep the pattern.
+
+6. **Name three things that could be wrong.** Out loud, in writing,
+   in the commit body — pick one. If you can't, you haven't looked
+   hard enough. The category of mistakes you don't notice is larger
+   than the category you do.
+
+### After push
+
+7. **Poll for deploy + `curl`-grep the live URL.**
+   ```
+   until curl -sI "https://repflow.koino.capital/<path>?v=<new>" | head -1 | grep -q "200"; do sleep 20; done
+   curl -s "https://repflow.koino.capital/<path>?v=<new>" | grep -c "<string literal you added>"
+   ```
+   Use STRING LITERALS, not identifier names. esbuild renames
+   variables but preserves strings. `grep -c` on a minified single-
+   line bundle counts file lines (1 or 2), not occurrences — use
+   `grep -oE … | wc -l` if you need real counts.
+
+8. **Verify behavior, not status code.** HTTP 200 means the server
+   responded, NOT that the response is correct. The install.ps1 MIME
+   bug returned 200 for months while PowerShell silently failed.
+   Test the actual flow end-to-end.
+
+If a step fails, **stop**. Fix root cause before continuing. Do not
+hot-fix in a follow-up commit unless the original push has already
+gone live.
+
+---
+
 ## Recent work that future changes MUST NOT BREAK
 
 These are load-bearing fixes from 2026-05-17 / 2026-05-18. They look
