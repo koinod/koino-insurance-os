@@ -65,8 +65,8 @@ function PagePipeline({ role = "owner" }) {
 
   const stages = ["New", "Contacted", "Quoted", "App In", "Issued"];
   const heats = ["fresh", "hot", "warm", "cold"];
-  const sources = Array.from(new Set(PIPELINE.map(p => p.source)));
-  const states = Array.from(new Set(PIPELINE.map(p => p.state)));
+  const sources = Array.from(new Set(PIPELINE.map(p => p.source).filter(Boolean))).sort();
+  const states  = Array.from(new Set(PIPELINE.map(p => p.state).filter(Boolean))).sort();
   const heatColor = (h) => h === "hot" ? "var(--accent-heat)" : h === "warm" ? "var(--state-warning)" : h === "fresh" ? "var(--accent-money)" : "var(--text-quaternary)";
 
   const meIdent = window.me && window.me();
@@ -639,6 +639,7 @@ function LeadDetail({ lead, role, ownerOptionReps, onClose, onMove, onReassign }
             title={phone.trim() ? "Pin this lead to your autodial queue on the Floor" : "Add phone first"}
             onClick={() => phone.trim() && window.AutodialQueue && window.AutodialQueue.add({
               id: "pipe-" + lead.id,
+              lead_id: lead.id,
               lead: lead.lead,
               phone: phone.trim(),
               product: lead.product,

@@ -610,7 +610,8 @@ function InflowTab({ onConfigureVendors }) {
     :            "var(--text-tertiary)";
 
   const pin = (i) => window.AutodialQueue && window.AutodialQueue.add({
-    id: "drip-" + i.id, lead: i.lead, phone: i.phone, product: i.product,
+    id: "drip-" + i.id, lead_id: i.lead_id || i.id || null,
+    lead: i.lead, phone: i.phone, product: i.product,
     age: i.age, state: i.state, source: i.source, score: i.score || 85,
   });
 

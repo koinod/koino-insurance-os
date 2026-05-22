@@ -135,6 +135,7 @@ function DialQueueView({ onCall }) {
                       disabled={!l.phone}
                       onClick={() => l.phone && window.AutodialQueue && window.AutodialQueue.add({
                         id: "q-" + l.id,
+                        lead_id: l.lead_id || l.id || null,
                         lead: l.lead,
                         phone: l.phone,
                         product: l.product,

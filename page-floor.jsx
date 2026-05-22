@@ -69,7 +69,9 @@
     // 1. Manual pinned queue first — explicit user intent wins.
     const pinned = (window.AutodialQueue && window.AutodialQueue.list()) || [];
     pinned.forEach(p => push({
-      id: p.id, lead: p.lead, age: p.age, state: p.state, source: p.source || "pinned",
+      id: p.id,
+      leadId: p.lead_id || p.leadId || null,
+      lead: p.lead, age: p.age, state: p.state, source: p.source || "pinned",
       product: p.product, ap: p.ap || 0, days: 0,
       heat: "fresh", phone: p.phone || null, score: p.score || 80,
     }));
@@ -80,7 +82,9 @@
         if (p.owner !== myId) return;
         if (p.stage !== "New" && p.stage !== "Contacted") return;
         push({
-          id: "p-" + p.id, lead: p.lead, age: p.age, state: p.state, source: p.source || "pipeline",
+          id: "p-" + p.id,
+          leadId: p.id,
+          lead: p.lead, age: p.age, state: p.state, source: p.source || "pipeline",
           product: p.product, ap: p.ap || 0, days: p.days || 0,
           heat: p.heat || "warm", phone: p.phone || null,
           score: p.heat === "hot" ? 92 : p.heat === "fresh" ? 88 : p.heat === "warm" ? 78 : 60,
@@ -92,7 +96,9 @@
     (AppData.QUEUE || []).forEach(q => {
       if (myId && q.assignedRepId && q.assignedRepId !== myId) return;
       push({
-        id: q.id, lead: q.lead, age: q.age, state: q.state, source: q.source || "inbound",
+        id: q.id,
+        leadId: q.lead_id || q.leadId || null,
+        lead: q.lead, age: q.age, state: q.state, source: q.source || "inbound",
         product: q.product, ap: 0, days: 0,
         heat: q.elapsed < 30 ? "hot" : q.elapsed < 90 ? "fresh" : "warm",
         phone: q.phone || null, score: q.score || 75,

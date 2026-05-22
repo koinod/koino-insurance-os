@@ -199,7 +199,9 @@ function AutoDialBar() {
     }
     // OK to dial
     window.markDialAttempt && window.markDialAttempt(current.id);
-    window.repflowCall && window.repflowCall(current.phone, current.lead);
+    window.repflowCall && window.repflowCall(current.phone, current.lead, {
+      lead_id: current.leadId || null,
+    });
     window.dispatchEvent(new CustomEvent("incall:open", { detail: { lead: current, autodial: true } }));
     const t = setTimeout(() => setStage("outcome"), 3000);
     return () => clearTimeout(t);
@@ -240,7 +242,9 @@ function AutoDialBar() {
         // D = re-dial current lead (rep clicked off, wants to retry without skipping)
         if (current && current.phone && stage !== "idle") {
           window.markDialAttempt && window.markDialAttempt(current.id);
-          window.repflowCall && window.repflowCall(current.phone, current.lead);
+          window.repflowCall && window.repflowCall(current.phone, current.lead, {
+            lead_id: current.leadId || null,
+          });
           window.toast && window.toast(`Re-dialing ${current.lead}`, "info");
         }
       }

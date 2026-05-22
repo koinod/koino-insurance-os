@@ -125,6 +125,7 @@ function PageCrm({ role = "owner" }) {
   const [stageFilter, setStage]   = React.useState("all");
   const [sourceFilter, setSF]     = React.useState("all");
   const [ownerFilter, setOF]      = React.useState("all");
+  const [stateFilter, setStF]     = React.useState("all");
   const [q, setQ]                 = React.useState("");
   const [connectOpen, setConnectOpen] = React.useState(false);
   const [activeLead, setActiveLead]   = React.useState(null);
@@ -173,10 +174,12 @@ function PageCrm({ role = "owner" }) {
     ...sources.map(s => s.name),
     ...pipeline.map(p => p.source).filter(Boolean),
   ]));
+  const stateNames = Array.from(new Set(pipeline.map(p => p.state).filter(Boolean))).sort();
   const filteredLeads = pipeline.filter(p =>
     (stageFilter === "all"  || p.stage === stageFilter) &&
     (sourceFilter === "all" || p.source === sourceFilter) &&
     (ownerFilter === "all"  || p.owner === ownerFilter) &&
+    (stateFilter === "all"  || p.state === stateFilter) &&
     (!q || (p.lead || "").toLowerCase().includes(q.toLowerCase()) || (p.product || "").toLowerCase().includes(q.toLowerCase()))
   );
 
@@ -313,7 +316,7 @@ function PageCrm({ role = "owner" }) {
         // the full Pipeline kanban. The existing filter row still lets you
         // expand to other stages.
         const leadsOnly = filteredLeads.filter(p => stageFilter !== "all" ? true : (p.stage === "New" || p.stage === "lead"));
-        return <InboxSection {...{ leads: leadsOnly, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }}/>;
+        return <InboxSection {...{ leads: leadsOnly, reps, sources, sourceNames, stateNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, stateFilter, setStF, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }}/>;
       })()}
       {tab === "sources"    && <SourcesSection {...{ sources, setConnectOpen }}/>}
       {tab === "pipeline"   && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
@@ -345,7 +348,7 @@ const CSV_FIELDS = [
   { k: "phone",   l: "Phone",   aliases: ["phone", "phone_number", "mobile", "cell", "primary_phone"] },
   { k: "email",   l: "Email",   aliases: ["email", "email_address", "primary_email"] },
   { k: "age",     l: "Age",     aliases: ["age", "dob_age"] },
-  { k: "state",   l: "State",   aliases: ["state", "state_code", "region"] },
+  { k: "state",   l: "State",   aliases: ["state", "state_code", "region", "st", "state_abbreviation", "address_state", "mailing_state", "customer_state", "us_state"] },
   { k: "product", l: "Product", aliases: ["product", "product_interest", "plan"] },
   { k: "source",  l: "Source",  aliases: ["source", "lead_source", "vendor", "utm_source"] },
   { k: "monthly", l: "Monthly $ (auto × 12 → AP)", aliases: ["monthly", "monthly_premium", "monthly_amount", "monthly_contribution", "mo_contribution", "desired_mo_contribution", "desired_monthly_contribution", "desired_monthly", "contribution"] },
@@ -647,7 +650,7 @@ function AddLeadModal({ reps, sourceNames, role, onClose, onSave }) {
 }
 
 // ═══ Inbox ════════════════════════════════════════════════════════════════
-function InboxSection({ leads, reps, sources, sourceNames, stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }) {
+function InboxSection({ leads, reps, sources, sourceNames, stateNames = [], stageFilter, setStage, sourceFilter, setSF, ownerFilter, setOF, stateFilter = "all", setStF = () => {}, q, setQ, reassign, setStageOf, setSourceOf, setActiveLead }) {
   return (
     <div className="panel">
       <div className="panel-h">
@@ -655,11 +658,12 @@ function InboxSection({ leads, reps, sources, sourceNames, stageFilter, setStage
         <h3>Lead inbox</h3>
         <span className="meta">{leads.length} · sorted newest first</span>
       </div>
-      <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 160px 160px 160px", gap: 8, alignItems: "end", borderBottom: "1px solid var(--border-subtle)" }}>
+      <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 140px 140px 140px 120px", gap: 8, alignItems: "end", borderBottom: "1px solid var(--border-subtle)" }}>
         <input className="text-input" placeholder="Search leads or products…" value={q} onChange={(e) => setQ(e.target.value)}/>
         <Shared.Select value={stageFilter} onChange={setStage} options={[{ v: "all", l: "All stages" }, ...STAGES.map(s => ({ v: s, l: s }))]}/>
         <Shared.Select value={sourceFilter} onChange={setSF} options={[{ v: "all", l: "All sources" }, ...sourceNames.map(n => ({ v: n, l: n }))]}/>
         <Shared.Select value={ownerFilter} onChange={setOF} options={[{ v: "all", l: "All owners" }, ...reps.map(r => ({ v: r.id, l: r.name }))]}/>
+        <Shared.Select value={stateFilter} onChange={setStF} options={[{ v: "all", l: "Any state" }, ...stateNames.map(s => ({ v: s, l: s }))]}/>
       </div>
       <div className="list">
         <div className="list-h" style={{ gridTemplateColumns: "12px 1.5fr 60px 100px 1fr 1fr 80px 90px" }}>
@@ -1353,6 +1357,7 @@ function LeadDetailModal({ lead, reps, sourceNames = [], onClose, reassign, setS
           title={lead.phone ? "Add to your autodial queue on the Floor" : "Needs a phone number first"}
           onClick={() => window.AutodialQueue && window.AutodialQueue.add({
             id: "crm-" + lead.id,
+            lead_id: lead.id,
             lead: lead.lead,
             phone: lead.phone,
             product: lead.product,
