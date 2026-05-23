@@ -143,11 +143,14 @@ const ADAPTERS = {
 
 // ─── queue processing ────────────────────────────────────────────────────
 
-async function processTable(table) {
+async function processTable(table, agencyScope = null) {
   const nowIso = new Date().toISOString();
   // Pull a batch of scheduled rows whose time has passed.
+  // agencyScope: when set (user-JWT invocation), only drain that agency's rows
+  // so a tenant can't trigger another tenant's queue. Cron passes null = all.
+  const scope = agencyScope ? `&agency_id=eq.${encodeURIComponent(agencyScope)}` : "";
   const r = await sbFetch(
-    `${table}?select=*&status=eq.scheduled&scheduled_for=lte.${encodeURIComponent(nowIso)}&limit=25`
+    `${table}?select=*&status=eq.scheduled&scheduled_for=lte.${encodeURIComponent(nowIso)}${scope}&limit=25`
   );
   if (!r.ok) return { table, error: `fetch ${r.status}` };
   const rows = await r.json().catch(() => []);
@@ -196,16 +199,39 @@ export default async function handler(req) {
   // Vercel cron sends a GET; ad-hoc invocations may send POST. Both fine.
   if (req.method !== "GET" && req.method !== "POST") return new Response("GET/POST only", { status: 405 });
 
-  // Auth: require CRON_SECRET in Authorization header so a public POST can't
-  // burn through queues. Vercel cron is configured to send this automatically
-  // via the project's CRON_SECRET env var.
-  if (CRON_SECRET) {
-    const auth = req.headers.get("authorization") || "";
-    if (auth !== `Bearer ${CRON_SECRET}`) {
-      // Vercel Cron also sends `x-vercel-cron-auth` — accept that too.
-      const vc = req.headers.get("x-vercel-cron-auth") || "";
-      if (vc !== CRON_SECRET) return jsonResponse({ error: "unauthorized" }, 401);
-    }
+  // Auth: TWO accepted forms.
+  //   1. CRON_SECRET in Authorization or x-vercel-cron-auth header — drains
+  //      every agency. This is the daily backstop run.
+  //   2. User Supabase JWT in Authorization — drains only that user's agency.
+  //      Lets the client fire-and-forget after sb.rpc("automation_fire", ...)
+  //      so a lead_created SMS goes out within seconds instead of waiting 24h.
+  const authHeader = req.headers.get("authorization") || "";
+  const cronHeader = req.headers.get("x-vercel-cron-auth") || "";
+  let agencyScope = null;     // null = drain all (cron); uuid = single-agency (user JWT)
+  let authedAs = "none";
+  if (CRON_SECRET && (authHeader === `Bearer ${CRON_SECRET}` || cronHeader === CRON_SECRET)) {
+    authedAs = "cron";
+  } else if (authHeader.startsWith("Bearer ")) {
+    // Resolve caller's agency via me() so we can scope the drain.
+    const jwt = authHeader.slice(7);
+    try {
+      const meR = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
+        method: "POST",
+        headers: { apikey: ANON, authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+        body: "{}",
+      });
+      if (meR.ok) {
+        const rows = await meR.json();
+        const me = Array.isArray(rows) ? rows[0] : rows;
+        if (me && me.agency_id) {
+          agencyScope = me.agency_id;
+          authedAs = "user";
+        }
+      }
+    } catch (_e) { /* fall through to unauthorized */ }
+    if (!agencyScope) return jsonResponse({ error: "unauthorized" }, 401);
+  } else {
+    return jsonResponse({ error: "unauthorized" }, 401);
   }
 
   if (!SERVICE) {
@@ -218,8 +244,8 @@ export default async function handler(req) {
   }
 
   const [followups, automations] = await Promise.all([
-    processTable("followup_runs"),
-    processTable("automation_runs"),
+    processTable("followup_runs",   agencyScope),
+    processTable("automation_runs", agencyScope),
   ]);
-  return jsonResponse({ ok: true, ranAt: new Date().toISOString(), followups, automations });
+  return jsonResponse({ ok: true, ranAt: new Date().toISOString(), authedAs, agencyScope, followups, automations });
 }

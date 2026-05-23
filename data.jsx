@@ -1115,6 +1115,27 @@ window.subscribeRealtime = function () {
 // Auto-subscribe after first hydrate
 window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(); } catch (e) { console.warn("[data.subscribeRealtime]", e); } }, { once: true });
 
+// Fire-and-forget drain of pending automation_runs for the caller's agency.
+// Called immediately after automation_fire() so SMS/email ships in seconds
+// instead of waiting for the daily worker cron. Server scopes to caller's
+// agency via user-JWT auth in /api/worker/dispatch-queue.
+async function _drainAutomationsNow() {
+  try {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const sess = await sb.auth.getSession();
+    const jwt = sess?.data?.session?.access_token;
+    if (!jwt) return;
+    // No await on the response — let the request run in the background.
+    fetch("/api/worker/dispatch-queue", {
+      method: "POST",
+      headers: { authorization: `Bearer ${jwt}`, "content-type": "application/json" },
+      body: "{}",
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_e) { /* swallow */ }
+}
+
 window.AppData.mutate = {
   async pipelineStage(id, stage) {
     const row = window.AppData.PIPELINE.find(p => p.id === id);
@@ -1146,6 +1167,9 @@ window.AppData.mutate = {
                 product:        row.product || null,
               },
             });
+            // Drain now so the resulting SMS/email goes out within seconds
+            // instead of waiting for the daily cron.
+            _drainAutomationsNow();
           }
         } catch (_e) { /* swallow */ }
       }
@@ -1318,8 +1342,9 @@ window.AppData.mutate = {
     } catch (_e) { /* analytics never blocks the write */ }
     // Fire automation_rules for lead_created so any "new lead → first-touch
     // SMS / assignment / notification" rule in Settings → Automation actually
-    // runs. Server-side dispatcher (0067 RPC) inserts automation_runs rows
-    // that the sms-flush / drip-runner crons then ship.
+    // runs. RPC inserts automation_runs rows (status='scheduled'); then we
+    // fire-and-forget /api/worker/dispatch-queue with the user JWT so the
+    // SMS goes out within seconds instead of waiting for the daily cron.
     if (window.AppData.LIVE) {
       try {
         const sb = window.getSupabase && window.getSupabase();
@@ -1341,6 +1366,8 @@ window.AppData.mutate = {
               heat:    row.heat || null,
             },
           });
+          // Drain now so SMS/email ships immediately. Fire-and-forget.
+          _drainAutomationsNow();
         }
       } catch (_e) { /* swallow — lead insert succeeded; automation is best-effort */ }
     }
