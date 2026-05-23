@@ -112,6 +112,7 @@
   function AutodialBar({ state, setState }) {
     const { on, paused, ratePerHr } = state;
     const [, force] = useState(0);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     // Re-render when the manual queue or pipeline mutates so the count stays live.
     useEffect(() => {
@@ -164,6 +165,13 @@
             <button className="btn" onClick={stop} style={{ color: "var(--state-danger)" }}><Icons.X size={12}/> Stop</button>
           </>
         )}
+        <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="Customize outcome auto-actions">
+          <Icons.Settings size={13}/>
+        </button>
+        {settingsOpen && window.AutodialOutcomeSettings && (() => {
+          const M = window.AutodialOutcomeSettings;
+          return <M onClose={() => setSettingsOpen(false)}/>;
+        })()}
       </div>
     );
   }

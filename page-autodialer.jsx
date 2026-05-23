@@ -113,6 +113,98 @@ function PipelineAutoDialButton({ leads, onClose }) {
 }
 window.PipelineAutoDialButton = PipelineAutoDialButton;
 
+/* ─── Outcome auto-SMS templates ─────────────────────────────────────────
+   When the rep records an outcome on autodial, fire an automatic SMS using
+   a per-outcome template. Defaults below; reps customize via the gear icon
+   on the AutoDialBar (writes to localStorage `repflow.autodial.outcome_sms`).
+   Tokens: {first}, {last}, {phone}, {product}, {state}, {rep}.
+
+   This is the "automation customization" surface — outcome → action mapping.
+   Defer outcome → sequence_enrollments to a future cycle once the rep has
+   sequences worth enrolling in. For today, a templated SMS closes the loop.
+
+   `enabled: false` skips that outcome's auto-send. `body: ""` also skips. */
+const OUTCOME_SMS_DEFAULTS = {
+  voicemail: {
+    enabled: true,
+    body: "Hi {first}, this is {rep} — just left you a voicemail about your {product} options. Reply YES and I'll send a quick text breakdown. Talk soon.",
+  },
+  appointment: {
+    enabled: true,
+    body: "Confirmed, {first}! Looking forward to our call — I'll reach out at the time we set. Reply with any questions before then.",
+  },
+  callback: {
+    enabled: true,
+    body: "Got it {first} — I'll call you back when we discussed. If anything changes on your end, just text me back here.",
+  },
+  no_answer: {
+    enabled: false,
+    body: "Hi {first}, I tried reaching you about your {product} quote. When's a better time to chat? Reply with a time or just YES.",
+  },
+  not_interested: {
+    enabled: false,
+    body: "",
+  },
+};
+
+function loadOutcomeSms() {
+  try {
+    const raw = localStorage.getItem("repflow.autodial.outcome_sms");
+    const stored = raw ? JSON.parse(raw) : {};
+    // Merge so a new default outcome (added later) is picked up without the
+    // rep needing to clear localStorage.
+    const merged = {};
+    Object.keys(OUTCOME_SMS_DEFAULTS).forEach(k => {
+      merged[k] = { ...OUTCOME_SMS_DEFAULTS[k], ...(stored[k] || {}) };
+    });
+    return merged;
+  } catch { return { ...OUTCOME_SMS_DEFAULTS }; }
+}
+function saveOutcomeSms(map) {
+  try { localStorage.setItem("repflow.autodial.outcome_sms", JSON.stringify(map)); } catch {}
+}
+function renderOutcomeSms(template, lead) {
+  const fullName = lead?.lead || "";
+  const parts    = String(fullName).trim().split(/\s+/);
+  const first    = parts[0] || "there";
+  const last     = parts.slice(1).join(" ") || "";
+  const me       = (window.me && window.me()) || {};
+  const repName  = (me?.full_name || me?.rep_name || me?.name || "your producer").split(" ")[0];
+  const tokens = {
+    "{first}":   first,
+    "{last}":    last,
+    "{phone}":   lead?.phone || "",
+    "{product}": lead?.product || "your coverage",
+    "{state}":   lead?.state || "your state",
+    "{rep}":     repName,
+  };
+  return Object.keys(tokens).reduce(
+    (b, t) => b.split(t).join(tokens[t]),
+    template || ""
+  );
+}
+
+async function fireOutcomeSms(outcome, lead) {
+  if (!lead?.phone) return { sent: false, reason: "no_phone" };
+  const map  = loadOutcomeSms();
+  const spec = map[outcome];
+  if (!spec || !spec.enabled || !spec.body) return { sent: false, reason: "disabled_or_empty" };
+  const body = renderOutcomeSms(spec.body, lead);
+  if (!body.trim()) return { sent: false, reason: "empty_after_render" };
+  try {
+    const r = await fetch("/api/twilio-sms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: lead.phone, body, lead_id: lead.leadId || null, source: `autodial:${outcome}` }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { sent: false, reason: j.error || `HTTP ${r.status}` };
+    return { sent: true, sid: j.sid, status: j.status };
+  } catch (e) {
+    return { sent: false, reason: e?.message || "network_error" };
+  }
+}
+
 /* ─── Floating dial bar: mounts globally, listens for autodial:start ─────
    Now also drives the rich <InCall/> dashboard:
      - When stage flips to "dialing" on a new lead, fires `incall:open` with
@@ -300,7 +392,18 @@ function AutoDialBar() {
       }
     }
 
-    window.toast && window.toast(`${current.lead}: ${labelMap[outcome] || outcome}${cadenceLabel}`, "success");
+    // Outcome → auto-SMS (customizable per rep). Fire-and-forget so the next
+    // dial doesn't wait on Twilio. Toast the result.
+    let smsLabel = "";
+    fireOutcomeSms(outcome, current).then(res => {
+      if (res.sent) {
+        window.toast && window.toast(`Auto-SMS to ${current.lead}: queued`, "info");
+      } else if (res.reason && res.reason !== "disabled_or_empty" && res.reason !== "no_phone") {
+        window.toast && window.toast(`Auto-SMS failed: ${res.reason}`, "warn");
+      }
+    });
+
+    window.toast && window.toast(`${current.lead}: ${labelMap[outcome] || outcome}${cadenceLabel}${smsLabel}`, "success");
     if (idx < queue.length - 1) { setIdx(i => i + 1); setStage("dialing"); }
     else {
       setQueue([]); setIdx(0); setStage("idle");
@@ -363,5 +466,93 @@ function AutoDialBar() {
   );
 }
 window.AutoDialBar = AutoDialBar;
+
+/* ─── Outcome settings modal ──────────────────────────────────────────────
+   Per-rep customization for the auto-SMS that fires on each outcome.
+   Tokens: {first}, {last}, {phone}, {product}, {state}, {rep}. */
+function AutodialOutcomeSettings({ onClose }) {
+  const [map, setMap]   = React.useState(() => loadOutcomeSms());
+  const [busy, setBusy] = React.useState(false);
+  const Shared = window.Shared || {};
+  const Icons  = window.Icons  || {};
+
+  const save = () => {
+    setBusy(true);
+    saveOutcomeSms(map);
+    window.toast && window.toast("Outcome auto-SMS saved", "success");
+    setBusy(false);
+    onClose && onClose();
+  };
+
+  const resetDefaults = () => {
+    if (!window.confirm("Reset all outcome templates to defaults?")) return;
+    setMap({ ...OUTCOME_SMS_DEFAULTS });
+  };
+
+  const OUTCOMES = [
+    { k: "voicemail",      l: "Left voicemail" },
+    { k: "appointment",    l: "Booked appointment" },
+    { k: "callback",       l: "Schedule callback" },
+    { k: "no_answer",      l: "No answer" },
+    { k: "not_interested", l: "Not interested" },
+  ];
+
+  const updateField = (k, field, v) => {
+    setMap(m => ({ ...m, [k]: { ...(m[k] || {}), [field]: v } }));
+  };
+
+  if (!Shared.Modal) {
+    return null;
+  }
+
+  return (
+    <Shared.Modal title="Outcome auto-SMS" width={620} onClose={busy ? null : onClose} actions={
+      <>
+        <button className="btn btn-ghost" onClick={resetDefaults}>Reset defaults</button>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={busy}>Save</button>
+      </>
+    }>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>
+        When you log an autodial outcome, the autodialer can fire a templated SMS to that lead automatically.
+        Toggle each outcome on/off; tokens: <span className="mono">{"{first}"}</span> <span className="mono">{"{last}"}</span> <span className="mono">{"{phone}"}</span> <span className="mono">{"{product}"}</span> <span className="mono">{"{state}"}</span> <span className="mono">{"{rep}"}</span>.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {OUTCOMES.map(o => {
+          const spec = map[o.k] || { enabled: false, body: "" };
+          return (
+            <div key={o.k} style={{
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 8,
+              padding: 10,
+              background: spec.enabled ? "var(--bg-raised)" : "transparent",
+            }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!spec.enabled}
+                  onChange={(e) => updateField(o.k, "enabled", e.target.checked)}
+                />
+                <strong style={{ fontSize: 12.5 }}>{o.l}</strong>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>{spec.body?.length || 0} chars</span>
+              </label>
+              <textarea
+                value={spec.body || ""}
+                onChange={(e) => updateField(o.k, "body", e.target.value)}
+                rows={2}
+                maxLength={1600}
+                className="text-input"
+                disabled={!spec.enabled}
+                placeholder={spec.enabled ? "Write the auto-SMS for this outcome…" : "Enable to edit"}
+                style={{ width: "100%", lineHeight: 1.5, resize: "vertical", fontFamily: "inherit", fontSize: 12.5 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </Shared.Modal>
+  );
+}
+window.AutodialOutcomeSettings = AutodialOutcomeSettings;
 
 })();
