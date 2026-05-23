@@ -894,16 +894,27 @@ function TodayManager({ aep }) {
   // sessionStorage["repflow.today.subtab"] = "pay" before nav:goto({page:"today"})
   // and the manager lands directly on the Pay sub-tab. Used by the Pay /
   // Expenses / NIGO route aliases in index.html so legacy URLs still resolve.
+  // Also listens for a `today:subtab` window event so any in-page caller can
+  // flip the sub-tab without unmounting (e.g. Pulse's "Open Coaching" link).
+  const VALID_SUBTABS = ["pulse", "team", "coaching", "pay", "expenses", "nigo", "onboarding"];
   const [subTab, setSubTab] = React.useState(() => {
     try {
       const stash = sessionStorage.getItem("repflow.today.subtab");
       if (stash) {
         sessionStorage.removeItem("repflow.today.subtab");
-        if (["pulse", "pay", "expenses", "nigo"].includes(stash)) return stash;
+        if (VALID_SUBTABS.includes(stash)) return stash;
       }
     } catch {}
     return "pulse";
   });
+  React.useEffect(() => {
+    const onSub = (e) => {
+      const next = e?.detail;
+      if (typeof next === "string" && VALID_SUBTABS.includes(next)) setSubTab(next);
+    };
+    window.addEventListener("today:subtab", onSub);
+    return () => window.removeEventListener("today:subtab", onSub);
+  }, []);
 
   return (
     <div className="page-pad">
@@ -957,25 +968,33 @@ function TodayManager({ aep }) {
       <PredictiveCards scope="team"/>
       <ForecastStrip scope="team"/>
 
-      {/* Sub-tab strip — Pulse (default) / Pay / Expenses / NIGO */}
+      {/* Sub-tab strip — Pulse · Team · Coaching · Pay · Expenses · NIGO · Onboarding.
+          Team + Coaching folded in 2026-05-23 from the deprecated standalone
+          Team Board page (whose internal phantom pill bounced through dead
+          routes). Today is now the one cohesive surface for everything a
+          manager touches daily. */}
       <div style={{ marginTop: 14, marginBottom: 10 }}>
         <Shared.SectionPill
           value={subTab}
           onChange={setSubTab}
           items={[
-            { k: "pulse",    l: "Pulse" },
-            { k: "pay",      l: "Pay" },
-            { k: "expenses", l: "Expenses" },
-            { k: "nigo",     l: "NIGO" },
+            { k: "pulse",      l: "Pulse" },
+            { k: "team",       l: "Team Board" },
+            { k: "coaching",   l: "Coaching" },
+            { k: "pay",        l: "Pay" },
+            { k: "expenses",   l: "Expenses" },
+            { k: "nigo",       l: "NIGO" },
             { k: "onboarding", l: "Onboarding" },
           ]}
         />
       </div>
 
-      {subTab === "pulse"    && <TodayManagerPulse REPS={REPS} live={live} idle={idle} scopeIds={scopeIds}/>}
-      {subTab === "pay"      && <TodayManagerPay scopeIds={scopeIds}/>}
-      {subTab === "expenses" && <TodayManagerExpenses/>}
-      {subTab === "nigo"     && <TodayManagerNigo scopeIds={scopeIds}/>}
+      {subTab === "pulse"      && <TodayManagerPulse REPS={REPS} live={live} idle={idle} scopeIds={scopeIds} setSubTab={setSubTab}/>}
+      {subTab === "team"       && (() => { const T = window.PageTeam;        return T ? <T embedded/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Team Board module loading…</div>; })()}
+      {subTab === "coaching"   && (() => { const C = window.CoachingManager; return C ? <C embedded/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Coaching module loading…</div>; })()}
+      {subTab === "pay"        && <TodayManagerPay scopeIds={scopeIds}/>}
+      {subTab === "expenses"   && <TodayManagerExpenses/>}
+      {subTab === "nigo"       && <TodayManagerNigo scopeIds={scopeIds}/>}
       {subTab === "onboarding" && <TodayManagerOnboarding scopeIds={scopeIds}/>}
     </div>
   );
@@ -1218,7 +1237,7 @@ function TodaySpendStrip({ scopeIds, teamToday }) {
    Stuck-deal panel REPLACES the previous hardcoded "Robert Mendez App In..."
    row set with a real query against AppData.PIPELINE filtered to downline +
    days-in-stage > 3 + stage in ["App In", "Quoted"]. */
-function TodayManagerPulse({ REPS, live, idle, scopeIds }) {
+function TodayManagerPulse({ REPS, live, idle, scopeIds, setSubTab }) {
   const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
   const pipeline = (AppData.PIPELINE || []);
   const inScope = (row) => !scopeIds || scopeIds.length === 0 || !row.owner || scopeIds.includes(row.owner);
@@ -1286,7 +1305,7 @@ function TodayManagerPulse({ REPS, live, idle, scopeIds }) {
             {sessions.length === 0 && (
               <div style={{ padding: 14, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
                 No active coaching sessions in your downline.<br/>
-                <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("team"); }} style={{ color: "var(--accent-money)" }}>Open Team Board → Coaching</a> to create one.
+                <a href="#" onClick={(e) => { e.preventDefault(); if (setSubTab) setSubTab("coaching"); else window.dispatchEvent(new CustomEvent("today:subtab", { detail: "coaching" })); }} style={{ color: "var(--accent-money)" }}>Open Coaching tab</a> to create one.
               </div>
             )}
             {sessions.map((s, i) => {

@@ -141,7 +141,24 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [cmdkOpen]);
 
-  const goto = (p) => { setTweak("page", p); setCmdkOpen(false); };
+  // Legacy routes "team" and "coaching" are folded into the Today sub-tab
+  // bar (Pulse · Team · Coaching · Pay · Expenses · NIGO · Onboarding). When a
+  // caller still requests them, redirect into Today and flip the sub-tab via
+  // both a sessionStorage stash (for the fresh-mount case) and a
+  // `today:subtab` event (for the already-mounted case).
+  const goto = (p) => {
+    if (p === "team" && (role === "manager" || role === "owner" || role === "super_admin")) {
+      try { sessionStorage.setItem("repflow.today.subtab", "team"); } catch {}
+      window.dispatchEvent(new CustomEvent("today:subtab", { detail: "team" }));
+      p = "today";
+    } else if (p === "coaching" && (role === "manager" || role === "owner")) {
+      try { sessionStorage.setItem("repflow.today.subtab", "coaching"); } catch {}
+      window.dispatchEvent(new CustomEvent("today:subtab", { detail: "coaching" }));
+      p = "today";
+    }
+    setTweak("page", p);
+    setCmdkOpen(false);
+  };
 
   // Expose goto + listen to nav:goto events from anywhere (SectionPill, deep-links, etc.)
   React.useEffect(() => {

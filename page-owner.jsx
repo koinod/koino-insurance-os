@@ -875,7 +875,7 @@ function scopedReps() {
   return reps.filter(r => ids.includes(r.id));
 }
 
-function PageTeam() {
+function PageTeam({ embedded = false } = {}) {
   useMeReady();
   const { QUEUE } = AppData;
   const teamReps = scopedReps();
@@ -934,24 +934,34 @@ function PageTeam() {
     ? "No producers in your downline yet"
     : `${teamReps.length} producer${teamReps.length === 1 ? "" : "s"} in your downline · drag a lead onto a card · routing rules validate license + carrier appt + tier`;
 
+  // Phantom SectionPill (Floor/Coaching/NIGO/Recruiting/Dispatch) lived here pre-
+  // 2026-05-23. Removed — Coaching + NIGO are now Today sub-tabs, Recruiting is
+  // its own top-level NAV item, "Dispatch" was a duplicate of Floor. When this
+  // component is mounted as a Today sub-tab (embedded), we also skip the
+  // page-pad + page-h since Today already owns those.
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Team Board</div>
-          <div className="page-sub">{subline}</div>
+    <div className={embedded ? "" : "page-pad"}>
+      {!embedded && (
+        <div className="page-h">
+          <div>
+            <div className="page-title">Team Board</div>
+            <div className="page-sub">{subline}</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button className="btn" onClick={() => setRoutingOpen(true)}><Icons.Settings size={13}/> Routing rules</button>
+            <button className="btn btn-primary" onClick={openBulk} disabled={visibleQueue.length === 0 || teamReps.length === 0}><Icons.Plus size={13}/> Bulk assign</button>
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setRoutingOpen(true)}><Icons.Settings size={13}/> Routing rules</button>
-          <button className="btn btn-primary" onClick={openBulk} disabled={visibleQueue.length === 0 || teamReps.length === 0}><Icons.Plus size={13}/> Bulk assign</button>
+      )}
+      {embedded && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
+          <div>{subline}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" onClick={() => setRoutingOpen(true)}><Icons.Settings size={13}/> Routing rules</button>
+            <button className="btn btn-primary" onClick={openBulk} disabled={visibleQueue.length === 0 || teamReps.length === 0}><Icons.Plus size={13}/> Bulk assign</button>
+          </div>
         </div>
-      </div>
-
-      <Shared.SectionPill
-        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"}]}
-        value="team"
-        onChange={(k) => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
-      />
+      )}
 
       <div className="team-grid" style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14 }}>
         <div className="panel">
@@ -1278,7 +1288,7 @@ function deriveCoachingCards() {
   });
 }
 
-function CoachingManager() {
+function CoachingManager({ embedded = false } = {}) {
   useMeReady();
   const reps = scopedReps();
   const cards = deriveCoachingCards();
@@ -1297,24 +1307,28 @@ function CoachingManager() {
     : 8.2;
   const completedSessions = sessions.filter(s => s.completedAt).length;
 
+  // Phantom SectionPill (Floor/Coaching/NIGO/Recruiting/Dispatch) removed
+  // 2026-05-23 — its rows pointed at dead/duplicate routes. Coaching is now a
+  // sub-tab of Today; standalone /coaching route still renders this for the
+  // Library hub via PageTraining. When embedded inside Today we skip the
+  // page-pad + page-h since Today owns those.
+  const subline = sessions.length > 0
+    ? `${sessions.length} active session${sessions.length === 1 ? "" : "s"} · ${completedSessions} completed · one-thing-at-a-time per rep`
+    : "Virtual ridealong feed · one-thing-at-a-time per rep";
+
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Coaching · Team</div>
-          <div className="page-sub">
-            {sessions.length > 0
-              ? `${sessions.length} active session${sessions.length === 1 ? "" : "s"} · ${completedSessions} completed · one-thing-at-a-time per rep`
-              : "Virtual ridealong feed · one-thing-at-a-time per rep"}
+    <div className={embedded ? "" : "page-pad"}>
+      {!embedded && (
+        <div className="page-h">
+          <div>
+            <div className="page-title">Coaching · Team</div>
+            <div className="page-sub">{subline}</div>
           </div>
         </div>
-      </div>
-
-      <Shared.SectionPill
-        items={[{k:"team",l:"Floor"},{k:"coaching",l:"Coaching"},{k:"nigo",l:"NIGO Queue"},{k:"recruiting",l:"Recruiting"},{k:"queue",l:"Dispatch"}]}
-        value="coaching"
-        onChange={(k) => window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: k } }))}
-      />
+      )}
+      {embedded && (
+        <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-tertiary)" }}>{subline}</div>
+      )}
 
       <div className="cards-2col" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
         <div className="panel">
