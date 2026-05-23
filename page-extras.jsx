@@ -2168,6 +2168,51 @@ function CommissionsRep() {
   );
 }
 
+// Per-row Base % editor. The earlier inline `<input value={rep.baseCompPct}
+// onChange={save}>` had two problems: (1) `reps.base_comp_pct` didn't exist
+// in prod until 2026-05-23, so every keystroke fired a save that errored
+// silently — the "unable to change comp rates" repro; (2) even after the
+// schema fix, every keystroke fired a save, and the in-place AppData
+// mutation never triggered a re-render, so the displayed value would drift
+// from the persisted one. This sub-component keeps a local draft, commits on
+// blur or Enter, and bails on out-of-range values.
+function BaseCompPctInput({ rep }) {
+  const persisted = rep.baseCompPct != null ? rep.baseCompPct : 50;
+  const [draft, setDraft] = React.useState(String(persisted));
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => { setDraft(String(persisted)); }, [persisted]);
+
+  const commit = async () => {
+    const v = parseFloat(draft);
+    if (!Number.isFinite(v) || v < 0 || v > 100) {
+      window.toast && window.toast("Comp % must be between 0 and 100", "error");
+      setDraft(String(persisted));
+      return;
+    }
+    if (v === persisted) return;
+    setSaving(true);
+    try {
+      await AppData.mutate.repBaseCompPctSave(rep.id, v);
+      window.toast && window.toast(`${rep.name.split(" ")[0]} → ${v}%`, "success");
+    } catch (_e) {
+      setDraft(String(persisted));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <input type="number" step="0.5" min="0" max="100" className="input-tiny"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } else if (e.key === "Escape") { setDraft(String(persisted)); e.currentTarget.blur(); } }}
+      disabled={saving}
+      title={saving ? "Saving…" : "Manager-set base comp % · Enter to save"}
+      style={{ width: 45, textAlign: "right", padding: "2px 4px", fontSize: 11, opacity: saving ? 0.6 : 1 }} />
+  );
+}
+
 function CommissionsManager() {
   const { REPS } = AppData;
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
@@ -2239,10 +2284,7 @@ function CommissionsManager() {
                   </div>
                 </div>
                 <div className="tabular" style={{ textAlign: "right" }}>
-                  <input type="number" step="0.5" className="input-tiny" 
-                    value={rep.baseCompPct || 50} 
-                    onChange={(e) => AppData.mutate.repBaseCompPctSave(rep.id, parseFloat(e.target.value))}
-                    style={{ width: 45, textAlign: "right", padding: "2px 4px", fontSize: 11 }} />
+                  <BaseCompPctInput rep={rep}/>
                 </div>
                 <div className="tabular" style={{ textAlign: "right" }}>{issued}</div>
                 <div className="tabular" style={{ textAlign: "right" }}>${showAp.toLocaleString()}</div>
