@@ -1403,46 +1403,15 @@ function TodayManagerPay({ scopeIds }) {
     count: v.count,
   })).sort((a, b) => b.booked - a.booked);
 
+  // The duplicate page-h block that lived here referenced `aep`, `live`,
+  // `REPS`, `totalDials`, `teamToday` — none in scope for this component, so
+  // rendering the Pay sub-tab threw "aep is not defined" the moment Today's
+  // outer page-h wasn't there to swallow it. Outer TodayManager already
+  // renders the agency/AEP title and the Standup notes / Power Hour buttons
+  // (see line ~920), so this nested header was both dead and crashing.
+  // Dropped 2026-05-23 along with the Team Board sub-tab fold-in.
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Today · {(() => { const m = window.me && window.me(); return m?.agency_name || "Team"; })()} — {aep ? (() => { const ctx = useAepContext(null, "manager"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
-          <div className="page-sub">{live.length} of {REPS.length} live · {totalDials} dials · ${teamToday.toLocaleString()} closed today</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button
-            className="btn"
-            onClick={() => {
-              if (window.gotoPage) window.gotoPage("messages");
-              window.toast && window.toast("Open your team channel to post standup notes", "info");
-            }}
-          ><Icons.MessageSquare size={13}/> Standup notes</button>
-          <button
-            className="btn btn-primary"
-            onClick={async () => {
-              const mut = window.AppData && window.AppData.mutate;
-              const meIdent = (window.me && window.me()) || null;
-              const fromName = meIdent?.full_name || meIdent?.handle || "Your manager";
-              try {
-                if (mut && mut.notificationCreate) {
-                  await mut.notificationCreate({
-                    kind: "power_hour",
-                    severity: "info",
-                    title: "Power Hour — all hands on Floor",
-                    body: `${fromName} kicked off a Power Hour. Open Floor and dial.`,
-                    pageLink: "page=floor",
-                  });
-                }
-                window.toast && window.toast("Power Hour broadcast sent · all hands notified", "success");
-              } catch (_e) {
-                window.toast && window.toast("Power Hour broadcast failed — opened Floor anyway", "error");
-              }
-              if (window.gotoPage) window.gotoPage("floor");
-            }}
-          ><Icons.Phone size={13}/> Power Hour · all hands</button>
-        </div>
-      </div>
+    <>
       <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginTop: 10 }}>
         <Shared.KpiCard label="Booked today (comp)" prefix="$" value={Math.round(todayBookedCents).toLocaleString()} sub={`${todaysPolicies.length} polic${todaysPolicies.length === 1 ? "y" : "ies"} issued`}/>
         <Shared.KpiCard label="Paid today" prefix="$" value={Math.round(todayPaidCents).toLocaleString()} sub={todayPaidCents > 0 ? "advances + as-earned" : "no advances posted"}/>
@@ -1477,7 +1446,7 @@ function TodayManagerPay({ scopeIds }) {
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
