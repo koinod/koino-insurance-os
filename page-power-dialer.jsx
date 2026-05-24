@@ -296,14 +296,13 @@
     useEffect(() => {
       if (!bridged) return;
       const handler = (e) => {
-        const map = { '1': 'no_answer', '2': 'voicemail_dropped', '3': 'connected_set_appt',
+        const map = { '1': 'no_answer', '2': 'voicemail_dropped', '3': 'connected',
                       '4': 'not_interested', '5': 'callback' };
         if (map[e.key]) {
-          // For Phase 1: just hang up the bridged leg; future: write disposition + fire SMS template.
-          fetch(`/api/dial/disposition/${bridged.id}`, {
+          fetch('/api/dial/disposition', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ disposition: map[e.key] }),
+            body: JSON.stringify({ attemptId: bridged.id, disposition: map[e.key] }),
           }).catch(() => {});
         }
       };

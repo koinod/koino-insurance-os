@@ -3,7 +3,15 @@ import { db, getSession, insertAttempt, updateAttempt, claimWinner, releaseWinne
 import { placeOutbound, hangup, redirect, twimlUrl } from './twilio.js';
 import { ensureRoom, roomNameForRep, roomNameForLeg, roomNameForAi, repToken } from './livekit.js';
 import { preflight, abandonmentSafe } from './compliance.js';
+import { preCallSms, postCallSms, emailRepOnDisposition } from './touchpoints.js';
 import { logger } from './logger.js';
+
+// Look up rep display name for templates.
+async function getRepName(repId) {
+  if (!repId) return null;
+  const { data } = await db.from('reps').select('full_name').eq('id', repId).maybeSingle();
+  return data?.full_name || null;
+}
 
 // Start a session: create rep room, mint token, return token+room for the UI.
 export async function startSession({ agencyId, repId, maxLines = 3, leadQueue = [], toggles = {} }) {
@@ -87,6 +95,13 @@ export async function dialNext({ sessionId }) {
 
     // Pre-create the leg room so AMD/answer can dial right in.
     await ensureRoom(roomNameForLeg(attempt.id));
+
+    // Pre-call SMS (best-effort, fire-and-forget so it doesn't delay the dial).
+    if (sess.toggles?.sms_pre) {
+      const repName = await getRepName(sess.rep_id);
+      preCallSms({ session: sess, lead, repName }).catch((e) =>
+        logger.warn({ err: e, attemptId: attempt.id }, 'preCallSms failed'));
+    }
 
     try {
       const { sid } = await placeOutbound({
@@ -220,6 +235,39 @@ export async function onStatusCallback({ sid, status, durationSec }) {
     .eq('id', sess.id);
 
   return { ok: true };
+}
+
+// Called by the UI's disposition hotkey via /api/dial/disposition.
+// Stamps the call_attempt, fires post-call SMS + email per session toggles,
+// releases the rep so the next batch can dial.
+export async function setDisposition({ attemptId, disposition }) {
+  const { data: attempt } = await db.from('call_attempts').select('*').eq('id', attemptId).maybeSingle();
+  if (!attempt) return { ok: false, error: 'no_attempt' };
+  const sess = await getSession(attempt.session_id);
+
+  await updateAttempt(attemptId, {
+    disposition,
+    ended_at: attempt.ended_at ?? new Date().toISOString(),
+  });
+
+  // Resolve lead from the session's lead_queue for templating.
+  const lead = (sess.lead_queue || []).find((l) => l.lead_id === attempt.lead_id)
+            || { name: '', state: '', phone: attempt.to_number };
+  const repName = await getRepName(sess.rep_id);
+
+  // Hang up the bridged leg if still live.
+  await hangup(attempt.twilio_call_sid);
+
+  // Release the rep so dial-next can claim the next winner.
+  if (sess.current_bridged_attempt_id === attemptId) {
+    await releaseWinner(sess.id);
+  }
+
+  // Touchpoints (best-effort).
+  const smsR = await postCallSms({ session: sess, attempt, lead, repName, disposition }).catch((e) => ({ sent: false, error: e.message }));
+  const emR  = await emailRepOnDisposition({ session: sess, attempt, lead, disposition }).catch((e) => ({ sent: false, error: e.message }));
+
+  return { ok: true, sms: smsR, email: emR };
 }
 
 export async function endSessionById(id) {
