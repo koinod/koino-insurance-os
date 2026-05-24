@@ -221,6 +221,8 @@ function App() {
       case "auto-quoter": return F("PageAutoQuoter", { role });
       case "recruiting":  return F("PageRecruiting", { role });
       case "recruits":    return F("PageRecruits",   { role });
+      case "carrier-appointments":
+                          return F("PageCarrierAppointments", { role });
       case "settings":    return F("PageSettings",   { role });
       // admin: super_admin gets the real PageAdmin panel; everyone else falls
       // through to Today so old deep links don't 404. The admin-* deep-link

@@ -83,6 +83,7 @@ const NAV = {
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
     { id: "pnl",         label: "P&L",          icon: "Wallet" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
+    { id: "carrier-appointments", label: "Carriers", icon: "Shield" },
     { id: "recruiting",  label: "Recruiting",   icon: "Users" },
   ],
   ops: [
