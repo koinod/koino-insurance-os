@@ -6,6 +6,17 @@ import { startSession, dialNext, endSessionById, onAmdResult, onStatusCallback, 
 import { db, getSession } from './db.js';
 import { holdInLegRoom, bridgeRepResponse, divertAiResponse, voicemailResponse, abandonResponse } from './twiml.js';
 
+// Fail-fast on the env the worker actually needs. Provisioning scripts
+// (services/power-dialer/scripts/*.js) import the same config but don't
+// gate-check here — they fail loudly later if they try to touch
+// DB/Twilio without keys.
+for (const k of ['supabaseUrl', 'supabaseServiceKey', 'twilioSid', 'twilioToken']) {
+  if (!config[k]) {
+    console.error(`worker boot: missing ${k}; refusing to start`);
+    process.exit(2);
+  }
+}
+
 const app = Fastify({ logger: false });
 await app.register(websocket);
 
