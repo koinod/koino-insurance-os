@@ -34,10 +34,17 @@ export default async function handler(req) {
   const scenario = body.scenario || "losing_leg";
   if (!to) return j(400, { error: "missing_to" });
 
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
+  // Auth precedence: API Key (preferred, scoped) → Auth Token (legacy).
+  // Both flow as HTTP Basic; the Account SID still appears in the URL.
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const apiKeySid  = process.env.TWILIO_API_KEY_SID;
+  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
+  const authToken  = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_CALLER_ID || "+18449922777";
-  if (!sid || !token) return j(500, { error: "twilio_unconfigured" });
+  if (!accountSid) return j(500, { error: "twilio_unconfigured", detail: "TWILIO_ACCOUNT_SID missing" });
+  const basicUser = apiKeySid  || accountSid;
+  const basicPass = apiKeySecret || authToken;
+  if (!basicPass) return j(500, { error: "twilio_unconfigured", detail: "no API Key Secret or Auth Token in env" });
 
   // Pack initial scenario into the TwiML callback URL via query string.
   // Empty history h=, scenario hint, rep name.
@@ -52,10 +59,10 @@ export default async function handler(req) {
     Timeout: "30",
   });
 
-  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
+  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
     method: "POST",
     headers: {
-      Authorization: "Basic " + btoa(`${sid}:${token}`),
+      Authorization: "Basic " + btoa(`${basicUser}:${basicPass}`),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: form,
