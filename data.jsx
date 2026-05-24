@@ -1119,6 +1119,28 @@ window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(
 // Called immediately after automation_fire() so SMS/email ships in seconds
 // instead of waiting for the daily worker cron. Server scopes to caller's
 // agency via user-JWT auth in /api/worker/dispatch-queue.
+// Per-rep carrier visibility (reps.carrier_prefs). Cached at module scope;
+// refreshed on me:loaded + carrier-prefs:changed. Returns { [carrier_id]: bool }
+// where false = hide, anything else = show. Pages use:
+//   window.repflowCarrierPrefs("quotes")  → { aetna: false, ... }
+//   window.repflowCarrierPrefs("deals")   → { ... }
+let _carrierPrefsCache = {};
+async function _loadCarrierPrefs() {
+  try {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const sess = (await sb.auth.getSession())?.data?.session;
+    if (!sess?.user?.id) return;
+    const { data } = await sb.from("reps").select("carrier_prefs").eq("user_id", sess.user.id).maybeSingle();
+    _carrierPrefsCache = (data && data.carrier_prefs) || {};
+  } catch (_e) { /* keep last cache */ }
+}
+window.repflowCarrierPrefs = (kind) => (_carrierPrefsCache && _carrierPrefsCache[kind]) || {};
+window.addEventListener("me:loaded", _loadCarrierPrefs);
+window.addEventListener("carrier-prefs:changed", (e) => { _carrierPrefsCache = (e?.detail) || _carrierPrefsCache; });
+// Also load on first script eval in case me() already resolved.
+if (typeof window !== "undefined" && window.me && window.me()) _loadCarrierPrefs();
+
 async function _drainAutomationsNow() {
   try {
     const sb = window.getSupabase && window.getSupabase();

@@ -4422,7 +4422,7 @@ function PageSettings({ role = "owner" }) {
     ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
     : role === "manager"
       ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-      : [["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
+      : [["carriers","Carriers"],["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
   // Allow other pages to deeplink into a specific tab via sessionStorage
   // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
   const initialTab = (() => {

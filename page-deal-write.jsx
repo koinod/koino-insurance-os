@@ -419,7 +419,12 @@
             <Lbl required>Carrier</Lbl>
             <select style={inp} value={carrierId} onChange={(e) => setCarrierId(e.target.value)}>
               <option value="">— pick a carrier —</option>
-              {carriers.filter(c => c.status !== "inactive").map(c => (
+              {carriers.filter(c => {
+                if (c.status === "inactive") return false;
+                // Honor per-rep carrier_prefs.deals — only explicit `false` hides.
+                const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs("deals")) || {};
+                return prefs[c.id] !== false;
+              }).map(c => (
                 <option key={c.id} value={c.id}>{c.name} · {c.category}</option>
               ))}
             </select>

@@ -496,7 +496,7 @@ const CARRIER_STATUSES = [
 ];
 const CARRIER_PRODUCT_LINES = ["Medicare Supplement", "Medicare Advantage", "Part D", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital Indemnity"];
 
-function SettingsCarriers({ canEdit = true }) {
+function SettingsCarriers({ canEdit = true, role = "rep" }) {
   const [carriers, setCarriers] = React.useState(undefined); // undefined = loading
   const [agencyId, setAgencyId] = React.useState(null);
   const [editing, setEditing]   = React.useState(null); // null = closed, {} = new, {id...} = edit
@@ -735,10 +735,128 @@ function SettingsCarriers({ canEdit = true }) {
           </Shared.Field>
         </Shared.Modal>
       )}
+      {/* Per-rep visibility toggles. Visible to every role (owner/manager
+          can edit the underlying carrier list above; everyone — including
+          reps — can prune which carriers show up in their own Quote tool
+          and Deal-write dropdowns). Stored as reps.carrier_prefs jsonb. */}
+      <CarrierPrefsTable carriers={carriers || []} agencyId={agencyId} />
     </div>
   );
 }
 window.SettingsCarriers = SettingsCarriers;
+
+// ─── Per-rep carrier-visibility toggles ──────────────────────────────────
+// Reads/writes reps.carrier_prefs jsonb for the signed-in user. Shape:
+//   { quotes: { aetna: false, ... }, deals: { ... } }
+// Empty / missing key = visible (the default). Only explicit `false` hides.
+// Used by page-quote (CARRIER_NICHES filter) and page-deal-write (carrier
+// dropdown filter) so a rep can declutter the surfaces they use daily.
+function CarrierPrefsTable({ carriers, agencyId }) {
+  const [prefs, setPrefs]   = React.useState(null);
+  const [repId, setRepId]   = React.useState(null);
+  const [busy,  setBusy]    = React.useState(false);
+  const [saved, setSaved]   = React.useState("");
+
+  React.useEffect(() => {
+    (async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      try {
+        const sess = (await sb.auth.getSession())?.data?.session;
+        const uid = sess?.user?.id;
+        if (!uid) return;
+        const { data } = await sb.from("reps")
+          .select("id,carrier_prefs")
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (data) {
+          setRepId(data.id);
+          setPrefs(data.carrier_prefs || {});
+        } else {
+          // No rep row for this user — start with empty prefs (read-only state).
+          setPrefs({});
+        }
+      } catch (_e) { setPrefs({}); }
+    })();
+  }, [agencyId]);
+
+  const get = (kind, id) => {
+    const v = prefs?.[kind]?.[id];
+    return v !== false; // anything not explicitly false = visible
+  };
+  const toggle = async (kind, id) => {
+    if (!repId) {
+      window.toast && window.toast("Sign in first to save carrier preferences", "warn");
+      return;
+    }
+    const next = { ...(prefs || {}) };
+    next[kind] = { ...(next[kind] || {}) };
+    next[kind][id] = !get(kind, id);          // flip current effective value
+    setPrefs(next);
+    setBusy(true); setSaved("");
+    try {
+      const sb = window.getSupabase();
+      const { error } = await sb.from("reps").update({ carrier_prefs: next }).eq("id", repId);
+      if (error) throw error;
+      setSaved("Saved");
+      setTimeout(() => setSaved(""), 1200);
+      // Notify any open Quote / Deal-write surface to re-filter immediately.
+      try { window.dispatchEvent(new CustomEvent("carrier-prefs:changed", { detail: next })); } catch {}
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e?.message || e}`, "error");
+      // Roll back local state
+      setPrefs(prev => {
+        const r = { ...(prev || {}) };
+        r[kind] = { ...(r[kind] || {}) };
+        r[kind][id] = !next[kind][id];
+        return r;
+      });
+    } finally { setBusy(false); }
+  };
+
+  if (prefs === null) {
+    return <div style={{ marginTop: 18, padding: 14, color: "var(--text-tertiary)", fontSize: 12 }}>Loading your carrier preferences…</div>;
+  }
+  if (!carriers.length) return null;
+
+  return (
+    <div style={{ marginTop: 18, padding: 16, background: "var(--bg-raised)", borderRadius: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <h4 style={{ margin: 0, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>
+          My carrier visibility
+        </h4>
+        <span style={{ fontSize: 11, color: "var(--text-quaternary)" }}>
+          Toggle which carriers show up in your Quote tool and Deal-write dropdowns. Personal — doesn't affect teammates.
+        </span>
+        {saved && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--accent-money)" }}>{saved}</span>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px", gap: 6, alignItems: "center" }}>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600 }}>Carrier</div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textAlign: "center" }}>Quotes</div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textAlign: "center" }}>Deals</div>
+        {carriers.map(c => {
+          const onQ = get("quotes", c.id);
+          const onD = get("deals",  c.id);
+          return (
+            <React.Fragment key={c.id}>
+              <div style={{ fontSize: 12.5, padding: "6px 0" }}>{c.name || c.id}</div>
+              <div style={{ textAlign: "center" }}>
+                <button disabled={busy} className={`chip ${onQ ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("quotes", c.id)}>
+                  {onQ ? "on" : "off"}
+                </button>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <button disabled={busy} className={`chip ${onD ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("deals", c.id)}>
+                  {onD ? "on" : "off"}
+                </button>
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /* ─── Twilio config dialog ─────────────────────────────────────────────── */
 function TwilioConfigModal({ onClose }) {
