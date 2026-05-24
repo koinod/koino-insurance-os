@@ -56,13 +56,27 @@
   function buildAutodialQueue() {
     const me   = (typeof window !== "undefined" && window.me && window.me()) || null;
     const myId = me?.rep_id || null;
-    const seen = new Set();
+    const seenById    = new Set();
+    const seenByLead  = new Set();
+    const seenByPhone = new Set();
     const out  = [];
 
+    // Dedup across all three sources. Each source prefixes the display id
+    // ("pipe-X" / "crm-X" / "p-X" / raw queue id) so id-only dedup misses a
+    // lead that's both pinned (from Pipeline drawer → "pipe-X") and also
+    // auto-included from the rep's PIPELINE rows ("p-X") — the rep would
+    // burn two dial slots on the same person. Fall back to phone-only when
+    // leadId is absent (e.g. CSV-imported pinned numbers).
     const push = (q) => {
-      if (!q || !q.id || seen.has(q.id)) return;
-      if (!q.phone) return;
-      seen.add(q.id);
+      if (!q || !q.id || !q.phone) return;
+      if (seenById.has(q.id)) return;
+      const leadKey  = q.leadId || null;
+      const phoneKey = String(q.phone).replace(/\D/g, "");
+      if (leadKey && seenByLead.has(leadKey)) return;
+      if (!leadKey && phoneKey && seenByPhone.has(phoneKey)) return;
+      seenById.add(q.id);
+      if (leadKey) seenByLead.add(leadKey);
+      if (phoneKey) seenByPhone.add(phoneKey);
       out.push(q);
     };
 
@@ -220,13 +234,17 @@
   // Mode toggle — pill row at the top
   // ────────────────────────────────────────────────────────────────────────
   function ModeTabs({ mode, setMode }) {
+    // Floor = dialing + closing. Other surfaces have own routes:
+    //   /pipeline → PagePipeline (kanban)
+    //   /calls    → PageCalls    (history)
+    //   /today    → PageToday    (team / manager KPIs)
+    // Floor's tabs: Live (queue + redial), Deals (deal-write form), Follow-ups
+    // (rep action queue — 1-click voicemail dropoff / recap text).
     return (
       <Shared.SectionPill
         items={[
           { k: "live",      l: "Live" },
-          { k: "pipeline",  l: "Pipeline" },
           { k: "deals",     l: "Deals" },
-          { k: "history",   l: "History" },
           { k: "followups", l: "Follow-ups" },
         ]}
         value={mode}
@@ -305,8 +323,17 @@
           });
           recorderRef.current = rec;
           await rec.start();
+          // CallRecorder.start() doesn't throw on mic-denied / HTTPS / quota
+          // failures — it surfaces them via setState("error") + an internal
+          // toast. Catch that here so the end-event handler doesn't try to
+          // stop a dead recorder and the next dial can re-arm cleanly.
+          if (rec.state === "error") {
+            armedCommandRef.current = null;
+            recorderRef.current = null;
+          }
         } catch (err) {
           armedCommandRef.current = null;
+          recorderRef.current = null;
           window.toast && window.toast(`Auto-record failed: ${err?.message || err}`, "warn");
         }
       };
@@ -532,19 +559,29 @@
       ? `$${aheadBy.toLocaleString()} ahead of $${TARGET.toLocaleString()}`
       : `$${(TARGET - today).toLocaleString()} to target`;
 
+    // Slim horizontal chip bar — Floor is dialer-first; team/manager KPIs live
+    // in Today. This bar surfaces the 4 numbers that affect whether the rep
+    // should keep dialing right now.
+    const chip = (label, value, sub, tone) => (
+      <div style={{
+        display: "inline-flex", alignItems: "center", gap: 8,
+        padding: "6px 12px", borderRadius: 999,
+        background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+        fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap",
+      }}>
+        <span style={{ color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4, fontSize: 10 }}>{label}</span>
+        <strong style={{ color: tone || "var(--text-primary)", fontWeight: 600 }}>{value}</strong>
+        {sub && <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>· {sub}</span>}
+      </div>
+    );
     return (
       <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-        gap: 10, marginBottom: 12
+        display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center"
       }}>
-        <Shared.KpiCard label="Today's number"
-          value={`$${today.toLocaleString()}`}
-          sub={todaySub}
-          trend={aheadBy >= 0 ? "up" : undefined}/>
-        <Shared.KpiCard label="Dial queue"       value={queueLen}                       sub="speed-to-lead"/>
-        <Shared.KpiCard label="Open tasks"       value={tasksOpen}                       sub="due today"/>
-        <Shared.KpiCard label="My pipeline"      value={myPipeline}                      sub="active leads"/>
+        {chip("Today", `$${today.toLocaleString()}`, todaySub, aheadBy >= 0 ? "var(--accent-money)" : undefined)}
+        {chip("Queue", queueLen, queueLen > 0 ? "speed-to-lead" : null)}
+        {chip("Tasks", tasksOpen, tasksOpen > 0 ? "due" : null)}
+        {chip("Pipeline", myPipeline, "active")}
       </div>
     );
   }
@@ -1321,22 +1358,24 @@
   // remembers the last mode in localStorage.
   // ────────────────────────────────────────────────────────────────────────
   function PageFloor({ onCall, role = "rep", defaultMode }) {
+    // Floor modes (2026-05-22): live | deals | followups. Pipeline + History
+    // were dropped — they have own routes (/pipeline → PagePipeline, /calls →
+    // PageCalls). Legacy deep links (?floor=pipeline) land on "live".
+    const VALID_MODES = ["live", "deals", "followups"];
     const initialMode = (() => {
-      // Explicit prop wins (used by legacy /pipeline, /queue, /calls routes)
-      if (defaultMode && ["live","pipeline","deals","history","followups"].includes(defaultMode)) return defaultMode;
+      if (defaultMode && VALID_MODES.includes(defaultMode)) return defaultMode;
       try {
         const url = new URL(window.location.href);
         const m = url.searchParams.get("floor");
-        if (m && ["live","pipeline","deals","history","followups"].includes(m)) return m;
+        if (m && VALID_MODES.includes(m)) return m;
         const stored = localStorage.getItem("repflow.floor.mode");
-        if (stored && ["live","pipeline","deals","history","followups"].includes(stored)) return stored;
+        if (stored && VALID_MODES.includes(stored)) return stored;
       } catch {}
       return "live";
     })();
     const [mode, setMode] = useState(initialMode);
-    // If parent route changes (Pipeline → Dial Queue), follow it
     useEffect(() => {
-      if (defaultMode && ["live","pipeline","deals","history","followups"].includes(defaultMode)) {
+      if (defaultMode && VALID_MODES.includes(defaultMode)) {
         setMode(defaultMode);
       }
     }, [defaultMode]);
@@ -1361,11 +1400,13 @@
           </div>
         </div>
 
+        {/* Horizontal money bar — relevant-to-dialing numbers. Always visible. */}
+        <FloorTopStrip role={role}/>
+
         {/* Autodialer strip — the headline capability of the Floor. Always
             visible regardless of mode so the rep can start, pause, resume,
-            or stop the dialer without leaving Pipeline / Deals / History.
-            Auto-record is wired in CallRecorderPanel via autodial:call:start
-            and autodial:call:end events. */}
+            or stop the dialer. Auto-record is wired in CallRecorderPanel via
+            autodial:call:start and autodial:call:end events. */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "12px 16px", marginBottom: 12,
@@ -1376,19 +1417,15 @@
         }}>
           <AutodialBar state={autodialer} setState={setAutodialer}/>
           <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textAlign: "right", flex: "0 1 auto" }}>
-            Auto-records every dial · pickup or voicemail
+            Auto-records · auto-SMS on outcome
           </span>
         </div>
 
         {/* Always-visible call recorder + recent-calls list (role-aware via RLS) */}
         <CallRecorderPanel role={role}/>
 
-        {mode === "live" && <FloorTopStrip role={role}/>}
-
         {mode === "live"      && <LiveMode      role={role} onCall={onCall}/>}
-        {mode === "pipeline"  && <PipelineMode  role={role}/>}
         {mode === "deals"     && <DealsMode     role={role}/>}
-        {mode === "history"   && <HistoryMode   role={role}/>}
         {mode === "followups" && <FollowupsMode role={role}/>}
       </div>
     );
