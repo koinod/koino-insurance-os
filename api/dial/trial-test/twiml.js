@@ -82,31 +82,55 @@ export default async function handler(req) {
     messages.push({ role: "user", content: "[Lead just answered the phone — start the conversation.]" });
   }
 
-  async function callLlm({ baseUrl, key, model }) {
-    const r = await fetch(`${baseUrl}/chat/completions`, {
+  // Gemini native API with key as query param — the documented free-tier path.
+  async function callGeminiNative({ key, model }) {
+    if (!key) throw new Error("GEMINI_API_KEY empty at runtime");
+    // Gemini wants {contents:[{role,parts:[{text}]}]} + system_instruction
+    const sys = messages[0]?.content || "";
+    const turns = messages.slice(1).map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: sys }] },
+          contents: turns,
+          generationConfig: { maxOutputTokens: 80, temperature: 0.6 },
+        }),
+      }
+    );
+    const j = await r.json();
+    if (!r.ok) throw new Error(`gemini ${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`);
+    return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  }
+
+  async function callOpenAi({ key, model }) {
+    if (!key) throw new Error("OPENAI_API_KEY empty at runtime");
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, max_tokens: 80, temperature: 0.6, messages }),
     });
     const j = await r.json();
-    if (!r.ok) throw new Error(`${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`);
+    if (!r.ok) throw new Error(`openai ${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`);
     return j.choices?.[0]?.message?.content?.trim();
   }
 
-  let assistant;
+  let assistant, lastErr;
   try {
-    // Try Gemini first (works even with empty key for short prompts).
     try {
-      assistant = await callLlm({
-        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-        key: geminiKey || "free", model: "gemini-2.0-flash",
-      });
+      assistant = await callGeminiNative({ key: geminiKey, model: "gemini-2.0-flash" });
     } catch (eGem) {
-      if (!openaiKey) throw eGem;
-      assistant = await callLlm({
-        baseUrl: "https://api.openai.com/v1",
-        key: openaiKey, model: "gpt-4o-mini",
-      });
+      lastErr = `[gem] ${eGem.message}`;
+      try {
+        assistant = await callOpenAi({ key: openaiKey, model: "gpt-4o-mini" });
+      } catch (eOA) {
+        throw new Error(`${lastErr} | [oa] ${eOA.message}`);
+      }
     }
     if (!assistant) assistant = "Sorry, I lost my train of thought. Goodbye.";
   } catch (e) {
