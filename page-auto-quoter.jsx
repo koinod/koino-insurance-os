@@ -90,6 +90,107 @@
     useEffect(() => saveJSON(LS_REQUESTS, requests), [requests]);
     useEffect(() => saveJSON(LS_SESSIONS, sessions), [sessions]);
 
+    // ── Server-side cred persistence (2026-05-24) ────────────────────────
+    // Carrier portal creds were localStorage-only — disappeared when the
+    // rep used a different browser/device. We now ALSO write to the
+    // server via /api/agent/connector-upsert (provider = "carrier_<id>")
+    // and rehydrate from /api/agent/connector-list on mount. Local
+    // credentials.json export still works for the agent; the new path
+    // also lets the agent fetch on-demand via /api/agent/connector-exchange.
+
+    // 1. Rehydrate from server on mount. ONLY populates username — passwords
+    //    aren't returned by the list endpoint (decryption requires the agent
+    //    flow). Saved-flag tells the UI "creds on file, leave password blank
+    //    to keep existing".
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+          if (!session) return;
+          const r = await fetch("/api/agent/connector-list", {
+            headers: { authorization: `Bearer ${session.access_token}` },
+          });
+          if (!r.ok) return;
+          const { connectors = [] } = await r.json();
+          if (cancelled) return;
+          const next = {};
+          for (const c of connectors) {
+            if (!c.provider || !c.provider.startsWith("carrier_")) continue;
+            const carrierId = c.provider.slice("carrier_".length);
+            next[carrierId] = {
+              username: c.account_metadata?.username || "",
+              password: "",                 // never rehydrated for security
+              _saved_at: c.connected_at,
+              _has_password: true,
+            };
+          }
+          if (Object.keys(next).length) {
+            setCredentials(prev => ({ ...next, ...prev }));   // local override server if user already typed
+          }
+        } catch (e) { /* ignore — UI degrades to localStorage-only */ }
+      })();
+      return () => { cancelled = true; };
+    }, []);
+
+    // 2. Debounced save-on-change to server. Skips if the user hasn't typed
+    //    anything yet (rehydrate-only state) OR if the password is empty +
+    //    we already have one saved (avoid wiping the saved password).
+    const credSaveTimers = React.useRef({});
+    const saveCredToServer = React.useCallback(async (carrierId, cred) => {
+      if (!cred?.username) return;          // nothing to save
+      // Skip when user typed username but left password blank AND server
+      // already has a password (avoid wiping it).
+      if (!cred.password && cred._has_password) return;
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+        if (!session) return;
+        // api_key holds the JSON blob of all carrier-specific cred fields.
+        // account_metadata.username surfaced for the list endpoint to
+        // round-trip the username without decrypting.
+        const apiKey = JSON.stringify({
+          username: cred.username || "",
+          password: cred.password || "",
+          extra:    cred.extra || {},
+        });
+        const r = await fetch("/api/agent/connector-upsert", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${session.access_token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            provider: `carrier_${carrierId}`,
+            account_label: `Carrier portal · ${carrierId}`,
+            api_key: apiKey,
+            metadata: { username: cred.username || "" },
+          }),
+        });
+        if (r.ok) {
+          // Mark as saved so future blanks don't wipe
+          setCredentials(prev => ({
+            ...prev,
+            [carrierId]: { ...(prev[carrierId] || {}), _has_password: true, _saved_at: new Date().toISOString() },
+          }));
+        }
+      } catch (e) { /* silent — localStorage still has it */ }
+    }, []);
+
+    useEffect(() => {
+      Object.keys(credentials).forEach(carrierId => {
+        const cred = credentials[carrierId];
+        if (!cred || !cred.username) return;
+        // Don't repeatedly save on every keystroke — debounce per carrier.
+        if (credSaveTimers.current[carrierId]) clearTimeout(credSaveTimers.current[carrierId]);
+        credSaveTimers.current[carrierId] = setTimeout(() => {
+          saveCredToServer(carrierId, cred);
+        }, 1200);
+      });
+      return () => Object.values(credSaveTimers.current).forEach(clearTimeout);
+    }, [credentials, saveCredToServer]);
+
     // Poll Supabase for live session + agent state when LIVE
     useEffect(() => {
       if (!window.AppData?.LIVE) return;
