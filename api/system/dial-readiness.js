@@ -59,7 +59,7 @@ export default async function handler(req) {
     [reps, installs, vaultRows, settingsRows] = await Promise.all([
       pg(`reps?select=id,name,agency_id,user_id&${repFilter}&limit=200`),
       pg(`rba_installs?select=user_id,device_id,role,hostname,os,status,last_seen_at&status=eq.active&order=last_seen_at.desc&limit=500`),
-      pg(`connector_vault?select=user_id,provider,account_metadata,updated_at&status=eq.active&limit=500`),
+      pg(`connector_vault?select=user_id,provider,account_metadata,connected_at,last_used_at&status=eq.active&limit=500`),
       pg(`agent_settings?select=user_id,default_dial_provider`),
     ]);
   } catch (e) {
