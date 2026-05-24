@@ -124,6 +124,17 @@ a hard gate, not a suggestion.**
    stash dirty files into your workspace constantly. Stage by name
    (`git add <file>`), never `git add -A` or `git add .`.
 
+2b. **`git diff --cached` before every `git commit`.** Concurrent
+    agents share the git INDEX. If sub-agent X ran `git add` on
+    files you weren't aware of, your `git commit` will sweep them
+    into your commit even though you only `git add`-ed your own
+    file. The `2026-05-23` health.html commit accidentally shipped
+    sub-agent 1's state-rate-sheet work because of this. Always:
+    ```
+    git diff --cached --name-only
+    ```
+    and verify the file list matches your intent before committing.
+
 3. **Bump cache-busters above `origin/main`'s current value.** Grep
    every reference:
    ```
