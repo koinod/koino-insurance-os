@@ -65,8 +65,9 @@ export default async function handler(req) {
 
   // Ask the LLM. Prefer Gemini (free tier, OpenAI-compatible endpoint),
   // fall back to OpenAI if Gemini fails or has no key.
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const geminiKey     = process.env.GEMINI_API_KEY;
+  const openaiKey     = process.env.OPENAI_API_KEY;
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
   // Gemini's OpenAI-compat free tier accepts requests with NO auth too,
   // so we try it as a last-resort fallback even when both keys are empty.
   // (Lets us survive Vercel's "Sensitive" flag pulling keys as "".)
@@ -120,16 +121,39 @@ export default async function handler(req) {
     return j.choices?.[0]?.message?.content?.trim();
   }
 
-  let assistant, lastErr;
+  async function callOpenRouter({ key, model }) {
+    if (!key) throw new Error("OPENROUTER_API_KEY empty at runtime");
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://repflow.koino.capital",
+        "X-Title": "Koino Power Dialer Trial",
+      },
+      body: JSON.stringify({ model, max_tokens: 80, temperature: 0.6, messages }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(`openrouter ${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`);
+    return j.choices?.[0]?.message?.content?.trim();
+  }
+
+  let assistant, errs = [];
   try {
     try {
       assistant = await callGeminiNative({ key: geminiKey, model: "gemini-2.0-flash" });
     } catch (eGem) {
-      lastErr = `[gem] ${eGem.message}`;
+      errs.push(`[gem] ${eGem.message}`);
       try {
-        assistant = await callOpenAi({ key: openaiKey, model: "gpt-4o-mini" });
-      } catch (eOA) {
-        throw new Error(`${lastErr} | [oa] ${eOA.message}`);
+        assistant = await callOpenRouter({ key: openrouterKey, model: "deepseek/deepseek-chat-v3.1:free" });
+      } catch (eOR) {
+        errs.push(`[or] ${eOR.message}`);
+        try {
+          assistant = await callOpenAi({ key: openaiKey, model: "gpt-4o-mini" });
+        } catch (eOA) {
+          errs.push(`[oa] ${eOA.message}`);
+          throw new Error(errs.join(" | "));
+        }
       }
     }
     if (!assistant) assistant = "Sorry, I lost my train of thought. Goodbye.";
