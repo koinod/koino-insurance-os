@@ -149,65 +149,69 @@ const SidebarBrand = () => {
   );
 };
 
-/* Composer interest modal — captures signal for sidebar customizer (v2 ship).
-   Writes (user_id, feature='sidebar_composer') to feature_interest_signups
-   (migration 0041). RLS lets a user read/write their own row only. */
-function ComposerInterestModal({ onClose }) {
-  const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
-  const notifyMe = async () => {
-    setSubmitting(true);
-    try {
-      const sb = window.getSupabase && window.getSupabase();
-      if (!sb) throw new Error("supabase not ready");
-      const { data: { user } } = await sb.auth.getUser();
-      if (!user) { window.toast && window.toast("Sign in to register interest", "warn"); setSubmitting(false); return; }
-      const me = window.me && window.me();
-      const agencyId = me?.agency_id || null;
-      const { error } = await sb.from("feature_interest_signups")
-        .upsert({ user_id: user.id, agency_id: agencyId, feature: "sidebar_composer" },
-                { onConflict: "user_id,feature" });
-      if (error) throw error;
-      setDone(true);
-      window.toast && window.toast("We'll let you know when it ships.", "success");
-    } catch (e) {
-      window.toast && window.toast(`Could not register: ${e.message || e}`, "danger");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  return (
-    <Modal title="Customize your sidebar" width={460} onClose={onClose} actions={
-      <>
-        <button className="btn btn-ghost" onClick={onClose}>{done ? "Close" : "Got it"}</button>
-        {!done && (
-          <button className="btn btn-primary" onClick={notifyMe} disabled={submitting}>
-            <Icons.Bell size={11}/> {submitting ? "…" : "Notify me when ready"}
-          </button>
-        )}
-      </>
-    }>
-      <div style={{ padding: "4px 0", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-        Drag-and-drop widgets coming in v2. You'll be able to pin any module —
-        Quote, Floor, NIGO, custom KPI cards — to your sidebar in the order
-        that fits your day.
-        {done && (
-          <div style={{ marginTop: 14, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 12, color: "var(--accent-money)" }}>
-            ✓ You're on the list. We'll email when it ships.
-          </div>
-        )}
-      </div>
-    </Modal>
-  );
-}
+// Roles that get a customizable sidebar (manager and above). Reps always
+// use the static NAV.rep map — they never see the Customize entry.
+const CUSTOM_ROLES = new Set(["manager","owner","super_admin","admin","imo_owner"]);
 
 const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
-  const items = NAV[role];
-  // Composer interest icon — manager/owner/super_admin only. Click → small
-  // modal capturing "notify me when sidebar composer ships". Not the actual
-  // composer; just a signal-collector that writes feature_interest_signups.
-  const showComposerIcon = role === "manager" || role === "owner" || role === "super_admin";
   const [composerOpen, setComposerOpen] = useState(false);
+  // null = still loading from DB; array = ready (may be role-default)
+  const [customLayout, setCustomLayout] = useState(null);
+  const isDynamic = CUSTOM_ROLES.has(role);
+
+  useEffect(() => {
+    if (!isDynamic) { setCustomLayout(null); return; }
+    let cancelled = false;
+    window.loadSidebarLayout?.().then(l => { if (!cancelled) setCustomLayout(l || []); });
+    const onUpdate = (e) => setCustomLayout(e.detail?.layout || []);
+    window.addEventListener("sidebar:updated", onUpdate);
+    return () => { cancelled = true; window.removeEventListener("sidebar:updated", onUpdate); };
+  }, [role, isDynamic]);
+
+  // While async load is in flight, fall back to the static map so the sidebar
+  // isn't blank. Once the DB row resolves, customLayout replaces it.
+  const items = isDynamic
+    ? (customLayout !== null ? customLayout : (NAV[role] || []))
+    : (NAV[role] || []);
+
+  function renderItem(item) {
+    const kind = item.kind || "nav";
+    if (kind === "nav") {
+      const pageId = item.pageId || item.id;
+      const Ico = Icons[item.icon] || Icons.Circle;
+      return (
+        <button
+          key={item.id}
+          className={`sb-item ${page === pageId ? "active" : ""}`}
+          onClick={() => setPage(pageId)}
+        >
+          <Ico size={15}/>
+          <span>{item.label}</span>
+          {item.badge && <span className="badge tabular">{item.badge}</span>}
+        </button>
+      );
+    }
+    if (kind === "stat") {
+      const Tile = window.SidebarStatTiles?.[item.widget];
+      if (!Tile) return <div key={item.id} className="sb-stat-tile"><span className="sb-stat-lbl">{item.label}</span></div>;
+      return <Tile key={item.id}/>;
+    }
+    if (kind === "action") {
+      const Ico = Icons[item.icon] || Icons.Circle;
+      return (
+        <button
+          key={item.id}
+          className="sb-item"
+          onClick={() => typeof window[item.action] === "function" && window[item.action]()}
+          title={item.label}
+        >
+          <Ico size={15}/><span>{item.label}</span>
+        </button>
+      );
+    }
+    return null;
+  }
+
   return (
     <nav className="sidebar">
       <SidebarBrand/>
@@ -224,29 +228,25 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
       <div className="sb-section">Workspace</div>
       <div className="sb-nav">
-        {items.map(it => {
-          const Ico = Icons[it.icon] || Icons.Circle;
-          return (
-            <button key={it.id} className={`sb-item ${page === it.id ? "active" : ""}`} onClick={() => setPage(it.id)}>
-              <Ico size={15}/>
-              <span>{it.label}</span>
-              {it.badge && <span className="badge tabular">{it.badge}</span>}
-            </button>
-          );
-        })}
-        {showComposerIcon && (
+        {items.map(renderItem)}
+        {isDynamic && (
           <button
             className="sb-item sb-item-composer"
             title="Customize your sidebar"
             onClick={() => setComposerOpen(true)}
             style={{ opacity: 0.6 }}
           >
-            <Icons.Plus size={13}/>
+            <Icons.Edit size={12}/>
             <span style={{ fontStyle: "italic", color: "var(--text-tertiary)" }}>Customize…</span>
           </button>
         )}
       </div>
-      {composerOpen && <ComposerInterestModal onClose={() => setComposerOpen(false)}/>}
+
+      {/* Composer modal — lazy ref to window so it loads after this script */}
+      {composerOpen && window.SidebarComposer && React.createElement(
+        window.SidebarComposer,
+        { onClose: () => setComposerOpen(false), role }
+      )}
 
       <div className="sb-section">Operations</div>
       <div className="sb-nav">
