@@ -780,12 +780,19 @@ window.hydrateFromSupabase = async function () {
       }));
       window.AppData.SEQUENCES = mapRows(sequencesR, s => ({
         id: s.id, name: s.name, description: s.description,
-        steps: s.steps, active: s.is_active
+        steps: s.steps, active: s.is_active,
+        agencyId: s.agency_id, audience: s.audience || "lead",
+        createdAt: s.created_at,
       }));
       window.AppData.SEQUENCE_ENROLLMENTS = mapRows(seqEnrollmentsR, e => ({
         id: e.id, leadId: e.lead_pipeline_id, sequenceId: e.sequence_id,
         owner: e.owner_rep_id, status: e.status, currentStep: e.current_step,
-        enrolledAt: e.enrolled_at, nextStepAt: e.next_step_at
+        enrolledAt: e.enrolled_at,
+        // Prod column is next_send_at (see migration 0002 + drip-runner). Older
+        // builds wrote next_step_at; fall back so neither path is silently empty.
+        nextSendAt: e.next_send_at || e.next_step_at || null,
+        nextStepAt: e.next_send_at || e.next_step_at || null,
+        lastReplyAt: e.last_reply_at || null,
       }));
       window.AppData.TIERING_OVERRIDES = mapRows(tieringOverridesR, o => ({
         repId: o.rep_id, tier: o.override_tier, setAt: o.set_at, setBy: o.set_by
@@ -1464,14 +1471,111 @@ window.AppData.mutate = {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
       if (sb) {
+        const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
         const { error } = await sb.from("sequence_enrollments").insert({
           lead_pipeline_id: leadId, sequence_id: sequenceId, owner_rep_id: ownerRepId,
-          status: "active", current_step: 0, enrolled_at: new Date().toISOString()
+          status: "active", current_step: 0, enrolled_at: new Date().toISOString(),
+          // next_send_at = now() so drip-runner picks it up on the next tick.
+          // Column is next_send_at (migration 0002); see consumers in api/cron/drip-runner.js.
+          next_send_at: new Date().toISOString(),
+          agency_id: agencyId || null,
         });
         if (error) { window.toast && window.toast(`Enroll failed: ${error.message}`, "error"); throw error; }
       }
     }
     _emitMutation("sequence_enrollments", "insert", leadId);
+  },
+
+  /* ── Sequence CRUD (consumed by page-pipeline-sequences.jsx) ──────────
+     Writes routed through here so realtime + optimistic UI stay coherent
+     across the Pipeline Sequences tab and the Lead Drip Sequences tab. */
+  async sequenceSave(input) {
+    // input: { id?: string|null, name, description?, is_active, steps }
+    // If id is null/missing → INSERT; otherwise UPDATE.
+    const sb = window.getSupabase && window.getSupabase();
+    const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
+    const isUpdate = !!input.id;
+    const idVal = input.id || ("seq_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6));
+    const row = {
+      id: idVal,
+      name: input.name,
+      description: input.description ?? null,
+      is_active: input.is_active !== false,
+      steps: Array.isArray(input.steps) ? input.steps : [],
+      // audience defaults 'lead' on the table; only set explicitly if caller passed one
+      ...(input.audience ? { audience: input.audience } : {}),
+      // agency_id only on insert — RLS rejects writes that try to change agency_id
+      ...(!isUpdate ? { agency_id: agencyId || null } : {}),
+    };
+
+    if (window.AppData.LIVE && sb) {
+      if (isUpdate) {
+        const { error } = await sb.from("sequences").update({
+          name: row.name,
+          description: row.description,
+          is_active: row.is_active,
+          steps: row.steps,
+        }).eq("id", idVal);
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      } else {
+        const { error } = await sb.from("sequences").insert(row);
+        if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+      }
+    }
+
+    // Optimistic local update
+    window.AppData.SEQUENCES = window.AppData.SEQUENCES || [];
+    if (isUpdate) {
+      window.AppData.SEQUENCES = window.AppData.SEQUENCES.map(s =>
+        s.id === idVal ? { ...s,
+          name: row.name, description: row.description,
+          active: row.is_active, steps: row.steps,
+        } : s
+      );
+    } else {
+      window.AppData.SEQUENCES = [...window.AppData.SEQUENCES, {
+        id: idVal, name: row.name, description: row.description,
+        steps: row.steps, active: row.is_active,
+        agencyId: agencyId || null, audience: input.audience || "lead",
+        createdAt: new Date().toISOString(),
+      }];
+    }
+    _emitMutation("sequences", isUpdate ? "update" : "insert", idVal);
+    return idVal;
+  },
+
+  async sequenceDelete(sequenceId) {
+    const sb = window.getSupabase && window.getSupabase();
+    if (window.AppData.LIVE && sb) {
+      // Cancel any active enrollments first — FK is ON DELETE CASCADE in the
+      // table def, but explicit status='cancelled' lets the drip-runner log a
+      // clean reason instead of the row vanishing.
+      await sb.from("sequence_enrollments")
+        .update({ status: "cancelled" })
+        .eq("sequence_id", sequenceId)
+        .in("status", ["active", "paused"]);
+      const { error } = await sb.from("sequences").delete().eq("id", sequenceId);
+      if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); throw error; }
+    }
+    window.AppData.SEQUENCES = (window.AppData.SEQUENCES || []).filter(s => s.id !== sequenceId);
+    window.AppData.SEQUENCE_ENROLLMENTS = (window.AppData.SEQUENCE_ENROLLMENTS || []).map(e =>
+      e.sequenceId === sequenceId && (e.status === "active" || e.status === "paused")
+        ? { ...e, status: "cancelled" }
+        : e
+    );
+    _emitMutation("sequences", "delete", sequenceId);
+  },
+
+  async sequenceToggleActive(sequenceId, isActive) {
+    const sb = window.getSupabase && window.getSupabase();
+    if (window.AppData.LIVE && sb) {
+      const { error } = await sb.from("sequences").update({ is_active: !!isActive }).eq("id", sequenceId);
+      if (error) { window.toast && window.toast(`Toggle failed: ${error.message}`, "error"); throw error; }
+    }
+    window.AppData.SEQUENCES = (window.AppData.SEQUENCES || []).map(s =>
+      s.id === sequenceId ? { ...s, active: !!isActive } : s
+    );
+    _emitMutation("sequences", "update", sequenceId);
   },
 
   /* ── Settings & profile ─────────────────────────────────────────────── */
