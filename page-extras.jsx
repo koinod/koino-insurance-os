@@ -4057,6 +4057,21 @@ function PageCalls({ role = "rep" }) {
           </div>
         </div>
       </div>
+
+      {/* AI coaching scores — real call_coaching_scores rows from the
+          score-recent-calls cron. Reps see their own, managers see downline,
+          owners see fleet. Shipped to floor 2026-05-23 — was previously
+          buried in the Owner cockpit only. */}
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h">
+          <Icons.Sparkles size={13}/>
+          <h3>AI coaching scores</h3>
+          <span className="meta">{role === "rep" ? "your last 20 scored calls" : "downline · last 20 scored"}</span>
+        </div>
+        {window.CoachingScoresPanel
+          ? (() => { const P = window.CoachingScoresPanel; return <P repId={role === "rep" ? meId : null}/>; })()
+          : <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12 }}>Coaching panel loading…</div>}
+      </div>
     </div>
   );
 }

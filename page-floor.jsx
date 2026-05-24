@@ -721,12 +721,30 @@
         return v || "";
       } catch { return ""; }
     }, [refreshKey]);
+    // Quote → Deal handoff: page-quote stashes {carrierId, ap, newLead, source}
+    // here. Consume + clear so a refresh doesn't re-prefill stale data.
+    const prefill = React.useMemo(() => {
+      try {
+        const raw = sessionStorage.getItem("repflow.dealwrite.prefill");
+        if (!raw) return null;
+        sessionStorage.removeItem("repflow.dealwrite.prefill");
+        return JSON.parse(raw);
+      } catch { return null; }
+    }, [refreshKey]);
     if (!Form || !Recent) {
       return <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Loading deal-write form…</div>;
     }
     return (
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
-        <Form key={refreshKey + ":" + (defaultLeadId || "")} defaultLeadId={defaultLeadId} onWritten={() => setRefreshKey(k => k + 1)}/>
+        <Form
+          key={refreshKey + ":" + (defaultLeadId || "") + ":" + (prefill?.source || "")}
+          defaultLeadId={defaultLeadId}
+          defaultCarrierId={prefill?.carrierId || ""}
+          defaultAp={prefill?.ap || ""}
+          defaultNewLead={prefill?.newLead || null}
+          prefillSource={prefill?.source || ""}
+          onWritten={() => setRefreshKey(k => k + 1)}
+        />
         <Recent repId={me?.id} key={"recent-" + refreshKey}/>
       </div>
     );

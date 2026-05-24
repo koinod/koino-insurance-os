@@ -2104,4 +2104,5 @@ window.PageCoaching = PageCoaching;
 window.CoachingRep = CoachingRep;
 window.CoachingManager = CoachingManager;
 window.CoachingOwner = CoachingOwner;
+window.CoachingScoresPanel = CoachingScoresPanel;
 window.DownlineTree = DownlineTree;

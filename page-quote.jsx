@@ -511,6 +511,42 @@
       window.toast && window.toast("Marked converted — feeds carrier-mix analytics", "success");
     };
 
+    /** Hand off a quote to the deal-write form: stash carrier + annualized AP
+     *  + lead contact in sessionStorage, flip Floor into Deals mode, navigate.
+     *  Rep still picks product + comp%. Closes the quote→deal retype gap. */
+    const writeDealFromQuote = (q) => {
+      const best = (q.ranked || [])[0];
+      if (!best) {
+        window.toast && window.toast("No carrier ranked yet — re-run the quote first", "warn");
+        return;
+      }
+      const monthly = Number(best.premium) || 0;
+      const annual  = monthly > 0 ? Math.round(monthly * 12) : "";
+      const nameParts = String(q.profile?.name || "").trim().split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] || "";
+      const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+      const prefill = {
+        source: "quote",
+        carrierId: best.id || "",
+        ap: annual,
+        newLead: {
+          firstName,
+          lastName,
+          state: q.profile?.state || "",
+          phone: q.profile?.phone || "",
+          email: q.profile?.email || "",
+        },
+      };
+      try {
+        sessionStorage.setItem("repflow.dealwrite.prefill", JSON.stringify(prefill));
+        sessionStorage.setItem("repflow.floor.mode", "deals");
+      } catch {}
+      // Mark the quote converted locally too, so the carrier-mix funnel stays accurate.
+      const next = quotes.map(x => x.id === q.id ? { ...x, status: "converted" } : x);
+      setQuotes(next); saveQuotes(next);
+      setTimeout(() => { window.gotoPage && window.gotoPage("floor"); }, 30);
+    };
+
     const deleteQuote = (q) => {
       setQuotes(prev => {
         const next = prev.filter(x => x.id !== q.id);
@@ -1221,9 +1257,9 @@
                         <Icons.Send size={11}/> Send
                       </button>
                     )}
-                    {q.status === "sent" && (
-                      <button className="btn btn-ghost" style={{ fontSize: 11, color: "var(--accent-money)" }} onClick={() => markConverted(q)} title="Mark converted">
-                        <Icons.Check size={11}/> Won
+                    {q.status !== "converted" && (
+                      <button className="btn btn-ghost" style={{ fontSize: 11, color: "var(--accent-money)" }} onClick={() => writeDealFromQuote(q)} title="Write a policy from this quote — prefills carrier, AP, contact">
+                        <Icons.Check size={11}/> Write deal
                       </button>
                     )}
                     <button className="icon-btn" onClick={() => deleteQuote(q)} title="Delete"><Icons.X size={11}/></button>

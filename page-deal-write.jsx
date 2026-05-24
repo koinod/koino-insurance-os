@@ -48,7 +48,7 @@
   // --------------------------------------------------------------------------
   // <DealWriteForm/> — the form itself
   // --------------------------------------------------------------------------
-  function DealWriteForm({ defaultLeadId, onWritten }) {
+  function DealWriteForm({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, onWritten }) {
     const carriers = AppData.CARRIERS || [];
     const products = AppData.PRODUCTS || [];
     const pipeline = AppData.PIPELINE || [];
@@ -62,14 +62,17 @@
     const [leadId, setLeadId]           = useState(defaultLeadId || "");
     // New-lead capture: when set, submit() inserts a pipeline row first, then
     // writes the policy against the returned id. Null means "use leadId".
-    const [newLead, setNewLead]         = useState(null);
-    // Typeahead state for the lead combobox.
-    const [query, setQuery]             = useState("");
+    const [newLead, setNewLead]         = useState(defaultNewLead || null);
+    // Typeahead state for the lead combobox. When prefilled from quote, show
+    // the captured name so the picker doesn't look empty.
+    const [query, setQuery]             = useState(
+      defaultNewLead ? `${defaultNewLead.firstName || ""} ${defaultNewLead.lastName || ""}`.trim() : ""
+    );
     const [pickerOpen, setPickerOpen]   = useState(false);
     const pickerRef                     = React.useRef(null);
-    const [carrierId, setCarrierId]     = useState("");
+    const [carrierId, setCarrierId]     = useState(defaultCarrierId || "");
     const [productId, setProductId]     = useState("");
-    const [ap, setAp]                   = useState("");
+    const [ap, setAp]                   = useState(defaultAp ? String(defaultAp) : "");
     const [targetPremium, setTarget]    = useState("");
     const [compRate, setCompRate]       = useState("");
     const [submissionDate, setSubDate]  = useState(today());
@@ -307,6 +310,13 @@
     return (
       <div className="panel" style={{ padding: 18, maxWidth: 720 }}>
         <h3 style={{ marginTop: 0, marginBottom: 14, fontSize: 16 }}>Write deal</h3>
+
+        {prefillSource && (
+          <div style={{ padding: "8px 12px", marginBottom: 12, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 14 }}>📋</span>
+            <span>Prefilled from <strong style={{ color: "var(--accent-money)" }}>{prefillSource}</strong> — confirm <em>product</em> and AP, then submit.</span>
+          </div>
+        )}
 
         {(noCarriers || noProducts) && (
           <div style={{ padding: 12, marginBottom: 14, background: "color-mix(in oklch, var(--state-warning) 12%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 35%, transparent)", borderRadius: 6, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
