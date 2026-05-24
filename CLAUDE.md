@@ -3,7 +3,7 @@
 Auto-loaded into every Claude session that cd's into this repo. Read it
 before touching anything in `lib/`, `supabase/migrations/`, `api/`, or any
 top-level `*.jsx`. The full session primer (architecture, deploy, demo
-vs prod, Supabase rules) is `~/Desktop/repflow-session-primer.md` — read
+vs prod, Supabase rules) is `~/Desktop/repflowsessioncontext.txt` — read
 both if you haven't seen this repo before.
 
 ---
@@ -410,7 +410,8 @@ grep -rn "<filename>\.js?v=" --include="*.html"
 
 ## Deploy + verify
 
-- Push to `main` → Vercel auto-builds (~60–90s).
+- Push to `main` → Vercel auto-builds (~60–90s). GitHub integration
+  confirmed live 2026-05-24. No manual `vercel --prod` needed.
 - Vercel MCP returns 403 on this team. Don't try `list_deployments`.
   Verify by curl + grep:
   ```
@@ -418,6 +419,12 @@ grep -rn "<filename>\.js?v=" --include="*.html"
   ```
 - Crons in `vercel.json` `"crons"`. Edge fns under `api/**`. Static
   everything else from repo root (`outputDirectory: "."`).
+- **Hobby plan cron limit**: only `0 H * * *` (once-daily) crons allowed.
+  `reset-demo` and `score-recent-calls` were intentionally dropped; their
+  endpoints exist under `api/cron/` but aren't scheduled. Never add
+  sub-daily crons to `vercel.json`.
+- **DEEPGRAM_API_KEY** not set in Vercel → `/api/twilio/media-stream`
+  returns 503. Set it to unblock live call transcription.
 
 ## Supabase rules
 
