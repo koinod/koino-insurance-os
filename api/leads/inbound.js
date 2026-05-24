@@ -89,6 +89,44 @@ function flattenFbEnvelope(body) {
   return Object.keys(lead).length ? { ...lead, lead_name: "Pending Facebook fetch", source: "FB Lead Form" } : null;
 }
 
+// Full state name → USPS 2-letter code. Lowercase + trim for match.
+// Bug discovered 2026-05-24: vendors send "Texas" / "Florida" / "Tennessee"
+// which the prior `.toUpperCase().slice(0,2)` truncated to "TE" / "FL" / "TE"
+// — silent data corruption. Now we look up by full name first, then fall
+// back to a 2-letter pass-through, then null.
+const STATE_NAME_TO_CODE = {
+  "alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA",
+  "colorado":"CO","connecticut":"CT","delaware":"DE","florida":"FL","georgia":"GA",
+  "hawaii":"HI","idaho":"ID","illinois":"IL","indiana":"IN","iowa":"IA",
+  "kansas":"KS","kentucky":"KY","louisiana":"LA","maine":"ME","maryland":"MD",
+  "massachusetts":"MA","michigan":"MI","minnesota":"MN","mississippi":"MS","missouri":"MO",
+  "montana":"MT","nebraska":"NE","nevada":"NV","new hampshire":"NH","new jersey":"NJ",
+  "new mexico":"NM","new york":"NY","north carolina":"NC","north dakota":"ND","ohio":"OH",
+  "oklahoma":"OK","oregon":"OR","pennsylvania":"PA","rhode island":"RI","south carolina":"SC",
+  "south dakota":"SD","tennessee":"TN","texas":"TX","utah":"UT","vermont":"VT",
+  "virginia":"VA","washington":"WA","west virginia":"WV","wisconsin":"WI","wyoming":"WY",
+  "district of columbia":"DC","puerto rico":"PR",
+};
+const VALID_USPS = new Set(Object.values(STATE_NAME_TO_CODE));
+
+function normalizeState(raw) {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  // 1. Already a 2-letter USPS code?
+  const upper = trimmed.toUpperCase();
+  if (upper.length === 2 && VALID_USPS.has(upper)) return upper;
+  // 2. Full state name (case-insensitive, trim trailing punctuation)
+  const key = trimmed.toLowerCase().replace(/[^a-z\s]/g, "").replace(/\s+/g, " ");
+  if (STATE_NAME_TO_CODE[key]) return STATE_NAME_TO_CODE[key];
+  // 3. Try the first word — handles "Texas," / "Texas USA" / "Texas - Houston"
+  const firstWord = key.split(" ")[0];
+  if (firstWord && STATE_NAME_TO_CODE[firstWord]) return STATE_NAME_TO_CODE[firstWord];
+  // 4. Two-word like "new york" — handled above by `key`. If we're still
+  //    here, just return null rather than corrupt the column.
+  return null;
+}
+
 function normalizeLead(body) {
   // Common alias mapping so we accept what every CRM / ad platform sends.
   const name = body.lead_name || body.name || body.full_name || body.fullName ||
@@ -96,7 +134,7 @@ function normalizeLead(body) {
                (body.firstName && body.lastName ? `${body.firstName} ${body.lastName}` : null);
   const phone = body.phone || body.phone_number || body.phoneNumber || body.mobile || null;
   const email = body.email || body.email_address || null;
-  const state = (body.state || body.state_code || body.region || "").toUpperCase().slice(0, 2) || null;
+  const state = normalizeState(body.state || body.state_code || body.region);
   const age   = body.age != null ? parseInt(body.age, 10) : null;
   const product = body.product || body.product_interest || body.productType || null;
   const source  = body.source || body.utm_source || body.lead_source || body.vendor || "webhook";
