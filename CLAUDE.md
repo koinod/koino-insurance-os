@@ -135,6 +135,18 @@ a hard gate, not a suggestion.**
     ```
     and verify the file list matches your intent before committing.
 
+2c. **Stronger pattern when concurrent agents are running: `git commit -- <files>`.**
+    Even `git diff --cached` followed by `git commit` has a race
+    window — a sub-agent can `git add` between your diff and your
+    commit. The bulletproof pattern is to pass explicit paths
+    AFTER `--` on the commit line:
+    ```
+    git commit -m "..." -- api/system/dial-readiness.js
+    ```
+    Git limits the commit to those paths, bypassing whatever else
+    is staged. This pattern was added 2026-05-24 after the second
+    concurrent-sweep incident (commit `fb26785`).
+
 3. **Bump cache-busters above `origin/main`'s current value.** Grep
    every reference:
    ```
