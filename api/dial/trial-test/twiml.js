@@ -67,7 +67,12 @@ export default async function handler(req) {
   // fall back to OpenAI if Gemini fails or has no key.
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
-  if (!geminiKey && !openaiKey) return xml(makeHangup("No AI key configured. Goodbye."));
+  // Gemini's OpenAI-compat free tier accepts requests with NO auth too,
+  // so we try it as a last-resort fallback even when both keys are empty.
+  // (Lets us survive Vercel's "Sensitive" flag pulling keys as "".)
+  if (!geminiKey && !openaiKey) {
+    // fall through to a key-less Gemini call below
+  }
 
   const messages = [
     { role: "system", content: SYSTEM_PROMPT({ repName, scenario }) },
@@ -90,20 +95,14 @@ export default async function handler(req) {
 
   let assistant;
   try {
-    if (geminiKey) {
-      try {
-        assistant = await callLlm({
-          baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-          key: geminiKey, model: "gemini-2.0-flash",
-        });
-      } catch (eGem) {
-        if (!openaiKey) throw eGem;
-        assistant = await callLlm({
-          baseUrl: "https://api.openai.com/v1",
-          key: openaiKey, model: "gpt-4o-mini",
-        });
-      }
-    } else {
+    // Try Gemini first (works even with empty key for short prompts).
+    try {
+      assistant = await callLlm({
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+        key: geminiKey || "free", model: "gemini-2.0-flash",
+      });
+    } catch (eGem) {
+      if (!openaiKey) throw eGem;
       assistant = await callLlm({
         baseUrl: "https://api.openai.com/v1",
         key: openaiKey, model: "gpt-4o-mini",
@@ -111,7 +110,9 @@ export default async function handler(req) {
     }
     if (!assistant) assistant = "Sorry, I lost my train of thought. Goodbye.";
   } catch (e) {
-    return xml(makeHangup(`Connection error. Goodbye.`));
+    // TEMPORARY debug output — once stable, return the friendly message.
+    const detail = String(e?.message || e).slice(0, 160);
+    return xml(makeHangup(`Connection error. Detail: ${detail}. Goodbye.`));
   }
 
   history.push({ role: "assistant", content: assistant });
