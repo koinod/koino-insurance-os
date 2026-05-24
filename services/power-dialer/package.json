@@ -1,0 +1,25 @@
+{
+  "name": "@koino/power-dialer",
+  "version": "0.1.0",
+  "description": "Parallel/power dialer session worker. Fans out outbound Twilio calls to a LiveKit room per leg, runs first-human-wins race, hands off to rep or AI handler.",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "fastify": "^4.28.1",
+    "@fastify/websocket": "^10.0.1",
+    "livekit-server-sdk": "^2.7.2",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.2.2",
+    "twilio": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

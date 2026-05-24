@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.koino.powerdialer</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/macmini/repos/koino-insurance-os/services/power-dialer</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>src/index.js</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key><string>production</string>
+    <key>LOG_LEVEL</key><string>info</string>
+    <!-- The rest is pulled from .env.local by config.js -->
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/macmini/.koino/power-dialer.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/macmini/.koino/power-dialer.err.log</string>
+
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+
+  <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>

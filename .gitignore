@@ -15,3 +15,5 @@ supabase/.temp/
 .env.vercel.local
 test-results/
 tests/screenshots/
+.env*.local
+services/power-dialer/node_modules/
