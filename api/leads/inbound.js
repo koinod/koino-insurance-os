@@ -272,10 +272,65 @@ export default async function handler(req) {
     return err(500, "lead accepted but persistence failed: " + (dbError || "unknown"));
   }
 
+  // ── First-touch SMS auto-fire ────────────────────────────────────────
+  // Speed-to-lead is the #1 close-rate factor. Fire an immediate templated
+  // SMS the moment a lead lands, BEFORE any human dials. Opt-in per agency
+  // via org_settings; default OFF so existing tenants don't accidentally
+  // start texting strangers.
+  //
+  // Tokens: {first} {product} {agency} {state}
+  //
+  // Failure is non-blocking — pipeline row insertion is the value; SMS is
+  // gravy. Log + continue.
+  let firstTouchSms = { fired: false, reason: "not_attempted" };
+  if (lead.phone && agencyId) {
+    try {
+      const cfgR = await fetch(
+        `${SUPA_URL}/rest/v1/org_settings?agency_id=eq.${agencyId}&key=eq.first_touch_sms&select=value&limit=1`,
+        { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
+      );
+      const cfgRows = cfgR.ok ? await cfgR.json() : [];
+      const cfg = cfgRows[0]?.value || null;
+      if (cfg?.enabled && cfg?.template) {
+        const first = (lead.name || "").trim().split(/\s+/)[0] || "there";
+        const body = String(cfg.template)
+          .split("{first}").join(first)
+          .split("{product}").join(lead.product || "your coverage")
+          .split("{agency}").join(cfg.agency_name || "your producer")
+          .split("{state}").join(lead.state || "your state");
+
+        const smsR = await fetch(`${new URL(req.url).origin}/api/twilio-sms`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            to: lead.phone,
+            body,
+            lead_id: inserted.id,
+            source: "lead_inbound:first_touch",
+          }),
+        });
+        const smsJ = await smsR.json().catch(() => ({}));
+        firstTouchSms = {
+          fired: smsR.ok,
+          reason: smsR.ok ? "queued" : (smsJ.error || `HTTP ${smsR.status}`),
+          path: smsJ.path || null,
+          sid: smsJ.sid || null,
+        };
+      } else {
+        firstTouchSms.reason = cfg ? "disabled" : "not_configured";
+      }
+    } catch (e) {
+      firstTouchSms = { fired: false, reason: e?.message || "network_error" };
+    }
+  } else if (!lead.phone) {
+    firstTouchSms.reason = "no_phone";
+  }
+
   return ok({
     ok: true,
     pipeline_id: inserted.id,
     touchpoint_recorded: touchOk,
+    first_touch_sms: firstTouchSms,
     received: { name: lead.name, source: lead.source, agency_id: agencyId },
   });
 }
