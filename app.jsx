@@ -187,7 +187,9 @@ function App() {
     switch (page) {
       case "today":       return F("PageToday", { aep: aepMode, role });
       case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
-      case "pipeline":    return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "pipeline" });
+      // Pipeline + Calls used to mount through Floor; refactored 2026-05-22
+      // so they route to their own pages — Floor is dialer-first now.
+      case "pipeline":    return F("PagePipeline", { role });
       case "queue":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
       case "leaderboard": return (() => {
         // page-leaderboard.jsx was removed — fall through to Performance for
@@ -202,7 +204,7 @@ function App() {
       case "pnl":         return F("PagePnL");
       case "tree":        return F("PageOrgTree");
       case "connections": return F("PageConnections");
-      case "calls":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "history" });
+      case "calls":       return F("PageCalls", { role });
       case "commissions": return F("PageCommissions", { role });
       case "training":    return F("PageTraining", { role });
       // NAV restructure 2026-05-19: vault + book route through host
