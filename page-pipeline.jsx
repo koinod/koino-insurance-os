@@ -218,6 +218,11 @@ function PagePipeline({ role = "owner" }) {
             window.exportCSV && window.exportCSV(rows, "pipeline.csv");
           }}><Icons.ArrowUpRight size={13}/> Export</button>
           {window.PipelineAutoDialButton && (() => { const B = window.PipelineAutoDialButton; return <B leads={filtered}/>; })()}
+          {window.PowerDialerLauncher && (() => {
+            const L = window.PowerDialerLauncher;
+            const me = window.me?.() || {};
+            return <L leads={filtered} repId={me.rep_id || me.id} agencyId={me.agency_id}/>;
+          })()}
           <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icons.Plus size={13}/> New lead</button>
         </div>
       </div>
