@@ -4471,7 +4471,7 @@ function PageSettings({ role = "owner" }) {
           {tab === "routing"      && <SettingsRouting/>}
           {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
           {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
-          {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner"}/> : null; })()}
+          {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner" || role === "manager"} role={role}/> : null; })()}
           {tab === "agents"        && <SettingsAgents role={role}/>}
           {tab === "notifications"&& <SettingsNotifications/>}
           {tab === "profile"      && <SettingsProfile role={role}/>}
