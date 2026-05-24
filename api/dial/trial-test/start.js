@@ -21,8 +21,12 @@ export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: cors() });
 
+  // Accept either a user JWT OR a bearer-of-CRON_SECRET so we can curl-test.
+  const auth = req.headers.get("authorization") || "";
+  const bearer = auth.replace(/^Bearer\s+/i, "");
+  const cronOk = bearer && process.env.CRON_SECRET && bearer === process.env.CRON_SECRET;
   const jwt = readUserJwt(req);
-  if (!jwt) return j(401, { error: "not_authenticated" });
+  if (!jwt && !cronOk) return j(401, { error: "not_authenticated" });
 
   let body; try { body = await req.json(); } catch { body = {}; }
   const to = body.to;
