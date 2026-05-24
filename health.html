@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Repflow — System Health</title>
+<style>
+  :root {
+    --bg: #0c0d11; --surface: #14171c; --surface-elev: #1a1e25;
+    --border: #2a2f38; --text: #f0f2f5; --text-secondary: #b0b6bf;
+    --text-tertiary: #7d848e; --money: #67e3a1; --warn: #ffb454;
+    --danger: #ff6868; --info: #6aa6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  body { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 4px 0; font-size: 20px; font-weight: 600; }
+  h2 { margin: 28px 0 12px 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+  .sub { color: var(--text-tertiary); font-size: 13px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+  .card-value { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
+  .alert { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
+  .alert-error { background: rgba(255, 104, 104, 0.1); border: 1px solid rgba(255, 104, 104, 0.3); color: var(--danger); }
+  .alert-warn  { background: rgba(255, 180, 84, 0.1); border: 1px solid rgba(255, 180, 84, 0.3); color: var(--warn); }
+  .alert-info  { background: rgba(106, 166, 255, 0.1); border: 1px solid rgba(106, 166, 255, 0.3); color: var(--info); }
+  .check { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; margin: 0 6px 6px 0; background: var(--surface-elev); border: 1px solid var(--border); }
+  .check.ok  { color: var(--money); }
+  .check.no  { color: var(--warn); }
+  .err { color: var(--danger); font-size: 11px; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .row:last-child { border-bottom: none; }
+  .row .who { color: var(--text-secondary); }
+  .row .when { color: var(--text-tertiary); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+  .refresh { padding: 8px 14px; background: var(--surface-elev); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; cursor: pointer; }
+  .refresh:hover { background: var(--surface); }
+  .ts { color: var(--text-tertiary); font-size: 11px; }
+  .money { color: var(--money); }
+  .warn { color: var(--warn); }
+  .danger { color: var(--danger); }
+</style>
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+    <div>
+      <h1>System health</h1>
+      <div class="sub">Live operational probe — leads, dials, SMS queue, automation</div>
+    </div>
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <span class="ts" id="ts">Loading…</span>
+      <button class="refresh" id="refresh">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div id="alerts"></div>
+  <h2>Checks</h2>
+  <div id="checks"></div>
+
+  <h2>Today (last 24h)</h2>
+  <div class="grid" id="metrics"></div>
+
+  <h2>SMS outbox</h2>
+  <div class="grid" id="sms"></div>
+
+  <h2>Recent client errors</h2>
+  <div class="card" id="errors"></div>
+
+  <h2>Recent touchpoints</h2>
+  <div class="card" id="touch"></div>
+
+<script>
+const e = (id) => document.getElementById(id);
+const fmtAgo = (iso) => {
+  if (!iso) return "—";
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+};
+
+async function refresh() {
+  e("ts").textContent = "Loading…";
+  let data;
+  try {
+    const r = await fetch("/api/system/health", { cache: "no-store" });
+    data = await r.json();
+  } catch (err) {
+    e("alerts").innerHTML = '<div class="alert alert-error">Failed to reach /api/system/health: ' + (err.message || err) + '</div>';
+    return;
+  }
+  e("ts").textContent = "Updated " + fmtAgo(data.generated_at);
+
+  // Alerts
+  e("alerts").innerHTML = (data.alerts || []).map(a =>
+    '<div class="alert alert-' + a.level + '">[' + a.level.toUpperCase() + '] ' + a.message + '</div>'
+  ).join("") || '<div class="alert alert-info" style="color: var(--text-tertiary)">No alerts. Pipeline healthy.</div>';
+
+  // Checks
+  e("checks").innerHTML = Object.entries(data.checks || {}).map(([k, v]) =>
+    '<span class="check ' + (v ? 'ok' : 'no') + '">' + (v ? '✓' : '⚠') + ' ' + k + '</span>'
+  ).join("");
+
+  // Metrics
+  const card = (label, value, sub, tone) => {
+    if (!value || !value.ok) {
+      return '<div class="card"><div class="card-label">' + label + '</div><div class="card-value danger">err</div>' +
+        (value && value.error ? '<div class="err">' + value.error + '</div>' : '') + '</div>';
+    }
+    return '<div class="card"><div class="card-label">' + label + '</div><div class="card-value ' + (tone || '') + '">' + value.value + '</div>' +
+      (sub ? '<div class="card-sub">' + sub + '</div>' : '') + '</div>';
+  };
+  e("metrics").innerHTML =
+    card("Leads · 24h", data.leads.last_24h, data.leads.last_1h && data.leads.last_1h.ok ? (data.leads.last_1h.value + " in last hour") : null, "money") +
+    card("Dials · 24h", data.dials.last_24h, data.dials.last_1h && data.dials.last_1h.ok ? (data.dials.last_1h.value + " in last hour") : null) +
+    card("Sequence enrollments · active", data.sequences.active_enrollments, "auto-firing follow-up");
+
+  // SMS
+  e("sms").innerHTML =
+    card("Pending",  data.sms_outbox.pending, "awaiting agent send") +
+    card("Dry-run",  data.sms_outbox.dry_run, "logged, send disabled") +
+    card("Failed",   data.sms_outbox.failed, "Twilio rejected", (data.sms_outbox.failed && data.sms_outbox.failed.value > 0) ? "warn" : "");
+
+  // Errors
+  const errs = (data.recent_client_errors && data.recent_client_errors.value) || [];
+  e("errors").innerHTML = errs.length
+    ? errs.map(r => '<div class="row"><span class="who">' + (r.error_message || "(no message)").slice(0, 80) + '</span><span class="when">' + fmtAgo(r.created_at) + '</span></div>').join("")
+    : '<div class="row" style="border-bottom: none;"><span style="color: var(--text-tertiary)">No errors logged in client_errors.</span></div>';
+
+  // Touchpoints
+  const tps = (data.recent_touchpoints && data.recent_touchpoints.value) || [];
+  e("touch").innerHTML = tps.length
+    ? tps.map(t => '<div class="row"><span class="who">' + (t.kind || "(no kind)") + '</span><span class="when">' + fmtAgo(t.occurred_at) + '</span></div>').join("")
+    : '<div class="row" style="border-bottom: none;"><span style="color: var(--text-tertiary)">No touchpoints in recent history.</span></div>';
+}
+
+document.getElementById("refresh").addEventListener("click", refresh);
+refresh();
+setInterval(refresh, 60_000); // auto-refresh every minute
+</script>
+</body>
+</html>

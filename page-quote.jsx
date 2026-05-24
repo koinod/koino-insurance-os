@@ -348,6 +348,9 @@
           sources: reco.sources,
           confidence: reco.confidence,
           dbGrounded: !!reco.dbGrounded,
+          dbRateSourced: !!rate.dbRateSourced,
+          dbRateConfidence: rate.dbRateConfidence || null,
+          dbRateNotes: rate.dbRateNotes || null,
         };
       });
 
@@ -1005,6 +1008,19 @@
                                     border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)",
                                   }}>no DB rules</span>
                           )}
+                          {/* DB state rate badge (migration 0060) — surfaces when calculatePremium
+                              honored products.rate_table.plans[variant].state_factors[profile.state]
+                              instead of the flat national-average baseline. */}
+                          {r.dbRateSourced && (
+                            <span title={`DB state rate · Plan ${profile.planVariant} · ${profile.state}${r.dbRateNotes ? "\n\n" + r.dbRateNotes : ""}`}
+                                  style={{
+                                    marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                    borderRadius: 3, fontWeight: 600,
+                                    background: "color-mix(in oklch, var(--accent-money) 18%, transparent)",
+                                    color: "var(--accent-money)",
+                                    border: "1px solid color-mix(in oklch, var(--accent-money) 40%, transparent)",
+                                  }}>DB state rate{r.dbRateConfidence ? ` · ${r.dbRateConfidence}` : ""}</span>
+                          )}
                           {/* Live agent result badge */}
                           {agentResults[c.id] && (() => {
                             const ar = agentResults[c.id];
@@ -1065,7 +1081,7 @@
                 )}
 
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  <strong>Engine estimate</strong> = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. Every underwriting rule and narrative line comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code> (edit via Admin → Carriers; no JSON or hardcoded fallback). Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Hit <strong>Get live carrier rates</strong> below to replace the engine estimates with binding numbers pulled from each carrier's actual portal.
+                  <strong>Engine estimate</strong> = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. Every underwriting rule and narrative line comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code> (edit via Admin → Carriers; no JSON or hardcoded fallback). Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}{grounding.rate_tables_loaded ? ` · ${grounding.rate_tables_loaded} state rate sheet${grounding.rate_tables_loaded === 1 ? "" : "s"}` : ""}. Carriers tagged <strong>DB state rate</strong> use migration 0060's state-specific rate sheets (<code style={{ fontSize: 10.5 }}>products.rate_table.plans</code>); untagged Med Supp rows fall back to the flat national-average baseline. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Hit <strong>Get live carrier rates</strong> below to replace the engine estimates with binding numbers pulled from each carrier's actual portal.
                 </div>
 
                 {/* Get live carrier rates — dispatches the RBA (Role-Based
