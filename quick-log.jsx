@@ -16,7 +16,29 @@
   ];
 
   /* ── QuickLogDeal ─────────────────────────────────────────────────────── */
+  // 2026-05-24: retired. The topbar "Deal" button now opens DealWriteModal
+  // (from page-deal-write.jsx) so there is ONE canonical deal-entry surface.
+  // The previous stripped 5-field form caused two real bugs:
+  //   - comp_pct defaulted to "100" (Quick Log) vs product.compPct (Deal
+  //     Write), so deals logged from the topbar were ~2× overstated on
+  //     expected commission.
+  //   - no lead picker / carrier-appointment validation / state-license
+  //     gate, so logged policies bypassed the same data-quality checks
+  //     that Deal Write enforced.
+  // The Override comp default + product/carrier validation now apply
+  // everywhere, regardless of entry surface.
   function QuickLogDeal({ onClose }) {
+    const DealModal = window.DealWriteModal;
+    if (DealModal) return <DealModal onClose={onClose}/>;
+    // Defensive fallback if page-deal-write.js failed to load — render the
+    // legacy stripped form so the operator isn't blocked. This branch
+    // mirrors the old surface (5 fields, 100% comp default warning) so the
+    // operator can still log a deal in the worst case.
+    return <LegacyQuickLogDeal onClose={onClose}/>;
+  }
+
+  // Legacy fallback only. Do not extend this; extend DealWriteForm instead.
+  function LegacyQuickLogDeal({ onClose }) {
     const me = (window.me && window.me()) || null;
     const agencyId = me?.agency_id || null;
     const repId    = me?.rep_id    || null;

@@ -143,11 +143,23 @@
       }
     }, [carrierId]);
 
-    // When product changes, default comp rate from product.compPct
+    // Default comp rate — Override model (decided 2026-05-23):
+    //   1. rep.base_comp_pct (manager-set per-rep effective rate, edited at
+    //      Pay → Producers → Base %; backfilled by migration 0027).
+    //   2. fall back to product.compPct (carrier preset on the selected
+    //      product) when the rep has no base set.
+    //   3. fall back to 50 if neither is available.
+    // The rep is the signed-in producer; we resolve via window.me() at mount.
+    // The user can override the default by typing a value before submit.
     useEffect(() => {
-      if (product && product.compPct != null && !compRate) {
-        setCompRate(String(product.compPct));
-      }
+      if (compRate) return;
+      const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+      const meRep = meIdent?.rep_id ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id) : null;
+      const repBase = meRep && meRep.baseCompPct != null ? meRep.baseCompPct : null;
+      const productBase = product && product.compPct != null ? product.compPct : null;
+      const seed = repBase != null ? repBase : (productBase != null ? productBase : 50);
+      setCompRate(String(seed));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [productId]);
 
     // Auto-fill carrier/AP if lead has hints (lead.product matches a product name)
@@ -601,6 +613,43 @@
     );
   }
 
-  window.DealWriteForm = DealWriteForm;
-  window.RecentDeals   = RecentDeals;
+  // ──────────────────────────────────────────────────────────────────────
+  // <DealWriteModal/> — floating shell for the topbar Deal button. Mounts
+  // the SAME DealWriteForm used inside Floor → Deals so the carrier-/state-
+  // /comp-rate logic stays single-sourced. Replaces the deprecated
+  // QuickLogDeal modal (2026-05-24) whose 5-field stripped UX caused
+  // divergent comp defaults (100% vs product-base) and missed lead/carrier
+  // validation.
+  // ──────────────────────────────────────────────────────────────────────
+  function DealWriteModal({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, onClose }) {
+    const Modal = (window.Shared && window.Shared.Modal) || null;
+    if (!Modal) {
+      // Should never happen post-hydrate; render the form bare as a
+      // last-ditch fallback.
+      return <DealWriteForm
+        defaultLeadId={defaultLeadId}
+        defaultCarrierId={defaultCarrierId}
+        defaultAp={defaultAp}
+        defaultNewLead={defaultNewLead}
+        prefillSource={prefillSource}
+        onWritten={onClose}
+      />;
+    }
+    return (
+      <Modal title="Write deal" width={780} onClose={onClose}>
+        <DealWriteForm
+          defaultLeadId={defaultLeadId}
+          defaultCarrierId={defaultCarrierId}
+          defaultAp={defaultAp}
+          defaultNewLead={defaultNewLead}
+          prefillSource={prefillSource}
+          onWritten={onClose}
+        />
+      </Modal>
+    );
+  }
+
+  window.DealWriteForm  = DealWriteForm;
+  window.DealWriteModal = DealWriteModal;
+  window.RecentDeals    = RecentDeals;
 })();
