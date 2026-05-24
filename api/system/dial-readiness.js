@@ -47,16 +47,19 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const agencyId = url.searchParams.get("agency_id") || null;
 
-  // Reps: scoped by agency if param present, else all active
-  let repFilter = `active=eq.true&order=last_seen_at.desc.nullsfirst`;
+  // Reps: scoped by agency if param present. The reps table has no `active`
+  // column — rep activity is via agency_members.active. For this probe a rep
+  // without a user_id is already surfaced as "no linked auth user" in the
+  // per-row reasons, which is sufficient signal.
+  let repFilter = `order=created_at.desc`;
   if (agencyId) repFilter = `agency_id=eq.${agencyId}&` + repFilter;
 
   let reps = [], installs = [], vaultRows = [], settingsRows = [];
   try {
     [reps, installs, vaultRows, settingsRows] = await Promise.all([
-      pg(`reps?select=id,name,agency_id,active,user_id&${repFilter}&limit=200`),
+      pg(`reps?select=id,name,agency_id,user_id&${repFilter}&limit=200`),
       pg(`rba_installs?select=user_id,device_id,role,hostname,os,status,last_seen_at&status=eq.active&order=last_seen_at.desc&limit=500`),
-      pg(`connector_vault?select=user_id,provider,account_metadata,updated_at&active=eq.true&limit=500`),
+      pg(`connector_vault?select=user_id,provider,account_metadata,updated_at&status=eq.active&limit=500`),
       pg(`agent_settings?select=user_id,default_dial_provider`),
     ]);
   } catch (e) {
