@@ -63,32 +63,53 @@ export default async function handler(req) {
   }
   if (userText) history.push({ role: "user", content: userText });
 
-  // Ask OpenAI for the next turn.
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return xml(makeHangup("OpenAI not configured. Goodbye."));
+  // Ask the LLM. Prefer Gemini (free tier, OpenAI-compatible endpoint),
+  // fall back to OpenAI if Gemini fails or has no key.
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!geminiKey && !openaiKey) return xml(makeHangup("No AI key configured. Goodbye."));
+
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT({ repName, scenario }) },
+    ...history,
+  ];
+  if (history.length === 0) {
+    messages.push({ role: "user", content: "[Lead just answered the phone — start the conversation.]" });
+  }
+
+  async function callLlm({ baseUrl, key, model }) {
+    const r = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 80, temperature: 0.6, messages }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(`${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`);
+    return j.choices?.[0]?.message?.content?.trim();
+  }
 
   let assistant;
   try {
-    const messages = [
-      { role: "system", content: SYSTEM_PROMPT({ repName, scenario }) },
-      ...history,
-    ];
-    // If this is the opener, give the model a nudge.
-    if (history.length === 0) {
-      messages.push({ role: "user", content: "[Lead just answered the phone — start the conversation.]" });
+    if (geminiKey) {
+      try {
+        assistant = await callLlm({
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+          key: geminiKey, model: "gemini-2.0-flash",
+        });
+      } catch (eGem) {
+        if (!openaiKey) throw eGem;
+        assistant = await callLlm({
+          baseUrl: "https://api.openai.com/v1",
+          key: openaiKey, model: "gpt-4o-mini",
+        });
+      }
+    } else {
+      assistant = await callLlm({
+        baseUrl: "https://api.openai.com/v1",
+        key: openaiKey, model: "gpt-4o-mini",
+      });
     }
-    const aiR = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 80,
-        temperature: 0.6,
-        messages,
-      }),
-    });
-    const aiJ = await aiR.json();
-    assistant = aiJ.choices?.[0]?.message?.content?.trim() || "Sorry, I lost my train of thought. Goodbye.";
+    if (!assistant) assistant = "Sorry, I lost my train of thought. Goodbye.";
   } catch (e) {
     return xml(makeHangup(`Connection error. Goodbye.`));
   }
