@@ -72,6 +72,7 @@
 
     const [tab, setTab] = useState("quote");  // quote | setup | credentials
     const [expandedCarrier, setExpandedCarrier] = useState(null);
+    const [credFilter, setCredFilter] = useState("");          // search input — Credentials tab
 
     // Profile form state — same shape as page-quote.jsx for shareability
     const [profile, setProfile] = useState({
@@ -289,6 +290,38 @@
         ...prev,
         [carrierId]: { ...(prev[carrierId] || {}), [field]: value },
       }));
+    };
+
+    // Wipe saved creds for a carrier — clears localStorage row + deletes the
+    // matching connector_vault row (RLS-scoped: user can only delete their own).
+    // Surface 1 calls this from the "Clear" button on each Credentials row.
+    const clearCarrierCred = async (carrierId, carrierName) => {
+      if (!confirm(`Clear saved login for ${carrierName}? This deletes the server-side credential row too.`)) return;
+      // 1) Cancel any pending debounced save so it doesn't resurrect the row.
+      if (credSaveTimers.current[carrierId]) {
+        clearTimeout(credSaveTimers.current[carrierId]);
+        delete credSaveTimers.current[carrierId];
+      }
+      // 2) Local wipe.
+      setCredentials(prev => {
+        const next = { ...prev };
+        delete next[carrierId];
+        return next;
+      });
+      // 3) Server wipe — direct delete via Supabase client (RLS gates to own rows).
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        if (sb) {
+          const { error } = await sb
+            .from("connector_vault")
+            .delete()
+            .eq("provider", `carrier_${carrierId}`);
+          if (error) throw error;
+        }
+        window.toast && window.toast(`${carrierName} login cleared`, "success");
+      } catch (e) {
+        window.toast && window.toast(`Cleared locally · server delete failed: ${e.message}`, "warn");
+      }
     };
 
     const toggleCarrier = (carrierId) => {
@@ -821,54 +854,137 @@
         )}
 
         {/* ─── CREDENTIALS TAB ──────────────────────────────────────────────── */}
-        {tab === "credentials" && (
-          <div className="panel">
-            <div className="panel-h"><Icons.Shield size={13}/><h3>Carrier producer credentials</h3>
-              <span className="meta" style={{ marginLeft: "auto" }}>stored locally · never sent to our servers</span>
-              <button className="btn" onClick={downloadCredsJson} style={{ marginLeft: 8 }}>
-                <Icons.ArrowUpRight size={11}/> Download credentials.json
-              </button>
-            </div>
-            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-              {SUPPORTED_CARRIERS.filter(c => c.requiresLogin).map(c => {
-                const cred = credentials[c.id] || {};
-                const expanded = expandedCarrier === c.id;
-                return (
-                  <div key={c.id} style={{ background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
-                    <button className="btn btn-ghost" onClick={() => setExpandedCarrier(expanded ? null : c.id)}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", width: "100%", textAlign: "left", borderRadius: 6 }}>
-                      <Icons.ChevronRight size={12} style={{ transform: expanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 120ms" }}/>
-                      <strong style={{ fontSize: 13 }}>{c.name}</strong>
-                      <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>{c.note}</span>
-                      <span className="chip" style={{ fontSize: 10, marginLeft: 8, color: cred.username ? "var(--accent-money)" : "var(--text-tertiary)" }}>
-                        {cred.username ? "configured" : "empty"}
-                      </span>
+        {/* Density-first rebuild (2026-05-24):                                 */}
+        {/*  · filter input filters the 14-carrier list down to 1-2 matches    */}
+        {/*  · status pill per row shows (saved · 2d ago) or (not saved)       */}
+        {/*  · username + password inline-edit, always visible, no accordion   */}
+        {/*  · per-row Test login button — fires capture_session request       */}
+        {/*  · per-row Clear button — wipes localStorage + connector_vault row */}
+        {tab === "credentials" && (() => {
+          const filterLower = credFilter.trim().toLowerCase();
+          const credCarriers = SUPPORTED_CARRIERS
+            .filter(c => c.requiresLogin)
+            .filter(c => !filterLower || c.name.toLowerCase().includes(filterLower) || c.id.includes(filterLower));
+          return (
+            <div className="panel">
+              <div className="panel-h">
+                <Icons.Shield size={13}/><h3>Carrier producer credentials</h3>
+                <span className="meta" style={{ marginLeft: "auto" }}>{credCarriers.length} of {SUPPORTED_CARRIERS.filter(c => c.requiresLogin).length} · saved server-side, encrypted</span>
+                <button className="btn" onClick={downloadCredsJson} style={{ marginLeft: 8 }} title="Download credentials.json for the local agent">
+                  <Icons.ArrowUpRight size={11}/> Download .json
+                </button>
+              </div>
+              <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0 6px" }}>
+                  <Icons.Search size={12} style={{ color: "var(--text-tertiary)" }}/>
+                  <input
+                    className="text-input"
+                    value={credFilter}
+                    onChange={(e) => setCredFilter(e.target.value)}
+                    placeholder="filter carriers… (humana, aetna, aig…)"
+                    style={{ flex: 1, fontSize: 12 }}
+                  />
+                  {credFilter && (
+                    <button className="btn btn-ghost" onClick={() => setCredFilter("")} style={{ padding: "4px 8px", fontSize: 11 }}>
+                      <Icons.X size={10}/> clear filter
                     </button>
-                    {expanded && (
-                      <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <Shared.Field label="Username">
-                          <input className="text-input" value={cred.username || ""} onChange={(e) => setCarrierCred(c.id, "username", e.target.value)} placeholder="producer.email@agency.com"/>
-                        </Shared.Field>
-                        <Shared.Field label="Password">
-                          <input className="text-input" type="password" value={cred.password || ""} onChange={(e) => setCarrierCred(c.id, "password", e.target.value)} placeholder="••••••••"/>
-                        </Shared.Field>
-                        <Shared.Field label="Producer / NPN # (optional)">
-                          <input className="text-input" value={cred.npn || ""} onChange={(e) => setCarrierCred(c.id, "npn", e.target.value)}/>
-                        </Shared.Field>
-                        <Shared.Field label="Notes">
-                          <input className="text-input" value={cred.notes || ""} onChange={(e) => setCarrierCred(c.id, "notes", e.target.value)} placeholder="MFA backup codes etc."/>
-                        </Shared.Field>
-                      </div>
-                    )}
+                  )}
+                </div>
+
+                {credCarriers.length === 0 && (
+                  <div style={{ padding: 16, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                    No carriers match "{credFilter}".
                   </div>
-                );
-              })}
-              <div style={{ marginTop: 10, padding: 12, background: "color-mix(in oklch, var(--state-warning) 10%, var(--bg-raised))", border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)", borderRadius: 6, fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                <strong style={{ color: "var(--state-warning)" }}>Security:</strong> Credentials live in your browser's localStorage and (after Download) in <code style={{ fontSize: 10.5 }}>~/.koino/auto-quoter/credentials.json</code> on the rep's machine. They are <strong>never</strong> transmitted to our servers. The local agent reads them at quote-time and passes them straight to Playwright.
+                )}
+
+                {credCarriers.map(c => {
+                  const cred       = credentials[c.id] || {};
+                  const hasUser    = !!cred.username;
+                  const hasPass    = !!cred.password || !!cred._has_password;
+                  const savedAt    = cred._saved_at;
+                  const isCapturing = capturingCarrier === c.id;
+                  const sess        = sessions[c.id];
+                  const sessFresh   = sess?.freshness === "fresh";
+                  const sessStale   = sess?.freshness === "stale" || sess?.freshness === "expired";
+
+                  // Status pill: green when both username + password persist
+                  // server-side (saved), yellow when partial, grey when none.
+                  const status =
+                    hasUser && hasPass ? { l: savedAt ? `saved · ${formatAgo(savedAt)}` : "saved", c: "var(--accent-money)" }
+                    : hasUser           ? { l: "user only · enter password", c: "var(--state-warning)" }
+                                        : { l: "not saved",     c: "var(--text-tertiary)" };
+
+                  return (
+                    <div key={c.id} style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(180px, 1.2fr) minmax(140px, 1.4fr) minmax(120px, 1.2fr) auto",
+                      gap: 8, alignItems: "center",
+                      padding: "8px 10px",
+                      background: hasUser ? "color-mix(in oklch, var(--accent-money) 4%, var(--bg-raised))" : "var(--bg-raised)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 6,
+                    }}>
+                      {/* col 1 — carrier name + status pill */}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
+                          <span className="chip" style={{ fontSize: 9.5, color: status.c, padding: "1px 6px" }}>{status.l}</span>
+                          {sessFresh && <span className="chip" style={{ fontSize: 9.5, color: "var(--accent-money)", padding: "1px 6px" }}>session fresh</span>}
+                          {sessStale && <span className="chip" style={{ fontSize: 9.5, color: "var(--state-warning)", padding: "1px 6px" }}>session stale</span>}
+                        </div>
+                      </div>
+                      {/* col 2 — username */}
+                      <input
+                        className="text-input"
+                        value={cred.username || ""}
+                        onChange={(e) => setCarrierCred(c.id, "username", e.target.value)}
+                        placeholder="username / producer email"
+                        style={{ fontSize: 12 }}
+                        autoComplete="off"
+                      />
+                      {/* col 3 — password */}
+                      <input
+                        className="text-input"
+                        type="password"
+                        value={cred.password || ""}
+                        onChange={(e) => setCarrierCred(c.id, "password", e.target.value)}
+                        placeholder={cred._has_password ? "•••••••• (saved · type to replace)" : "password"}
+                        style={{ fontSize: 12 }}
+                        autoComplete="new-password"
+                      />
+                      {/* col 4 — action buttons */}
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          className="btn"
+                          onClick={() => captureSession(c.id)}
+                          disabled={isCapturing || !hasUser}
+                          title={hasUser ? "Open Chromium, run a test login, capture the session cookie" : "Save a username first"}
+                          style={{ padding: "5px 8px", fontSize: 10.5, opacity: (!hasUser || isCapturing) ? 0.55 : 1 }}
+                        >
+                          <Icons.Shield size={10}/>
+                          {isCapturing ? "testing…" : (sess?.capturedAt ? "Re-test" : "Test login")}
+                        </button>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => clearCarrierCred(c.id, c.name)}
+                          disabled={!hasUser && !hasPass && !savedAt}
+                          title="Clear saved login for this carrier (deletes local + server credentials)"
+                          style={{ padding: "5px 8px", fontSize: 10.5, opacity: (!hasUser && !hasPass && !savedAt) ? 0.4 : 1 }}
+                        >
+                          <Icons.X size={10}/> Clear
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div style={{ marginTop: 6, padding: 10, background: "color-mix(in oklch, var(--accent-money) 6%, var(--bg-raised))", border: "1px solid color-mix(in oklch, var(--accent-money) 20%, transparent)", borderRadius: 6, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                  <strong style={{ color: "var(--accent-money)" }}>Auto-save:</strong> changes persist within 1.2s of your last keystroke. Passwords are stored encrypted in <code style={{ fontSize: 10.5 }}>connector_vault</code> (server) and your browser's localStorage (local fallback). Server passwords are decrypted only when your local agent fetches them at quote-time.
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Recent quote requests log — visible regardless of tab */}
         {requests.length > 0 && (

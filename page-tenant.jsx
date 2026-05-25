@@ -496,12 +496,149 @@ const CARRIER_STATUSES = [
 ];
 const CARRIER_PRODUCT_LINES = ["Medicare Supplement", "Medicare Advantage", "Part D", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital Indemnity"];
 
+// Slugify a carrier name → stable id used for the connector_vault provider
+// key. Format: alphanumerics + hyphens, trimmed/lowercased. "Mutual of Omaha"
+// → "mutual-of-omaha". Per-user creds (one rep can have multiple agencies)
+// are stored as provider="carrier_<slug>" so the auto-quoter + Settings tab
+// see the same row when the names align. Auto-quoter's fixed ids (uhc,
+// humana, aetna…) match this slug for the canonical 14.
+function carrierSlugForName(name) {
+  return String(name || "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
 function SettingsCarriers({ canEdit = true, role = "rep" }) {
   const [carriers, setCarriers] = React.useState(undefined); // undefined = loading
   const [agencyId, setAgencyId] = React.useState(null);
   const [editing, setEditing]   = React.useState(null); // null = closed, {} = new, {id...} = edit
   const [busy, setBusy]         = React.useState(false);
   const [err, setErr]           = React.useState(null);
+  // ── Per-carrier login editor (2026-05-24) ──────────────────────────────
+  // Inline expander under the carrier row, NOT a modal-within-modal. Stores
+  // user portal credentials in connector_vault via /api/agent/connector-upsert.
+  // Per-user rows — each rep has their own login even when the agency-level
+  // carrier row is shared. RLS scopes vault rows to user_id = auth.uid().
+  const [loginEditing, setLoginEditing] = React.useState(null); // carrier.id (db row id) of currently-open editor
+  const [loginForm, setLoginForm]       = React.useState({ username: "", password: "" });
+  const [loginSaving, setLoginSaving]   = React.useState(false);
+  const [loginVault, setLoginVault]     = React.useState({});   // { [slug]: { username, _has_password, _saved_at } }
+  const loginCarrier = React.useMemo(() => (carriers || []).find(c => c.id === loginEditing) || null, [carriers, loginEditing]);
+  const loginSlug    = loginCarrier ? (loginCarrier.carrier_id || carrierSlugForName(loginCarrier.name)) : null;
+
+  // Rehydrate per-user vault state for the carriers shown. Same shape as
+  // the auto-quoter Credentials tab. Passwords never round-trip.
+  const reloadVault = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) return;
+      const r = await fetch("/api/agent/connector-list", {
+        headers: { authorization: `Bearer ${session.access_token}` },
+      });
+      if (!r.ok) return;
+      const { connectors = [] } = await r.json();
+      const next = {};
+      for (const c of connectors) {
+        if (!c.provider || !c.provider.startsWith("carrier_")) continue;
+        const slug = c.provider.slice("carrier_".length);
+        next[slug] = {
+          username: c.account_metadata?.username || "",
+          _has_password: true,
+          _saved_at: c.connected_at,
+        };
+      }
+      setLoginVault(next);
+    } catch { /* ignore */ }
+  }, []);
+  React.useEffect(() => { reloadVault(); }, [reloadVault]);
+
+  const openLoginEditor = (c) => {
+    const slug = c.carrier_id || carrierSlugForName(c.name);
+    const existing = loginVault[slug] || {};
+    setLoginForm({ username: existing.username || "", password: "" });
+    setLoginEditing(c.id);
+  };
+  const closeLoginEditor = () => {
+    setLoginEditing(null);
+    setLoginForm({ username: "", password: "" });
+  };
+  const saveLogin = async () => {
+    if (!loginCarrier || !loginSlug) return;
+    if (!loginForm.username.trim()) {
+      window.toast && window.toast("Enter a username", "warn");
+      return;
+    }
+    setLoginSaving(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+      if (!session) { window.toast && window.toast("Sign in to save logins", "error"); setLoginSaving(false); return; }
+      const existing = loginVault[loginSlug] || {};
+      // Empty-password discipline: if the row already has a password saved
+      // and the user left password blank, keep the existing one — don't wipe.
+      const password = loginForm.password.trim();
+      if (!password && !existing._has_password) {
+        window.toast && window.toast("Enter a password (or leave blank only if one is already saved)", "warn");
+        setLoginSaving(false);
+        return;
+      }
+      // If password is blank but one exists, skip the save entirely (no-op).
+      // The Auto-quoter has the same skip path. Otherwise upsert.
+      if (password) {
+        const apiKey = JSON.stringify({
+          username: loginForm.username.trim(),
+          password,
+          extra: {},
+        });
+        const r = await fetch("/api/agent/connector-upsert", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${session.access_token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            provider: `carrier_${loginSlug}`,
+            account_label: `Carrier portal · ${loginCarrier.name}`,
+            api_key: apiKey,
+            metadata: { username: loginForm.username.trim() },
+          }),
+        });
+        if (!r.ok) {
+          const errBody = await r.text().catch(() => "");
+          throw new Error(errBody || `HTTP ${r.status}`);
+        }
+      }
+      window.toast && window.toast(`${loginCarrier.name} login saved`, "success");
+      await reloadVault();
+      closeLoginEditor();
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message}`, "error");
+    } finally {
+      setLoginSaving(false);
+    }
+  };
+  const clearLogin = async () => {
+    if (!loginCarrier || !loginSlug) return;
+    if (!confirm(`Clear saved login for ${loginCarrier.name}? Deletes the server-side credential row too.`)) return;
+    setLoginSaving(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) {
+        const { error } = await sb.from("connector_vault").delete().eq("provider", `carrier_${loginSlug}`);
+        if (error) throw error;
+      }
+      window.toast && window.toast(`${loginCarrier.name} login cleared`, "success");
+      await reloadVault();
+      closeLoginEditor();
+    } catch (e) {
+      window.toast && window.toast(`Clear failed: ${e.message}`, "error");
+    } finally {
+      setLoginSaving(false);
+    }
+  };
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -647,32 +784,107 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
 
         {carriers && carriers.length > 0 && (
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 70px" }}>
-              <div>Carrier</div><div>Category</div><div>Status</div><div>Product lines</div><div>Contact</div><div></div>
+            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 120px" }}>
+              <div>Carrier</div><div>Category</div><div>Status</div><div>Product lines</div><div>Contact</div><div style={{ textAlign: "right" }}>Actions</div>
             </div>
-            {carriers.map(c => (
-              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 70px", height: 42 }}>
-                <div style={{ fontWeight: 500 }}>{c.name}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.category || "—"}</div>
-                <div>
-                  <span className={`chip ${c.status === "active" ? "chip-money" : c.status === "paused" ? "chip-status" : "chip-danger"}`}>{c.status || "active"}</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {(c.product_lines && c.product_lines.length) ? c.product_lines.join(", ") : "—"}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-                  {c.contact_email ? <a href={`mailto:${c.contact_email}`} style={{ color: "var(--accent-money)" }}>email</a> : c.contact_phone || "—"}
-                </div>
-                <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                  {canEdit && (
-                    <>
-                      <button className="icon-btn" title="Edit" onClick={() => setEditing({ ...c })}><Icons.Edit size={11}/></button>
-                      <button className="icon-btn" title="Remove" onClick={() => remove(c)}><Icons.X size={11}/></button>
-                    </>
+            {carriers.map(c => {
+              const slug = c.carrier_id || carrierSlugForName(c.name);
+              const vault = loginVault[slug] || null;
+              const hasLogin = !!vault;
+              const isOpen = loginEditing === c.id;
+              return (
+                <React.Fragment key={c.id}>
+                  <div className="row" style={{ gridTemplateColumns: "1.4fr 100px 110px 1fr 80px 120px", height: 42 }}>
+                    <div style={{ fontWeight: 500 }}>{c.name}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.category || "—"}</div>
+                    <div>
+                      <span className={`chip ${c.status === "active" ? "chip-money" : c.status === "paused" ? "chip-status" : "chip-danger"}`}>{c.status || "active"}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(c.product_lines && c.product_lines.length) ? c.product_lines.join(", ") : "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                      {c.contact_email ? <a href={`mailto:${c.contact_email}`} style={{ color: "var(--accent-money)" }}>email</a> : c.contact_phone || "—"}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", alignItems: "center" }}>
+                      <button
+                        className="icon-btn"
+                        title={hasLogin ? `Edit login — saved ${vault._saved_at ? new Date(vault._saved_at).toLocaleDateString() : ""}` : "Add producer-portal login"}
+                        onClick={() => isOpen ? closeLoginEditor() : openLoginEditor(c)}
+                        style={{ color: hasLogin ? "var(--accent-money)" : "var(--text-tertiary)" }}
+                      >
+                        <Icons.Lock size={11}/>
+                      </button>
+                      {canEdit && (
+                        <>
+                          <button className="icon-btn" title="Edit carrier details" onClick={() => setEditing({ ...c })}><Icons.Edit size={11}/></button>
+                          <button className="icon-btn" title="Remove carrier" onClick={() => remove(c)}><Icons.X size={11}/></button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {/* Inline login editor — opens directly under the carrier row.    */}
+                  {/* No modal-within-modal: this lives in the page, not the carrier */}
+                  {/* edit modal. Saves to connector_vault (per-user, RLS-scoped).   */}
+                  {isOpen && (
+                    <div style={{
+                      gridColumn: "1 / -1",
+                      padding: "12px 14px",
+                      background: "color-mix(in oklch, var(--accent-money) 5%, var(--bg-raised))",
+                      border: "1px solid color-mix(in oklch, var(--accent-money) 25%, transparent)",
+                      borderRadius: 6,
+                      margin: "2px 4px 6px",
+                      display: "flex", flexDirection: "column", gap: 10,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Icons.Lock size={12} style={{ color: "var(--accent-money)" }}/>
+                        <strong style={{ fontSize: 12.5 }}>Your {c.name} producer-portal login</strong>
+                        <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                          stored encrypted · per-user · the local agent uses it to fetch live quotes
+                        </span>
+                        <button className="icon-btn" style={{ marginLeft: "auto" }} title="Close" onClick={closeLoginEditor}><Icons.X size={11}/></button>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
+                        <Shared.Field label="Username">
+                          <input
+                            className="text-input"
+                            value={loginForm.username}
+                            onChange={(e) => setLoginForm(f => ({ ...f, username: e.target.value }))}
+                            placeholder="producer.email@agency.com"
+                            autoComplete="off"
+                            autoFocus
+                          />
+                        </Shared.Field>
+                        <Shared.Field label="Password">
+                          <input
+                            className="text-input"
+                            type="password"
+                            value={loginForm.password}
+                            onChange={(e) => setLoginForm(f => ({ ...f, password: e.target.value }))}
+                            placeholder={vault?._has_password ? "•••••••• (saved · type to replace)" : "password"}
+                            autoComplete="new-password"
+                            onKeyDown={(e) => { if (e.key === "Enter") saveLogin(); if (e.key === "Escape") closeLoginEditor(); }}
+                          />
+                        </Shared.Field>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn btn-primary" onClick={saveLogin} disabled={loginSaving || !loginForm.username.trim()}>
+                            <Icons.Check size={11}/> {loginSaving ? "Saving…" : "Save login"}
+                          </button>
+                          {hasLogin && (
+                            <button className="btn btn-ghost" onClick={clearLogin} disabled={loginSaving} title="Delete saved login for this carrier">
+                              <Icons.X size={10}/> Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                        Saved as <code style={{ fontSize: 10 }}>connector_vault.provider="carrier_{slug}"</code>. Same row the Auto-Quoter Credentials tab reads.
+                      </div>
+                    </div>
                   )}
-                </div>
-              </div>
-            ))}
+                </React.Fragment>
+              );
+            })}
           </div>
         )}
       </div>
