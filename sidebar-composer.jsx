@@ -295,14 +295,19 @@ function SidebarComposer({ onClose, role }) {
     setDirty(false);
   }
 
-  // ── Widget library (filtered) ───────────────────────────────────────────────
+  // ── Widget library (role-filtered) ──────────────────────────────────────────
+  // `role` is the CURRENT view role (could be a super_admin previewing as
+  // manager via the role-switch). The library is filtered to what that role
+  // can actually use — admin widgets only for super_admin, ag-ops only for
+  // manager/owner/rep, etc.
+
+  const roleFilteredRegistry = window.widgetsForRole?.(role) || window.SIDEBAR_WIDGETS || {};
 
   function _flatWidgets() {
-    const reg = window.SIDEBAR_WIDGETS || {};
-    return Object.values(reg).flat();
+    return Object.values(roleFilteredRegistry).flat();
   }
 
-  const catWidgets = (window.SIDEBAR_WIDGETS?.[catTab] || []).filter(w =>
+  const catWidgets = (roleFilteredRegistry[catTab] || []).filter(w =>
     !search || w.label.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -321,7 +326,14 @@ function SidebarComposer({ onClose, role }) {
       <div className="sw-modal" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="sw-header">
-          <div style={{ fontWeight: 600, fontSize: 14 }}>Customize sidebar</div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>
+            Customize sidebar
+            {role && (
+              <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-tertiary)", textTransform: "capitalize", fontWeight: 400 }}>
+                — {String(role).replace("_", " ")} view
+              </span>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               className="btn btn-ghost"

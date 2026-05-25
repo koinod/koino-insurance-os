@@ -149,9 +149,10 @@ const SidebarBrand = () => {
   );
 };
 
-// Roles that get a customizable sidebar (manager and above). Reps always
-// use the static NAV.rep map — they never see the Customize entry.
-const CUSTOM_ROLES = new Set(["manager","owner","super_admin","admin","imo_owner"]);
+// Roles that get a customizable sidebar. Every authed role can pin/reorder
+// their own widgets — the composer library filters by role so reps only
+// see rep-appropriate widgets, super_admin sees the SaaS admin widgets, etc.
+const CUSTOM_ROLES = new Set(["rep","agent","manager","owner","super_admin","admin","imo_owner"]);
 
 const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const [composerOpen, setComposerOpen] = useState(false);
@@ -242,10 +243,12 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         )}
       </div>
 
-      {/* Composer modal — lazy ref to window so it loads after this script */}
+      {/* Composer modal — lazy ref to window so it loads after this script.
+          Keyed by role so the role-switch preview (super_admin → manager view)
+          fully remounts the composer with the new role's widget library. */}
       {composerOpen && window.SidebarComposer && React.createElement(
         window.SidebarComposer,
-        { onClose: () => setComposerOpen(false), role }
+        { key: `composer-${role}`, onClose: () => setComposerOpen(false), role }
       )}
 
       <div className="sb-section">Operations</div>
