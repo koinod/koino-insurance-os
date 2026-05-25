@@ -147,6 +147,11 @@ const OUTCOME_SMS_DEFAULTS = {
   },
 };
 
+// Persistence: localStorage is the synchronous cache; user_prefs.value
+// keyed 'autodial_outcome_sms' is the cross-device source of truth.
+// Mirror pattern from AutodialQueue (shared.jsx) + redial_queue
+// (lib/dial-rules.js): debounced upsert on save, hydrate on me:loaded,
+// server-newer-wins.
 function loadOutcomeSms() {
   try {
     const raw = localStorage.getItem("repflow.autodial.outcome_sms");
@@ -160,8 +165,65 @@ function loadOutcomeSms() {
     return merged;
   } catch { return { ...OUTCOME_SMS_DEFAULTS }; }
 }
+let _outcomeSmsPushTimer = null;
+function _pushOutcomeSmsToServer(map) {
+  if (_outcomeSmsPushTimer) clearTimeout(_outcomeSmsPushTimer);
+  _outcomeSmsPushTimer = setTimeout(async () => {
+    _outcomeSmsPushTimer = null;
+    const sb  = window.getSupabase && window.getSupabase();
+    const me  = window.me && window.me();
+    if (!sb || !me?.rep_id) return;
+    try {
+      const updated_at = new Date().toISOString();
+      try { localStorage.setItem("repflow.autodial.outcome_sms.meta", JSON.stringify({ updated_at })); } catch {}
+      const { error } = await sb.from("user_prefs").upsert(
+        { rep_id: me.rep_id, key: "autodial_outcome_sms", value: map, updated_at },
+        { onConflict: "rep_id,key" }
+      );
+      if (error && !/relation .* does not exist/i.test(error.message || "")) {
+        console.warn("[outcomeSms.push]", error.message || error);
+      }
+    } catch (e) { console.warn("[outcomeSms.push]", e?.message || e); }
+  }, 600);
+}
 function saveOutcomeSms(map) {
   try { localStorage.setItem("repflow.autodial.outcome_sms", JSON.stringify(map)); } catch {}
+  _pushOutcomeSmsToServer(map);
+}
+async function hydrateOutcomeSms() {
+  const sb = window.getSupabase && window.getSupabase();
+  const me = window.me && window.me();
+  if (!sb || !me?.rep_id) return null;
+  try {
+    const { data, error } = await sb.from("user_prefs")
+      .select("value, updated_at")
+      .eq("rep_id", me.rep_id)
+      .eq("key", "autodial_outcome_sms")
+      .maybeSingle();
+    if (error || !data) return null;
+    const localMeta = (() => { try { return JSON.parse(localStorage.getItem("repflow.autodial.outcome_sms.meta") || "{}"); } catch { return {}; } })();
+    const serverNewer = !localMeta.updated_at || new Date(data.updated_at) > new Date(localMeta.updated_at);
+    if (serverNewer && data.value && typeof data.value === "object") {
+      // Merge with defaults so missing keys don't disappear
+      const merged = {};
+      Object.keys(OUTCOME_SMS_DEFAULTS).forEach(k => {
+        merged[k] = { ...OUTCOME_SMS_DEFAULTS[k], ...(data.value[k] || {}) };
+      });
+      try { localStorage.setItem("repflow.autodial.outcome_sms", JSON.stringify(merged)); } catch {}
+      try { localStorage.setItem("repflow.autodial.outcome_sms.meta", JSON.stringify({ updated_at: data.updated_at })); } catch {}
+      window.dispatchEvent(new CustomEvent("autodial:outcome_sms:hydrated", { detail: { value: merged } }));
+      return merged;
+    }
+    return null;
+  } catch (e) { console.warn("[outcomeSms.hydrate]", e?.message || e); return null; }
+}
+// Fire hydrate when me() resolves
+if (typeof window !== "undefined") {
+  const _tryHydrateOutcomeSms = () => {
+    if (window.me && window.me()) hydrateOutcomeSms().catch(() => {});
+  };
+  if (window.me && window.me()) _tryHydrateOutcomeSms();
+  window.addEventListener("me:loaded", _tryHydrateOutcomeSms);
 }
 function renderOutcomeSms(template, lead) {
   const fullName = lead?.lead || "";
