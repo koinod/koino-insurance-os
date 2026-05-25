@@ -160,6 +160,36 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const [customLayout, setCustomLayout] = useState(null);
   const isDynamic = CUSTOM_ROLES.has(role);
 
+  // Collapsed state — persists per device via localStorage. Drives a
+  // data-sidebar-collapsed attribute on <html> which the CSS uses to shrink
+  // the grid column AND restyle every nav-row to icon-only mode.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("repflow.sidebar.collapsed") === "1"; } catch { return false; }
+  });
+
+  // Sync collapsed → DOM + storage on every change.
+  useEffect(() => {
+    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
+    try { localStorage.setItem("repflow.sidebar.collapsed", collapsed ? "1" : "0"); } catch (e) {}
+    // Fire event so any external listener (e.g. ai-sidebar layout) can react.
+    window.dispatchEvent(new CustomEvent("sidebar:collapsed", { detail: { collapsed } }));
+  }, [collapsed]);
+
+  // Cmd/Ctrl+B keyboard toggle (matches VS Code muscle memory).
+  // Ignored when focus is in an input/textarea so power-users can still type "b".
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== "b" && e.key !== "B") return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      setCollapsed(c => !c);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     if (!isDynamic) { setCustomLayout(null); return; }
     let cancelled = false;
@@ -185,6 +215,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
           key={item.id}
           className={`sb-item ${page === pageId ? "active" : ""}`}
           onClick={() => setPage(pageId)}
+          title={item.label}  /* shown by browser when collapsed (label hidden) */
         >
           <Ico size={15}/>
           <span>{item.label}</span>
@@ -214,8 +245,22 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   }
 
   return (
-    <nav className="sidebar">
-      <SidebarBrand/>
+    <nav className="sidebar" data-collapsed={collapsed ? "1" : "0"}>
+      <div className="sb-brand-row">
+        <SidebarBrand/>
+        <button
+          className="sb-collapse-toggle"
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+        >
+          <Icons.ChevronRight
+            size={12}
+            style={{ transform: collapsed ? "rotate(0deg)" : "rotate(180deg)", transition: "transform 180ms var(--ease-out)" }}
+          />
+        </button>
+      </div>
 
       {(window.isSuperAdmin() || window.isDemoAgency()) && (
         <div className="role-switch">
@@ -256,7 +301,12 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         {NAV.ops.map(it => {
           const Ico = Icons[it.icon] || Icons.Circle;
           return (
-            <button key={it.id} className={`sb-item ${page === it.id ? "active" : ""}`} onClick={() => setPage(it.id)}>
+            <button
+              key={it.id}
+              className={`sb-item ${page === it.id ? "active" : ""}`}
+              onClick={() => setPage(it.id)}
+              title={it.label}
+            >
               <Ico size={15}/>
               <span>{it.label}</span>
             </button>
@@ -267,7 +317,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
       <div className="sb-spacer"/>
 
       <div style={{ padding: "0 8px 8px" }}>
-        <button className="sb-item" onClick={openCmdK}>
+        <button className="sb-item" onClick={openCmdK} title="Command palette (⌘K)">
           <Icons.Search size={15}/>
           <span>Command</span>
           <span className="kbd">⌘K</span>

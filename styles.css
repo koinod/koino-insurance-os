@@ -83,9 +83,15 @@ input, textarea { font-family: inherit; color: inherit; }
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  transition: grid-template-columns 220ms var(--ease-out);
 }
 .app[data-rail="off"] { grid-template-columns: 220px 1fr; }
-.app[data-mobile="on"] { grid-template-columns: 1fr; }
+.app[data-mobile="on"] { grid-template-columns: 1fr; transition: none; }
+
+/* Collapsed sidebar — column shrinks, all labels hide, icons stay. */
+html[data-sidebar-collapsed="1"] .app                  { grid-template-columns: 60px 1fr 320px; }
+html[data-sidebar-collapsed="1"] .app[data-rail="off"] { grid-template-columns: 60px 1fr; }
+html[data-sidebar-collapsed="1"] .app[data-mobile="on"]{ grid-template-columns: 1fr; }
 
 /* Sidebar */
 .sidebar {
@@ -198,6 +204,111 @@ input, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-raised);
   color: var(--text-primary);
 }
+
+/* ── Sidebar collapse toggle ──────────────────────────────────────────────── */
+/* Brand row wraps SidebarBrand + chevron button on one line. */
+.sb-brand-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sb-brand-row .sb-brand {
+  flex: 1;
+  border-bottom: none;
+  min-width: 0;
+}
+.sb-collapse-toggle {
+  width: 28px;
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  color: var(--text-tertiary);
+  border: none; background: none;
+  cursor: pointer;
+  margin-right: 4px;
+  border-radius: var(--radius-sm, 4px);
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.sb-collapse-toggle:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* ── COLLAPSED MODE — sidebar at 60px, icon-only ──────────────────────────── */
+/* Layout: each item centers its icon, all text/badges hide. The sidebar
+   itself is the grid column (60px), so we don't set width on .sidebar. */
+.sidebar[data-collapsed="1"] {
+  align-items: stretch;
+}
+/* Brand: show the mark only, hide name/agency text, move chevron below mark. */
+.sidebar[data-collapsed="1"] .sb-brand-row {
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0 4px;
+  gap: 4px;
+}
+.sidebar[data-collapsed="1"] .sb-brand {
+  padding: 4px 0;
+  border-bottom: none;
+  justify-content: center;
+}
+.sidebar[data-collapsed="1"] .sb-brand > div:not(.sb-brand-mark) { display: none; }
+.sidebar[data-collapsed="1"] .sb-collapse-toggle {
+  width: 30px; height: 22px; margin: 0;
+}
+/* Section labels become hairline dividers in collapsed mode. */
+.sidebar[data-collapsed="1"] .sb-section {
+  padding: 10px 12px 4px;
+  font-size: 0;
+  letter-spacing: 0;
+}
+.sidebar[data-collapsed="1"] .sb-section::before {
+  content: "";
+  display: block;
+  border-top: 1px solid var(--border-subtle);
+}
+/* Nav rows: center icon, hide everything else. */
+.sidebar[data-collapsed="1"] .sb-nav { padding: 0 8px; }
+.sidebar[data-collapsed="1"] .sb-item {
+  justify-content: center;
+  padding: 8px 0;
+  gap: 0;
+}
+.sidebar[data-collapsed="1"] .sb-item > span,
+.sidebar[data-collapsed="1"] .sb-item > .badge,
+.sidebar[data-collapsed="1"] .sb-item > .kbd {
+  display: none;
+}
+/* Role-switch hides in collapsed mode (it's a power-user preview tool,
+   not worth the vertical real estate). */
+.sidebar[data-collapsed="1"] .role-switch { display: none; }
+/* Stat tiles: show only the value, hide the label, center it. */
+.sidebar[data-collapsed="1"] .sb-stat-tile {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  margin: 0 4px 2px;
+  border-left: none;
+  border-top: 2px solid var(--accent-money, #00d4aa);
+  border-radius: 4px;
+}
+.sidebar[data-collapsed="1"] .sb-stat-tile .sb-stat-lbl { display: none; }
+.sidebar[data-collapsed="1"] .sb-stat-tile .sb-stat-val {
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* "Customize…" entry: icon only, italic span hides. */
+.sidebar[data-collapsed="1"] .sb-item-composer > span { display: none; }
+/* Bottom user row: avatar only, hide name + role + settings cog. */
+.sidebar[data-collapsed="1"] .sb-user {
+  justify-content: center;
+  padding: 10px 0;
+}
+.sidebar[data-collapsed="1"] .sb-user-info,
+.sidebar[data-collapsed="1"] .sb-user > .icon-btn { display: none; }
 
 /* Workspace */
 .workspace {
