@@ -308,8 +308,16 @@
     }, []);
 
     // Run rate engine across appointed + user-selected carriers for this product.
+    //
+    // RANKING MODEL (reworked 2026-05-24):
+    // Sort by FIT QUALITY, not by $/mo. The engine's $/mo number is only
+    // DB-grounded for ~5 carriers × 2 plans × 3-4 states (see UW_GROUNDING.
+    // rate_tables_loaded). Everywhere else it's a heuristic. So we lead with
+    // eligibility + sweet-spot match (DB-cited narrative), and present the
+    // dollar number as a de-emphasized secondary signal labeled as either
+    // "DB rate" (authoritative) or "engine estimate" (~approximate).
     const quoteResults = useMemo(() => {
-      if (!window.RateEngine) return { quoted: [], declined: [] };
+      if (!window.RateEngine) return { quoted: [], borderline: [], ineligible: [], all: [] };
       const productKey = profile.product;
       const eligible = niches.filter(c => c.products.includes(productKey));
       const appointed = appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
@@ -319,29 +327,53 @@
         : appointed.filter(c => selectedCarrierIds.has(c.id));
 
       const results = filtered.map(carrier => {
+        // Run fit verdict (eligibility + sweet-spot + tier scoring).
+        const verdict = window.RateEngine.fitVerdict?.(carrier, productKey, profileForEngine)
+          || { eligibility: "eligible", fitTier: 2, fitReasons: [], dbGrounded: false, dbRateSourced: false, ruleCount: 0 };
+
         if (productKey === "annuity") {
           const ann = window.RateEngine.calculateAnnuityYield(carrier, profileForEngine);
-          if (!ann) return { carrier, decline: true, reason: "Annuity not offered by this carrier" };
+          if (!ann) return { carrier, verdict: { ...verdict, eligibility: "ineligible", ineligibleReason: "Annuity not offered by this carrier" } };
           return {
             carrier,
+            verdict,
             annuity: ann,
             premium: null,
             uwClass: null,
             methodology: ann.methodology,
             displayValue: `${ann.apy}% APY · 5yr`,
             displaySub: `$${ann.accumulated.toLocaleString()} at maturity (gain $${ann.gain.toLocaleString()})`,
+            dbRateSourced: false,
           };
         }
+
         const rate = window.RateEngine.calculatePremium(carrier, productKey, profileForEngine);
         if (rate.decline) {
-          return { carrier, decline: true, reason: rate.reason, source: rate.source };
+          // Decline from the engine — pin the verdict to ineligible with
+          // the engine reason if the verdict didn't already flag it.
+          return {
+            carrier,
+            verdict: {
+              ...verdict,
+              eligibility: "ineligible",
+              ineligibleReason: verdict.ineligibleReason || rate.reason,
+              fitTier: 0,
+            },
+            decline: true,
+            reason: rate.reason,
+            source: rate.source,
+          };
         }
         const reco = window.RateEngine.recommendReasons?.(carrier, productKey, profileForEngine, rate) || { reasons: [], sources: [], dbGrounded: false };
         return {
           carrier,
+          verdict,
           premium: rate.premium,
           uwClass: rate.uwClass,
           methodology: rate.methodology,
+          // displayValue is now PRICE-SECONDARY: see the JSX renderer for the
+          // DB-vs-estimate typography split. Keep the legacy field for the
+          // saved-quote write path + the SMS composer.
           displayValue: `$${rate.premium}/mo`,
           displaySub: rate.uwClass,
           reasons: reco.reasons,
@@ -354,20 +386,38 @@
         };
       });
 
-      const quoted   = results.filter(r => !r.decline).sort((a, b) => {
-        if (productKey === "annuity") return (b.annuity?.apy || 0) - (a.annuity?.apy || 0);
-        return (a.premium || 0) - (b.premium || 0);
-      });
-      const declined = results.filter(r => r.decline);
-      return { quoted, declined };
+      // Annuity stays priced-sorted because the APY IS the comparison signal.
+      if (productKey === "annuity") {
+        const quoted   = results.filter(r => r.verdict.eligibility !== "ineligible").sort((a, b) => (b.annuity?.apy || 0) - (a.annuity?.apy || 0));
+        const ineligible = results.filter(r => r.verdict.eligibility === "ineligible");
+        return { quoted, borderline: [], ineligible, all: results };
+      }
+
+      // Sort by fit-tier DESC, then rule-count DESC (more rules = more
+      // confidence the verdict is real), then $/mo ASC as a tiebreaker.
+      const sortByFit = (a, b) => {
+        const ta = a.verdict?.fitTier ?? 0;
+        const tb = b.verdict?.fitTier ?? 0;
+        if (tb !== ta) return tb - ta;
+        const ra = a.verdict?.ruleCount ?? 0;
+        const rb = b.verdict?.ruleCount ?? 0;
+        if (rb !== ra) return rb - ra;
+        return (a.premium || 99999) - (b.premium || 99999);
+      };
+      const quoted     = results.filter(r => r.verdict.eligibility === "eligible").sort(sortByFit);
+      const borderline = results.filter(r => r.verdict.eligibility === "borderline").sort(sortByFit);
+      const ineligible = results.filter(r => r.verdict.eligibility === "ineligible");
+      return { quoted, borderline, ineligible, all: results };
     }, [JSON.stringify(profileForEngine), niches.length, appointedIds, groundingTick,
         selectedCarrierIds === null ? "" : [...selectedCarrierIds].sort().join(",")]);
 
-    // Best pick prefers a DB-grounded carrier so we don't recommend
-    // binding against an unverified carrier. Falls back to the cheapest
-    // overall only if NO DB-grounded carrier is eligible (caller is then
-    // shown a "verify producer guide" caveat via the dbGrounded badge).
-    const best = quoteResults.quoted.find(r => r.dbGrounded) || quoteResults.quoted[0];
+    // Best pick: top of the fit-ranked list. For DOLLAR display we only call
+    // it "BEST FIT" if it scored fitTier >= 3 (eligible + sweet-spot in-range).
+    // Otherwise it's just "Top eligible" — i.e. "we couldn't find a strong
+    // match; this is the carrier least likely to bounce you."
+    const best = quoteResults.quoted[0];
+    const runnerUp = quoteResults.quoted[1];
+    const bestIsStrongFit = (best?.verdict?.fitTier ?? 0) >= 3;
 
     const applyPreset = (p) => {
       setProfile(prev => ({ ...prev, ...p.patch }));
@@ -655,9 +705,10 @@
           <Shared.KpiCard label="Quotes saved" value={quotes.length}/>
           <Shared.KpiCard label="Quotes sent"  value={quotes.filter(q => q.status === "sent" || q.status === "converted").length} sub="via SMS/email"/>
           <Shared.KpiCard label="Conversion"   value={conversionRate === null ? "—" : `${conversionRate}%`} sub="quoted → policy"/>
-          <Shared.KpiCard label="Best quote"
-            value={best?.displayValue || "—"}
-            sub={best?.carrier.name || "no match"}
+          <Shared.KpiCard
+            label={bestIsStrongFit ? "Best fit" : "Top eligible"}
+            value={best ? (best.dbRateSourced ? best.displayValue : `~${best.displayValue || "—"}`) : "—"}
+            sub={best ? `${best.carrier.name}${best.dbRateSourced ? "" : " · engine estimate"}` : "no match"}
             trend={quoteResults.quoted.length > 0 ? "up" : undefined}/>
         </div>
 
@@ -920,7 +971,9 @@
               <Icons.Trophy size={13} style={{ color: "var(--accent-money)" }}/>
               <h3>Carrier quotes · {PRODUCT_LABELS[profile.product]}{profile.product === "medsupp" ? ` Plan ${profile.planVariant}` : ""}</h3>
               <span className="meta">
-                {quoteResults.quoted.length} quoted · {quoteResults.declined.length} declined
+                {quoteResults.quoted.length} eligible
+                {quoteResults.borderline.length > 0 && ` · ${quoteResults.borderline.length} borderline`}
+                {quoteResults.ineligible.length > 0 && ` · ${quoteResults.ineligible.length} excluded`}
               </span>
             </div>
 
@@ -956,29 +1009,75 @@
               </div>
             )}
 
-            {/* Best Pick recommendation banner — explains WHY citing producer guide */}
+            {/* Best Pick recommendation banner — leads with eligibility + fit,
+                NOT with price. The dollar number is shown secondary, labeled
+                "DB rate" only when the engine sourced it from
+                products.rate_table.plans[variant].state_factors[state] (mig
+                0060). Otherwise it's labeled "engine estimate" with a
+                muted-typography "~" prefix so the rep doesn't read the
+                number as authoritative — see CLAUDE.md guiding principle 5. */}
             {best && profile.product !== "annuity" && (
               <div className="quote-pick">
                 <div>
-                  <div className="quote-pick-h">Best pick · per official underwriting</div>
+                  <div className="quote-pick-h">
+                    {bestIsStrongFit ? "BEST FIT · per official underwriting" : "TOP ELIGIBLE · no strong sweet-spot match"}
+                  </div>
                   <div className="quote-pick-name">{best.carrier.name}</div>
                   <div className="quote-pick-why">
-                    {(best.reasons || []).slice(0, 3).map((r, i) => (
+                    {/* Lead with eligibility + sweet-spot match (verdict) */}
+                    {best.verdict && (
+                      <div className="reason-row">
+                        <span className="reason-tag" style={{
+                          background: "color-mix(in oklch, var(--accent-money) 18%, transparent)",
+                          color: "var(--accent-money)",
+                        }}>{best.verdict.eligibility === "eligible" ? "eligible ✓" : best.verdict.eligibility}</span>
+                        <span>
+                          {best.verdict.ageVsSweetSpot === "in" && best.verdict.sweetSpot &&
+                            <>In carrier sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}). </>
+                          }
+                          {best.verdict.ageVsSweetSpot === "above" && best.verdict.sweetSpot &&
+                            <>Above sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, just not the ideal age band. </>
+                          }
+                          {best.verdict.ageVsSweetSpot === "below" && best.verdict.sweetSpot &&
+                            <>Below sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, but the carrier doesn't lead with this age. </>
+                          }
+                          {best.verdict.ageVsSweetSpot === "unknown" &&
+                            <>Sweet-spot age band not parsed from narrative. </>
+                          }
+                          {best.verdict.ruleCount} approved rule{best.verdict.ruleCount === 1 ? "" : "s"} backing this carrier.
+                        </span>
+                      </div>
+                    )}
+                    {(best.reasons || []).slice(0, 2).map((r, i) => (
                       <div key={i} className="reason-row">
                         <span className="reason-tag">{r.tag}</span>
                         <span>{r.text}</span>
                       </div>
                     ))}
-                    {!best.reasons?.length && (
-                      <div style={{ color: "var(--text-tertiary)" }}>
-                        Cheapest binding carrier for this profile after applying state tier, build chart, and UW class.
-                      </div>
-                    )}
                   </div>
                 </div>
                 <div>
-                  <div className="quote-pick-price">{best.displayValue}</div>
-                  <div className="quote-pick-class">{best.uwClass || "—"}</div>
+                  {/* Price block: DB-sourced = bold money. Engine-estimate =
+                      smaller, muted, ~ prefix, italic "engine estimate" sub. */}
+                  {best.dbRateSourced ? (
+                    <>
+                      <div className="quote-pick-price">{best.displayValue}</div>
+                      <div className="quote-pick-class" style={{ color: "var(--accent-money)" }}>
+                        DB rate{best.dbRateConfidence ? ` · ${best.dbRateConfidence}` : ""}
+                      </div>
+                      <div className="quote-pick-class">{best.uwClass || "—"}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="quote-pick-price" style={{
+                        fontSize: 16, color: "var(--text-secondary)", fontWeight: 500,
+                      }}>~{best.displayValue}</div>
+                      <div className="quote-pick-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)" }}>
+                        engine estimate · not authoritative
+                      </div>
+                      <div className="quote-pick-class">{best.uwClass || "—"}</div>
+                    </>
+                  )}
                 </div>
                 {(best.sources || []).length > 0 && (
                   <div className="quote-pick-source">
@@ -1002,14 +1101,42 @@
               </div>
             )}
 
-            {quoteResults.quoted.length === 0 && quoteResults.declined.length === 0 ? (
+            {quoteResults.quoted.length === 0 && quoteResults.borderline.length === 0 && quoteResults.ineligible.length === 0 ? (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
                 No appointed carriers offer {PRODUCT_LABELS[profile.product]}. Add appointments in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" } })); }} style={{ color: "var(--accent-money)" }}>Resources → Carriers</a>.
               </div>
             ) : (
               <div style={{ padding: 10 }}>
+                {/* Excluded-carriers callout (top of the list per spec) —
+                    "X carriers excluded — see why" with the per-carrier
+                    reason. Visible whenever any ineligible carriers exist
+                    so the rep knows it's NOT a quote-engine bug that
+                    Lumico isn't showing up for an 82-year-old lead. */}
+                {quoteResults.ineligible.length > 0 && profile.product !== "annuity" && (
+                  <details style={{
+                    marginBottom: 10, padding: "8px 10px", borderRadius: 6,
+                    background: "color-mix(in oklch, var(--state-warning) 6%, transparent)",
+                    border: "1px solid color-mix(in oklch, var(--state-warning) 22%, transparent)",
+                    fontSize: 11.5,
+                  }}>
+                    <summary style={{ cursor: "pointer", color: "var(--state-warning)", fontWeight: 600 }}>
+                      {quoteResults.ineligible.length} carrier{quoteResults.ineligible.length === 1 ? "" : "s"} excluded — see why
+                    </summary>
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3, color: "var(--text-secondary)" }}>
+                      {quoteResults.ineligible.map(r => (
+                        <div key={r.carrier.id} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                          <span style={{ fontWeight: 600, minWidth: 140, color: "var(--text-tertiary)", textDecoration: "line-through" }}>{r.carrier.name}</span>
+                          <span style={{ color: "var(--state-danger)" }}>{r.verdict?.ineligibleReason || r.reason || "Engine decline"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* Eligible carriers — sorted by fit tier (not price). */}
                 {quoteResults.quoted.map((r, i) => {
                   const c = r.carrier;
+                  const v = r.verdict || {};
                   // Prefer the DB-sourced guide for the displayed UW metadata;
                   // fall back to the inline CARRIER_NICHES roster fields only
                   // when the carrier has no DB grounding (badge will warn).
@@ -1017,14 +1144,65 @@
                   const uw = c.underwriting || {};
                   const tobPct = guide?.tobacco_rateup_pct != null ? guide.tobacco_rateup_pct : uw.tobaccoRateUpPct;
                   const uwClasses = Array.isArray(guide?.uw_classes) ? guide.uw_classes : uw.uwClasses;
-                  const reasonText = (r.reasons || []).slice(0, 2).map(x => x.text).join(" · ")
+                  // Lead the reason text with the sweet-spot match (most
+                  // signal-rich), falling back to engine narrative reasons
+                  // and finally the methodology trail.
+                  const sweetSpotText = v.sweetSpot
+                    ? (v.ageVsSweetSpot === "in"
+                        ? `In sweet-spot (${v.sweetSpot.lo}-${v.sweetSpot.hi})`
+                        : v.ageVsSweetSpot === "above"
+                          ? `Outside sweet-spot — lead older than ${v.sweetSpot.hi}`
+                          : v.ageVsSweetSpot === "below"
+                            ? `Outside sweet-spot — lead younger than ${v.sweetSpot.lo}`
+                            : null)
+                    : null;
+                  const reasonText = sweetSpotText
+                    || (r.reasons || []).slice(0, 2).map(x => x.text).join(" · ")
                     || (r.methodology || []).slice(-2).join(" · ")
                     || "—";
+                  const isBest = r === best && bestIsStrongFit;
+                  const isRunnerUp = r === runnerUp && bestIsStrongFit && (v.fitTier ?? 0) >= 2;
                   return (
-                    <div key={c.id} className={"quote-row" + (r === best ? " is-best" : "")}>
+                    <div key={c.id} className={"quote-row" + (isBest ? " is-best" : "")}>
                       <div>
                         <div className="qr-name">{c.name}
-                          {r === best && <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10 }}>best match</span>}
+                          {/* BEST FIT / RUNNER-UP — only when there's a real
+                              sweet-spot match. Otherwise no chip; the panel
+                              header already says "TOP ELIGIBLE · no strong
+                              sweet-spot match" so we don't lie. */}
+                          {isBest && (
+                            <span className="chip chip-money" style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>BEST FIT</span>
+                          )}
+                          {isRunnerUp && (
+                            <span className="chip" style={{
+                              marginLeft: 8, fontSize: 9.5, fontWeight: 600,
+                              padding: "1px 6px", borderRadius: 3,
+                              background: "color-mix(in oklch, var(--accent-money) 8%, transparent)",
+                              color: "var(--accent-money)",
+                              border: "1px solid color-mix(in oklch, var(--accent-money) 22%, transparent)",
+                            }}>RUNNER-UP</span>
+                          )}
+                          {/* Eligibility verdict chip — eligible = green check */}
+                          <span title={v.ineligibleReason || v.borderlineReason || "Passed every approved underwriting rule for this lead profile."}
+                                style={{
+                                  marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                  borderRadius: 3, fontWeight: 600,
+                                  background: "color-mix(in oklch, var(--accent-money) 14%, transparent)",
+                                  color: "var(--accent-money)",
+                                  border: "1px solid color-mix(in oklch, var(--accent-money) 32%, transparent)",
+                                }}>eligible ✓</span>
+                          {/* Sweet-spot indicator — only when DB had a parseable band */}
+                          {v.sweetSpot && v.ageVsSweetSpot === "in" && (
+                            <span title={`Lead age ${profile.age} sits inside ${c.name}'s sweet-spot ages ${v.sweetSpot.lo}-${v.sweetSpot.hi} (per producer-guide narrative).`}
+                                  style={{
+                                    marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                    borderRadius: 3, fontWeight: 600,
+                                    background: "color-mix(in oklch, var(--accent-money) 8%, transparent)",
+                                    color: "var(--accent-money)",
+                                    border: "1px solid color-mix(in oklch, var(--accent-money) 22%, transparent)",
+                                  }}>sweet-spot ✓</span>
+                          )}
+                          {/* DB grounding badge — was always visible before */}
                           {r.dbGrounded ? (
                             <span title="Underwriting rules sourced from approved product_underwriting_rules rows"
                                   style={{
@@ -1088,36 +1266,99 @@
                           {tobPct != null && <span>tob+{tobPct}% · </span>}
                           {Array.isArray(uwClasses) && <span>{uwClasses.length}-class UW</span>}
                           {r.confidence && <span> · {r.confidence} confidence</span>}
+                          {v.ruleCount > 0 && <span> · {v.ruleCount} rule{v.ruleCount === 1 ? "" : "s"}</span>}
                         </div>
                       </div>
                       <div className="qr-reason" title={(r.methodology || []).join("\n")}>{reasonText}</div>
                       <div>
-                        <div className={"qr-price tabular" + (i === 0 ? " qr-price-best" : "")}>
-                          {r.displayValue}
-                        </div>
-                        <div className="qr-class">{r.displaySub || "—"}</div>
+                        {/* Price block: DB-sourced rates get full visual
+                            emphasis (large, money color). Engine estimates
+                            get smaller, italic, "~" prefix + "engine
+                            estimate" sub-label so the rep can't mistake
+                            them for binding numbers. */}
+                        {r.dbRateSourced ? (
+                          <>
+                            <div className={"qr-price tabular" + (isBest ? " qr-price-best" : "")}>
+                              {r.displayValue}
+                            </div>
+                            <div className="qr-class" style={{ color: "var(--accent-money)", fontWeight: 600 }}>
+                              DB rate{r.dbRateConfidence ? ` · ${r.dbRateConfidence}` : ""}
+                            </div>
+                            <div className="qr-class">{r.displaySub || "—"}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="qr-price tabular" style={{
+                              fontSize: 14, color: "var(--text-secondary)",
+                              fontWeight: 500, fontStyle: "normal",
+                            }}>
+                              ~{r.displayValue}
+                            </div>
+                            <div className="qr-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)" }}>
+                              engine estimate
+                            </div>
+                            <div className="qr-class">{r.displaySub || "—"}</div>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
                 })}
 
-                {quoteResults.declined.length > 0 && (
+                {/* Borderline carriers — eligible but on the age cutoff edge.
+                    Shown below the main list so the rep can see them but
+                    they don't compete for visual primacy with the strong
+                    eligibles above. */}
+                {quoteResults.borderline.length > 0 && (
                   <>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 12, marginBottom: 6, paddingLeft: 4 }}>
-                      Declined ({quoteResults.declined.length})
+                    <div style={{ fontSize: 10.5, color: "var(--state-warning)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 14, marginBottom: 6, paddingLeft: 4, fontWeight: 600 }}>
+                      Borderline ({quoteResults.borderline.length}) — verify before binding
                     </div>
-                    {quoteResults.declined.map(r => (
-                      <div key={r.carrier.id} className="quote-row is-decline">
-                        <div className="qr-name" style={{ color: "var(--text-secondary)", textDecoration: "line-through" }}>{r.carrier.name}</div>
-                        <div className="qr-reason" style={{ color: "var(--state-danger)" }}>{r.reason}</div>
-                        <div></div>
-                      </div>
-                    ))}
+                    {quoteResults.borderline.map(r => {
+                      const c = r.carrier;
+                      const v = r.verdict || {};
+                      return (
+                        <div key={c.id} className="quote-row" style={{ opacity: 0.85 }}>
+                          <div>
+                            <div className="qr-name" style={{ color: "var(--text-secondary)" }}>
+                              {c.name}
+                              <span style={{
+                                marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
+                                borderRadius: 3, fontWeight: 600,
+                                background: "color-mix(in oklch, var(--state-warning) 14%, transparent)",
+                                color: "var(--state-warning)",
+                                border: "1px solid color-mix(in oklch, var(--state-warning) 32%, transparent)",
+                              }}>borderline ⚠</span>
+                            </div>
+                            <div className="qr-meta">{v.borderlineReason || "Within carrier limits, but at an edge"}</div>
+                          </div>
+                          <div className="qr-reason" title={(r.methodology || []).join("\n")}>
+                            {r.reasons?.[0]?.text || (r.methodology || []).slice(-2).join(" · ") || "—"}
+                          </div>
+                          <div>
+                            {r.dbRateSourced ? (
+                              <div className="qr-price tabular">{r.displayValue}</div>
+                            ) : (
+                              <div className="qr-price tabular" style={{
+                                fontSize: 14, color: "var(--text-tertiary)", fontWeight: 500,
+                              }}>~{r.displayValue || "—"}</div>
+                            )}
+                            <div className="qr-class" style={{ fontStyle: r.dbRateSourced ? "normal" : "italic", color: r.dbRateSourced ? "var(--accent-money)" : "var(--text-quaternary)" }}>
+                              {r.dbRateSourced ? "DB rate" : "engine estimate"}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </>
                 )}
 
+                {/* Methodology footnote — leans hard into "engine estimate
+                    is approximate, DB rate is the only authoritative
+                    number". Removes the prior framing that implied the
+                    engine number was usable for sales conversations. */}
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  <strong>Engine estimate</strong> = base rate sheet × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor. Every underwriting rule and narrative line comes from the approved rows in <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code> (edit via Admin → Carriers; no JSON or hardcoded fallback). Currently loaded: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}{grounding.rate_tables_loaded ? ` · ${grounding.rate_tables_loaded} state rate sheet${grounding.rate_tables_loaded === 1 ? "" : "s"}` : ""}. Carriers tagged <strong>DB state rate</strong> use migration 0060's state-specific rate sheets (<code style={{ fontSize: 10.5 }}>products.rate_table.plans</code>); untagged Med Supp rows fall back to the flat national-average baseline. Carriers without DB grounding are shown for reference only — verify against the carrier's producer guide before binding. Hover any reason cell for the full calculation chain. Hit <strong>Get live carrier rates</strong> below to replace the engine estimates with binding numbers pulled from each carrier's actual portal.
+                  <strong>How this list is ranked:</strong> carriers are sorted by <em>fit quality</em> — eligibility plus sweet-spot age match per the producer-guide narrative — <em>not</em> by price. Carriers tagged <strong>DB rate</strong> use migration 0060's state-specific rate sheets (<code style={{ fontSize: 10.5 }}>products.rate_table.plans</code>) and the dollar number is authoritative within its confidence band. Carriers showing <strong>~$X/mo · engine estimate</strong> use a heuristic (base rate × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor) — treat that number as an order-of-magnitude approximation, never as a binding quote. To replace estimates with binding numbers, click <strong>Get live carrier rates</strong> below. Currently loaded from <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code>: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}{grounding.rate_tables_loaded ? ` · ${grounding.rate_tables_loaded} state rate sheet${grounding.rate_tables_loaded === 1 ? "" : "s"}` : ""}.
                 </div>
 
                 {/* Get live carrier rates — dispatches the RBA (Role-Based
