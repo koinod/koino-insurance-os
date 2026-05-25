@@ -269,15 +269,26 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         </button>
       </div>
 
-      {(window.isSuperAdmin() || window.isDemoAgency()) && (
-        <div className="role-switch">
-          {["rep","manager","super_admin"].map(r => (
-            <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
-              {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Admin"}
-            </button>
-          ))}
-        </div>
-      )}
+      {(() => {
+        const isSuper = window.isSuperAdmin && window.isSuperAdmin();
+        const isDemo  = window.isDemoAgency && window.isDemoAgency();
+        if (!isSuper && !isDemo) return null;
+        // Demo sandbox previews Rep + Mgr only — Admin is the SaaS platform
+        // surface and shouldn't be reachable from a public demo session
+        // (no real super_admin grant, no cross-tenant data anyway).
+        // super_admins keep the full Rep / Mgr / Admin pill so they can
+        // preview as any role on their own agency.
+        const roles = isSuper ? ["rep","manager","super_admin"] : ["rep","manager"];
+        return (
+          <div className="role-switch">
+            {roles.map(r => (
+              <button key={r} className={role === r ? "active" : ""} onClick={() => setRole(r)} title={r}>
+                {r === "rep" ? "Rep" : r === "manager" ? "Mgr" : "Admin"}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       <div className="sb-section">Workspace</div>
       <div className="sb-nav">

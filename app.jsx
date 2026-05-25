@@ -70,10 +70,22 @@ function App() {
     };
   }, []);
 
-  // Auto-correct page if role changes and page doesn't exist for that role
+  // Auto-correct page if role changes and page doesn't exist for that role.
+  // super_admin gets the full admin-* allowlist because the sidebar default
+  // is just "HQ" (the hub), but composer-pinned widgets can navigate to
+  // admin-flags / admin-system / admin-customize / admin-hierarchy /
+  // admin-scrape / admin-devices / lab — each of which is a valid route.
   useEffect(() => {
     const navForRole = Shared.NAV[role] || Shared.NAV.owner;
     const validPages = [...navForRole.map(i => i.id), ...Shared.NAV.ops.map(i => i.id), "settings"];
+    if (role === "super_admin") {
+      validPages.push(
+        "admin", "admin-billing", "admin-members", "admin-invites",
+        "admin-carriers", "admin-security", "admin-audit",
+        "admin-flags", "admin-system", "admin-customize",
+        "admin-hierarchy", "admin-scrape", "admin-devices", "lab",
+      );
+    }
     if (!validPages.includes(page)) {
       setTweak("page", navForRole[0].id);
     }
@@ -239,7 +251,18 @@ function App() {
       case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-invites"  initialSubpage="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
       case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-carriers" initialSubpage="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
       case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-security" initialSubpage="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"    initialSubpage="audit"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"      initialSubpage="audit"/>      : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      // Pinnable sub-pages added 2026-05-25 — widget composer can drop these
+      // directly into the sidebar. Each lands on the hub with the right
+      // initialSubpage. Hierarchy/scrape/devices fall through the hub to
+      // PageAdmin internally; the hub pill won't highlight (those tabs
+      // aren't in HUB_TABS yet) which is acceptable for niche surfaces.
+      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-flags"     initialSubpage="flags"/>     : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-system"    initialSubpage="system"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-customize":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-customize" initialSubpage="customize"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-hierarchy":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hierarchy" initialSubpage="hierarchy"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-scrape":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-scrape"    initialSubpage="scrape"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-devices":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-devices"   initialSubpage="devices"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
       case "platform":
       case "agencies":
       case "users":
