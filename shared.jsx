@@ -106,16 +106,14 @@ NAV.imo_owner = NAV.owner;
 // agencies, subscriptions, security, carriers config, onboarding, and the
 // growth funnel for the software business itself. Each entry deep-links into
 // a PageAdmin tab via initialTab.
+// super_admin sidebar collapsed 10 → 2 items (2026-05-25). The HQ hub
+// (PageAdminHub) now hosts every platform/admin surface behind one
+// horizontal nav: HQ · Clients · Subscriptions · Users · Onboarding · Carriers ·
+// Security · Audit · Flags · System · Lab · Customize. Deep links into the
+// old admin-* routes still resolve via the app.jsx switch — they all land
+// on the hub with the correct initial sub-tab.
 NAV.super_admin = [
-  { id: "admin-hq",       label: "HQ",             icon: "BarChart3" }, // cross-agency KPIs + drillable platform admin
-  { id: "admin",          label: "Clients",        icon: "Building"  }, // agencies overview
-  { id: "admin-billing",  label: "Subscriptions",  icon: "Wallet"    }, // billing tab
-  { id: "admin-members",  label: "Users",          icon: "Users"     }, // cross-agency users
-  { id: "admin-invites",  label: "Onboarding",     icon: "Bell"      }, // pending invites = clients in flight
-  { id: "admin-carriers", label: "Carriers",       icon: "Plug"      }, // carrier config that ships to all tenants
-  { id: "admin-security", label: "Security",       icon: "Shield"    }, // advisor + RLS
-  { id: "admin-audit",    label: "Audit",          icon: "Activity"  },
-  { id: "lab",            label: "Lab",            icon: "Sparkles"  }, // unwired pages tile grid
+  { id: "admin-hq",       label: "HQ",             icon: "BarChart3" }, // single platform hub
   { id: "settings",       label: "Settings",       icon: "Settings"  },
 ];
 
@@ -198,6 +196,15 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
     window.addEventListener("sidebar:updated", onUpdate);
     return () => { cancelled = true; window.removeEventListener("sidebar:updated", onUpdate); };
   }, [role, isDynamic]);
+
+  // PageAdminHub's "Customize" tab fires this event so the existing composer
+  // modal opens from inside the hub without duplicating the composer
+  // implementation. Any other surface can fire the same event.
+  useEffect(() => {
+    const onOpen = () => setComposerOpen(true);
+    window.addEventListener("sidebar:composer:open", onOpen);
+    return () => window.removeEventListener("sidebar:composer:open", onOpen);
+  }, []);
 
   // While async load is in flight, fall back to the static map so the sidebar
   // isn't blank. Once the DB row resolves, customLayout replaces it.

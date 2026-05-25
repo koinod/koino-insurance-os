@@ -1617,7 +1617,7 @@ function SubpageSystem() {
 // Container — gate + subpage router. Wraps everything in .koino-platform
 // so the scoped DS overrides apply.
 // ──────────────────────────────────────────────────────────────────────────
-function PagePlatformAdmin({ subpage = "platform" }) {
+function PagePlatformAdmin({ subpage = "platform", embedded = false }) {
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const isSuper = window.isSuperAdmin && window.isSuperAdmin();
   const isAdmin = meIdent && (meIdent.role === "admin" || meIdent.role === "super_admin");
@@ -1675,6 +1675,10 @@ function PagePlatformAdmin({ subpage = "platform" }) {
     case "platform":
     default:         body = <SubpageHQ onActAs={onActAs} navigate={navigate}/>; break;
   }
+  // When embedded inside PageAdminHub, skip the `.koino-platform` wrapper
+  // (which has its own padding + dark theme background) — the hub provides
+  // the page chrome.
+  if (embedded) return body;
   return <div className="koino-platform">{body}</div>;
 }
 window.PagePlatformAdmin = PagePlatformAdmin;

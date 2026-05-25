@@ -24,7 +24,7 @@ function looksLikeError(action = "") {
       || s.includes("broken") || s.includes("revoke") || s.includes("crash");
 }
 
-function PageAdmin({ initialTab } = {}) {
+function PageAdmin({ initialTab, embedded = false } = {}) {
   // Honor a deep-link from elsewhere. Two sources:
   //   1. initialTab prop (from app.jsx routing — super_admin sidebar entries)
   //   2. window.__adminInitialTab (legacy: Vault → "Manage in Admin" on
@@ -247,53 +247,84 @@ function PageAdmin({ initialTab } = {}) {
   const activeGroup = TAB_GROUPS.find(g => g.subs.some(s => s.k === tab)) || TAB_GROUPS[0];
 
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Super Admin · Mission Control</div>
-          <div className="page-sub">{agencies.length} agenc{agencies.length === 1 ? "y" : "ies"} · {totalMembers} active members · {pendingInvites} pending invite{pendingInvites === 1 ? "" : "s"} · {issuesCount} issue{issuesCount === 1 ? "" : "s"}</div>
+    <div className={embedded ? "" : "page-pad"}>
+      {!embedded && (
+        <div className="page-h">
+          <div>
+            <div className="page-title">Super Admin · Mission Control</div>
+            <div className="page-sub">{agencies.length} agenc{agencies.length === 1 ? "y" : "ies"} · {totalMembers} active members · {pendingInvites} pending invite{pendingInvites === 1 ? "" : "s"} · {issuesCount} issue{issuesCount === 1 ? "" : "s"}</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {broadcastOpen && (
+              <BroadcastModal
+                agencyId={null}
+                reps={(window.AppData && window.AppData.REPS) || []}
+                onClose={() => setBroadcastOpen(false)}
+              />
+            )}
+            <button className="btn" onClick={() => setBroadcastOpen(true)}>
+              <Icons.MessageSquare size={13}/> Broadcast
+            </button>
+            <button className="btn" onClick={refreshAll}>
+              <Icons.RefreshCw size={13}/> Refresh
+            </button>
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          {broadcastOpen && (
-            <BroadcastModal
-              agencyId={null}
-              reps={(window.AppData && window.AppData.REPS) || []}
-              onClose={() => setBroadcastOpen(false)}
-            />
-          )}
-          <button className="btn" onClick={() => setBroadcastOpen(true)}>
-            <Icons.MessageSquare size={13}/> Broadcast
-          </button>
-          <button className="btn" onClick={refreshAll}>
-            <Icons.RefreshCw size={13}/> Refresh
-          </button>
-        </div>
-      </div>
+      )}
 
-      {/* KPI row — equal width */}
-      <div className="kpi-row">
-        <Shared.KpiCard label="Agencies"        value={agencies.length}                              sub="total tenants"/>
-        <Shared.KpiCard label="Active members"  value={totalMembers}                                 sub="across all agencies"/>
-        <Shared.KpiCard label="Est. MRR"        value={`$${estimatedMRR.toLocaleString()}`}          sub={`${PLAN_OPTS.length} plan tiers`}/>
-        <Shared.KpiCard label="Open issues"     value={issuesCount}                                  sub={issuesCount ? "see Management panel" : "all clear"} trend={issuesCount === 0 ? "up" : undefined}/>
-      </div>
+      {/* When embedded the BroadcastModal still needs to render — the trigger
+          moves to a compact button row above the body so super-admins can
+          still broadcast + refresh without leaving the hub. */}
+      {embedded && broadcastOpen && (
+        <BroadcastModal
+          agencyId={null}
+          reps={(window.AppData && window.AppData.REPS) || []}
+          onClose={() => setBroadcastOpen(false)}
+        />
+      )}
+      {embedded && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setBroadcastOpen(true)}>
+            <Icons.MessageSquare size={12}/> Broadcast
+          </button>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={refreshAll}>
+            <Icons.RefreshCw size={12}/> Refresh
+          </button>
+        </div>
+      )}
+
+      {/* KPI row — equal width. Skip when embedded to avoid duplicating the
+          HQ overview tiles. */}
+      {!embedded && (
+        <div className="kpi-row">
+          <Shared.KpiCard label="Agencies"        value={agencies.length}                              sub="total tenants"/>
+          <Shared.KpiCard label="Active members"  value={totalMembers}                                 sub="across all agencies"/>
+          <Shared.KpiCard label="Est. MRR"        value={`$${estimatedMRR.toLocaleString()}`}          sub={`${PLAN_OPTS.length} plan tiers`}/>
+          <Shared.KpiCard label="Open issues"     value={issuesCount}                                  sub={issuesCount ? "see Management panel" : "all clear"} trend={issuesCount === 0 ? "up" : undefined}/>
+        </div>
+      )}
 
       {/* Tab groups — use the shared SectionPill convention so the buttons
           actually render as rounded pills. Prior `.tab` / `.tab-active`
           classes had no CSS rules in styles.css, so the buttons rendered
-          as bare text. */}
-      <Shared.SectionPill
-        items={TAB_GROUPS.map(g => ({ k: g.k, l: g.l, icon: g.icon }))}
-        value={activeGroup.k}
-        onChange={(k) => { const g = TAB_GROUPS.find(x => x.k === k); if (g) setTab(g.subs[0].k); }}
-      />
-      {activeGroup.subs.length > 1 && (
-        <Shared.SectionPill
-          items={activeGroup.subs.map(s => ({ k: s.k, l: s.l, icon: s.icon }))}
-          value={tab}
-          onChange={setTab}
-          dense
-        />
+          as bare text. Hidden when embedded (the hub's own pill nav is the
+          single source of truth in that case). */}
+      {!embedded && (
+        <>
+          <Shared.SectionPill
+            items={TAB_GROUPS.map(g => ({ k: g.k, l: g.l, icon: g.icon }))}
+            value={activeGroup.k}
+            onChange={(k) => { const g = TAB_GROUPS.find(x => x.k === k); if (g) setTab(g.subs[0].k); }}
+          />
+          {activeGroup.subs.length > 1 && (
+            <Shared.SectionPill
+              items={activeGroup.subs.map(s => ({ k: s.k, l: s.l, icon: s.icon }))}
+              value={tab}
+              onChange={setTab}
+              dense
+            />
+          )}
+        </>
       )}
 
       {/* ── Agencies ───────────────────────────────────────────── */}

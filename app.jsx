@@ -229,14 +229,17 @@ function App() {
       // ids drive the super_admin sidebar — each lands on a specific PageAdmin
       // tab. `key` forces a remount so PageAdmin's useState picks up the new
       // initialTab.
-      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="hq" role={role}/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="agencies" role={role} initialTab="agencies"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="billing"  role={role} initialTab="billing"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="members"  role={role} initialTab="members"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="invites"  role={role} initialTab="invites"/>  : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="carriers" role={role} initialTab="carriers"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="security" role={role} initialTab="security"/> : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdmin; return P ? <P key="audit"    role={role} initialTab="audit"/>    : <PageStub title="Admin"/>; })() : F("PageToday", { aep: aepMode, role });
+      // All admin-* deep links land on the PageAdminHub with the right
+      // initial sub-tab. The old per-route page mapping (one sidebar item per
+      // admin surface) was collapsed 2026-05-25 — sidebar now has just "HQ".
+      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hq"       initialSubpage="hq"/>       : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-agencies" initialSubpage="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-billing"  initialSubpage="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-members"  initialSubpage="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-invites"  initialSubpage="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-carriers" initialSubpage="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-security" initialSubpage="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"    initialSubpage="audit"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
       case "platform":
       case "agencies":
       case "users":
