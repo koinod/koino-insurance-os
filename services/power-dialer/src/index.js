@@ -2,9 +2,20 @@ import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { startSession, dialNext, endSessionById, onAmdResult, onStatusCallback } from './session.js';
+import { startSession, dialNext, endSessionById, onAmdResult, onStatusCallback, setDisposition } from './session.js';
 import { db, getSession } from './db.js';
 import { holdInLegRoom, bridgeRepResponse, divertAiResponse, voicemailResponse, abandonResponse } from './twiml.js';
+
+// Fail-fast on the env the worker actually needs. Provisioning scripts
+// (services/power-dialer/scripts/*.js) import the same config but don't
+// gate-check here — they fail loudly later if they try to touch
+// DB/Twilio without keys.
+for (const k of ['supabaseUrl', 'supabaseServiceKey', 'twilioSid', 'twilioToken']) {
+  if (!config[k]) {
+    console.error(`worker boot: missing ${k}; refusing to start`);
+    process.exit(2);
+  }
+}
 
 const app = Fastify({ logger: false });
 await app.register(websocket);
@@ -37,6 +48,16 @@ app.post('/session/:id/end', async (req, reply) => {
   try { return await endSessionById(req.params.id); }
   catch (e) {
     logger.error({ err: e }, 'endSession failed');
+    return reply.code(500).send({ error: e.message });
+  }
+});
+
+app.post('/attempt/:id/disposition', async (req, reply) => {
+  const { disposition } = req.body ?? {};
+  if (!disposition) return reply.code(400).send({ error: 'disposition required' });
+  try { return await setDisposition({ attemptId: req.params.id, disposition }); }
+  catch (e) {
+    logger.error({ err: e, attemptId: req.params.id }, 'setDisposition failed');
     return reply.code(500).send({ error: e.message });
   }
 });

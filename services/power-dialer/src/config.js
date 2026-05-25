@@ -33,13 +33,16 @@ export const config = {
   publicUrl: opt('POWER_DIALER_PUBLIC_URL', 'http://localhost:9787'), // where Twilio webhooks land
   logLevel: opt('LOG_LEVEL', 'info'),
 
-  // supabase
-  supabaseUrl: req('NEXT_PUBLIC_SUPABASE_URL'),
-  supabaseServiceKey: req('SUPABASE_SERVICE_ROLE_KEY'),
+  // supabase — optional at config load so one-off provisioning scripts
+  // (provision-sip-trunk.js, provision-business-profile.js) can run
+  // without a service role. The worker itself will fail loudly at first
+  // DB call if the key is missing in real serving paths.
+  supabaseUrl: opt('NEXT_PUBLIC_SUPABASE_URL', ''),
+  supabaseServiceKey: opt('SUPABASE_SERVICE_ROLE_KEY', ''),
 
-  // twilio
-  twilioSid: req('TWILIO_ACCOUNT_SID'),
-  twilioToken: req('TWILIO_AUTH_TOKEN'),
+  // twilio — same: scripts may run dry without these
+  twilioSid: opt('TWILIO_ACCOUNT_SID', ''),
+  twilioToken: opt('TWILIO_AUTH_TOKEN', ''),
   twilioCallerId: opt('TWILIO_CALLER_ID', ''), // fallback "from" when pool not in play
   twilioRecord: (opt('TWILIO_RECORD', 'true') === 'true'),
 
