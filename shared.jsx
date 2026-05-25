@@ -79,6 +79,7 @@ const NAV = {
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
+    { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
     { id: "pnl",         label: "P&L",          icon: "Wallet" },
