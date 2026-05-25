@@ -743,7 +743,7 @@ const CARRIER_NICHES = [
       cardiacLookbackMonths: 24,
       uwClasses: ["Preferred", "Standard"],
       sweetSpot: "T65 enrollees (especially smokers) and lower-cost states; AARP brand pull + steep new-enrollee discount",
-      sources: ["UHC AARP Producer Guide GNHHNV6EN", "boomerbenefits.com 2026 review"],
+      sources: ["UHC AARP Medicare Supplement Insurance Guide (insurance.aarpmedicaresupplement.com)", "boomerbenefits.com 2026 review"],
     },
     fit: (i) => {
       if (i.age < 50) return { score: 0, reason: "under issue-age 50" };
@@ -766,7 +766,7 @@ const CARRIER_NICHES = [
       cancerLookbackYears: 2,
       cardiacLookbackMonths: 24,
       sweetSpot: "Standard-build T65 in suburban/rural states with heavy MAPD overlap",
-      sources: ["Humana Producer Underwriting Guide CGFLP04359"],
+      sources: ["Humana Med Supp Underwriting Guide GNHHNV6EN"],
     },
     fit: (i) => {
       if (i.age < 65 && i.product === "medsupp") return { score: 0, reason: "Med Supp issue-age 65+" };
