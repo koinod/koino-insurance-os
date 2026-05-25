@@ -255,11 +255,57 @@
     const repId    = me?.rep_id    || null;
 
     const today = new Date().toISOString().slice(0, 10);
-    const [form, setForm] = useState({ amount: "", cat: null, date: today, note: "" });
+    const [form, setForm] = useState({ amount: "", cat: null, date: today, note: "", leadSourceId: "" });
     const [busy, setBusy] = useState(false);
     const [err,  setErr]  = useState(null);
 
+    // Lead-source catalog — loaded once when the user picks the "Leads"
+    // category. Without a lead_source_id on the insert, lead_spend rows
+    // land in agency_expenses but never roll into v_lead_source_spend, so
+    // they're invisible on the Attribution page. This picker closes that
+    // gap without forcing the rep to context-switch to Settings.
+    const [sources, setSources]   = useState([]);
+    const [srcLoading, setSrcLoading] = useState(false);
+    const [addingNew, setAddingNew]   = useState(false);
+    const [newName, setNewName]   = useState("");
+    const [newVendor, setNewVendor] = useState("");
+
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+    // Hydrate sources lazily — only when the rep selects Leads.
+    React.useEffect(() => {
+      if (form.cat !== "Leads" || !agencyId || sources.length > 0 || srcLoading) return;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      setSrcLoading(true);
+      sb.from("agency_lead_sources")
+        .select("id,name,vendor")
+        .eq("agency_id", agencyId)
+        .eq("active", true)
+        .order("name")
+        .then(({ data }) => {
+          setSources(data || []);
+          setSrcLoading(false);
+        });
+    }, [form.cat, agencyId]);
+
+    const createNewSource = async () => {
+      if (!newName.trim()) { setErr("Name the vendor."); return; }
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !agencyId) { setErr("Supabase not connected."); return; }
+      const { data, error } = await sb.from("agency_lead_sources").insert({
+        agency_id: agencyId,
+        name: newName.trim(),
+        vendor: newVendor.trim() || null,
+        active: true,
+      }).select("id,name,vendor").single();
+      if (error) { setErr(`Couldn't add vendor: ${error.message}`); return; }
+      setSources(s => [...s, data].sort((a, b) => a.name.localeCompare(b.name)));
+      set("leadSourceId", data.id);
+      setAddingNew(false);
+      setNewName(""); setNewVendor("");
+      window.toast && window.toast(`Added vendor: ${data.name}`, "success");
+    };
 
     const submit = async () => {
       if (!form.amount || Number(form.amount) <= 0) { setErr("Enter an amount."); return; }
@@ -283,11 +329,19 @@
           paid_by:        "rep_oop",
           paid_at:        form.date || today,
           notes:          form.note || null,
+          // Only stamp lead_source_id on lead_spend rows. Pre-checked: the
+          // view v_lead_source_spend filters to kind='lead_spend', so a
+          // non-leads expense with a source_id would be ignored anyway —
+          // but keeping it clean prevents accidental cross-attribution.
+          lead_source_id: (cat.kind === "lead_spend" && form.leadSourceId) ? form.leadSourceId : null,
         });
         if (error) throw error;
 
+        const attribMsg = (cat.kind === "lead_spend" && !form.leadSourceId)
+          ? " (untagged — won't show on Attribution)"
+          : "";
         window.toast && window.toast(
-          `✓ Logged $${Number(form.amount).toLocaleString()} for ${form.cat}.`,
+          `✓ Logged $${Number(form.amount).toLocaleString()} for ${form.cat}.${attribMsg}`,
           "success"
         );
         window.dispatchEvent(new CustomEvent("pnl:refresh"));
@@ -386,6 +440,78 @@
               })}
             </div>
           </div>
+
+          {/* 2b. Lead source — only when category is "Leads". Without this,
+              the row inserts with lead_source_id=NULL and never appears on
+              the Attribution page's per-vendor ROAS table. */}
+          {form.cat === "Leads" && (
+            <Shared.Field label={
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span>Lead vendor</span>
+                <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontWeight: 400 }}>
+                  · attributes spend on the Lead Vendors page
+                </span>
+              </span>
+            }>
+              {!addingNew ? (
+                <>
+                  <select
+                    className="text-input"
+                    style={{ fontSize: "1rem" }}
+                    value={form.leadSourceId}
+                    onChange={(e) => {
+                      if (e.target.value === "__new__") { setAddingNew(true); return; }
+                      set("leadSourceId", e.target.value);
+                    }}
+                    disabled={srcLoading}
+                  >
+                    <option value="">
+                      {srcLoading ? "Loading vendors…"
+                        : sources.length === 0 ? "— No vendors yet · add one below —"
+                        : "— Untagged (won't show on Attribution) —"}
+                    </option>
+                    {sources.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}{s.vendor ? ` · ${s.vendor}` : ""}
+                      </option>
+                    ))}
+                    <option value="__new__">＋ Add new vendor…</option>
+                  </select>
+                  {!form.leadSourceId && sources.length > 0 && (
+                    <div style={{ fontSize: 11, color: "var(--state-warning)", marginTop: 4 }}>
+                      Pick a vendor so this spend rolls into Lead Vendors → Attribution.
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                  <input
+                    className="text-input"
+                    style={{ fontSize: "0.95rem" }}
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Name (e.g. Facebook · T65 v3)"
+                    autoFocus
+                  />
+                  <input
+                    className="text-input"
+                    style={{ fontSize: "0.95rem" }}
+                    value={newVendor}
+                    onChange={(e) => setNewVendor(e.target.value)}
+                    placeholder="Vendor (optional, e.g. Convoso)"
+                  />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} onClick={createNewSource}>
+                      Add vendor
+                    </button>
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setAddingNew(false); setNewName(""); setNewVendor(""); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Shared.Field>
+          )}
 
           {/* 3. Date */}
           <Shared.Field label="Date">
