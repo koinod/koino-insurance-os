@@ -303,27 +303,92 @@ window.repflowDialViaAgent = async function (args) {
 /* ──────────────────────────────────────────────────────────────────────────
    DialMonitor — fixed-position pill stack showing each in-flight dial with
    attempt counter + Stop button. Mount once at app root.
+
+   Hidable (2026-05-25): card stack was overlapping the AutoDialBar mini
+   bar at the bottom of the screen. Now collapses to a single small pill
+   showing the live dial count; click to expand. Persists per device in
+   localStorage so it doesn't surprise reps on every reload.
    ────────────────────────────────────────────────────────────────────────── */
 window.RepflowDialMonitor = function () {
   const [, force] = React.useState(0);
+  const [collapsed, setCollapsed] = React.useState(() => {
+    try { return localStorage.getItem("repflow.dialmonitor.collapsed") === "1"; }
+    catch { return false; }
+  });
   React.useEffect(() => {
     const fn = () => force(n => n + 1);
     dialMonitorListeners.add(fn);
     return () => dialMonitorListeners.delete(fn);
   }, []);
+  const toggle = () => {
+    setCollapsed(c => {
+      const next = !c;
+      try { localStorage.setItem("repflow.dialmonitor.collapsed", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
   const dials = Array.from(window.repflowActiveDials.entries());
   if (dials.length === 0) return null;
+
+  // Sit ABOVE the AutoDialBar (which is at bottom: 0 with its own height).
+  // The dialer mini bar is ~52px tall — bottom: 64 keeps a small gap.
   const styleHost = {
-    position: "fixed", right: 16, bottom: 16, zIndex: 9999,
+    position: "fixed", right: 16, bottom: 64, zIndex: 9999,
     display: "flex", flexDirection: "column", gap: 6,
     fontFamily: "ui-sans-serif,system-ui,sans-serif", fontSize: 12,
+    alignItems: "flex-end",
   };
+
+  // Collapsed: tiny pill with count + chevron. Click to expand.
+  if (collapsed) {
+    const activeCount = dials.filter(([, d]) =>
+      ["queued","claimed","dialing","sleeping","cancelling"].includes(d.status)
+    ).length;
+    return (
+      <div style={styleHost}>
+        <button
+          onClick={toggle}
+          title="Show dial monitor"
+          style={{
+            background: "#0f172a", color: "#e2e8f0",
+            border: "1px solid #1e293b", padding: "6px 10px",
+            borderRadius: 999, cursor: "pointer", fontSize: 11.5, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 6,
+            boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+          }}
+        >
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: activeCount > 0 ? "#22c55e" : "#64748b",
+            display: "inline-block",
+          }}/>
+          {dials.length} dial{dials.length === 1 ? "" : "s"}
+          <span style={{ opacity: 0.6, fontSize: 10 }}>▲</span>
+        </button>
+      </div>
+    );
+  }
+
   const stopColor   = { background: "#7f1d1d", color: "#fff" };
   const goingColor  = { background: "#0f172a", color: "#e2e8f0", borderColor: "#1e293b" };
   const doneColor   = { background: "#064e3b", color: "#d1fae5", borderColor: "#065f46" };
   const errColor    = { background: "#7f1d1d", color: "#fee2e2", borderColor: "#991b1b" };
   return (
     <div style={styleHost}>
+      {/* Collapse handle — small header above the stack */}
+      <button
+        onClick={toggle}
+        title="Collapse dial monitor"
+        style={{
+          background: "#0f172a", color: "#94a3b8",
+          border: "1px solid #1e293b", padding: "3px 8px",
+          borderRadius: 6, cursor: "pointer", fontSize: 10, fontWeight: 600,
+          display: "flex", alignItems: "center", gap: 4,
+          letterSpacing: "0.04em", textTransform: "uppercase",
+        }}
+      >
+        Hide ▼
+      </button>
       {dials.map(([id, d]) => {
         const isGoing = ["queued","claimed","dialing","sleeping","cancelling"].includes(d.status);
         const isDone  = ["succeeded","dialed_via_phone_link"].includes(d.status);
