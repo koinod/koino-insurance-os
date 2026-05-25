@@ -1,23 +1,41 @@
 /* page-attribution.jsx — Lead Vendors page + ROI loop
-
-   Wires Lead Vendors → Pipeline (cost per lead) → Commissions (realized AP
-   per lead) into a single ROI table per vendor / state / product / month.
-   Owner sees the full org view; manager sees their downline (in real wiring
-   would scope by upline). */
+ *
+ * Acquisition cost → Pipeline outcomes → Commissions, by vendor / state /
+ * product / month. Owner sees the full org view; manager sees their
+ * downline (real scoping comes from RLS).
+ *
+ * DATA — live (2026-05-25):
+ *   - vendor catalog: public.agency_lead_sources
+ *   - spend:          public.v_lead_source_spend  (monthly rollup of
+ *                     agency_expenses where kind='lead_spend')
+ *   - realized AP:    public.policies  (sum ap_cents per month, agency-
+ *                     scoped). Per-source AP/issued/contacts is "—" until
+ *                     pipeline.source carries lead_source_id consistently
+ *                     across the dial path. Today it's a free-text field
+ *                     with near-zero coverage — surfacing partial joins
+ *                     would lie about the data.
+ *
+ * Demo (`?demo=1`): falls back to a small mocked vendor set marked
+ * "Demo data" in the KPI strip. Real agencies with no spend tagged see
+ * an empty-state CTA pointing to page-expenses / Log expense.
+ *
+ * Reads window.me() for the agency id; respects window.scopeRepIds() for
+ * future per-rep / manager-downline scoping when that wiring lands.
+ */
 
 (function () {
 
-const VENDORS = [
-  { id: "v1", name: "Facebook · T65 v3 creative",  category: "Paid social", spend: 4820, leads: 142, cpl: 33.94, contacts: 124, quotes: 41, issued: 14, ap: 26840, persistency: 92, status: "ok"  },
-  { id: "v2", name: "Facebook · FE 2026 lookalike", category: "Paid social", spend: 3140, leads: 96,  cpl: 32.71, contacts: 78,  quotes: 22, issued: 8,  ap: 12480, persistency: 84, status: "ok"  },
-  { id: "v3", name: "Inbound calls · Convoso",       category: "Inbound",     spend: 1280, leads: 38,  cpl: 33.68, contacts: 38,  quotes: 24, issued: 14, ap: 28110, persistency: 96, status: "ok"  },
-  { id: "v4", name: "T65 list · DataMail",            category: "List",        spend: 1840, leads: 184, cpl: 10.00, contacts: 92,  quotes: 22, issued: 6,  ap:  9340, persistency: 81, status: "ok"  },
-  { id: "v5", name: "Referral · Producer downline",  category: "Referral",    spend:  120, leads: 34,  cpl:  3.53, contacts: 32,  quotes: 18, issued: 11, ap: 22180, persistency: 94, status: "ok"  },
-  { id: "v6", name: "LinkedIn · agency owners",      category: "Paid social", spend: 2410, leads: 48,  cpl: 50.21, contacts: 22,  quotes:  9, issued: 2,  ap:  3240, persistency: 78, status: "warn" },
-  { id: "v7", name: "Google · 'medicare supplement'", category: "Paid search", spend: 6240, leads: 88,  cpl: 70.91, contacts: 52,  quotes: 31, issued: 12, ap: 24400, persistency: 93, status: "ok"  },
+const DEMO_VENDORS = [
+  { id: "v1", name: "Facebook · T65 v3 creative",   category: "Paid social", spend: 4820, leads: 142, contacts: 124, quotes: 41, issued: 14, ap: 26840, persistency: 92, status: "ok"   },
+  { id: "v2", name: "Facebook · FE 2026 lookalike", category: "Paid social", spend: 3140, leads: 96,  contacts: 78,  quotes: 22, issued: 8,  ap: 12480, persistency: 84, status: "ok"   },
+  { id: "v3", name: "Inbound calls · Convoso",       category: "Inbound",     spend: 1280, leads: 38,  contacts: 38,  quotes: 24, issued: 14, ap: 28110, persistency: 96, status: "ok"   },
+  { id: "v4", name: "T65 list · DataMail",            category: "List",        spend: 1840, leads: 184, contacts: 92,  quotes: 22, issued: 6,  ap:  9340, persistency: 81, status: "ok"   },
+  { id: "v5", name: "Referral · Producer downline",  category: "Referral",    spend:  120, leads: 34,  contacts: 32,  quotes: 18, issued: 11, ap: 22180, persistency: 94, status: "ok"   },
+  { id: "v6", name: "LinkedIn · agency owners",      category: "Paid social", spend: 2410, leads: 48,  contacts: 22,  quotes:  9, issued: 2,  ap:  3240, persistency: 78, status: "warn" },
+  { id: "v7", name: "Google · 'medicare supplement'", category: "Paid search", spend: 6240, leads: 88,  contacts: 52,  quotes: 31, issued: 12, ap: 24400, persistency: 93, status: "ok"   },
 ];
 
-const BY_STATE = [
+const DEMO_BY_STATE = [
   { state: "TX", spend: 4820, ap: 18420, lift: 3.82 },
   { state: "FL", spend: 3140, ap: 12480, lift: 3.97 },
   { state: "GA", spend: 1280, ap:  9340, lift: 7.30 },
@@ -27,43 +45,179 @@ const BY_STATE = [
   { state: "PA", spend:  920, ap:  6480, lift: 7.04 },
 ];
 
-const BY_PRODUCT = [
+const DEMO_BY_PRODUCT = [
   { p: "Med Supp Plan G", spend: 6840, ap: 28840, lift: 4.22 },
   { p: "Med Supp Plan N", spend: 1240, ap:  4820, lift: 3.89 },
   { p: "Final Expense",    spend: 4820, ap: 18420, lift: 3.82 },
   { p: "Annuity",          spend: 2140, ap: 12420, lift: 5.81 },
 ];
 
+// Period helper — given a Date, returns first/last day of its month.
+function monthBounds(d) {
+  const start = new Date(d.getFullYear(), d.getMonth(), 1);
+  const end   = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
+}
+
+/* useAttribution(agencyId, periodDate) — pulls everything the page needs
+ * from Supabase in one shot. Returns { sources, spendBySource, totalAP,
+ * issuedCount, loading, err, isLive } where isLive flags whether we have
+ * actually-tagged spend (controls demo/empty-state fallbacks). */
+function useAttribution(agencyId, periodDate) {
+  const [state, setState] = React.useState({
+    sources: [], spendBySource: {}, totalAP: 0, issuedCount: 0,
+    loading: true, err: null, isLive: false,
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!agencyId) { setState(s => ({ ...s, loading: false })); return; }
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) { setState(s => ({ ...s, loading: false, err: "supabase unavailable" })); return; }
+
+    const { startISO, endISO } = monthBounds(periodDate);
+
+    (async () => {
+      try {
+        // 1) Vendor catalog — every active source for this agency.
+        const sourcesP = sb.from("agency_lead_sources")
+          .select("id,name,vendor,kind,product,state,cost_per_lead_cents,active")
+          .eq("agency_id", agencyId)
+          .order("name");
+
+        // 2) Spend per source for the selected month, via the pre-aggregated
+        //    view. View bucket = first-of-month UTC.
+        const spendP = sb.from("v_lead_source_spend")
+          .select("lead_source_id,spend_cents,expense_count,source_name")
+          .eq("agency_id", agencyId)
+          .gte("month", startISO)
+          .lt("month", endISO);
+
+        // 3) Realized AP — sum of issued policies that landed this month.
+        //    No per-source breakdown today (no FK from policies → source);
+        //    this powers the blended KPIs only.
+        const policiesP = sb.from("policies")
+          .select("ap_cents")
+          .eq("agency_id", agencyId)
+          .gte("issued_at", startISO)
+          .lt("issued_at", endISO);
+
+        const [{ data: sources, error: e1 },
+               { data: spend,   error: e2 },
+               { data: pols,    error: e3 }] = await Promise.all([sourcesP, spendP, policiesP]);
+
+        if (cancelled) return;
+        const err = e1?.message || e2?.message || e3?.message || null;
+        const spendBySource = {};
+        (spend || []).forEach(s => {
+          spendBySource[s.lead_source_id] = (spendBySource[s.lead_source_id] || 0) + (s.spend_cents || 0);
+        });
+        const totalAP    = (pols || []).reduce((a, p) => a + (p.ap_cents || 0), 0);
+        const issuedCount = (pols || []).length;
+        const isLive     = (sources || []).length > 0 && Object.keys(spendBySource).length > 0;
+        setState({ sources: sources || [], spendBySource, totalAP, issuedCount, loading: false, err, isLive });
+      } catch (e) {
+        if (!cancelled) setState(s => ({ ...s, loading: false, err: e.message || String(e) }));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [agencyId, periodDate.getFullYear(), periodDate.getMonth()]);
+
+  return state;
+}
+
 function PageAttribution({ role = "owner" }) {
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const agencyId = meIdent?.agency_id || null;
+  const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
+
   const [tab, setTab] = React.useState("vendors");
   const [sort, setSort] = React.useState({ key: "roas", dir: "desc" });
-  const [period, setPeriod] = React.useState(() => new Date().toLocaleString("en-US", { month: "long" }));
+  const [periodDate, setPeriodDate] = React.useState(() => new Date());
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const periodLabel = periodDate.toLocaleString("en-US", { month: "long" });
 
-  const enriched = VENDORS.map(v => ({
-    ...v,
-    closeRate: v.contacts ? (v.issued / v.contacts) * 100 : 0,
-    cpa:        v.issued ? v.spend / v.issued : 0,
-    cpc:        v.contacts ? v.spend / v.contacts : 0,
-    roas:       v.spend ? v.ap / v.spend : 0,
-  }));
+  const live = useAttribution(agencyId, periodDate);
+
+  // ── Choose the rendering set ───────────────────────────────────────────
+  // Three modes:
+  //   demo  — sandbox or no agency yet → show DEMO_* with a "Demo data" chip
+  //   live  — agency has tagged spend → real numbers, partial table
+  //   empty — agency has no spend tagged → empty-state CTA, no rows
+  const mode = isDemo
+    ? "demo"
+    : live.isLive
+      ? "live"
+      : live.loading
+        ? "loading"
+        : "empty";
+
+  // Build the row set the table renders.
+  const rows = React.useMemo(() => {
+    if (mode === "demo") {
+      return DEMO_VENDORS.map(v => ({
+        ...v,
+        closeRate: v.contacts ? (v.issued / v.contacts) * 100 : 0,
+        cpa:        v.issued ? v.spend / v.issued : 0,
+        cpc:        v.contacts ? v.spend / v.contacts : 0,
+        cpl:        v.leads ? v.spend / v.leads : 0,
+        roas:       v.spend ? v.ap / v.spend : 0,
+      }));
+    }
+    if (mode === "live") {
+      return live.sources.map(s => {
+        const spendCents = live.spendBySource[s.id] || 0;
+        const spend = spendCents / 100;
+        return {
+          id: s.id,
+          name: s.vendor ? `${s.name} · ${s.vendor}` : s.name,
+          category: s.kind || "—",
+          spend,
+          // Partial-attribution columns — null means "render as —"
+          leads: null, contacts: null, quotes: null, issued: null, ap: null,
+          persistency: null,
+          closeRate: null, cpa: null, cpc: null, cpl: null, roas: null,
+          status: spend > 0 ? "ok" : "idle",
+        };
+      });
+    }
+    return [];
+  }, [mode, live.sources, live.spendBySource]);
 
   const sortBy = (k) => setSort(s => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }));
-  const sorted = [...enriched].sort((a, b) => {
-    const av = a[sort.key], bv = b[sort.key];
-    const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
-    return sort.dir === "desc" ? -cmp : cmp;
-  });
+  const sorted = React.useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const av = a[sort.key], bv = b[sort.key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sort.dir === "desc" ? -cmp : cmp;
+    });
+    return arr;
+  }, [rows, sort.key, sort.dir]);
+
   const SortH = ({ k, label, right }) => (
     <div onClick={() => sortBy(k)} style={{ cursor: "pointer", textAlign: right ? "right" : "left", display: "flex", gap: 4, justifyContent: right ? "flex-end" : "flex-start" }}>
       {label}{sort.key === k && <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{sort.dir === "desc" ? "↓" : "↑"}</span>}
     </div>
   );
 
-  const totalSpend = VENDORS.reduce((a, v) => a + v.spend, 0);
-  const totalAP    = VENDORS.reduce((a, v) => a + v.ap, 0);
-  const totalLeads = VENDORS.reduce((a, v) => a + v.leads, 0);
-  const totalIssued= VENDORS.reduce((a, v) => a + v.issued, 0);
+  // KPI totals — depend on mode.
+  const totalSpend = mode === "demo"
+    ? DEMO_VENDORS.reduce((a, v) => a + v.spend, 0)
+    : Object.values(live.spendBySource || {}).reduce((a, c) => a + c, 0) / 100;
+  const totalAP    = mode === "demo"
+    ? DEMO_VENDORS.reduce((a, v) => a + v.ap, 0)
+    : (live.totalAP || 0) / 100;
+  const totalLeads = mode === "demo"
+    ? DEMO_VENDORS.reduce((a, v) => a + v.leads, 0)
+    : null; // unknown until pipeline source-tagging lands
+  const totalIssued = mode === "demo"
+    ? DEMO_VENDORS.reduce((a, v) => a + v.issued, 0)
+    : live.issuedCount || 0;
   const blendedROAS = totalSpend ? totalAP / totalSpend : 0;
   const blendedCPA  = totalIssued ? totalSpend / totalIssued : 0;
 
@@ -71,34 +225,57 @@ function PageAttribution({ role = "owner" }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Lead Vendors · Attribution</div>
+          <div className="page-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Lead Vendors · Attribution
+            {mode === "demo" && <span className="chip" style={{ background: "color-mix(in oklch, var(--accent-status) 12%, transparent)", color: "var(--accent-status)", borderColor: "color-mix(in oklch, var(--accent-status) 35%, transparent)" }}>Demo data</span>}
+            {mode === "live" && <span className="chip chip-money">Live · {periodLabel}</span>}
+            {mode === "empty" && <span className="chip" style={{ color: "var(--text-tertiary)" }}>No data yet</span>}
+          </div>
           <div className="page-sub">Acquisition cost → Pipeline outcomes → Commissions, by vendor / state / product</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, position: "relative" }}>
-          <button className="btn" onClick={() => setPickerOpen(o => !o)}><Icons.Calendar size={13}/> {period}</button>
+          <button className="btn" onClick={() => setPickerOpen(o => !o)}><Icons.Calendar size={13}/> {periodLabel}</button>
           {pickerOpen && (
             <div
               onMouseLeave={() => setPickerOpen(false)}
               style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, padding: 8, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, zIndex: 20, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, minWidth: 220 }}
             >
-              {["January","February","March","April","May","June","July","August","September","October","November","December"].map(m => (
-                <button key={m} className={`chip ${m === period ? "chip-money" : ""}`} style={{ cursor: "pointer", border: 0 }} onClick={() => { setPeriod(m); setPickerOpen(false); window.toast && window.toast(`Period: ${m}`, "info"); }}>{m.slice(0, 3)}</button>
+              {["January","February","March","April","May","June","July","August","September","October","November","December"].map((m, i) => (
+                <button
+                  key={m}
+                  className={`chip ${m === periodLabel ? "chip-money" : ""}`}
+                  style={{ cursor: "pointer", border: 0 }}
+                  onClick={() => {
+                    const next = new Date(periodDate.getFullYear(), i, 1);
+                    setPeriodDate(next);
+                    setPickerOpen(false);
+                    window.toast && window.toast(`Period: ${m}`, "info");
+                  }}
+                >
+                  {m.slice(0, 3)}
+                </button>
               ))}
             </div>
           )}
           <button
             className="btn"
             onClick={() => {
-              // CSV export of the current sorted attribution table
-              const headers = ["Vendor","Spend","Leads","Contacts","Issued","AP","CloseRate%","CPA","CPC","ROAS"];
-              const rows = sorted.map(v => [v.vendor, v.spend, v.leads, v.contacts, v.issued, v.ap, v.closeRate.toFixed(1), Math.round(v.cpa), Math.round(v.cpc), v.roas.toFixed(2)]);
-              const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+              const headers = ["Vendor","Category","Spend","Leads","Contacts","Issued","AP","CloseRate%","CPA","CPC","ROAS"];
+              const fmt = (v) => v == null ? "" : v;
+              const csvRows = sorted.map(v => [
+                v.name, v.category, v.spend, fmt(v.leads), fmt(v.contacts), fmt(v.issued), fmt(v.ap),
+                v.closeRate != null ? v.closeRate.toFixed(1) : "",
+                v.cpa  != null ? Math.round(v.cpa)  : "",
+                v.cpc  != null ? Math.round(v.cpc)  : "",
+                v.roas != null ? v.roas.toFixed(2) : "",
+              ]);
+              const csv = [headers.join(","), ...csvRows.map(r => r.join(","))].join("\n");
               const blob = new Blob([csv], { type: "text/csv" });
               const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = `attribution-${period.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+              const a = document.createElement("a"); a.href = url;
+              a.download = `attribution-${periodLabel.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
               a.click(); URL.revokeObjectURL(url);
-              window.toast && window.toast(`Exported ${rows.length} vendors`, "success");
+              window.toast && window.toast(`Exported ${csvRows.length} vendors`, "success");
             }}
           ><Icons.ArrowUpRight size={13}/> Export</button>
           <button
@@ -112,10 +289,16 @@ function PageAttribution({ role = "owner" }) {
         </div>
       </div>
 
+      {mode === "live" && live.err && (
+        <div className="panel" style={{ padding: 10, marginBottom: 8, color: "var(--state-warning)", fontSize: 12 }}>
+          Partial data — {live.err}
+        </div>
+      )}
+
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Spend MTD" prefix="$" value={totalSpend.toLocaleString()} sub={`${totalLeads} leads`}/>
-        <Shared.KpiCard      label="Realized AP" prefix="$" value={totalAP.toLocaleString()} sub={`${totalIssued} issued`} trend="up"/>
-        <Shared.KpiCard      label="Blended ROAS" value={blendedROAS.toFixed(2) + "x"} trend="up"/>
+        <Shared.KpiCard hero label="Spend MTD" prefix="$" value={Math.round(totalSpend).toLocaleString()} sub={totalLeads != null ? `${totalLeads} leads` : `${rows.length} sources`}/>
+        <Shared.KpiCard      label="Realized AP" prefix="$" value={Math.round(totalAP).toLocaleString()} sub={`${totalIssued} issued`} trend="up"/>
+        <Shared.KpiCard      label="Blended ROAS" value={blendedROAS.toFixed(2) + "x"} trend={blendedROAS >= 3 ? "up" : undefined}/>
         <Shared.KpiCard      label="Blended CPA" prefix="$" value={Math.round(blendedCPA).toLocaleString()}/>
       </div>
 
@@ -125,165 +308,211 @@ function PageAttribution({ role = "owner" }) {
         onChange={setTab}
       />
 
-      {tab === "vendors" && (
+      {mode === "empty" && (
+        <div className="panel" style={{ padding: 32, textAlign: "center" }}>
+          <Icons.TrendingUp size={28} style={{ color: "var(--text-quaternary)" }}/>
+          <div style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>No attribution data yet</div>
+          <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginTop: 4, maxWidth: 520, marginInline: "auto", lineHeight: 1.55 }}>
+            ROAS rolls up the moment you tag a <strong>lead spend</strong> expense to a
+            <strong> lead source</strong>. Log an expense, attach it to a vendor, and this page
+            populates immediately.
+          </div>
+          <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "center" }}>
+            <button className="btn btn-primary" onClick={() => window.gotoPage && window.gotoPage("expenses")}>
+              <Icons.Plus size={13}/> Log lead spend
+            </button>
+            <button className="btn" onClick={() => { try { sessionStorage.setItem("repflow.settings.tab", "lead-sources"); } catch {} window.gotoPage && window.gotoPage("settings"); }}>
+              <Icons.Settings size={13}/> Manage lead sources
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "vendors" && mode !== "empty" && (
         <div className="panel">
-          <div className="panel-h"><h3>By vendor · April</h3><span className="meta">{VENDORS.length} sources</span></div>
+          <div className="panel-h">
+            <h3>By vendor · {periodLabel}</h3>
+            <span className="meta">{rows.length} source{rows.length === 1 ? "" : "s"}</span>
+          </div>
+          {mode === "live" && (
+            <div style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)" }}>
+              Spend is live from <code className="mono" style={{ fontSize: 10.5 }}>agency_expenses</code> · per-source leads/issued/AP show "—" until pipeline.source carries a lead_source_id (see Settings → Lead sources to wire intake forms).
+            </div>
+          )}
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 80px 80px 90px 90px 80px" }}>
-              <SortH k="name"      label="Vendor"/>
-              <SortH k="category"  label="Category"/>
-              <SortH k="spend"     label="Spend" right/>
-              <SortH k="leads"     label="Leads" right/>
-              <SortH k="cpl"       label="CPL"   right/>
-              <SortH k="issued"    label="Issued" right/>
-              <SortH k="cpa"       label="CPA"   right/>
-              <SortH k="ap"        label="AP"    right/>
-              <SortH k="roas"      label="ROAS"  right/>
+            <div className="list-h" style={{ gridTemplateColumns: "minmax(220px, 1.6fr) 110px 90px 80px 70px 80px 90px 100px 90px" }}>
+              <SortH k="name" label="Vendor"/>
+              <div>Category</div>
+              <SortH k="spend" label="Spend" right/>
+              <SortH k="leads" label="Leads" right/>
+              <SortH k="cpl"   label="CPL"   right/>
+              <SortH k="issued" label="Issued" right/>
+              <SortH k="cpa"   label="CPA"   right/>
+              <SortH k="ap"    label="AP"    right/>
+              <SortH k="roas"  label="ROAS"  right/>
             </div>
             {sorted.map(v => (
-              <div key={v.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 80px 80px 80px 80px 90px 90px 80px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className={`dot dot-${v.status === "ok" ? "live" : "warn"}`}></span>
-                  <span style={{ fontWeight: 500 }}>{v.name}</span>
+              <div key={v.id} className="row" style={{ gridTemplateColumns: "minmax(220px, 1.6fr) 110px 90px 80px 70px 80px 90px 100px 90px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: v.status === "warn" ? "var(--state-warning)" : v.status === "idle" ? "var(--text-quaternary)" : "var(--accent-money)", flexShrink: 0 }}/>
+                  <span style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={v.name}>{v.name}</span>
                 </div>
-                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{v.category}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${v.spend.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{v.leads}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${v.cpl.toFixed(2)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>{v.issued}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${Math.round(v.cpa).toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", fontWeight: 500 }}>${v.ap.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: v.roas >= 4 ? "var(--accent-money)" : v.roas >= 2 ? "var(--accent-status)" : "var(--state-danger)", fontWeight: 600 }}>{v.roas.toFixed(2)}x</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{v.category || "—"}</div>
+                <div className="tabular" style={{ textAlign: "right" }}>${Math.round(v.spend).toLocaleString()}</div>
+                <NumCell value={v.leads} right/>
+                <NumCell value={v.cpl != null ? `$${v.cpl.toFixed(2)}` : null} right/>
+                <NumCell value={v.issued} right colorIfTruthy="var(--accent-money)"/>
+                <NumCell value={v.cpa != null ? `$${Math.round(v.cpa).toLocaleString()}` : null} right/>
+                <NumCell value={v.ap != null ? `$${v.ap.toLocaleString()}` : null} right/>
+                <NumCell value={v.roas != null ? `${v.roas.toFixed(2)}x` : null} right colorIfTruthy={v.roas != null && v.roas >= 3 ? "var(--accent-money)" : v.roas != null && v.roas < 2 ? "var(--state-danger)" : undefined}/>
               </div>
             ))}
+            {rows.length === 0 && mode === "loading" && (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>Loading attribution data…</div>
+            )}
           </div>
         </div>
       )}
 
-      {tab === "state" && (
-        <div className="panel">
-          <div className="panel-h"><h3>By state</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "100px 100px 100px 100px 1fr" }}>
-              <div>State</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Spend</div>
-              <div className="tabular" style={{ textAlign: "right" }}>AP</div>
-              <div className="tabular" style={{ textAlign: "right" }}>ROAS</div>
-              <div></div>
-            </div>
-            {BY_STATE.sort((a, b) => b.lift - a.lift).map(r => (
-              <div key={r.state} className="row" style={{ gridTemplateColumns: "100px 100px 100px 100px 1fr" }}>
-                <div style={{ fontWeight: 500 }}>{r.state}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${r.spend.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: r.lift >= 4 ? "var(--accent-money)" : "var(--text-secondary)", fontWeight: 600 }}>{r.lift.toFixed(2)}x</div>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, r.lift * 12)}%`, height: "100%", background: r.lift >= 4 ? "var(--accent-money)" : "var(--state-warning)" }}></div>
-                </div>
-              </div>
-            ))}
+      {tab === "state" && mode === "demo" && <PanelByState rows={DEMO_BY_STATE}/>}
+      {tab === "state" && mode === "live" && <PanelByStateLive sources={live.sources} spendBySource={live.spendBySource}/>}
+
+      {tab === "product" && mode === "demo" && <PanelByProduct rows={DEMO_BY_PRODUCT}/>}
+      {tab === "product" && mode === "live" && <PanelByProductLive sources={live.sources} spendBySource={live.spendBySource}/>}
+
+      {tab === "roi" && (
+        <div className="panel" style={{ padding: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <Icons.Sparkles size={14} style={{ color: "var(--accent-money)" }}/>
+            <h3 style={{ margin: 0, fontSize: 14 }}>ROI explorer</h3>
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            {mode === "demo" && "Demo ROI cards — switch off ?demo=1 and tag a few lead-spend expenses to see real cut/scale recommendations."}
+            {mode === "live" && totalSpend === 0 && "No spend tagged this month. Log a lead-spend expense and tie it to a source to populate the ROI loop."}
+            {mode === "live" && totalSpend > 0 && (
+              <>
+                Blended ROAS this {periodLabel}: <strong>{blendedROAS.toFixed(2)}x</strong> ·
+                Spend: <strong>${Math.round(totalSpend).toLocaleString()}</strong> ·
+                Realized AP: <strong>${Math.round(totalAP).toLocaleString()}</strong> ·
+                Issued: <strong>{totalIssued}</strong>.
+                Cut/scale recommendations will populate once per-source AP attribution is wired (pipeline.source → lead_source_id).
+              </>
+            )}
+            {mode === "empty" && "Log a lead-spend expense and attach it to a vendor — ROI cards appear automatically."}
           </div>
         </div>
       )}
-
-      {tab === "product" && (
-        <div className="panel">
-          <div className="panel-h"><h3>By product</h3></div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 100px 100px 100px 1fr" }}>
-              <div>Product</div>
-              <div className="tabular" style={{ textAlign: "right" }}>Spend</div>
-              <div className="tabular" style={{ textAlign: "right" }}>AP</div>
-              <div className="tabular" style={{ textAlign: "right" }}>ROAS</div>
-              <div></div>
-            </div>
-            {BY_PRODUCT.sort((a, b) => b.lift - a.lift).map(r => (
-              <div key={r.p} className="row" style={{ gridTemplateColumns: "1.4fr 100px 100px 100px 1fr" }}>
-                <div style={{ fontWeight: 500 }}>{r.p}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${r.spend.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
-                <div className="tabular" style={{ textAlign: "right", color: r.lift >= 4 ? "var(--accent-money)" : "var(--text-secondary)", fontWeight: 600 }}>{r.lift.toFixed(2)}x</div>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, r.lift * 12)}%`, height: "100%", background: r.lift >= 4 ? "var(--accent-money)" : "var(--state-warning)" }}></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tab === "roi" && <ROIExplorer enriched={enriched}/>}
     </div>
   );
 }
 
-function ROIExplorer({ enriched }) {
-  const [budget, setBudget] = React.useState(20000);
-  // Greedy allocator: spend $1 at a time on the highest-ROAS vendor that hasn't hit a saturation cap
-  const cap = 12000; // arbitrary saturation cap per vendor for prototype
-  const sorted = [...enriched].sort((a, b) => b.roas - a.roas);
-  let remaining = budget;
-  const alloc = sorted.map(v => {
-    const give = Math.min(remaining, cap);
-    remaining -= give;
-    return { ...v, alloc: give };
-  });
-  const projAP = alloc.reduce((a, v) => a + v.alloc * v.roas, 0);
+function NumCell({ value, right, colorIfTruthy }) {
+  if (value == null || value === "") {
+    return <div className="tabular" style={{ textAlign: right ? "right" : "left", color: "var(--text-quaternary)" }}>—</div>;
+  }
+  return <div className="tabular" style={{ textAlign: right ? "right" : "left", color: colorIfTruthy || undefined }}>{value}</div>;
+}
 
+function PanelByState({ rows }) {
   return (
-    <div className="rec-detail-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
-      <div className="panel">
-        <div className="panel-h"><Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/><h3>What if I spent ${budget.toLocaleString()} next month?</h3></div>
-        <div style={{ padding: 14 }}>
-          <input type="range" min={5000} max={50000} step={1000} value={budget} onChange={(e) => setBudget(+e.target.value)} style={{ width: "100%" }}/>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-            <span>$5k</span><span>$50k</span>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            {alloc.filter(a => a.alloc > 0).map(a => (
-              <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 80px 80px 1fr", padding: "6px 0", alignItems: "center", fontSize: 12, borderBottom: "1px solid var(--border-subtle)" }}>
-                <span style={{ fontWeight: 500 }}>{a.name}</span>
-                <span className="tabular" style={{ textAlign: "right" }}>${a.alloc.toLocaleString()}</span>
-                <span className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>{a.roas.toFixed(2)}x</span>
-                <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 2, marginLeft: 14, overflow: "hidden" }}>
-                  <div style={{ width: `${(a.alloc / budget) * 100}%`, height: "100%", background: "var(--accent-money)" }}></div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 14, padding: 12, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", borderRadius: 6 }}>
-            <div style={{ fontSize: 11, color: "var(--accent-money)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500 }}>Projected outcome</div>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 600, marginTop: 4 }}>${Math.round(projAP).toLocaleString()} AP</div>
-            <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 2 }}>Net to owner override (22%): ${Math.round(projAP * 0.22).toLocaleString()}</div>
-          </div>
+    <div className="panel">
+      <div className="panel-h"><h3>By state</h3><span className="meta">{rows.length} states</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "70px 110px 110px 100px" }}>
+          <div>State</div><div className="tabular" style={{ textAlign: "right" }}>Spend</div><div className="tabular" style={{ textAlign: "right" }}>AP</div><div className="tabular" style={{ textAlign: "right" }}>ROAS</div>
         </div>
+        {rows.map(r => (
+          <div key={r.state} className="row" style={{ gridTemplateColumns: "70px 110px 110px 100px" }}>
+            <div style={{ fontWeight: 500 }}>{r.state}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${r.spend.toLocaleString()}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
+            <div className="tabular" style={{ textAlign: "right", color: r.lift >= 3 ? "var(--accent-money)" : "var(--state-warning)" }}>{r.lift.toFixed(2)}x</div>
+          </div>
+        ))}
       </div>
+    </div>
+  );
+}
 
-      <div className="panel">
-        <div className="panel-h"><h3>Optimization opportunities</h3></div>
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            { k: "Cut",   t: "LinkedIn · agency owners", b: "ROAS 1.34x — below 2x threshold. -$2,410/mo, -$3.2k AP. Net +$2,300", c: "var(--state-danger)" },
-            { k: "Scale", t: "Referral · Producer downline", b: "ROAS 184x. Marginal CAC = $3.53. Push downline incentives.",   c: "var(--accent-money)" },
-            { k: "Test",  t: "Google 'medicare supplement' broaden", b: "Top of funnel CPC bidding may be too narrow — test +20% budget", c: "var(--accent-status)" },
-            { k: "Watch", t: "T65 list · DataMail",        b: "Persistency 81%, below cohort. Watch FE 13-mo lapse next month.",     c: "var(--state-warning)" },
-          ].map((x, i) => (
-            <div key={i} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="chip" style={{ color: x.c, borderColor: `color-mix(in oklch, ${x.c} 30%, transparent)`, background: `color-mix(in oklch, ${x.c} 10%, transparent)`, fontWeight: 600 }}>{x.k}</span>
-                <strong style={{ fontSize: 12.5 }}>{x.t}</strong>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{x.b}</div>
-            </div>
-          ))}
+function PanelByStateLive({ sources, spendBySource }) {
+  const byState = {};
+  sources.forEach(s => {
+    if (!s.state) return;
+    const spend = (spendBySource[s.id] || 0) / 100;
+    byState[s.state] = (byState[s.state] || 0) + spend;
+  });
+  const rows = Object.entries(byState).map(([state, spend]) => ({ state, spend })).sort((a, b) => b.spend - a.spend);
+  if (rows.length === 0) {
+    return <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No state-tagged sources yet. Add a state on your lead sources to break down spend by geography.</div>;
+  }
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>By state · spend</h3><span className="meta">{rows.length} state{rows.length === 1 ? "" : "s"}</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "80px 1fr 120px" }}>
+          <div>State</div><div></div><div className="tabular" style={{ textAlign: "right" }}>Spend</div>
         </div>
+        {rows.map(r => (
+          <div key={r.state} className="row" style={{ gridTemplateColumns: "80px 1fr 120px" }}>
+            <div style={{ fontWeight: 500 }}>{r.state}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>AP attribution coming with pipeline source-tagging</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${Math.round(r.spend).toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PanelByProduct({ rows }) {
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>By product</h3><span className="meta">{rows.length} products</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1fr 110px 110px 100px" }}>
+          <div>Product</div><div className="tabular" style={{ textAlign: "right" }}>Spend</div><div className="tabular" style={{ textAlign: "right" }}>AP</div><div className="tabular" style={{ textAlign: "right" }}>ROAS</div>
+        </div>
+        {rows.map(r => (
+          <div key={r.p} className="row" style={{ gridTemplateColumns: "1fr 110px 110px 100px" }}>
+            <div>{r.p}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${r.spend.toLocaleString()}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${r.ap.toLocaleString()}</div>
+            <div className="tabular" style={{ textAlign: "right", color: r.lift >= 3 ? "var(--accent-money)" : "var(--state-warning)" }}>{r.lift.toFixed(2)}x</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PanelByProductLive({ sources, spendBySource }) {
+  const byProduct = {};
+  sources.forEach(s => {
+    if (!s.product) return;
+    const spend = (spendBySource[s.id] || 0) / 100;
+    byProduct[s.product] = (byProduct[s.product] || 0) + spend;
+  });
+  const rows = Object.entries(byProduct).map(([p, spend]) => ({ p, spend })).sort((a, b) => b.spend - a.spend);
+  if (rows.length === 0) {
+    return <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No product-tagged sources yet. Add a product on your lead sources to see spend by product line.</div>;
+  }
+  return (
+    <div className="panel">
+      <div className="panel-h"><h3>By product · spend</h3><span className="meta">{rows.length} product{rows.length === 1 ? "" : "s"}</span></div>
+      <div className="list">
+        <div className="list-h" style={{ gridTemplateColumns: "1fr 120px" }}>
+          <div>Product</div><div className="tabular" style={{ textAlign: "right" }}>Spend</div>
+        </div>
+        {rows.map(r => (
+          <div key={r.p} className="row" style={{ gridTemplateColumns: "1fr 120px" }}>
+            <div>{r.p}</div>
+            <div className="tabular" style={{ textAlign: "right" }}>${Math.round(r.spend).toLocaleString()}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 window.PageAttribution = PageAttribution;
-
 })();
