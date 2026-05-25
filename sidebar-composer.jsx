@@ -175,12 +175,14 @@ function SidebarComposer({ onClose, role }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const searchRef = useRef(null);
 
-  // Load saved layout (or role default) on open.
+  // Load saved layout (or role default) on open. Pass role so a super_admin
+  // previewing as "manager" sees the manager default, not their saved admin
+  // layout.
   useEffect(() => {
-    window.loadSidebarLayout().then(l => setLayout(l || []));
+    window.loadSidebarLayout(role).then(l => setLayout(l || []));
     // Focus search on open (keyboard a11y)
     setTimeout(() => searchRef.current?.focus(), 80);
-  }, []);
+  }, [role]);
 
   // Escape key → close (with dirty guard).
   useEffect(() => {

@@ -193,7 +193,7 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   useEffect(() => {
     if (!isDynamic) { setCustomLayout(null); return; }
     let cancelled = false;
-    window.loadSidebarLayout?.().then(l => { if (!cancelled) setCustomLayout(l || []); });
+    window.loadSidebarLayout?.(role).then(l => { if (!cancelled) setCustomLayout(l || []); });
     const onUpdate = (e) => setCustomLayout(e.detail?.layout || []);
     window.addEventListener("sidebar:updated", onUpdate);
     return () => { cancelled = true; window.removeEventListener("sidebar:updated", onUpdate); };
