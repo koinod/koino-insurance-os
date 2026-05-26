@@ -27,18 +27,18 @@ const REPS_SEED = [
 ];
 
 const PIPELINE_SEED = [
-  { id: 1, lead: "Cheryl Hampton", age: 67, state: "TX", stage: "Quoted", product: "Med Supp Plan G", ap: 1840, days: 1, last: "Today, 11:14a", next: "SOA scheduled", source: "FB Lead Form", owner: "marc", consent: "verified", heat: "hot" },
-  { id: 2, lead: "Robert Mendez", age: 71, state: "FL", stage: "App In", product: "Final Expense $15K", ap: 1320, days: 2, last: "Today, 9:02a", next: "Carrier review", source: "Inbound call", owner: "dani", consent: "verified", heat: "hot" },
-  { id: 3, lead: "Linda Cho", age: 64, state: "NV", stage: "Contacted", product: "Med Supp Plan N", ap: 1610, days: 0, last: "8m ago", next: "Quote send", source: "T65 list", owner: "marc", consent: "verified", heat: "fresh" },
-  { id: 4, lead: "Jamal Wright", age: 58, state: "GA", stage: "New", product: "Final Expense $25K", ap: 0, days: 0, last: "47s ago", next: "First dial", source: "FB Lead Form", owner: "tony", consent: "verified", heat: "fresh" },
-  { id: 5, lead: "Patricia Volker", age: 69, state: "AZ", stage: "Quoted", product: "Med Supp Plan G", ap: 2120, days: 3, last: "Yesterday", next: "Follow-up call", source: "Referral", owner: "kira", consent: "verified", heat: "warm" },
-  { id: 6, lead: "Henry Akins", age: 73, state: "OH", stage: "App In", product: "Annuity $50K", ap: 4250, days: 4, last: "2d ago", next: "Carrier sigs", source: "Cross-sell", owner: "dani", consent: "verified", heat: "warm" },
-  { id: 7, lead: "Naomi Reese", age: 65, state: "PA", stage: "Issued", product: "Med Supp Plan G", ap: 1780, days: 7, last: "5d ago", next: "Welcome call", source: "T65 list", owner: "jada", consent: "verified", heat: "cold" },
-  { id: 8, lead: "Don Phelps", age: 70, state: "MI", stage: "Contacted", product: "Final Expense $10K", ap: 0, days: 1, last: "Today, 8:41a", next: "Re-dial 4p", source: "FB Lead Form", owner: "sade", consent: "verified", heat: "warm" },
-  { id: 9, lead: "Anita Boswell", age: 66, state: "NC", stage: "New", product: "Med Supp Plan G", ap: 0, days: 0, last: "12s ago", next: "First dial", source: "Inbound call", owner: "marc", consent: "verified", heat: "fresh" },
-  { id: 10, lead: "Carl Greavy", age: 68, state: "WI", stage: "Quoted", product: "Med Supp Plan N", ap: 1490, days: 2, last: "Today, 10:22a", next: "SOA Thursday", source: "Referral", owner: "tony", consent: "verified", heat: "warm" },
-  { id: 11, lead: "Ramona Diaz", age: 72, state: "CA", stage: "App In", product: "Final Expense $20K", ap: 1660, days: 1, last: "Today, 12:08p", next: "Beneficiary form", source: "FB Lead Form", owner: "kira", consent: "verified", heat: "hot" },
-  { id: 12, lead: "Ed Yamamoto", age: 65, state: "WA", stage: "Issued", product: "Med Supp Plan G", ap: 1820, days: 9, last: "Last week", next: "30-day check", source: "T65 list", owner: "jada", consent: "verified", heat: "cold" },
+  { id: 1, lead: "Cheryl Hampton", age: 67, state: "TX", stage: "Quoted", product: "Med Supp Plan G", ap: 1840, days: 1, last: "Today, 11:14a", next: "SOA scheduled", source: "FB Lead Form", owner: "marc", consent: "verified", heat: "hot", phone: "+12125550101" },
+  { id: 2, lead: "Robert Mendez", age: 71, state: "FL", stage: "App In", product: "Final Expense $15K", ap: 1320, days: 2, last: "Today, 9:02a", next: "Carrier review", source: "Inbound call", owner: "dani", consent: "verified", heat: "hot", phone: "+13055550102" },
+  { id: 3, lead: "Linda Cho", age: 64, state: "NV", stage: "Contacted", product: "Med Supp Plan N", ap: 1610, days: 0, last: "8m ago", next: "Quote send", source: "T65 list", owner: "marc", consent: "verified", heat: "fresh", phone: "+17025550103" },
+  { id: 4, lead: "Jamal Wright", age: 58, state: "GA", stage: "New", product: "Final Expense $25K", ap: 0, days: 0, last: "47s ago", next: "First dial", source: "FB Lead Form", owner: "tony", consent: "verified", heat: "fresh", phone: "+14045550104" },
+  { id: 5, lead: "Patricia Volker", age: 69, state: "AZ", stage: "Quoted", product: "Med Supp Plan G", ap: 2120, days: 3, last: "Yesterday", next: "Follow-up call", source: "Referral", owner: "kira", consent: "verified", heat: "warm", phone: "+16025550105" },
+  { id: 6, lead: "Henry Akins", age: 73, state: "OH", stage: "App In", product: "Annuity $50K", ap: 4250, days: 4, last: "2d ago", next: "Carrier sigs", source: "Cross-sell", owner: "dani", consent: "verified", heat: "warm", phone: "+16145550106" },
+  { id: 7, lead: "Naomi Reese", age: 65, state: "PA", stage: "Issued", product: "Med Supp Plan G", ap: 1780, days: 7, last: "5d ago", next: "Welcome call", source: "T65 list", owner: "jada", consent: "verified", heat: "cold", phone: "+12155550107" },
+  { id: 8, lead: "Don Phelps", age: 70, state: "MI", stage: "Contacted", product: "Final Expense $10K", ap: 0, days: 1, last: "Today, 8:41a", next: "Re-dial 4p", source: "FB Lead Form", owner: "sade", consent: "verified", heat: "warm", phone: "+13135550108" },
+  { id: 9, lead: "Anita Boswell", age: 66, state: "NC", stage: "New", product: "Med Supp Plan G", ap: 0, days: 0, last: "12s ago", next: "First dial", source: "Inbound call", owner: "marc", consent: "verified", heat: "fresh", phone: "+19195550109" },
+  { id: 10, lead: "Carl Greavy", age: 68, state: "WI", stage: "Quoted", product: "Med Supp Plan N", ap: 1490, days: 2, last: "Today, 10:22a", next: "SOA Thursday", source: "Referral", owner: "tony", consent: "verified", heat: "warm", phone: "+14145550110" },
+  { id: 11, lead: "Ramona Diaz", age: 72, state: "CA", stage: "App In", product: "Final Expense $20K", ap: 1660, days: 1, last: "Today, 12:08p", next: "Beneficiary form", source: "FB Lead Form", owner: "kira", consent: "verified", heat: "hot", phone: "+12135550111" },
+  { id: 12, lead: "Ed Yamamoto", age: 65, state: "WA", stage: "Issued", product: "Med Supp Plan G", ap: 1820, days: 9, last: "Last week", next: "30-day check", source: "T65 list", owner: "jada", consent: "verified", heat: "cold", phone: "+12065550112" },
 ];
 
 const QUEUE_SEED = [

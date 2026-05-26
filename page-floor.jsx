@@ -953,6 +953,7 @@
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || {};
     const repId = meIdent.rep_id || meIdent.id || resolveFloorRep()?.id || "";
     const agencyId = meIdent.agency_id || "";
+    const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
     const leads = buildFloorDialerLeads(role);
     const queue = buildFloorPowerQueue(leads);
     const activeLead = leads[0] || null;
@@ -986,6 +987,7 @@
 
     const startSession = async () => {
       if (busy) return;
+      if (isDemo) return window.toast?.("Demo mode previews the Floor; sign in to a real agency to start dialing.", "info");
       if (!repId || !agencyId) return window.toast?.("Power Dialer: sign in with an agency session", "error");
       if (!queue.length) return window.toast?.("No dialable leads with phone numbers", "warn");
       setBusy(true);
@@ -1077,7 +1079,7 @@
               </div>
               <button className="btn btn-primary" onClick={startSession} disabled={busy || queue.length === 0}
                 style={{ minWidth: 190, minHeight: 44, background: queue.length ? "var(--accent-money)" : "var(--bg-raised)", color: queue.length ? "#022" : "var(--text-tertiary)", fontWeight: 800 }}>
-                <Icons.Play size={14}/> {busy ? "Starting..." : `Start ${maxLines} lines`}
+                <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : `Start ${maxLines} lines`}
               </button>
             </div>
 
