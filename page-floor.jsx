@@ -158,15 +158,25 @@
     return s === "New" ? 34 : s === "Contacted" ? 30 : s === "Quoted" ? 24 : s === "App In" ? 10 : 0;
   }
 
-  function buildFloorDialerLeads(role) {
+  function buildFloorDialerLeads(role, filters) {
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const myRepId = meIdent?.rep_id || resolveFloorRep()?.id || null;
+    const f = filters || {};
+    const matchesFilter = (p) => {
+      if (f.source && (p.source || "") !== f.source) return false;
+      if (f.state && (p.state || "").toUpperCase() !== f.state.toUpperCase()) return false;
+      if (f.product && (p.product || "") !== f.product) return false;
+      if (f.stage && (p.stage || "") !== f.stage) return false;
+      if (f.heat && (p.heat || "") !== f.heat) return false;
+      return true;
+    };
     const seen = new Set();
     const rows = [];
     const push = (p, sourceRank) => {
       if (!p || !p.phone || !p.id || seen.has(p.id)) return;
       if (p.stage === "Issued" || p.stage === "Lost") return;
       if (!isManagerRole(role) && myRepId && p.owner && p.owner !== myRepId) return;
+      if (!matchesFilter(p)) return;
       seen.add(p.id);
       const expectedAp = Number(p.ap || 0);
       const score = sourceRank + heatScore(p.heat) + stageScore(p.stage) + Math.min(22, expectedAp / 180) - Math.min(12, Number(p.days || 0));
@@ -945,6 +955,90 @@
     );
   }
 
+  /* Distinct values for the filter dropdowns. Built off PIPELINE + QUEUE
+     pre-filter so the user always sees the full set of options, not just
+     the survivors of the current filter. */
+  function buildFloorFilterOptions(role) {
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const myRepId = meIdent?.rep_id || resolveFloorRep()?.id || null;
+    const sources = new Set(), states = new Set(), products = new Set(), stages = new Set();
+    const consider = (p) => {
+      if (!p || !p.phone) return;
+      if (p.stage === "Issued" || p.stage === "Lost") return;
+      if (!isManagerRole(role) && myRepId && p.owner && p.owner !== myRepId) return;
+      if (p.source) sources.add(p.source);
+      if (p.state)  states.add(String(p.state).toUpperCase());
+      if (p.product) products.add(p.product);
+      if (p.stage) stages.add(p.stage);
+    };
+    (AppData.PIPELINE || []).forEach(consider);
+    (AppData.QUEUE || []).forEach(q => consider({ ...q, stage: q.stage || "New", owner: q.assignedRepId || myRepId }));
+    const sortAlpha = (a, b) => String(a).localeCompare(String(b));
+    return {
+      sources:  [...sources].sort(sortAlpha),
+      states:   [...states].sort(sortAlpha),
+      products: [...products].sort(sortAlpha),
+      stages:   [...stages].sort(sortAlpha),
+    };
+  }
+
+  /* Floor lead filter strip. Renders above the cockpit. Filters drive
+     buildFloorDialerLeads(). Source = "FB Lead Form" / "T65 list" / CSV
+     source label / etc — anything an admin or rep set via CSV import. */
+  function FloorLeadFilters({ filters, setFilters, options, leadCount, onUploadCsv }) {
+    const active = Object.values(filters).filter(Boolean).length;
+    const set = (k, v) => setFilters(s => ({ ...s, [k]: v || "" }));
+    const Sel = ({ k, label, opts }) => (
+      <select
+        value={filters[k] || ""}
+        onChange={(e) => set(k, e.target.value)}
+        className="text-input"
+        style={{ padding: "6px 8px", fontSize: 12, minWidth: 0, width: "auto", background: filters[k] ? "color-mix(in oklch, var(--accent-money) 16%, var(--surface-elev))" : "var(--surface-elev)" }}
+      >
+        <option value="">{label}: any</option>
+        {opts.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+        padding: "10px 12px",
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+      }}>
+        <Icons.Filter size={13} style={{ color: "var(--text-tertiary)" }}/>
+        <Sel k="source"  label="List"    opts={options.sources}/>
+        <Sel k="state"   label="State"   opts={options.states}/>
+        <Sel k="product" label="Product" opts={options.products}/>
+        <Sel k="stage"   label="Stage"   opts={options.stages}/>
+        <select
+          value={filters.heat || ""}
+          onChange={(e) => set("heat", e.target.value)}
+          className="text-input"
+          style={{ padding: "6px 8px", fontSize: 12, width: "auto", background: filters.heat ? "color-mix(in oklch, var(--accent-money) 16%, var(--surface-elev))" : "var(--surface-elev)" }}
+        >
+          <option value="">Heat: any</option>
+          <option value="hot">hot</option>
+          <option value="fresh">fresh</option>
+          <option value="warm">warm</option>
+          <option value="cold">cold</option>
+        </select>
+        {active > 0 && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setFilters({ source: "", state: "", product: "", stage: "", heat: "" })}>
+            Clear ({active})
+          </button>
+        )}
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>
+          {leadCount} dialable
+        </span>
+        <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onUploadCsv}>
+          <Icons.ArrowUpRight size={11}/> Import CSV
+        </button>
+      </div>
+    );
+  }
+
   function FloorDialerCockpit({ role }) {
     const [, force] = useState(0);
     useEffect(() => {
@@ -957,7 +1051,16 @@
     const repId = meIdent.rep_id || meIdent.id || resolveFloorRep()?.id || "";
     const agencyId = meIdent.agency_id || "";
     const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
-    const leads = buildFloorDialerLeads(role);
+    const [filters, setFilters] = useState(() => {
+      try { return { source: "", state: "", product: "", stage: "", heat: "", ...(JSON.parse(localStorage.getItem("repflow.floor.filters") || "{}")) }; }
+      catch { return { source: "", state: "", product: "", stage: "", heat: "" }; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem("repflow.floor.filters", JSON.stringify(filters)); } catch {}
+    }, [filters]);
+    const [csvOpen, setCsvOpen] = useState(false);
+    const filterOptions = buildFloorFilterOptions(role);
+    const leads = buildFloorDialerLeads(role, filters);
     const queue = buildFloorPowerQueue(leads);
     const activeLead = leads[0] || null;
     const attempts = useRecentPowerAttempts(repId);
@@ -1045,6 +1148,15 @@
     }
 
     return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+        <FloorLeadFilters
+          filters={filters}
+          setFilters={setFilters}
+          options={filterOptions}
+          leadCount={leads.length}
+          onUploadCsv={() => setCsvOpen(true)}
+        />
+        {csvOpen && window.CSVImport && (() => { const C = window.CSVImport; return <C onClose={() => setCsvOpen(false)}/>; })()}
       <div style={{ display: "grid", gridTemplateColumns: stacked ? "1fr" : "300px minmax(0, 1fr) 320px", gap: 14, alignItems: "start" }}>
         <DialQueueRail leads={leads} activeId={activeLead?.id}/>
 
@@ -1174,6 +1286,7 @@
           </div>
           <RecentAttemptsStrip attempts={attempts}/>
         </div>
+      </div>
       </div>
     );
   }
