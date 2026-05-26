@@ -31,13 +31,18 @@ function creds() {
 
 async function postForm(path, params) {
   const { base, auth } = creds();
+  // Array values get serialized as repeated params (key=v1&key=v2&...).
+  // SignalWire's StatusCallbackEvent requires this shape.
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) v.forEach((x) => sp.append(k, String(x)));
+    else sp.append(k, String(v));
+  }
   const r = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers: {
-      Authorization: auth,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(params),
+    headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: sp,
   });
   const json = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -56,7 +61,8 @@ export async function placeOutbound({
     To: to, From: from,
     Url: twimlUrl, Method: 'POST',
     StatusCallback: statusCallbackUrl,
-    StatusCallbackEvent: 'initiated ringing answered completed',
+    // SignalWire expects each event as a repeated param, not space-joined.
+    StatusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
     StatusCallbackMethod: 'POST',
     MachineDetection: 'DetectMessageEnd',
     AsyncAmd: 'true',
