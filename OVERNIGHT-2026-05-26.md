@@ -4,6 +4,49 @@ Started 2026-05-25 ~23:00 ET. You said "going to sleep. get the job done."
 Here's exactly what landed, what blocked, and what you do at the keyboard
 when you wake.
 
+## 🎯 POST-WAKE UPDATE — Stage 3 UNLOCKED.
+
+After this doc was first written, you woke briefly + pasted the SignalWire
+creds. From those, autonomously completed:
+
+- ✅ `.env.local` got SIGNALWIRE_{SPACE,PROJECT_ID,API_TOKEN,SIGNING_KEY,FROM_NUMBER,PHONE_SID}
+- ✅ Account auth confirmed via REST: `status=active type=Full friendly_name=Main`
+- ✅ Worker restarted via launchctl, boot log: `provider=signalwire amdSupport=native`
+- ✅ Bought a real DID: **+1 202-908-1502** ($0.95 from $5 trial credit)
+- ✅ Registered DID in `phone_numbers` pool (row `41732206-725d-4c64-88be-3a7a34e2ed87`)
+- ✅ Hit a SignalWire LaML quirk on StatusCallbackEvent encoding; fixed,
+  committed (`f4d2888`), redeployed
+- ✅ **Real outbound call placed via WORKER (not just direct API):**
+  session `daa7afce-659b-423c-acf5-0620ac49ef8d` →
+  call_attempt `c94fe7d1-2aea-4392-a25e-778f81bf5709` →
+  SignalWire SID `a2b7dace-ee6c-4adb-aa50-8e040b1f3804` →
+  `completed` 8s, **`answered_by=machine_end_other`** (native AMD worked),
+  $0.036 from trial credit. Your phone rang from `+1-202-908-1502`.
+- ✅ Task #13 (E2E test) marked completed: single-line end-to-end through
+  the full worker path is GREEN. 5-line concurrent stress-test deferred
+  until non-verified outbound is enabled.
+
+**Trial credit remaining: ~$4 of $5.** Plenty for tomorrow's tuning runs.
+
+**You don't have to do anything to start using it.** When you wake:
+
+1. Visit `https://repflow.koino.capital/?demo=1` → Pipeline tab → ⚡ Power
+   Dial → Start Session → real session row created (proven multiple times
+   tonight)
+2. The worker is already wired to SignalWire and will use +1-202-908-1502
+   as the outbound caller ID for any verified destination number
+3. Dial Next on a queue that contains +19312522222 = your phone rings
+
+The only deferred work (truly): swap the dev LiveKit `ws://localhost:7880`
+for a real LiveKit Cloud project so SIP audio can bridge into LiveKit rooms
+when SignalWire actually connects a human (not just voicemail). That's
+Stage 4 (parallel AI handler on losing legs), not Stage 3 (placing the
+call). The CURRENT working state lets you demo the parallel dialer UI +
+SignalWire outbound dial; the AI-handler-on-losing-legs needs LiveKit
+SIP trunk setup which is ~20 min of API work.
+
+
+
 ## TL;DR
 
 - ✅ **Telephony provider abstraction layer shipped** (commit `8ed1bc0`).
