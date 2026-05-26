@@ -89,11 +89,8 @@ function useAepContext(repId, role) {
    planned period applicable to the viewer. Replaces the hardcoded
    <span>AEP Day 14</span> contamination from the original design. */
 function AepTitleChip({ ctx }) {
-  if (!ctx) return null;
-  const label = ctx.isLive
-    ? `AEP Day ${ctx.dayN}`
-    : (ctx.daysToStart != null ? `AEP opens in ${ctx.daysToStart}d` : "AEP planned");
-  return <span style={{ color: "var(--accent-heat)" }}>{label}</span>;
+  if (!ctx || !ctx.isLive) return null;
+  return <span style={{ color: "var(--accent-heat)" }}>{`AEP Day ${ctx.dayN}`}</span>;
 }
 
 /* AEPBanner removed 2026-05-15 — dead code, no callers (audits/DEAD_CODE.md). */
