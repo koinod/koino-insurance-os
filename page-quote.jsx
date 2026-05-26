@@ -225,8 +225,14 @@
       // No data hydrated yet → return null = "filter not ready, show all"
       // (avoids a flash of empty state on initial paint).
       if (!Array.isArray(appts)) return null;
+      // 'pending' counts as writable too — migration 0069e backfills every
+      // (agency × catalog carrier) row as 'pending' by default so all
+      // agencies see the full catalog out of the box. Managers explicitly
+      // mark rows 'not_pursuing' to hide. 'self' / 'bridge' / 'active' carry
+      // appointment semantics, but for *visibility* the only excluded state
+      // is 'not_pursuing'.
       const writable = appts.filter(a =>
-        ["self", "bridge", "active"].includes(String(a.status || "").toLowerCase())
+        ["self", "bridge", "active", "pending"].includes(String(a.status || "").toLowerCase())
       );
       // Hydrated but empty → return empty Set so the empty-state CTA
       // renders. Distinct from "not ready yet" above.

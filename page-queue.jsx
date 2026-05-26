@@ -882,17 +882,13 @@ const CARRIER_NICHES = [
     },
   },
   {
-    id: "aig", name: "AIG / Corebridge", products: ["fe", "term", "iul", "annuity"],
+    id: "aig", name: "AIG (American General Life)", products: ["fe", "term"],
     underwriting: {
       term: { tobaccoRateUpPct: 100, bmiRange: [18.5, 33], autoDecline: ["HIV+", "Type-1 Diabetes", "Organ Transplant"] },
       giwl: { faceMin: 5000, faceMax: 25000, gradedMonths: 24, healthQs: false },
-      iul:  { product: "Corebridge QoL Max Accumulator+ III", bmiRange: [18.5, 33], tobaccoLookbackMonths: 12 },
-      annuity: { product: "Corebridge American Pathway Fixed 5/7 MYGA", maxIssueAge: 90 },
-      sweetSpot_term: "30-55yo non-standard term lengths (Flex Term has 18 durations); convertible to permanent without evidence to 70",
+      sweetSpot_term: "30-55yo non-standard term lengths (Select-a-Term has 18 durations); convertible to permanent without evidence to 70",
       sweetSpot_fe: "GIWL for health-impaired declines elsewhere; $5K–$25K with 2yr graded benefit",
-      sweetSpot_iul: "Accumulation IUL for 35-55 affluent clients; AU+ no-exam path up to $2M",
-      sweetSpot_annuity: "Pre-retiree MYGA with 5/7-yr guaranteed rate; $100K+ premium tier earns top rates",
-      sources: ["AIG Corebridge UW Guide AGLC101638", "Flex Term product brochure", "QoL Max Accumulator+ III Producer Guide", "American Pathway Fixed 5/7 rate flyer"],
+      sources: ["AIG Underwriting Guide AGLC101638", "Select-a-Term product brochure"],
     },
     fit: (i) => {
       let score = 0;
@@ -900,7 +896,7 @@ const CARRIER_NICHES = [
       if (i.product === "term") {
         if (i.bmi < 18.5 || i.bmi > 33) return { score: 0, reason: "outside term BMI 18.5–33" };
         score = 78;
-        if (i.age >= 30 && i.age <= 55) { score += 6; reasons.push("Flex Term sweet spot"); }
+        if (i.age >= 30 && i.age <= 55) { score += 6; reasons.push("Select-a-Term sweet spot"); }
         if (i.tobacco)        { score -= 14; reasons.push("100% tobacco rate-up"); }
         if (i.diabetes)       { score = 0; return { score, reason: "Type-1 diabetes auto-decline; Type-2 case-by-case" }; }
         if (i.bpHigh)         { score -= 5; }
@@ -910,6 +906,34 @@ const CARRIER_NICHES = [
         else if (i.diabetes || i.bpHigh) { score += 6; reasons.push("GIWL fallback option"); }
         else                              reasons.push("$5K–$25K graded · 2yr");
         if (i.tobacco)        { score -= 4; }
+      }
+      return { score, reason: reasons.slice(0, 2).join(" · ") };
+    },
+  },
+  /* ─── Corebridge Financial — spun out of AIG 2022. IUL + MYGA live here;
+        legacy AIG term + GIWL stay under the aig row above. ────────── */
+  {
+    id: "corebridge", name: "Corebridge Financial", products: ["iul", "annuity"],
+    underwriting: {
+      iul:  { product: "Corebridge QoL Max Accumulator+ III", bmiRange: [18.5, 33], tobaccoLookbackMonths: 12 },
+      annuity: { product: "Corebridge American Pathway Fixed 5/7 MYGA", maxIssueAge: 90 },
+      sweetSpot_iul: "Accumulation IUL for 35-55 affluent clients; AU+ no-exam path up to $2M",
+      sweetSpot_annuity: "Pre-retiree MYGA with 5/7-yr guaranteed rate; $100K+ premium tier earns top rates",
+      sources: ["QoL Max Accumulator+ III Producer Guide", "American Pathway Fixed 5/7 rate flyer"],
+    },
+    fit: (i) => {
+      let score = 0;
+      const reasons = [];
+      if (i.product === "iul") {
+        if (i.bmi < 18.5 || i.bmi > 33) return { score: 0, reason: "outside IUL BMI 18.5–33" };
+        score = 80;
+        if (i.age >= 35 && i.age <= 55) { score += 8; reasons.push("AU+ no-exam sweet spot"); }
+        if (i.tobacco)  { score -= 10; reasons.push("12mo tobacco lookback"); }
+        if (i.diabetes) { score -= 8; reasons.push("diabetes case-by-case"); }
+      } else if (i.product === "annuity") {
+        score = 82;
+        if (i.age >= 55 && i.age <= 75) { score += 6; reasons.push("MYGA pre-retiree sweet spot"); }
+        if (i.age > 90)                  { return { score: 0, reason: "max issue age 90" }; }
       }
       return { score, reason: reasons.slice(0, 2).join(" · ") };
     },
