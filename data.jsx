@@ -582,6 +582,14 @@ window.hydrateFromSupabase = async function () {
         npn: a.npn, compRatePct: a.comp_rate_pct != null ? Number(a.comp_rate_pct) : null,
         appointedStates: Array.isArray(a.appointed_states) ? a.appointed_states : [],
         notes: a.notes, active: a.active !== false, createdAt: a.created_at,
+        // Bridge tracking + status (migration 0068). Status is the canonical
+        // gate consumed by page-quote.jsx / autoquoter: only self|bridge|active
+        // count as "writable today." pending|not_pursuing are excluded.
+        status: a.status || (a.active === false ? 'not_pursuing' : 'self'),
+        bridgeUnderName: a.bridge_under_name || null,
+        bridgeUnderNpn: a.bridge_under_npn || null,
+        contractedAt: a.contracted_at || null,
+        transferredAt: a.transferred_at || null,
       }));
       window.AppData.POLICIES = mapRows(policiesR, p => ({
         id: p.id, leadId: p.lead_pipeline_id, carrierId: p.carrier_id,

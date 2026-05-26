@@ -201,28 +201,38 @@
     const niches = window.CARRIER_NICHES || [];
 
     // Filter to agency-appointed carriers.
+    //
+    // The gate is now `agency_carrier_appointments.status IN (self|bridge|active)`,
+    // surfaced via window.AppData.AGENCY_APPOINTMENTS (loaded by data.jsx,
+    // RLS-scoped to the viewer's agency). Migration 0069c adds the public
+    // view v_agency_writable_carriers + RPC my_writable_carriers() that this
+    // mirrors server-side — keep them in sync.
+    //
+    // Carrier-id normalization: agency_carrier_appointments stores either
+    // short ids (Atlas legacy: aetna/uhc/moo) or long catalog ids (new UI:
+    // aetna_src/uhc_aarp/mutual_omaha). Both must resolve to the same short
+    // niche id used by CARRIER_NICHES.
+    const LONG_TO_SHORT = {
+      uhc_aarp: "uhc", mutual_omaha: "moo", aetna_src: "aetna",
+    };
+    const normalizeNicheId = (raw) => {
+      const id = String(raw || "").toLowerCase();
+      return LONG_TO_SHORT[id] || id;
+    };
+
     const appointedIds = useMemo(() => {
-      const c = window.AppData?.CARRIERS || [];
-      if (c.length === 0) return null;
-      const nameToNiche = {
-        "uhc":    ["uhc", "united"],
-        "humana": ["humana"],
-        "aetna":  ["aetna"],
-        "moo":    ["mutual", "omaha"],
-        "cigna":  ["cigna", "loyal", "arlic"],
-        "lumico": ["lumico", "swiss"],
-        "aig":    ["aig", "corebridge"],
-        "fg":     ["fg", "fidelity"],
-      };
-      const ids = new Set();
-      for (const niche of niches) {
-        const keywords = nameToNiche[niche.id] || [niche.id];
-        if (c.some(carrier => keywords.some(kw => (carrier.name || "").toLowerCase().includes(kw)))) {
-          ids.add(niche.id);
-        }
-      }
+      const appts = window.AppData?.AGENCY_APPOINTMENTS || [];
+      // No data hydrated yet → return null = "filter not ready, show all"
+      // (avoids a flash of empty state on initial paint).
+      if (!Array.isArray(appts)) return null;
+      const writable = appts.filter(a =>
+        ["self", "bridge", "active"].includes(String(a.status || "").toLowerCase())
+      );
+      // Hydrated but empty → return empty Set so the empty-state CTA
+      // renders. Distinct from "not ready yet" above.
+      const ids = new Set(writable.map(a => normalizeNicheId(a.carrierId)));
       return ids;
-    }, [niches.length, window.AppData?.CARRIERS?.length]);
+    }, [window.AppData?.AGENCY_APPOINTMENTS?.length]);
 
     // Carriers eligible for this product after appointment filter — drives checkboxes
     const eligibleForProduct = useMemo(() => {
@@ -976,6 +986,37 @@
                 {quoteResults.ineligible.length > 0 && ` · ${quoteResults.ineligible.length} excluded`}
               </span>
             </div>
+
+            {/* Empty-state CTA — agency has zero appointments OR none cover
+                this product. Hydration-tristate: appointedIds === null means
+                "not loaded yet" (don't render); empty Set means "loaded, no
+                writable carriers" (show CTA). Without this, the quoter went
+                silently blank with no explanation. */}
+            {appointedIds !== null && eligibleForProduct.length === 0 && (
+              <div style={{
+                padding: "14px 16px", margin: "10px",
+                background: "color-mix(in oklch, var(--state-warning) 8%, transparent)",
+                border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)",
+                borderRadius: 6,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+                  No carriers available for {PRODUCT_LABELS[profile.product]}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
+                  {appointedIds.size === 0
+                    ? "Your agency has no carrier appointments set up yet."
+                    : `You have ${appointedIds.size} carrier${appointedIds.size === 1 ? "" : "s"} appointed, but none of them sell ${PRODUCT_LABELS[profile.product]}.`}
+                  {" "}Set status to <em>Self</em> (you're contracted directly) or
+                  <em> Bridge</em> (you're writing under another producer's NPN)
+                  on the carriers you can quote.
+                </div>
+                <button className="btn btn-primary"
+                  onClick={() => window.gotoPage && window.gotoPage("carrier-appointments")}
+                  style={{ fontSize: 12, padding: "5px 12px" }}>
+                  Set up Carrier Appointments →
+                </button>
+              </div>
+            )}
 
             {/* Carrier selection chips — deselect to narrow quote comparison */}
             {eligibleForProduct.length > 0 && (
