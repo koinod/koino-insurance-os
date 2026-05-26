@@ -456,6 +456,171 @@
     );
   }
 
+  /* ───── carrier_requests hook + modal ────────────────────────────────── */
+  // Managers file a request when the carrier they want isn't in the global
+  // catalog. Super-admin reviews and materializes the carriers row (so the
+  // underwriting rules + narrative get added before reps can quote it —
+  // CLAUDE.md guiding principle 5: no data without a source).
+  function useCarrierRequests(agencyId) {
+    const [requests, setRequests] = useState([]);
+    const reload = useCallback(() => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !agencyId) { setRequests([]); return; }
+      sb.from("carrier_requests")
+        .select("id, carrier_name, carrier_url, category, status, notes, created_at, reviewer_notes, resolved_carrier_id")
+        .eq("agency_id", agencyId)
+        .order("created_at", { ascending: false })
+        .limit(20)
+        .then(({ data, error }) => {
+          if (error) { console.warn("[carrier_requests]", error); setRequests([]); return; }
+          setRequests(Array.isArray(data) ? data : []);
+        });
+    }, [agencyId]);
+    useEffect(() => { reload(); }, [reload]);
+    return [requests, reload];
+  }
+
+  function RequestCarrierModal({ agencyId, onClose, onSaved }) {
+    const [name, setName] = useState("");
+    const [url, setUrl] = useState("");
+    const [category, setCategory] = useState("life");
+    const [notes, setNotes] = useState("");
+    const [saving, setSaving] = useState(false);
+    const save = async () => {
+      if (!name.trim()) {
+        window.toast && window.toast("Carrier name required", "warn");
+        return;
+      }
+      setSaving(true);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const { error } = await sb.from("carrier_requests").insert({
+          agency_id: agencyId,
+          carrier_name: name.trim(),
+          carrier_url: url.trim() || null,
+          category,
+          notes: notes.trim() || null,
+        });
+        if (error) throw error;
+        window.toast && window.toast(`Requested ${name.trim()} — pending review`, "success");
+        onSaved && onSaved();
+        onClose();
+      } catch (e) {
+        window.toast && window.toast(`Request failed: ${e.message || e}`, "error");
+        console.warn("[carrier_request.insert]", e);
+      } finally { setSaving(false); }
+    };
+    return (
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999,
+      }} onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: "var(--bg-elevated)", border: "1px solid var(--border-default)",
+          borderRadius: 8, padding: 20, width: 480, maxWidth: "90vw",
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+            Request a new carrier
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>
+            Not in the catalog? File a request. Super-admin reviews and adds
+            the carrier with its underwriting rules so the quoter can score
+            it correctly. You'll see <em>pending</em> until it's approved.
+          </div>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>
+            Carrier name *
+          </label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            placeholder="e.g. Liberty Bankers Life"
+            style={{
+              width: "100%", padding: "6px 8px", borderRadius: 4,
+              background: "var(--bg-raised)", border: "1px solid var(--border-default)",
+              color: "var(--text-primary)", fontSize: 13, marginBottom: 12,
+            }}/>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>
+            Producer / quoter URL (optional)
+          </label>
+          <input value={url} onChange={e => setUrl(e.target.value)}
+            placeholder="https://producer.libertybankerslife.com"
+            style={{
+              width: "100%", padding: "6px 8px", borderRadius: 4,
+              background: "var(--bg-raised)", border: "1px solid var(--border-default)",
+              color: "var(--text-primary)", fontSize: 13, marginBottom: 12,
+            }}/>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>
+            Category
+          </label>
+          <select value={category} onChange={e => setCategory(e.target.value)}
+            style={{
+              width: "100%", padding: "6px 8px", borderRadius: 4,
+              background: "var(--bg-raised)", border: "1px solid var(--border-default)",
+              color: "var(--text-primary)", fontSize: 13, marginBottom: 12,
+            }}>
+            <option value="life">Life</option>
+            <option value="final_expense">Final Expense</option>
+            <option value="med_supp">Med Supp</option>
+            <option value="mapd">MAPD</option>
+            <option value="annuity">Annuity</option>
+            <option value="other">Other</option>
+          </select>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>
+            Notes (which products / why)
+          </label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. Need their GTL term — competitive in TX, ages 50-75"
+            rows={3}
+            style={{
+              width: "100%", padding: "6px 8px", borderRadius: 4,
+              background: "var(--bg-raised)", border: "1px solid var(--border-default)",
+              color: "var(--text-primary)", fontSize: 13, marginBottom: 16,
+              fontFamily: "inherit", resize: "vertical",
+            }}/>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !name.trim()}>
+              {saving ? "Submitting…" : "Submit request"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function CarrierRequestStrip({ requests }) {
+    const pending = requests.filter(r => r.status === "pending");
+    const recent  = requests.filter(r => r.status !== "pending").slice(0, 3);
+    if (pending.length === 0 && recent.length === 0) return null;
+    return (
+      <div style={{
+        margin: "0 0 12px", padding: 10, borderRadius: 4,
+        background: "color-mix(in oklch, var(--accent-primary, #409cff) 6%, transparent)",
+        border: "1px solid color-mix(in oklch, var(--accent-primary, #409cff) 28%, transparent)",
+      }}>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          Carrier requests
+        </div>
+        {pending.map(r => (
+          <div key={r.id} style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 2 }}>
+            <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{r.carrier_name}</span>
+            {" — "}
+            <span style={{ color: "#ffa500" }}>pending review</span>
+            {r.category ? ` · ${r.category}` : ""}
+          </div>
+        ))}
+        {recent.map(r => (
+          <div key={r.id} style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 2 }}>
+            <span style={{ color: "var(--text-secondary)" }}>{r.carrier_name}</span>
+            {" — "}
+            <span style={{ color: r.status === "approved" ? "#2ecc71" : "var(--text-tertiary)" }}>
+              {r.status}
+            </span>
+            {r.reviewer_notes ? ` · ${r.reviewer_notes}` : ""}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   /* ───── main page ────────────────────────────────────────────────────── */
   function PageCarrierAppointments({ role }) {
     useAgencyReady();
@@ -468,6 +633,8 @@
 
     const [filter, setFilter] = useState("all"); // all | self | bridge | pending | not_pursuing
     const [search, setSearch] = useState("");
+    const [showRequestModal, setShowRequestModal] = useState(false);
+    const [requests, reloadRequests] = useCarrierRequests(agencyId);
 
     // Map carrier_id → appt for fast lookup.
     const apptByCarrier = useMemo(() => {
@@ -552,7 +719,16 @@
             title="Refresh from database" style={{ fontSize: 11, padding: "4px 10px" }}>
             Refresh
           </button>
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => setShowRequestModal(true)}
+              title="Request a carrier that isn't in the catalog yet"
+              style={{ fontSize: 11, padding: "4px 10px" }}>
+              + Request carrier
+            </button>
+          )}
         </div>
+
+        <CarrierRequestStrip requests={requests}/>
 
         {!canEdit && (
           <div style={{ padding: 10, marginBottom: 12,
@@ -603,7 +779,16 @@
         <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-tertiary)" }}>
           Schema: <code>public.agency_carrier_appointments</code> · upsert by
           (agency_id, carrier_id) · RLS scoped via <code>viewer_agency_ids()</code>.
+          Carrier missing? Use <strong>+ Request carrier</strong> — adds to
+          <code> public.carrier_requests</code> for super-admin review.
         </div>
+
+        {showRequestModal && (
+          <RequestCarrierModal
+            agencyId={agencyId}
+            onClose={() => setShowRequestModal(false)}
+            onSaved={reloadRequests}/>
+        )}
       </div>
     );
   }
