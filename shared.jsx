@@ -1363,3 +1363,22 @@ window.AutodialQueue = (() => {
     },
   };
 })();
+
+/* ── Theme persistence ────────────────────────────────────────────────────
+   window.applyTheme(mode) — call anywhere to switch themes immediately.
+   mode: "dark" | "light" | "system"
+   Writes localStorage.repflow_theme and sets document.documentElement.dataset.theme.
+   The anti-FOUC script in index.html reads localStorage on page load so
+   the correct theme is applied before first paint.
+   ──────────────────────────────────────────────────────────────────────── */
+window.applyTheme = function(mode) {
+  if (!mode || !["dark","light","system"].includes(mode)) mode = "dark";
+  try { localStorage.setItem("repflow_theme", mode); } catch (_) {}
+  const effective = mode === "system"
+    ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+    : mode;
+  document.documentElement.dataset.theme = effective;
+  // Keep the meta theme-color in sync for mobile chrome UI
+  const mc = document.querySelector('meta[name="theme-color"]');
+  if (mc) mc.content = effective === "light" ? "#FAF7F2" : "#14171c";
+};

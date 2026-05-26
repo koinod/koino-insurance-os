@@ -6129,6 +6129,7 @@ function SettingsProfile({ role }) {
   const [saveMsg,  setSaveMsg]  = React.useState("");
   const [bundle,   setBundle]   = React.useState(null); // { profile, memberships, current_agency_id, is_platform_admin }
   const [metrics,  setMetrics]  = React.useState(null);
+  const [themeSaving, setThemeSaving] = React.useState(false);
 
   // Form state shadows the bundle.profile fields. We track ONLY user-touched
   // fields in `dirty` so save_profile sends a minimal patch and the backend
@@ -6145,6 +6146,24 @@ function SettingsProfile({ role }) {
     setForm(f => ({ ...f, notification_prefs: { ...(f.notification_prefs || {}), [k]: v } }));
     setDirty(d => ({ ...d, notification_prefs: true }));
   };
+
+  // Auto-save theme immediately on button click (no "Save profile" required).
+  // Also syncs localStorage + DOM via applyTheme so the change is instant.
+  const saveThemeNow = React.useCallback(async (mode) => {
+    window.applyTheme && window.applyTheme(mode);
+    setForm(f => ({ ...f, theme: mode }));
+    // Remove theme from dirty so the main Save button doesn't double-save it.
+    setDirty(d => { const n = { ...d }; delete n.theme; return n; });
+    if (!sb) return;
+    setThemeSaving(true);
+    try {
+      const r = await sb.rpc("save_profile", { p: { theme: mode } });
+      if (r.error) throw r.error;
+      window.toast && window.toast("Theme saved", "success");
+    } catch (e) {
+      window.toast && window.toast("Theme save failed: " + (e?.message || e), "error");
+    } finally { setThemeSaving(false); }
+  }, [sb]);
 
   const load = React.useCallback(async () => {
     if (!sb) { setLoading(false); return; }
@@ -6421,10 +6440,8 @@ function SettingsProfile({ role }) {
                 const active = form.theme === opt.v;
                 return (
                   <button key={opt.v} type="button"
-                    onClick={() => {
-                      window.applyTheme && window.applyTheme(opt.v);
-                      update("theme", opt.v);
-                    }}
+                    disabled={themeSaving}
+                    onClick={() => saveThemeNow(opt.v)}
                     style={{
                       flex: 1, padding: "6px 0", fontSize: 12, fontWeight: active ? 600 : 400,
                       borderRadius: "var(--radius-md)", cursor: "pointer",

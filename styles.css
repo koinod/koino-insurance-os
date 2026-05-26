@@ -45,6 +45,49 @@
 
   --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-spring: cubic-bezier(0.4, 1.6, 0.4, 1);
+
+  /* Modal/overlay backdrop — overridden per theme */
+  --dim-overlay: rgba(0,0,0,0.45);
+}
+
+/* ── Light theme — "warm paper" ───────────────────────────────────────────
+   Applied when <html data-theme="light"> is set (via applyTheme() or
+   the anti-FOUC inline script in index.html reading localStorage).
+   Dark is the default (:root values above); this block overrides only
+   on explicit opt-in so dark mode needs no extra attribute.
+   ──────────────────────────────────────────────────────────────────────── */
+html[data-theme="light"] {
+  /* Surfaces — warm paper hierarchy */
+  --bg-base:     #FAF7F2; /* cream paper — main workspace */
+  --bg-elevated: #F4EFE6; /* sidebar / header strips — slightly deeper */
+  --bg-raised:   #FFFFFF; /* cards, panels — float above page */
+  --bg-overlay:  #EDE8DF; /* inputs, wells — sunken */
+
+  /* Borders — warm taupe */
+  --border-subtle: #E5DFD3;
+  --border-strong: #CCC5B5;
+
+  /* Text — near-black with warmth */
+  --text-primary:   #1A1A1F;
+  --text-secondary: #5C5C66;
+  --text-tertiary:  #9A9AA3;
+  --text-quaternary: #C0BEB8;
+
+  /* Brand / semantic — muted for legibility on light bg */
+  --accent-money:     #007A66; /* teal, darkened from #00d4aa for contrast */
+  --accent-money-dim: rgba(0, 122, 102, 0.12);
+  --accent-heat:      #B8842A; /* amber/ochre */
+  --accent-status:    #5B21B6; /* purple — accessible on light */
+  --state-danger:     #C73E3A; /* warm red */
+  --state-warning:    #B8842A;
+  --state-info:       #1D4ED8;
+
+  /* Shadows — subtle on light */
+  --shadow-floating: 0 4px 16px rgba(0,0,0,0.07), 0 12px 36px -12px rgba(0,0,0,0.10);
+  --shadow-inset:    inset 0 1px 0 rgba(0,0,0,0.05);
+
+  /* Backdrop dim — warm tint */
+  --dim-overlay: rgba(50,40,30,0.35);
 }
 
 [data-density="compact"] {
@@ -1200,7 +1243,7 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
    ────────────────────────────────────────────────────────────────────────── */
 .slideout-overlay {
   position: fixed; inset: 0; z-index: 60;
-  background: rgba(0,0,0,0.4);
+  background: var(--dim-overlay);
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
   display: flex; justify-content: flex-end;
   animation: fade 160ms var(--ease-out);
