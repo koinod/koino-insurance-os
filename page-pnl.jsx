@@ -159,7 +159,7 @@
                { data: exps,  error: e3 },
                { data: srcs                  }] = await Promise.all([
           sb.from("commissions")
-            .select("amount_cents,earned_at,policy_id")
+            .select("amount_cents,earned_at,policy_id,kind")
             .eq("rep_id", myRepId)
             .gte("earned_at", fromTs).lte("earned_at", toTs),
           sb.from("policies")
@@ -176,7 +176,15 @@
         ]);
         const err = e1?.message || e2?.message || e3?.message || null;
 
-        const commCents = (comms || []).reduce((a, c) => a + (c.amount_cents || 0), 0);
+        // Split commissions: kind='override' = spread on downline, anything
+        // else (as_earned, advance, trail) = rep's own production.
+        let commCents = 0, ownCommCents = 0, overrideCommCents = 0;
+        for (const c of (comms || [])) {
+          const v = c.amount_cents || 0;
+          commCents += v;
+          if (c.kind === "override") overrideCommCents += v;
+          else ownCommCents += v;
+        }
         const apCents   = (pols  || []).reduce((a, p) => a + (p.ap_cents     || 0), 0);
         const deals     = (pols  || []).length;
         const expCents  = (exps  || []).reduce((a, e) => a + (e.amount_cents || 0), 0);
@@ -192,12 +200,12 @@
         const srcMap = {};
         for (const s of (srcs || [])) srcMap[s.id] = s;
 
-        setData({ commCents, expCents, apCents, deals, expByKind, expBySource });
+        setData({ commCents, ownCommCents, overrideCommCents, expCents, apCents, deals, expByKind, expBySource });
         setSources(srcMap);
         setErr(err);
       } catch (e) {
         setErr(e.message || String(e));
-        setData({ commCents: 0, expCents: 0, apCents: 0, deals: 0, expByKind: {}, expBySource: {} });
+        setData({ commCents: 0, ownCommCents: 0, overrideCommCents: 0, expCents: 0, apCents: 0, deals: 0, expByKind: {}, expBySource: {} });
       } finally {
         setLoading(false);
       }
@@ -286,7 +294,19 @@
 
         <div className="kpi-row">
           <Shared.KpiCard hero label="Net" prefix="$" value={fmt$(net).replace("$", "")} sub={`${margin.toFixed(0)}% margin`} trend={net >= 0 ? "up" : undefined}/>
-          <Shared.KpiCard      label="Earned commissions" prefix="$" value={fmt$(data?.commCents || 0).replace("$", "")} sub={`${data?.deals || 0} deal${data?.deals === 1 ? "" : "s"}`}/>
+          <Shared.KpiCard
+            label="From my sales"
+            prefix="$"
+            value={fmt$(data?.ownCommCents || 0).replace("$", "")}
+            sub={`${data?.deals || 0} deal${data?.deals === 1 ? "" : "s"}`}
+          />
+          <Shared.KpiCard
+            label="Override income"
+            prefix="$"
+            value={fmt$(data?.overrideCommCents || 0).replace("$", "")}
+            sub={(data?.overrideCommCents || 0) > 0 ? "spread on downline" : "—"}
+            trend={(data?.overrideCommCents || 0) > 0 ? "up" : undefined}
+          />
           <Shared.KpiCard      label="My out-of-pocket"   prefix="$" value={fmt$(data?.expCents  || 0).replace("$", "")} sub={leadSpendCents ? `${fmt$(leadSpendCents)} lead spend` : "no spend"}/>
           <Shared.KpiCard      label="Lead ROAS" value={leadSpendCents ? leadRoas.toFixed(2) + "x" : "—"} sub={leadSpendCents ? `vs. $${(leadSpendCents/100).toFixed(0)} ad spend` : "log lead spend → see ROAS"} trend={leadSpendCents && leadRoas >= 3 ? "up" : undefined}/>
         </div>
@@ -346,6 +366,150 @@
     );
   }
   window.RepPersonalPnL = RepPersonalPnL;
+
+  /* TeamRatesPanel ─────────────────────────────────────────────────────────
+   * Per-rep override % editor for the manager/owner P&L surface.
+   *
+   * Reads agencies.comp_overrides (jsonb keyed by rep_id) + falls back to
+   * agencies.default_override_pct. Writes through set_rep_override RPC
+   * which authorizes by role (owner/admin always, manager only for their
+   * own downline) and triggers re-materialization of override commission
+   * rows on every issued/active policy so the change is visible in the
+   * KPI strip within ~2 seconds.
+   *
+   * Visible only when rows have data and the viewer has at least one
+   * downline candidate — collapses to an empty-state banner otherwise.
+   */
+  function TeamRatesPanel({ agencyId, rows, onSaved }) {
+    const [agencyDefault, setAgencyDefault] = useState(null);
+    const [overrides, setOverrides]         = useState({});
+    const [drafts, setDrafts]               = useState({});  // repId → string while editing
+    const [savingId, setSavingId]           = useState(null);
+    const [err, setErr]                     = useState(null);
+
+    const reload = useCallback(async () => {
+      if (!agencyId) return;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      const { data } = await sb.from("agencies")
+        .select("default_override_pct, comp_overrides")
+        .eq("id", agencyId).single();
+      if (data) {
+        setAgencyDefault(Number(data.default_override_pct) || 20);
+        setOverrides(data.comp_overrides || {});
+      }
+    }, [agencyId]);
+    useEffect(() => { reload(); }, [reload]);
+
+    const save = async (repId) => {
+      const raw = drafts[repId];
+      const pct = Number(raw);
+      if (raw === "" || Number.isNaN(pct)) {
+        setErr("Override % must be a number 0–100.");
+        return;
+      }
+      if (pct < 0 || pct > 100) {
+        setErr("Override % must be between 0 and 100.");
+        return;
+      }
+      setErr(null); setSavingId(repId);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const { error } = await sb.rpc("set_rep_override", {
+          p_agency_id: agencyId, p_rep_id: repId, p_pct: pct,
+        });
+        if (error) throw error;
+        window.toast && window.toast(`Override set: ${pct}% for ${repId}`, "success");
+        // Clear the draft so the row falls back to reading from `overrides`
+        // (the new saved value). Without this the input would keep showing
+        // the just-typed string instead of the canonical state.
+        setDrafts(d => { const next = { ...d }; delete next[repId]; return next; });
+        await reload();
+        onSaved && onSaved();
+      } catch (e) {
+        setErr(e.message || String(e));
+      } finally {
+        setSavingId(null);
+      }
+    };
+
+    if (!rows || rows.length === 0) return null;
+
+    return (
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h">
+          <Icons.Sparkles size={12}/>
+          <h3>Team comp rates</h3>
+          <span className="meta">
+            agency default: <strong>{agencyDefault != null ? `${agencyDefault}%` : "—"}</strong> per upline
+          </span>
+        </div>
+        <div style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)", lineHeight: 1.55 }}>
+          Override % is the spread you (or each upline) earn on a downline's policies. Setting
+          a per-rep value overrides the agency default. Set to 0 to opt that rep out of override.
+          Changes re-materialize commission rows on every issued/active policy instantly.
+        </div>
+        {err && (
+          <div style={{ padding: "8px 14px", fontSize: 12, color: "var(--state-danger)" }}>{err}</div>
+        )}
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 120px 130px 110px" }}>
+            <div>Rep</div>
+            <div className="tabular" style={{ textAlign: "right" }}>Current override</div>
+            <div className="tabular" style={{ textAlign: "right" }}>New %</div>
+            <div></div>
+          </div>
+          {rows.map(r => {
+            const explicit = overrides[r.rep_id];
+            const current  = explicit != null && explicit !== ""
+              ? Number(explicit)
+              : agencyDefault;
+            const draft = drafts[r.rep_id];
+            const showVal = draft != null ? draft : (current != null ? String(current) : "");
+            return (
+              <div key={r.rep_id} className="row" style={{ gridTemplateColumns: "1.4fr 120px 130px 110px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Shared.Avatar rep={{ id: r.rep_id, name: r.rep_name || r.rep_id }} size={20}/>
+                  <div style={{ fontSize: 12.5 }}>
+                    {r.rep_name || r.rep_id}
+                    {explicit != null && explicit !== "" && (
+                      <span className="chip chip-money" style={{ marginLeft: 6, fontSize: 9.5, padding: "1px 5px" }}>custom</span>
+                    )}
+                  </div>
+                </div>
+                <div className="tabular" style={{ textAlign: "right", fontSize: 12.5, color: explicit != null && explicit !== "" ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                  {current != null ? `${current}%` : "—"}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    className="text-input tabular"
+                    style={{ fontSize: 12, padding: "4px 8px", width: 90, textAlign: "right" }}
+                    value={showVal}
+                    onChange={(e) => setDrafts(d => ({ ...d, [r.rep_id]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") save(r.rep_id); }}
+                  />
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ fontSize: 11 }}
+                    onClick={() => save(r.rep_id)}
+                    disabled={savingId === r.rep_id || drafts[r.rep_id] == null}
+                  >
+                    {savingId === r.rep_id ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   function PagePnL({ role }) {
     // Reps land on a personal P&L; managers/owners get the full agency
@@ -489,21 +653,28 @@
       return () => window.removeEventListener("pnl:refresh", load);
     }, [load]);
 
-    /* KPI aggregation */
+    /* KPI aggregation
+       Splits the lump earned_comm into own_comm + override_comm so the
+       upline can see "what I made on my own sales" vs "what I made off
+       my downline" at a glance. */
     const kpis = useMemo(() => {
       if (!rows) return null;
       const ap   = rows.reduce((a, r) => a + (r.submitted_ap_cents  || 0), 0);
       const comm = rows.reduce((a, r) => a + (r.earned_comm_cents   || 0), 0);
+      const own  = rows.reduce((a, r) => a + (r.own_comm_cents      || 0), 0);
+      const ovr  = rows.reduce((a, r) => a + (r.override_comm_cents || 0), 0);
       const exp  = rows.reduce((a, r) => a + (r.expenses_cents      || 0), 0);
-      return { ap, comm, exp, net: comm - exp };
+      return { ap, comm, own, ovr, exp, net: comm - exp };
     }, [rows]);
 
     const prevKpis = useMemo(() => {
       if (!prevRows) return null;
       const ap   = prevRows.reduce((a, r) => a + (r.submitted_ap_cents || 0), 0);
       const comm = prevRows.reduce((a, r) => a + (r.earned_comm_cents  || 0), 0);
+      const own  = prevRows.reduce((a, r) => a + (r.own_comm_cents     || 0), 0);
+      const ovr  = prevRows.reduce((a, r) => a + (r.override_comm_cents|| 0), 0);
       const exp  = prevRows.reduce((a, r) => a + (r.expenses_cents     || 0), 0);
-      return { ap, comm, exp, net: comm - exp };
+      return { ap, comm, own, ovr, exp, net: comm - exp };
     }, [prevRows]);
 
     const pctDelta = (cur, prev) => {
@@ -578,10 +749,16 @@
               trend={trendOf(pctDelta(kpis.ap, prevKpis?.ap))}
             />
             <Shared.KpiCard
-              label="Earned Comm"
-              value={fmt$(kpis.comm).slice(1)} prefix="$"
-              sub={pctStr(pctDelta(kpis.comm, prevKpis?.comm))}
-              trend={trendOf(pctDelta(kpis.comm, prevKpis?.comm))}
+              label="Own sales"
+              value={fmt$(kpis.own).slice(1)} prefix="$"
+              sub={`${kpis.comm > 0 ? Math.round((kpis.own / kpis.comm) * 100) : 0}% of earned`}
+              trend={trendOf(pctDelta(kpis.own, prevKpis?.own))}
+            />
+            <Shared.KpiCard
+              label="Override income"
+              value={fmt$(kpis.ovr).slice(1)} prefix="$"
+              sub={kpis.ovr > 0 ? "spread on downline" : "no override yet"}
+              trend={trendOf(pctDelta(kpis.ovr, prevKpis?.ovr))}
             />
             <Shared.KpiCard
               label="Expenses"
@@ -619,6 +796,10 @@
             </div>
           </div>
         </div>
+
+        {/* Team rates — per-rep override % editor. Owner/admin sees all
+            downline; manager sees their own downline (RPC enforces this). */}
+        <TeamRatesPanel agencyId={agencyId} rows={rows} onSaved={load}/>
 
         {/* Quick actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center", flexWrap: "wrap" }}>
@@ -710,20 +891,27 @@
       );
     }
 
-    const cols = "1.5fr 60px 110px 110px 110px 110px";
+    // 7 columns: rep, deals, AP, own $, override $, expenses, net.
+    // Override column shows the spread THIS rep earned on policies their
+    // own downline wrote — not a rate. A manager who never wrote a deal
+    // but pulled $5k of override sees own=$0, override=$5k.
+    const cols = "1.4fr 50px 100px 100px 100px 100px 110px";
     return (
       <div className="list">
         <div className="list-h" style={{ gridTemplateColumns: cols }}>
           <div>Rep</div>
           <div className="tabular" style={{ textAlign: "right" }}>Deals</div>
           <div className="tabular" style={{ textAlign: "right" }}>Submitted AP</div>
-          <div className="tabular" style={{ textAlign: "right" }}>Earned Comm</div>
+          <div className="tabular" style={{ textAlign: "right" }}>Own $</div>
+          <div className="tabular" style={{ textAlign: "right" }}>Spread $</div>
           <div className="tabular" style={{ textAlign: "right" }}>Expenses</div>
           <div className="tabular" style={{ textAlign: "right" }}>Net</div>
         </div>
         {rows.map((r) => {
           const net   = (r.earned_comm_cents || 0) - (r.expenses_cents || 0);
           const isNeg = net < 0;
+          const own   = r.own_comm_cents      || 0;
+          const ovr   = r.override_comm_cents || 0;
           return (
             <div key={r.rep_id} className="row"
               style={{ gridTemplateColumns: cols, cursor: "pointer" }}
@@ -745,7 +933,10 @@
                 {fmt$(r.submitted_ap_cents || 0)}
               </div>
               <div className="tabular" style={{ textAlign: "right", fontSize: 12.5 }}>
-                {fmt$(r.earned_comm_cents || 0)}
+                {fmt$(own)}
+              </div>
+              <div className="tabular" style={{ textAlign: "right", fontSize: 12.5, color: ovr > 0 ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                {ovr > 0 ? fmt$(ovr) : "—"}
               </div>
               <div className="tabular" style={{ textAlign: "right", fontSize: 12.5 }}>
                 {fmt$(r.expenses_cents || 0)}
