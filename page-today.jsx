@@ -7,10 +7,10 @@
 
 const { useState: useStateT, useEffect: useEffectT } = React;
 
-function PageToday({ aep, role = "rep" }) {
-  if (role === "manager") return <TodayManager aep={aep}/>;
-  if (role === "owner")   return <TodayOwner aep={aep}/>;
-  return <TodayRep aep={aep}/>;
+function PageToday({ role = "rep" }) {
+  if (role === "manager") return <TodayManager/>;
+  if (role === "owner")   return <TodayOwner/>;
+  return <TodayRep/>;
 }
 
 /* Spend congruency strip — appears under page header on every Today view */
@@ -64,36 +64,27 @@ function ActionTile({ icon, label, sub, onClick }) {
   );
 }
 
-/* Resolve the actual AEP state for the viewer instead of hardcoding
-   "AEP Day 14". Returns null when there's no active period, or when the role
-   is 'rep' but the rep has no assignment row for it. */
-function useAepContext(repId, role) {
-  const periods = AppData.AEP_PERIODS || [];
-  const active = periods.find(p => p.status === "active") || periods.find(p => p.status === "planned");
-  if (!active) return null;
-  const myAssign = (AppData.AEP_ASSIGNMENTS || []).find(a => a.periodId === active.id && a.repId === repId);
-  if (role === "rep" && !myAssign) return null;
-  const isLive = active.status === "active";
-  const today = new Date();
-  const start = active.startsAt ? new Date(active.startsAt) : null;
-  const dayN = isLive && start
-    ? Math.max(1, Math.ceil((today - start) / (1000 * 60 * 60 * 24)))
-    : null;
-  const daysToStart = !isLive && start
-    ? Math.max(0, Math.ceil((start - today) / (1000 * 60 * 60 * 24)))
-    : null;
-  return { active, myAssign, isLive, dayN, daysToStart };
+/* AnnouncementChip — shows the latest agency-wide broadcast title next to
+   the page header. Replaces the deprecated AEP chip (AEP fully removed
+   2026-05-26 — Koino doesn't run a Medicare AEP cycle). Admins post via
+   the Broadcast tool in page-admin.jsx, which inserts into
+   agency_notifications with kind='broadcast' and recipient_rep_id IS NULL.
+   We surface the most recent one within the last 72h so a stale chip
+   doesn't sit in the header forever. Severity drives the color. */
+function AnnouncementChip() {
+  const list = AppData.AGENCY_NOTIFICATIONS || [];
+  const cutoff = Date.now() - 72 * 3600 * 1000;
+  const latest = list
+    .filter(n => n.kind === "broadcast" && !n.recipient_rep_id && n.title)
+    .filter(n => !n.created_at || new Date(n.created_at).getTime() >= cutoff)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+  if (!latest) return null;
+  const color = latest.severity === "danger"  ? "var(--danger)"
+              : latest.severity === "warn"    ? "var(--accent-heat)"
+              : latest.severity === "success" ? "var(--success)"
+              :                                  "var(--accent)";
+  return <span style={{ color }}>{latest.title}</span>;
 }
-
-/* AEP title chip — shown next to the page title when there's an active or
-   planned period applicable to the viewer. Replaces the hardcoded
-   <span>AEP Day 14</span> contamination from the original design. */
-function AepTitleChip({ ctx }) {
-  if (!ctx || !ctx.isLive) return null;
-  return <span style={{ color: "var(--accent-heat)" }}>{`AEP Day ${ctx.dayN}`}</span>;
-}
-
-/* AEPBanner removed 2026-05-15 — dead code, no callers (audits/DEAD_CODE.md). */
 
 function ForecastStrip({ scope = "team" }) {
   const runs = AppData.FORECAST_RUNS || [];
@@ -317,7 +308,7 @@ function todayDateStr() {
   return d.toISOString().slice(0, 10);
 }
 
-function TodayRep({ aep }) {
+function TodayRep() {
   const { REPS, QUEUE, RECORDINGS, COMMISSIONS, POLICIES, TASKS } = AppData;
 
   // Resolve current viewer. window.me() may be null on first paint; we still
@@ -485,7 +476,7 @@ function TodayRep({ aep }) {
       <div className="page-h">
         <div>
           <div className="page-title">
-            Today — {aep ? (() => { const ctx = useAepContext(myRow?.id, "rep"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}
+            Today <AnnouncementChip/>
             {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, marginLeft: 8, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
           </div>
           <div className="page-sub">{subline}</div>
@@ -787,7 +778,7 @@ function TodayRep({ aep }) {
           <div className="panel-h">
             <Icons.Bolt size={14} style={{ color: "var(--accent-money)" }}/>
             <h3>Daily ritual</h3>
-            <span className="meta">{aep ? "AEP cadence" : "regular"}</span>
+            <span className="meta">daily</span>
           </div>
           {(() => {
             // Was a hardcoded "9:00a Lead Drop · 47 fresh leads · done / 4:00p
@@ -851,7 +842,7 @@ function TodayRep({ aep }) {
  *   - NIGO sub-tab            → AppData.NIGOS + reasons + pipeline join, scoped
  *   - Stuck-deal "Needs me"   → AppData.PIPELINE rows in App-In/Quoted >3 days
  */
-function TodayManager({ aep }) {
+function TodayManager() {
   // Re-render on hydrate / mutation / me:loaded so scope picks up the
   // downline_ids the moment they resolve.
   const [, force] = React.useState(0);
@@ -917,9 +908,7 @@ function TodayManager({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {me?.agency_name || "Team"}
-            {aep && (() => { const ctx = useAepContext(null, "manager"); return ctx ? <> — <AepTitleChip ctx={ctx}/></> : null; })()}
-          </div>
+          <div className="page-title">Today · {me?.agency_name || "Team"} <AnnouncementChip/></div>
           <div className="page-sub">
             {REPS.length === 0
               ? "No producers in your downline yet"
@@ -1603,7 +1592,7 @@ function TodayManagerNigo({ scopeIds }) {
 }
 
 /* ───── Owner view ───────────────────────────────────────────────────────── */
-function TodayOwner({ aep }) {
+function TodayOwner() {
   // GAP-OD1: Owner Today now derives from live tables instead of hardcoded.
   const { REPS, COMMISSIONS, POLICIES, CLAWBACKS } = AppData;
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
@@ -1636,7 +1625,7 @@ function TodayOwner({ aep }) {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {agencyName} — {aep ? (() => { const ctx = useAepContext(null, "owner"); return ctx ? <AepTitleChip ctx={ctx}/> : "Q2"; })() : "Q2"}</div>
+          <div className="page-title">Today · {agencyName} <AnnouncementChip/></div>
           <div className="page-sub">{REPS.length} producers · ${teamToday.toLocaleString()} AP closed today · ${teamMTD.toLocaleString()} MTD</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1697,7 +1686,7 @@ function TodayOwner({ aep }) {
                 { sev: "warn",   t: "Persistency drift",  b: "FE 13-mo · Tampa downline · -3.2pts" },
                 { sev: "danger", t: "NIGO spike",          b: "Aetna SRC · 4 returned · age verification" },
                 { sev: "info",   t: "Lead source ROI",    b: "FB T65 v3 creative · -22% CPL" },
-                { sev: "warn",   t: "AEP cert lag",        b: "3 producers under 80% on TPMO" },
+                { sev: "warn",   t: "Carrier cert lag",    b: "3 producers under 80% on appointment renewals" },
               ].map((x, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: 8, borderRadius: 6, background: "var(--bg-raised)" }}>
                   <span className={`dot dot-${x.sev === "danger" ? "danger" : x.sev === "warn" ? "warn" : "live"}`} style={{ marginTop: 5 }}></span>

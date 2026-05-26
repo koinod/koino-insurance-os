@@ -5,13 +5,12 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "page": "today",
   "density": "comfortable",
   "aiRail": false,
-  "aepMode": true,
   "mobile": false
 }/*EDITMODE-END*/;
 
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const { role, page, density, aiRail, aepMode, mobile } = tweaks;
+  const { role, page, density, aiRail, mobile } = tweaks;
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [callLead, setCallLead] = useState(null);
@@ -197,7 +196,7 @@ function App() {
     if (mobile && role === "rep") return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
     if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
-      case "today":       return F("PageToday", { aep: aepMode, role });
+      case "today":       return F("PageToday", { role });
       case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
       // Pipeline + Calls used to mount through Floor; refactored 2026-05-22
       // so they route to their own pages — Floor is dialer-first now.
@@ -244,31 +243,31 @@ function App() {
       // All admin-* deep links land on the PageAdminHub with the right
       // initial sub-tab. The old per-route page mapping (one sidebar item per
       // admin surface) was collapsed 2026-05-25 — sidebar now has just "HQ".
-      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hq"       initialSubpage="hq"/>       : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-agencies" initialSubpage="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-billing"  initialSubpage="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-members"  initialSubpage="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-invites"  initialSubpage="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-carriers" initialSubpage="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-security" initialSubpage="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"      initialSubpage="audit"/>      : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hq"       initialSubpage="hq"/>       : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-agencies" initialSubpage="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-billing"  initialSubpage="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-members"  initialSubpage="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-invites"  initialSubpage="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-carriers" initialSubpage="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-security" initialSubpage="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"      initialSubpage="audit"/>      : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       // Pinnable sub-pages added 2026-05-25 — widget composer can drop these
       // directly into the sidebar. Each lands on the hub with the right
       // initialSubpage. Hierarchy/scrape/devices fall through the hub to
       // PageAdmin internally; the hub pill won't highlight (those tabs
       // aren't in HUB_TABS yet) which is acceptable for niche surfaces.
-      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-flags"     initialSubpage="flags"/>     : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-system"    initialSubpage="system"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-customize":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-customize" initialSubpage="customize"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-hierarchy":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hierarchy" initialSubpage="hierarchy"/> : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-scrape":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-scrape"    initialSubpage="scrape"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
-      case "admin-devices":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-devices"   initialSubpage="devices"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { aep: aepMode, role });
+      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-flags"     initialSubpage="flags"/>     : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-system"    initialSubpage="system"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-customize":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-customize" initialSubpage="customize"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-hierarchy":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hierarchy" initialSubpage="hierarchy"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-scrape":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-scrape"    initialSubpage="scrape"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-devices":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-devices"   initialSubpage="devices"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       case "platform":
       case "agencies":
       case "users":
       case "billing":
       case "audit":
-      case "system":      return F("PageToday", { aep: aepMode, role });
+      case "system":      return F("PageToday", { role });
       case "attribution": return F("PageAttribution", { role });
       case "nigo":        return F("PageNIGO",        { role });
 
@@ -284,7 +283,7 @@ function App() {
       case "invite-team": return F("PageInviteTeamRoute");
       case "lab":         return role === "super_admin"
                                 ? F("PageLab")
-                                : F("PageToday", { aep: aepMode, role });
+                                : F("PageToday", { role });
 
       // Legacy routes — kept so deep links + AI nav: hints don't 404 after
       // earlier owner nav consolidation. They redirect into related pages.
@@ -298,7 +297,7 @@ function App() {
 
       default:            return F("PageStub", { title: "Page", sub: "" });
     }
-  }, [page, mobile, aepMode, role]);
+  }, [page, mobile, role]);
 
   const crumbs = useMemo(() => {
     const role_ = { rep: "Rep", manager: "Manager", super_admin: "Admin" }[role] || "Manager";
@@ -324,7 +323,6 @@ function App() {
         {!mobile && (
           <Shared.Topbar
             crumbs={crumbs}
-            aep={aepMode}
             openCmdK={() => setCmdkOpen(true)}
             toggleRail={() => setTweak("aiRail", !aiRail)}
             railOn={aiRail}
@@ -362,7 +360,6 @@ function App() {
         <TweakSection label="Density & UI"/>
         <TweakRadio label="Density" value={density} options={[{value:"comfortable",label:"Comfy"},{value:"compact",label:"Compact"}]} onChange={(v) => setTweak("density", v)}/>
         <TweakToggle label="AI co-pilot rail" value={aiRail} onChange={(v) => setTweak("aiRail", v)}/>
-        <TweakToggle label="AEP surge mode" value={aepMode} onChange={(v) => setTweak("aepMode", v)}/>
         <TweakSection label="Try"/>
         <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
         <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>
