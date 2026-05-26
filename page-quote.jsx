@@ -350,6 +350,8 @@
         if (productKey === "annuity") {
           const ann = window.RateEngine.calculateAnnuityYield(carrier, profileForEngine);
           if (!ann) return { carrier, verdict: { ...verdict, eligibility: "ineligible", ineligibleReason: "Annuity not offered by this carrier" } };
+          // No APY / accumulated $ display — engine numbers are heuristic.
+          // Real APYs come only from a live carrier-portal run (RBA agent).
           return {
             carrier,
             verdict,
@@ -357,8 +359,8 @@
             premium: null,
             uwClass: null,
             methodology: ann.methodology,
-            displayValue: `${ann.apy}% APY · 5yr`,
-            displaySub: `$${ann.accumulated.toLocaleString()} at maturity (gain $${ann.gain.toLocaleString()})`,
+            displayValue: null,
+            displaySub: null,
             dbRateSourced: false,
           };
         }
@@ -381,24 +383,29 @@
           };
         }
         const reco = window.RateEngine.recommendReasons?.(carrier, productKey, profileForEngine, rate) || { reasons: [], sources: [], dbGrounded: false };
+        // 2026-05-26: stripped all $/mo display from manual quoter.
+        // Heuristic engine numbers AND DB-rate-table state averages are
+        // both misleading in a sales context — they look like binding
+        // quotes but aren't. The renderer surfaces a dollar figure ONLY
+        // when agentResults[c.id].status === 'ok' (live RBA run completed
+        // against the actual carrier portal with real MIB submission).
+        // `premium` / `uwClass` / `methodology` retained for downstream
+        // analytics + the autoquoter request payload, but never rendered.
         return {
           carrier,
           verdict,
           premium: rate.premium,
           uwClass: rate.uwClass,
           methodology: rate.methodology,
-          // displayValue is now PRICE-SECONDARY: see the JSX renderer for the
-          // DB-vs-estimate typography split. Keep the legacy field for the
-          // saved-quote write path + the SMS composer.
-          displayValue: `$${rate.premium}/mo`,
+          displayValue: null,
           displaySub: rate.uwClass,
           reasons: reco.reasons,
           sources: reco.sources,
           confidence: reco.confidence,
           dbGrounded: !!reco.dbGrounded,
-          dbRateSourced: !!rate.dbRateSourced,
-          dbRateConfidence: rate.dbRateConfidence || null,
-          dbRateNotes: rate.dbRateNotes || null,
+          dbRateSourced: false,
+          dbRateConfidence: null,
+          dbRateNotes: null,
         };
       });
 
@@ -488,9 +495,13 @@
       window.toast && window.toast(`Quote saved · best: ${best?.carrier.name || "no match"}`, "success");
     };
 
-    // Compose a short SMS-style body summarising the best pick. Stays
-    // under ~320 chars so it lands as one or two segments without
-    // truncation. Format: greeting + carrier · premium · class · CTA.
+    // Compose a short SMS-style body summarising the best pick.
+    // 2026-05-26: stripped all $/mo from outbound copy. Saved quotes
+    // capture eligibility/fit, not a live binding rate — the SMS used
+    // to read "best fit is X at $Y/mo" which falsely implied a quote.
+    // Now: name the best-fit carrier, invite the lead to a 60-second
+    // live-quote run. Real $ only happens after RBA logs into the
+    // portal with MIB info and gets a binding number back.
     const composeQuoteMessage = (q) => {
       const best = (q.ranked || [])[0];
       const leadFirst = (q.profile?.name || "").split(" ")[0] || "there";
@@ -500,9 +511,7 @@
       if (!best) {
         return `Hi ${leadFirst}, here's a quick note from ${repFirst} on your ${productLabel} — give me a call to walk through the carrier options.`;
       }
-      const price = best.displayValue || (best.premium ? `$${best.premium}/mo` : "—");
-      const klass = best.uwClass ? ` (${best.uwClass})` : "";
-      return `Hi ${leadFirst}, it's ${repFirst}. Pulled your ${productLabel}: best fit is ${best.name} at ${price}${klass}. Reply YES to lock it in or call me with questions.`;
+      return `Hi ${leadFirst}, it's ${repFirst}. Looked at ${productLabel} options for your profile — best fit is ${best.name}. Quickest way to lock in the actual rate is a 60-second call so I can run the binding quote with you on the line.`;
     };
 
     const sendQuote = async (q) => {
@@ -723,8 +732,12 @@
           <Shared.KpiCard label="Conversion"   value={conversionRate === null ? "—" : `${conversionRate}%`} sub="quoted → policy"/>
           <Shared.KpiCard
             label={bestIsStrongFit ? "Best fit" : "Top eligible"}
-            value={best ? (best.dbRateSourced ? best.displayValue : `~${best.displayValue || "—"}`) : "—"}
-            sub={best ? `${best.carrier.name}${best.dbRateSourced ? "" : " · engine estimate"}` : "no match"}
+            value={best ? best.carrier.name.split(/[ (]/)[0] : "—"}
+            sub={best
+              ? (best.verdict?.ruleCount > 0
+                  ? `${best.verdict.ruleCount} approved rule${best.verdict.ruleCount === 1 ? "" : "s"} backing this carrier`
+                  : "eligibility-only ranking")
+              : "no match"}
             trend={quoteResults.quoted.length > 0 ? "up" : undefined}/>
         </div>
 
@@ -1056,97 +1069,90 @@
               </div>
             )}
 
-            {/* Best Pick recommendation banner — leads with eligibility + fit,
-                NOT with price. The dollar number is shown secondary, labeled
-                "DB rate" only when the engine sourced it from
-                products.rate_table.plans[variant].state_factors[state] (mig
-                0060). Otherwise it's labeled "engine estimate" with a
-                muted-typography "~" prefix so the rep doesn't read the
-                number as authoritative — see CLAUDE.md guiding principle 5. */}
-            {best && profile.product !== "annuity" && (
-              <div className="quote-pick">
-                <div>
-                  <div className="quote-pick-h">
-                    {bestIsStrongFit ? "BEST FIT · per official underwriting" : "TOP ELIGIBLE · no strong sweet-spot match"}
+            {/* Best Pick recommendation banner — fit + eligibility ONLY.
+                2026-05-26: removed dollar-figure display (both the
+                heuristic engine estimate AND the state rate-table path).
+                Reps don't see a $/mo here because no $/mo here is real
+                until the RBA agent logs into the carrier portal and
+                returns a binding number — that comes in below as a
+                "live $X/mo" badge once auto_quote_results lands. */}
+            {best && (() => {
+              const bestLive = agentResults[best.carrier.id];
+              const liveOk = bestLive && bestLive.status === "ok" && bestLive.premium_cents != null;
+              return (
+                <div className="quote-pick">
+                  <div>
+                    <div className="quote-pick-h">
+                      {profile.product === "annuity"
+                        ? "BEST ANNUITY · ranked by fit"
+                        : bestIsStrongFit
+                          ? "BEST FIT · per official underwriting"
+                          : "TOP ELIGIBLE · no strong sweet-spot match"}
+                    </div>
+                    <div className="quote-pick-name">{best.carrier.name}</div>
+                    <div className="quote-pick-why">
+                      {best.verdict && (
+                        <div className="reason-row">
+                          <span className="reason-tag" style={{
+                            background: "color-mix(in oklch, var(--accent-money) 18%, transparent)",
+                            color: "var(--accent-money)",
+                          }}>{best.verdict.eligibility === "eligible" ? "eligible ✓" : best.verdict.eligibility}</span>
+                          <span>
+                            {best.verdict.ageVsSweetSpot === "in" && best.verdict.sweetSpot &&
+                              <>In carrier sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}). </>
+                            }
+                            {best.verdict.ageVsSweetSpot === "above" && best.verdict.sweetSpot &&
+                              <>Above sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, just not the ideal age band. </>
+                            }
+                            {best.verdict.ageVsSweetSpot === "below" && best.verdict.sweetSpot &&
+                              <>Below sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, but the carrier doesn't lead with this age. </>
+                            }
+                            {best.verdict.ageVsSweetSpot === "unknown" &&
+                              <>Sweet-spot age band not parsed from narrative. </>
+                            }
+                            {best.verdict.ruleCount} approved rule{best.verdict.ruleCount === 1 ? "" : "s"} backing this carrier.
+                          </span>
+                        </div>
+                      )}
+                      {(best.reasons || []).slice(0, 2).map((r, i) => (
+                        <div key={i} className="reason-row">
+                          <span className="reason-tag">{r.tag}</span>
+                          <span>{r.text}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="quote-pick-name">{best.carrier.name}</div>
-                  <div className="quote-pick-why">
-                    {/* Lead with eligibility + sweet-spot match (verdict) */}
-                    {best.verdict && (
-                      <div className="reason-row">
-                        <span className="reason-tag" style={{
-                          background: "color-mix(in oklch, var(--accent-money) 18%, transparent)",
-                          color: "var(--accent-money)",
-                        }}>{best.verdict.eligibility === "eligible" ? "eligible ✓" : best.verdict.eligibility}</span>
-                        <span>
-                          {best.verdict.ageVsSweetSpot === "in" && best.verdict.sweetSpot &&
-                            <>In carrier sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}). </>
-                          }
-                          {best.verdict.ageVsSweetSpot === "above" && best.verdict.sweetSpot &&
-                            <>Above sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, just not the ideal age band. </>
-                          }
-                          {best.verdict.ageVsSweetSpot === "below" && best.verdict.sweetSpot &&
-                            <>Below sweet-spot ({best.verdict.sweetSpot.lo}–{best.verdict.sweetSpot.hi}) — still binds, but the carrier doesn't lead with this age. </>
-                          }
-                          {best.verdict.ageVsSweetSpot === "unknown" &&
-                            <>Sweet-spot age band not parsed from narrative. </>
-                          }
-                          {best.verdict.ruleCount} approved rule{best.verdict.ruleCount === 1 ? "" : "s"} backing this carrier.
-                        </span>
-                      </div>
+                  <div>
+                    {liveOk ? (
+                      <>
+                        <div className="quote-pick-price">${Math.round(bestLive.premium_cents / 100)}/mo</div>
+                        <div className="quote-pick-class" style={{ color: "var(--accent-money)" }}>
+                          live · carrier portal
+                        </div>
+                        {bestLive.uw_class && (
+                          <div className="quote-pick-class">{bestLive.uw_class}</div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="quote-pick-class" style={{ fontSize: 11, color: "var(--text-tertiary)", fontStyle: "italic" }}>
+                          No binding rate yet
+                        </div>
+                        <div className="quote-pick-class" style={{ fontSize: 10, color: "var(--text-quaternary)", marginTop: 2 }}>
+                          Run live carrier rates ↓
+                        </div>
+                      </>
                     )}
-                    {(best.reasons || []).slice(0, 2).map((r, i) => (
-                      <div key={i} className="reason-row">
-                        <span className="reason-tag">{r.tag}</span>
-                        <span>{r.text}</span>
-                      </div>
-                    ))}
                   </div>
-                </div>
-                <div>
-                  {/* Price block: DB-sourced = bold money. Engine-estimate =
-                      smaller, muted, ~ prefix, italic "engine estimate" sub. */}
-                  {best.dbRateSourced ? (
-                    <>
-                      <div className="quote-pick-price">{best.displayValue}</div>
-                      <div className="quote-pick-class" style={{ color: "var(--accent-money)" }}>
-                        DB rate{best.dbRateConfidence ? ` · ${best.dbRateConfidence}` : ""}
-                      </div>
-                      <div className="quote-pick-class">{best.uwClass || "—"}</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="quote-pick-price" style={{
-                        fontSize: 16, color: "var(--text-secondary)", fontWeight: 500,
-                      }}>~{best.displayValue}</div>
-                      <div className="quote-pick-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)" }}>
-                        engine estimate · not authoritative
-                      </div>
-                      <div className="quote-pick-class">{best.uwClass || "—"}</div>
-                    </>
+                  {(best.sources || []).length > 0 && (
+                    <div className="quote-pick-source">
+                      Source: {best.sources.join(" · ")}
+                      {best.confidence && <span style={{ marginLeft: 8 }}>· confidence {best.confidence}</span>}
+                    </div>
                   )}
                 </div>
-                {(best.sources || []).length > 0 && (
-                  <div className="quote-pick-source">
-                    Source: {best.sources.join(" · ")}
-                    {best.confidence && <span style={{ marginLeft: 8 }}>· confidence {best.confidence}</span>}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {best && profile.product === "annuity" && (
-              <div className="quote-pick">
-                <div>
-                  <div className="quote-pick-h">Best annuity</div>
-                  <div className="quote-pick-name">{best.carrier.name}</div>
-                  <div className="quote-pick-why">{best.displaySub}</div>
-                </div>
-                <div>
-                  <div className="quote-pick-price">{best.displayValue}</div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {quoteResults.quoted.length === 0 && quoteResults.borderline.length === 0 && quoteResults.ineligible.length === 0 ? (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
@@ -1269,19 +1275,10 @@
                                     border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)",
                                   }}>no DB rules</span>
                           )}
-                          {/* DB state rate badge (migration 0060) — surfaces when calculatePremium
-                              honored products.rate_table.plans[variant].state_factors[profile.state]
-                              instead of the flat national-average baseline. */}
-                          {r.dbRateSourced && (
-                            <span title={`DB state rate · Plan ${profile.planVariant} · ${profile.state}${r.dbRateNotes ? "\n\n" + r.dbRateNotes : ""}`}
-                                  style={{
-                                    marginLeft: 6, fontSize: 9.5, padding: "1px 6px",
-                                    borderRadius: 3, fontWeight: 600,
-                                    background: "color-mix(in oklch, var(--accent-money) 18%, transparent)",
-                                    color: "var(--accent-money)",
-                                    border: "1px solid color-mix(in oklch, var(--accent-money) 40%, transparent)",
-                                  }}>DB state rate{r.dbRateConfidence ? ` · ${r.dbRateConfidence}` : ""}</span>
-                          )}
+                          {/* DB state-rate badge removed 2026-05-26: those numbers
+                              were state averages, not binding quotes, and reading
+                              them as the latter mislead reps. Only live RBA
+                              results render a dollar figure now. */}
                           {/* Live agent result badge */}
                           {agentResults[c.id] && (() => {
                             const ar = agentResults[c.id];
@@ -1318,35 +1315,32 @@
                       </div>
                       <div className="qr-reason" title={(r.methodology || []).join("\n")}>{reasonText}</div>
                       <div>
-                        {/* Price block: DB-sourced rates get full visual
-                            emphasis (large, money color). Engine estimates
-                            get smaller, italic, "~" prefix + "engine
-                            estimate" sub-label so the rep can't mistake
-                            them for binding numbers. */}
-                        {r.dbRateSourced ? (
-                          <>
-                            <div className={"qr-price tabular" + (isBest ? " qr-price-best" : "")}>
-                              {r.displayValue}
+                        {/* Price column: ONLY shows a $/mo when the RBA
+                            agent logged into this carrier's portal and
+                            returned a binding number (auto_quote_results
+                            with status='ok' + premium_cents). Heuristic
+                            estimates removed 2026-05-26 — they misled reps. */}
+                        {(() => {
+                          const ar = agentResults[c.id];
+                          if (ar && ar.status === "ok" && ar.premium_cents != null) {
+                            return (
+                              <>
+                                <div className={"qr-price tabular" + (isBest ? " qr-price-best" : "")}>
+                                  ${Math.round(ar.premium_cents / 100)}/mo
+                                </div>
+                                <div className="qr-class" style={{ color: "var(--accent-money)", fontWeight: 600 }}>
+                                  live · carrier portal
+                                </div>
+                                <div className="qr-class">{ar.uw_class || "—"}</div>
+                              </>
+                            );
+                          }
+                          return (
+                            <div className="qr-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)", textAlign: "right" }}>
+                              run live for rate
                             </div>
-                            <div className="qr-class" style={{ color: "var(--accent-money)", fontWeight: 600 }}>
-                              DB rate{r.dbRateConfidence ? ` · ${r.dbRateConfidence}` : ""}
-                            </div>
-                            <div className="qr-class">{r.displaySub || "—"}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="qr-price tabular" style={{
-                              fontSize: 14, color: "var(--text-secondary)",
-                              fontWeight: 500, fontStyle: "normal",
-                            }}>
-                              ~{r.displayValue}
-                            </div>
-                            <div className="qr-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)" }}>
-                              engine estimate
-                            </div>
-                            <div className="qr-class">{r.displaySub || "—"}</div>
-                          </>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1383,16 +1377,24 @@
                             {r.reasons?.[0]?.text || (r.methodology || []).slice(-2).join(" · ") || "—"}
                           </div>
                           <div>
-                            {r.dbRateSourced ? (
-                              <div className="qr-price tabular">{r.displayValue}</div>
-                            ) : (
-                              <div className="qr-price tabular" style={{
-                                fontSize: 14, color: "var(--text-tertiary)", fontWeight: 500,
-                              }}>~{r.displayValue || "—"}</div>
-                            )}
-                            <div className="qr-class" style={{ fontStyle: r.dbRateSourced ? "normal" : "italic", color: r.dbRateSourced ? "var(--accent-money)" : "var(--text-quaternary)" }}>
-                              {r.dbRateSourced ? "DB rate" : "engine estimate"}
-                            </div>
+                            {(() => {
+                              const ar = agentResults[c.id];
+                              if (ar && ar.status === "ok" && ar.premium_cents != null) {
+                                return (
+                                  <>
+                                    <div className="qr-price tabular">${Math.round(ar.premium_cents / 100)}/mo</div>
+                                    <div className="qr-class" style={{ color: "var(--accent-money)", fontWeight: 600 }}>
+                                      live · carrier portal
+                                    </div>
+                                  </>
+                                );
+                              }
+                              return (
+                                <div className="qr-class" style={{ fontStyle: "italic", color: "var(--text-quaternary)", textAlign: "right" }}>
+                                  run live for rate
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -1400,12 +1402,11 @@
                   </>
                 )}
 
-                {/* Methodology footnote — leans hard into "engine estimate
-                    is approximate, DB rate is the only authoritative
-                    number". Removes the prior framing that implied the
-                    engine number was usable for sales conversations. */}
+                {/* Methodology footnote — this tool does NOT show prices.
+                    Eligibility + fit only. Real binding $/mo comes from
+                    the RBA agent running live against carrier portals. */}
                 <div style={{ marginTop: 12, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-                  <strong>How this list is ranked:</strong> carriers are sorted by <em>fit quality</em> — eligibility plus sweet-spot age match per the producer-guide narrative — <em>not</em> by price. Carriers tagged <strong>DB rate</strong> use migration 0060's state-specific rate sheets (<code style={{ fontSize: 10.5 }}>products.rate_table.plans</code>) and the dollar number is authoritative within its confidence band. Carriers showing <strong>~$X/mo · engine estimate</strong> use a heuristic (base rate × state cost tier × per-carrier delta × UW class × tobacco rate-up × build chart × face-amount factor) — treat that number as an order-of-magnitude approximation, never as a binding quote. To replace estimates with binding numbers, click <strong>Get live carrier rates</strong> below. Currently loaded from <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code>: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}{grounding.rate_tables_loaded ? ` · ${grounding.rate_tables_loaded} state rate sheet${grounding.rate_tables_loaded === 1 ? "" : "s"}` : ""}.
+                  <strong>How this list is ranked:</strong> carriers are sorted by <em>fit quality</em> — eligibility plus sweet-spot age match per the producer-guide narrative. <strong>This tool does not estimate prices.</strong> A heuristic dollar figure would mislead the lead — the only number you'll see here is a <span style={{ color: "var(--accent-money)", fontWeight: 600 }}>live · carrier portal</span> rate returned by the RBA agent after it logged into the carrier's site with your producer credentials and submitted real MIB info. Until then each carrier shows "run live for rate." Loaded from <code style={{ fontSize: 10.5 }}>public.product_underwriting_rules</code>: {grounding.carriers} carrier{grounding.carriers === 1 ? "" : "s"} · {grounding.products} product{grounding.products === 1 ? "" : "s"} · {grounding.rules} rule{grounding.rules === 1 ? "" : "s"}.
                 </div>
 
                 {/* Get live carrier rates — dispatches the RBA (Role-Based
@@ -1446,7 +1447,7 @@
 
                   {agentRunStatus === "idle" && (
                     <span style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
-                      Replaces engine estimates above with binding quotes pulled from each carrier's portal (~60-90s). Requires the local RBA agent + carrier creds — set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "admin" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
+                      Pulls binding quotes from each carrier's portal — the only source of a real $/mo in this tool (~60-90s per carrier). Requires the local RBA agent + carrier credentials set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "admin" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
                     </span>
                   )}
 
@@ -1532,7 +1533,6 @@
                   <div className="tabular" style={{ color: "var(--text-tertiary)" }}>{q.profile.state} · {q.profile.age}</div>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                     {q.ranked[0]?.name || "—"}
-                    {q.ranked[0]?.displayValue && <span className="tabular" style={{ marginLeft: 6, color: "var(--accent-money)", fontWeight: 600 }}>{q.ranked[0].displayValue}</span>}
                   </div>
                   <div>
                     <span className={`chip ${q.status === "converted" ? "chip-money" : q.status === "sent" ? "chip-info" : ""}`}>
