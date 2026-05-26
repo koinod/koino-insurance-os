@@ -74,6 +74,7 @@ const NAV = {
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
+    { id: "pnl",         label: "My P&L",       icon: "Wallet" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   manager: [

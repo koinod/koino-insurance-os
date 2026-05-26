@@ -106,7 +106,253 @@
   }
 
   /* ── PagePnL ────────────────────────────────────────────────────────────── */
+  /* RepPersonalPnL ─────────────────────────────────────────────────────────
+   * Rep-facing P&L: their own commissions − their own out-of-pocket spend.
+   *
+   * Why this can't reuse manager_pnl_snapshot: the RPC hard-rejects
+   * role='rep' (security definer guard). So we query the three source
+   * tables directly, scoped by rep_id from window.me(). That's RLS-safe —
+   * commissions and policies are tenant-scoped, agency_expenses is
+   * already viewable to the rep for their own paid_by_rep_id rows.
+   *
+   * Per Ian's spec (2026-05-26):
+   *   - Reps see their own net, not their downline's.
+   *   - Uplines do NOT share the rep's expense column (already true: each
+   *     row in manager_pnl_snapshot counts only paid_by_rep_id = that
+   *     rep). Reps see only their own here for the same reason.
+   *   - "Lead spend" gets a dedicated row in the spend breakdown so reps
+   *     can see the ROAS contribution of their own paid ads.
+   *
+   * Manager spread/override note: when a manager earns an override on a
+   * rep's policy, the data model expects a commissions row with the
+   * MANAGER's rep_id. That row will show up here on the manager's
+   * personal view too (just summed into earned_comm). Override generation
+   * is a separate concern — UI honors it as soon as rows exist.
+   */
+  function RepPersonalPnL() {
+    const me = (window.me && window.me()) || null;
+    const agencyId = me?.agency_id || null;
+    const myRepId  = me?.rep_id    || null;
+
+    const [period, setPeriod] = useState("month");
+    const [custom, setCustom] = useState({ from: "", to: "" });
+    const [data, setData]     = useState(null);   // { commCents, expCents, apCents, deals, expByKind, expBySource }
+    const [sources, setSources] = useState({});   // id → {name, vendor}
+    const [loading, setLoading] = useState(true);
+    const [err, setErr]       = useState(null);
+    const [logDeal, setLogDeal] = useState(false);
+    const [logExp, setLogExp]   = useState(false);
+
+    const range = useMemo(() => rangeFor(period, custom), [period, custom]);
+
+    const load = useCallback(async () => {
+      if (!agencyId || !myRepId) { setLoading(false); return; }
+      setLoading(true); setErr(null);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        if (!sb) throw new Error("Supabase not connected");
+        const fromTs = range.from + "T00:00:00Z";
+        const toTs   = range.to   + "T23:59:59Z";
+
+        const [{ data: comms, error: e1 },
+               { data: pols,  error: e2 },
+               { data: exps,  error: e3 },
+               { data: srcs                  }] = await Promise.all([
+          sb.from("commissions")
+            .select("amount_cents,earned_at,policy_id")
+            .eq("rep_id", myRepId)
+            .gte("earned_at", fromTs).lte("earned_at", toTs),
+          sb.from("policies")
+            .select("ap_cents,submission_date")
+            .eq("agency_id", agencyId).eq("owner_rep_id", myRepId)
+            .gte("submission_date", range.from).lte("submission_date", range.to),
+          sb.from("agency_expenses")
+            .select("amount_cents,kind,lead_source_id,paid_at,description")
+            .eq("agency_id", agencyId).eq("paid_by_rep_id", myRepId)
+            .gte("paid_at", range.from).lte("paid_at", range.to),
+          // Vendor catalog so we can name lead_source_id in the breakdown.
+          sb.from("agency_lead_sources")
+            .select("id,name,vendor").eq("agency_id", agencyId),
+        ]);
+        const err = e1?.message || e2?.message || e3?.message || null;
+
+        const commCents = (comms || []).reduce((a, c) => a + (c.amount_cents || 0), 0);
+        const apCents   = (pols  || []).reduce((a, p) => a + (p.ap_cents     || 0), 0);
+        const deals     = (pols  || []).length;
+        const expCents  = (exps  || []).reduce((a, e) => a + (e.amount_cents || 0), 0);
+
+        const expByKind = {};
+        const expBySource = {};
+        for (const e of (exps || [])) {
+          expByKind[e.kind] = (expByKind[e.kind] || 0) + (e.amount_cents || 0);
+          if (e.kind === "lead_spend" && e.lead_source_id) {
+            expBySource[e.lead_source_id] = (expBySource[e.lead_source_id] || 0) + (e.amount_cents || 0);
+          }
+        }
+        const srcMap = {};
+        for (const s of (srcs || [])) srcMap[s.id] = s;
+
+        setData({ commCents, expCents, apCents, deals, expByKind, expBySource });
+        setSources(srcMap);
+        setErr(err);
+      } catch (e) {
+        setErr(e.message || String(e));
+        setData({ commCents: 0, expCents: 0, apCents: 0, deals: 0, expByKind: {}, expBySource: {} });
+      } finally {
+        setLoading(false);
+      }
+    }, [agencyId, myRepId, range]);
+
+    useEffect(() => { load(); }, [load]);
+
+    // Realtime: react to my own deal/expense logs without a manual refresh.
+    useEffect(() => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !agencyId) return;
+      const ch = sb.channel("rep-pnl-" + agencyId)
+        .on("postgres_changes", { event: "*", schema: "public", table: "policies",        filter: `agency_id=eq.${agencyId}` }, load)
+        .on("postgres_changes", { event: "*", schema: "public", table: "agency_expenses", filter: `agency_id=eq.${agencyId}` }, load)
+        .on("postgres_changes", { event: "*", schema: "public", table: "commissions"                                          }, load)
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    }, [agencyId, load]);
+
+    useEffect(() => {
+      window.addEventListener("pnl:refresh", load);
+      return () => window.removeEventListener("pnl:refresh", load);
+    }, [load]);
+
+    const net = (data?.commCents || 0) - (data?.expCents || 0);
+    const margin = data?.commCents ? (net / data.commCents) * 100 : 0;
+    const leadSpendCents = data?.expByKind?.lead_spend || 0;
+    const leadRoas = leadSpendCents ? (data?.commCents || 0) / leadSpendCents : 0;
+
+    if (!myRepId) {
+      return (
+        <div className="page-pad">
+          <div className="panel" style={{ padding: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-secondary)" }}>P&L unavailable</div>
+            <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 6 }}>
+              Your account isn't linked to a rep profile yet. Ask your manager to finish onboarding.
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const KIND_LABELS = {
+      lead_spend: "Lead spend", saas: "Phone / software", training: "Training",
+      travel: "Travel & mileage", marketing: "Marketing", meals: "Meals",
+      recruiting_ad: "Recruiting", other: "Other",
+    };
+    const kindRows = Object.entries(data?.expByKind || {})
+      .map(([kind, cents]) => ({ kind, label: KIND_LABELS[kind] || kind, cents }))
+      .sort((a, b) => b.cents - a.cents);
+    const sourceRows = Object.entries(data?.expBySource || {})
+      .map(([id, cents]) => ({ id, label: sources[id]?.name || "Untagged", vendor: sources[id]?.vendor || null, cents }))
+      .sort((a, b) => b.cents - a.cents);
+
+    return (
+      <div className="page-pad">
+        {logDeal && (() => { const D = window.QuickLogDeal;    return D ? <D onClose={() => setLogDeal(false)}/> : null; })()}
+        {logExp  && (() => { const E = window.QuickLogExpense; return E ? <E onClose={() => setLogExp(false)}/>  : null; })()}
+
+        <div className="page-h">
+          <div>
+            <div className="page-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              My P&L
+              <span className="chip chip-money" style={{ fontSize: 10.5 }}>Personal</span>
+            </div>
+            <div className="page-sub">Your commissions − your out-of-pocket spend. Uplines don't share these expenses.</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <select className="text-input" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ fontSize: 12, padding: "4px 8px" }}>
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="quarter">Quarter</option>
+              <option value="ytd">YTD</option>
+            </select>
+            <button className="btn" onClick={() => setLogExp(true)}><Icons.Wallet size={13}/> Log expense</button>
+            <button className="btn btn-primary" onClick={() => setLogDeal(true)}><Icons.Plus size={13}/> Log deal</button>
+          </div>
+        </div>
+
+        {err && (
+          <div className="panel" style={{ padding: 10, marginBottom: 8, color: "var(--state-warning)", fontSize: 12 }}>
+            Partial data — {err}
+          </div>
+        )}
+
+        <div className="kpi-row">
+          <Shared.KpiCard hero label="Net" prefix="$" value={fmt$(net).replace("$", "")} sub={`${margin.toFixed(0)}% margin`} trend={net >= 0 ? "up" : undefined}/>
+          <Shared.KpiCard      label="Earned commissions" prefix="$" value={fmt$(data?.commCents || 0).replace("$", "")} sub={`${data?.deals || 0} deal${data?.deals === 1 ? "" : "s"}`}/>
+          <Shared.KpiCard      label="My out-of-pocket"   prefix="$" value={fmt$(data?.expCents  || 0).replace("$", "")} sub={leadSpendCents ? `${fmt$(leadSpendCents)} lead spend` : "no spend"}/>
+          <Shared.KpiCard      label="Lead ROAS" value={leadSpendCents ? leadRoas.toFixed(2) + "x" : "—"} sub={leadSpendCents ? `vs. $${(leadSpendCents/100).toFixed(0)} ad spend` : "log lead spend → see ROAS"} trend={leadSpendCents && leadRoas >= 3 ? "up" : undefined}/>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 4 }}>
+          <div className="panel">
+            <div className="panel-h"><Icons.Wallet size={12}/><h3>Spend by category</h3><span className="meta">{kindRows.length}</span></div>
+            {kindRows.length === 0 ? (
+              <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                No out-of-pocket spend this period. Tag a lead-spend expense to see ROAS.
+              </div>
+            ) : (
+              <div className="list">
+                {kindRows.map(r => {
+                  const pct = data?.expCents ? (r.cents / data.expCents) * 100 : 0;
+                  return (
+                    <div key={r.kind} className="row" style={{ gridTemplateColumns: "1fr 110px 60px" }}>
+                      <div style={{ fontSize: 12.5 }}>{r.label}</div>
+                      <div className="tabular" style={{ textAlign: "right" }}>${(r.cents / 100).toLocaleString()}</div>
+                      <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{pct.toFixed(0)}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="panel">
+            <div className="panel-h"><Icons.TrendingUp size={12}/><h3>Lead spend by vendor</h3><span className="meta">{sourceRows.length}</span></div>
+            {sourceRows.length === 0 ? (
+              <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+                {leadSpendCents > 0
+                  ? "Your lead spend isn't tagged to a vendor. Re-log with a vendor selected to see ROAS contribution."
+                  : "No lead spend tagged. Log a lead-spend expense to see ROAS contribution."}
+              </div>
+            ) : (
+              <div className="list">
+                {sourceRows.map(r => (
+                  <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 110px" }}>
+                    <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.label}>
+                      {r.label}{r.vendor ? <span style={{ color: "var(--text-tertiary)", marginLeft: 6 }}>· {r.vendor}</span> : null}
+                    </div>
+                    <div className="tabular" style={{ textAlign: "right" }}>${(r.cents / 100).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: 14, marginTop: 14, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+          <strong style={{ color: "var(--text-secondary)" }}>Note:</strong> this is your personal P&L. Upline managers see overrides as separate
+          commission rows under their own name and don't roll your out-of-pocket spend into their P&L. If you pay for
+          ads, those costs are yours; if your upline earns a spread on your deals, that earning is theirs.
+        </div>
+      </div>
+    );
+  }
+  window.RepPersonalPnL = RepPersonalPnL;
+
   function PagePnL({ role }) {
+    // Reps land on a personal P&L; managers/owners get the full agency
+    // snapshot RPC (which hard-rejects rep role anyway).
+    if (role === "rep" || role === "agent") {
+      return <RepPersonalPnL/>;
+    }
     const me      = (window.me && window.me()) || null;
     const agencyId = me?.agency_id || null;
 

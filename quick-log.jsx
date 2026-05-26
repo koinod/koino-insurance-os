@@ -269,6 +269,13 @@
     const [addingNew, setAddingNew]   = useState(false);
     const [newName, setNewName]   = useState("");
     const [newVendor, setNewVendor] = useState("");
+    // Webhook provisioning — when ON, "Add vendor" also generates an
+    // inbound_slug + hmac_secret so the rep can paste a webhook URL into
+    // their lead-vendor's portal and start receiving leads immediately.
+    // Default ON because the typical reason a rep adds a vendor is they're
+    // about to start paying for leads from it.
+    const [provisionWebhook, setProvisionWebhook] = useState(true);
+    const [justCreated, setJustCreated] = useState(null); // { name, url, secret }
 
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -289,22 +296,66 @@
         });
     }, [form.cat, agencyId]);
 
+    // Browser-safe random hex (matches the page-leaddrip provisioning
+    // pattern so webhook secrets look identical across surfaces).
+    const randHex = (len) => {
+      const a = new Uint8Array(len);
+      crypto.getRandomValues(a);
+      return Array.from(a).map(b => b.toString(16).padStart(2, "0")).join("");
+    };
+    const slugify = (s) => String(s || "")
+      .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
     const createNewSource = async () => {
       if (!newName.trim()) { setErr("Name the vendor."); return; }
       const sb = window.getSupabase && window.getSupabase();
       if (!sb || !agencyId) { setErr("Supabase not connected."); return; }
-      const { data, error } = await sb.from("agency_lead_sources").insert({
+
+      const row = {
         agency_id: agencyId,
         name: newName.trim(),
         vendor: newVendor.trim() || null,
         active: true,
-      }).select("id,name,vendor").single();
+      };
+      // One-shot webhook provisioning so the rep doesn't have to come
+      // back later to wire intake. Keeps a single agency_lead_sources
+      // row — slug + secret + kind all stamped at create time.
+      if (provisionWebhook) {
+        row.inbound_slug = `${slugify(newName)}-${randHex(3)}`;
+        row.inbound_hmac_secret = randHex(32);
+        row.kind = "webhook";
+      }
+
+      const { data, error } = await sb.from("agency_lead_sources")
+        .insert(row)
+        .select("id,name,vendor,inbound_slug,inbound_hmac_secret,kind")
+        .single();
       if (error) { setErr(`Couldn't add vendor: ${error.message}`); return; }
+
       setSources(s => [...s, data].sort((a, b) => a.name.localeCompare(b.name)));
       set("leadSourceId", data.id);
       setAddingNew(false);
       setNewName(""); setNewVendor("");
-      window.toast && window.toast(`Added vendor: ${data.name}`, "success");
+
+      if (provisionWebhook && data.inbound_slug) {
+        const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+        setJustCreated({
+          name: data.name,
+          url: `${baseUrl}/api/leads/inbound-source?source=${data.inbound_slug}`,
+          secret: data.inbound_hmac_secret,
+        });
+      } else {
+        window.toast && window.toast(`Added vendor: ${data.name}`, "success");
+      }
+    };
+
+    const copyToClipboard = (text, label) => {
+      try {
+        navigator.clipboard.writeText(text);
+        window.toast && window.toast(`Copied ${label}`, "success");
+      } catch {
+        window.toast && window.toast(`Couldn't copy ${label}`, "error");
+      }
     };
 
     const submit = async () => {
@@ -483,6 +534,50 @@
                     </div>
                   )}
                 </>
+              ) : justCreated ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, background: "color-mix(in oklch, var(--accent-money) 8%, transparent)", borderRadius: 6, border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--accent-money)" }}>
+                    ✓ {justCreated.name} added — webhook ready
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
+                    Paste these into your vendor's portal so leads land in your queue. The signature header is{" "}
+                    <code className="mono" style={{ fontSize: 10.5 }}>x-webhook-signature: sha256=&lt;hex&gt;</code>.
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.04em" }}>Webhook URL</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        className="text-input mono"
+                        style={{ fontSize: 11, flex: 1, padding: "5px 8px" }}
+                        value={justCreated.url}
+                        readOnly
+                        onClick={(e) => e.target.select()}
+                      />
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => copyToClipboard(justCreated.url, "URL")}>
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.04em" }}>HMAC secret</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="password"
+                        className="text-input mono"
+                        style={{ fontSize: 11, flex: 1, padding: "5px 8px" }}
+                        value={justCreated.secret}
+                        readOnly
+                        onClick={(e) => e.target.select()}
+                      />
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => copyToClipboard(justCreated.secret, "secret")}>
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <button type="button" className="btn btn-ghost" style={{ fontSize: 11, alignSelf: "flex-start" }} onClick={() => setJustCreated(null)}>
+                    Done — log the expense
+                  </button>
+                </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
                   <input
@@ -500,6 +595,18 @@
                     onChange={(e) => setNewVendor(e.target.value)}
                     placeholder="Vendor (optional, e.g. Convoso)"
                   />
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.4, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={provisionWebhook}
+                      onChange={(e) => setProvisionWebhook(e.target.checked)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      Generate inbound-webhook URL + secret
+                      <span style={{ color: "var(--text-tertiary)" }}> · so leads from this vendor land in your queue automatically</span>
+                    </span>
+                  </label>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button type="button" className="btn btn-primary" style={{ fontSize: 12 }} onClick={createNewSource}>
                       Add vendor
