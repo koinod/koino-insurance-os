@@ -123,6 +123,177 @@
     return out;
   }
 
+  const FLOOR_POWER_TOGGLES = {
+    record: true,
+    sms_pre: false,
+    sms_post: true,
+    email: false,
+    ai_voicemail: true,
+    ai_assistant: true,
+    whisper: true,
+    sms_lane: "sendblue_then_twilio",
+  };
+
+  function isManagerRole(role) {
+    return ["manager", "owner", "admin", "imo_owner", "super_admin"].includes(role);
+  }
+
+  function money(n) {
+    const v = Number(n || 0);
+    return `$${Math.round(v).toLocaleString()}`;
+  }
+
+  function resolveFloorRep() {
+    const ident = (typeof window !== "undefined" && window.me && window.me()) || null;
+    return (ident?.rep_id && AppData.REPS?.find(r => r.id === ident.rep_id))
+        || (window.isDemoAgency && window.isDemoAgency() ? (AppData.REPS && AppData.REPS[0]) : null)
+        || null;
+  }
+
+  function heatScore(h) {
+    return h === "hot" ? 40 : h === "fresh" ? 32 : h === "warm" ? 22 : 8;
+  }
+
+  function stageScore(s) {
+    return s === "New" ? 34 : s === "Contacted" ? 30 : s === "Quoted" ? 24 : s === "App In" ? 10 : 0;
+  }
+
+  function buildFloorDialerLeads(role) {
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const myRepId = meIdent?.rep_id || resolveFloorRep()?.id || null;
+    const seen = new Set();
+    const rows = [];
+    const push = (p, sourceRank) => {
+      if (!p || !p.phone || !p.id || seen.has(p.id)) return;
+      if (p.stage === "Issued" || p.stage === "Lost") return;
+      if (!isManagerRole(role) && myRepId && p.owner && p.owner !== myRepId) return;
+      seen.add(p.id);
+      const expectedAp = Number(p.ap || 0);
+      const score = sourceRank + heatScore(p.heat) + stageScore(p.stage) + Math.min(22, expectedAp / 180) - Math.min(12, Number(p.days || 0));
+      rows.push({ ...p, expectedAp, dialScore: score });
+    };
+
+    (AppData.PIPELINE || []).forEach(p => push(p, 10));
+
+    // Queue rows are useful for the rail, but the power dialer session should
+    // prefer pipeline UUIDs. Only add queue rows that already point at a lead.
+    (AppData.QUEUE || []).forEach(q => {
+      const leadId = q.lead_id || q.leadId;
+      if (!leadId) return;
+      push({
+        id: leadId,
+        lead: q.lead,
+        age: q.age,
+        state: q.state,
+        stage: "New",
+        product: q.product,
+        ap: 0,
+        days: 0,
+        last: q.elapsed ? `${q.elapsed}s` : "",
+        next: "First dial",
+        source: q.source || "inbound",
+        owner: q.assignedRepId || myRepId,
+        consent: "verified",
+        heat: q.elapsed < 30 ? "hot" : "fresh",
+        phone: q.phone || null,
+      }, 24);
+    });
+
+    return rows.sort((a, b) => b.dialScore - a.dialScore);
+  }
+
+  function buildFloorPowerQueue(leads) {
+    if (window.PowerDialerApi?.buildDialQueue) return window.PowerDialerApi.buildDialQueue(leads);
+    return (leads || []).map(l => {
+      const raw = String(l.phone || "").trim();
+      const digits = raw.replace(/\D/g, "");
+      const phone = raw.startsWith("+") ? raw.replace(/[^\d+]/g, "")
+        : digits.length === 10 ? `+1${digits}`
+        : digits.length === 11 && digits.startsWith("1") ? `+${digits}`
+        : raw.replace(/[^\d+]/g, "");
+      return {
+        lead_id: /^[0-9a-f-]{36}$/i.test(String(l.id || "")) ? l.id : null,
+        phone,
+        state: l.state || null,
+        name: l.lead || l.name || "Lead",
+        product: l.product || null,
+        source: l.source || null,
+      };
+    }).filter(l => l.phone && l.phone.replace(/\D/g, "").length >= 10);
+  }
+
+  async function floorDialerFetch(path, opts = {}) {
+    if (window.PowerDialerApi?.dialerFetch) return window.PowerDialerApi.dialerFetch(path, opts);
+    const headers = { ...(opts.headers || {}) };
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const { data } = await sb.auth.getSession();
+      const jwt = data?.session?.access_token || null;
+      if (jwt) headers.authorization = `Bearer ${jwt}`;
+    } catch {}
+    return fetch(path, { ...opts, headers });
+  }
+
+  function useRecentPowerAttempts(repId) {
+    const [rows, setRows] = useState([]);
+    useEffect(() => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !repId) return;
+      let alive = true;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const load = async () => {
+        try {
+          const { data, error } = await sb.from("call_attempts")
+            .select("id,session_id,lead_id,to_number,fired_at,answered_at,disposition,amd_result,duration_sec,ai_summary,ai_outcome")
+            .eq("rep_id", repId)
+            .gte("fired_at", today.toISOString())
+            .order("fired_at", { ascending: false })
+            .limit(8);
+          if (!error && alive) setRows(data || []);
+        } catch {}
+      };
+      load();
+      const ch = sb.channel(`floor-attempts:${repId}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "call_attempts", filter: `rep_id=eq.${repId}` }, load)
+        .subscribe();
+      return () => { alive = false; try { sb.removeChannel(ch); } catch {} };
+    }, [repId]);
+    return rows;
+  }
+
+  function useDialerReadiness(agencyId) {
+    const [state, setState] = useState({ status: "checking", ready: null, blocked: null });
+    useEffect(() => {
+      if (!agencyId || (window.isDemoAgency && window.isDemoAgency())) {
+        setState({ status: "demo", ready: null, blocked: null });
+        return;
+      }
+      let cancelled = false;
+      (async () => {
+        try {
+          const r = await fetch(`/api/system/dial-readiness?agency_id=${encodeURIComponent(agencyId)}`);
+          const j = await r.json();
+          if (!cancelled) setState({ status: r.ok ? "ok" : "error", ready: j.ready_reps, blocked: j.blocked_reps, blockers: j.blockers || [] });
+        } catch {
+          if (!cancelled) setState({ status: "error", ready: null, blocked: null });
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [agencyId]);
+    return state;
+  }
+
+  function useViewportWidth() {
+    const [width, setWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1440));
+    useEffect(() => {
+      const onResize = () => setWidth(window.innerWidth || 1440);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }, []);
+    return width;
+  }
+
   function AutodialBar({ state, setState }) {
     const { on, paused, ratePerHr } = state;
     const [, force] = useState(0);
@@ -233,7 +404,7 @@
   // ────────────────────────────────────────────────────────────────────────
   // Mode toggle — pill row at the top
   // ────────────────────────────────────────────────────────────────────────
-  function ModeTabs({ mode, setMode }) {
+  function ModeTabs({ mode, setMode, role }) {
     // Floor = dialing + closing. Other surfaces have own routes:
     //   /pipeline → PagePipeline (kanban)
     //   /calls    → PageCalls    (history)
@@ -244,6 +415,7 @@
       <Shared.SectionPill
         items={[
           { k: "live",      l: "Live" },
+          ...(isManagerRole(role) ? [{ k: "dispatch", l: "Dispatch" }] : []),
           { k: "deals",     l: "Deals" },
           { k: "followups", l: "Follow-ups" },
         ]}
@@ -632,6 +804,364 @@
         <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· dials route to system dialer · transcription mic-only</span>
         <Icons.ArrowRight size={11}/>
       </button>
+    );
+  }
+
+  function DialMetric({ label, value, sub, tone }) {
+    return (
+      <div style={{
+        minWidth: 0,
+        padding: "10px 12px",
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+      }}>
+        <div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+        <div style={{ marginTop: 4, fontSize: 20, lineHeight: 1, fontWeight: 700, color: tone || "var(--text-primary)" }}>{value}</div>
+        {sub && <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
+      </div>
+    );
+  }
+
+  function DialQueueRail({ leads, activeId }) {
+    return (
+      <div style={{
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}>
+        <div className="panel-h">
+          <Icons.PhoneCall size={13} style={{ color: "var(--accent-money)" }}/>
+          <h3>Call queue</h3>
+          <span className="meta">{leads.length}</span>
+        </div>
+        <div style={{ maxHeight: 612, overflowY: "auto" }}>
+          {leads.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>No dialable leads with phone numbers.</div>
+          )}
+          {leads.slice(0, 28).map((l, i) => {
+            const active = l.id === activeId;
+            return (
+              <div key={l.id} style={{
+                padding: "10px 12px",
+                borderTop: "1px solid var(--border-subtle)",
+                background: active ? "color-mix(in oklch, var(--accent-money) 12%, transparent)" : "transparent",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span className="mono" style={{ fontSize: 10.5, color: active ? "var(--accent-money)" : "var(--text-quaternary)", width: 18 }}>{i + 1}</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.lead || "Lead"}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {l.stage || "New"} · {l.product || "No product"} · {l.state || "—"}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, color: l.heat === "hot" || l.heat === "fresh" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{l.heat || "warm"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                  <span>{l.source || "pipeline"}</span>
+                  <span>{l.expectedAp ? `${money(l.expectedAp)} AP` : "AP open"}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function CallStageAssist({ lead }) {
+    const stages = [
+      { k: "connect", label: "Connect", main: lead ? `${lead.source || "Lead"} · ${lead.state || "state open"}` : "Waiting" },
+      { k: "discover", label: "Discovery", main: "goal · budget · beneficiary" },
+      { k: "health", label: "Health", main: "tobacco · meds · conditions" },
+      { k: "quote", label: "Quote", main: lead?.age && lead?.state ? "ready for rating" : "age + state needed" },
+      { k: "app", label: "Application", main: "rep-controlled carrier app" },
+      { k: "wrap", label: "Wrap", main: "outcome · summary · follow-up" },
+    ];
+    return (
+      <div style={{
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}>
+        <div className="panel-h">
+          <Icons.Sparkles size={13} style={{ color: "var(--accent-money)" }}/>
+          <h3>Call assist</h3>
+          <span className="meta">stage-aware</span>
+        </div>
+        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 8 }}>
+          {stages.map((s, idx) => (
+            <div key={s.k} style={{
+              minHeight: 76,
+              padding: 10,
+              borderRadius: 7,
+              background: idx === 0 ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
+              border: idx === 0 ? "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)" : "1px solid var(--border-subtle)",
+            }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: idx === 0 ? "var(--accent-money)" : "var(--text-primary)" }}>{s.label}</div>
+              <div style={{ marginTop: 7, fontSize: 11, lineHeight: 1.35, color: "var(--text-tertiary)" }}>{s.main}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function RecentAttemptsStrip({ attempts }) {
+    const label = (a) => a.disposition || a.amd_result || (a.answered_at ? "answered" : "dialed");
+    return (
+      <div style={{
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}>
+        <div className="panel-h">
+          <Icons.Activity size={13}/>
+          <h3>Recent dials</h3>
+          <span className="meta">today</span>
+        </div>
+        {attempts.length === 0 ? (
+          <div style={{ padding: 14, fontSize: 12, color: "var(--text-tertiary)" }}>No power-dialer attempts yet today.</div>
+        ) : attempts.slice(0, 5).map(a => (
+          <div key={a.id} style={{ padding: "9px 12px", borderTop: "1px solid var(--border-subtle)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <span className="mono" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{a.to_number}</span>
+              <span className="chip" style={{ fontSize: 10.5, color: a.disposition === "connected" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{label(a)}</span>
+            </div>
+            {(a.ai_summary || a.ai_outcome) && (
+              <div style={{ marginTop: 5, fontSize: 10.5, color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {a.ai_outcome || a.ai_summary}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function FloorDialerCockpit({ role }) {
+    const [, force] = useState(0);
+    useEffect(() => {
+      const h = () => force(n => n + 1);
+      ["data:hydrated", "data:mutated", "data:realtime", "autodial:queue:changed"].forEach(e => window.addEventListener(e, h));
+      return () => ["data:hydrated", "data:mutated", "data:realtime", "autodial:queue:changed"].forEach(e => window.removeEventListener(e, h));
+    }, []);
+
+    const meIdent = (typeof window !== "undefined" && window.me && window.me()) || {};
+    const repId = meIdent.rep_id || meIdent.id || resolveFloorRep()?.id || "";
+    const agencyId = meIdent.agency_id || "";
+    const leads = buildFloorDialerLeads(role);
+    const queue = buildFloorPowerQueue(leads);
+    const activeLead = leads[0] || null;
+    const attempts = useRecentPowerAttempts(repId);
+    const readiness = useDialerReadiness(agencyId);
+    const viewportWidth = useViewportWidth();
+    const stacked = viewportWidth < 1120;
+    const [running, setRunning] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [maxLines, setMaxLines] = useState(() => {
+      try { return Number(localStorage.getItem("repflow.floor.power.maxLines") || 3); } catch { return 3; }
+    });
+    const [toggles, setToggles] = useState(() => {
+      try { return { ...FLOOR_POWER_TOGGLES, ...(JSON.parse(localStorage.getItem("repflow_power_toggles") || "{}")) }; }
+      catch { return FLOOR_POWER_TOGGLES; }
+    });
+    useEffect(() => {
+      try {
+        localStorage.setItem("repflow.floor.power.maxLines", String(maxLines));
+        localStorage.setItem("repflow_power_toggles", JSON.stringify(toggles));
+      } catch {}
+    }, [maxLines, toggles]);
+
+    const calls = attempts.length;
+    const connects = attempts.filter(a => a.disposition === "connected" || a.answered_at).length;
+    const apQueued = leads.reduce((a, l) => a + Number(l.expectedAp || 0), 0);
+    const connectRate = calls ? Math.round((connects / calls) * 100) : 0;
+    const readinessText = readiness.status === "ok"
+      ? `${readiness.ready ?? 0} ready · ${readiness.blocked ?? 0} blocked`
+      : readiness.status === "checking" ? "checking" : readiness.status;
+
+    const startSession = async () => {
+      if (busy) return;
+      if (!repId || !agencyId) return window.toast?.("Power Dialer: sign in with an agency session", "error");
+      if (!queue.length) return window.toast?.("No dialable leads with phone numbers", "warn");
+      setBusy(true);
+      try {
+        const r = await floorDialerFetch("/api/dial/start", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agencyId, repId, maxLines, leadQueue: queue, toggles }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          window.toast?.(j.message || j.error || `Power Dialer failed (${r.status})`, "error");
+          return;
+        }
+        setRunning(j);
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const toggle = (key) => setToggles(t => ({ ...t, [key]: !t[key] }));
+    const runQuoteAssist = () => {
+      if (!activeLead || !window.enqueueAgentJob) return window.toast?.("Agent quote action unavailable", "warn");
+      window.enqueueAgentJob({
+        kind: "auto_quote",
+        payload: {
+          lead_id: activeLead.id,
+          lead_name: activeLead.lead,
+          age: activeLead.age,
+          state: activeLead.state,
+          product: activeLead.product,
+        },
+      }, { surface: "floor_live" });
+    };
+
+    if (running && window.PowerDialerSession) {
+      const Session = window.PowerDialerSession;
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: stacked ? "1fr" : "300px minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
+          <DialQueueRail leads={leads} activeId={activeLead?.id}/>
+          <Session
+            sessionId={running.session.id}
+            livekit={running.livekit}
+            repId={repId}
+            agencyId={agencyId}
+            embedded
+            onEnd={() => setRunning(null)}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: stacked ? "1fr" : "300px minmax(0, 1fr) 320px", gap: 14, alignItems: "start" }}>
+        <DialQueueRail leads={leads} activeId={activeLead?.id}/>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 8 }}>
+            <DialMetric label="Queue" value={queue.length} sub={`${leads.length} ranked`}/>
+            <DialMetric label="AP queued" value={money(apQueued)} sub={activeLead?.product || "products open"} tone="var(--accent-money)"/>
+            <DialMetric label="Dials" value={calls} sub="today"/>
+            <DialMetric label="Connects" value={`${connectRate}%`} sub={`${connects}/${calls || 0}`}/>
+            <DialMetric label="Readiness" value={readiness.ready ?? "—"} sub={readinessText}/>
+          </div>
+
+          <div style={{
+            background: "var(--surface-elev)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: 8,
+            padding: 18,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-money)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  <span className="dot" style={{ background: "var(--accent-money)" }}/> Floor Live
+                </div>
+                <div style={{ marginTop: 8, fontSize: 30, lineHeight: 1.1, fontWeight: 750, letterSpacing: 0 }}>
+                  {activeLead ? activeLead.lead : "Power dialer"}
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-tertiary)", fontSize: 12 }}>
+                  <span>{activeLead?.age || "—"} age</span>
+                  <span>·</span>
+                  <span>{activeLead?.state || "—"}</span>
+                  <span>·</span>
+                  <span>{activeLead?.phone || "no phone"}</span>
+                  <span>·</span>
+                  <span>{activeLead?.source || "pipeline"}</span>
+                </div>
+              </div>
+              <button className="btn btn-primary" onClick={startSession} disabled={busy || queue.length === 0}
+                style={{ minWidth: 190, minHeight: 44, background: queue.length ? "var(--accent-money)" : "var(--bg-raised)", color: queue.length ? "#022" : "var(--text-tertiary)", fontWeight: 800 }}>
+                <Icons.Play size={14}/> {busy ? "Starting..." : `Start ${maxLines} lines`}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: stacked ? "1fr" : "minmax(0, 1fr) 240px", gap: 14 }}>
+              <div style={{
+                minHeight: 180,
+                padding: 14,
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 8,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Icons.Shield size={13} style={{ color: "var(--accent-money)" }}/>
+                  <strong style={{ fontSize: 13 }}>Live call workspace</strong>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                  {[
+                    ["Intent", activeLead?.product || "coverage open"],
+                    ["Next", activeLead?.next || "first dial"],
+                    ["Health", "conditions · meds · tobacco"],
+                    ["Banking", "rep controls app"],
+                    ["Quote", activeLead?.age && activeLead?.state ? "rating ready" : "age/state needed"],
+                    ["Compliance", toggles.record ? "recording on" : "recording off"],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ padding: 10, background: "var(--surface-elev)", borderRadius: 7, border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>{k}</div>
+                      <div style={{ marginTop: 5, fontSize: 12.5, color: "var(--text-secondary)" }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                padding: 14,
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 8,
+              }}>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>Session</div>
+                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>
+                  Lines <strong style={{ color: "var(--accent-money)" }}>{maxLines}</strong>
+                  <input type="range" min="1" max="10" value={maxLines} onChange={e => setMaxLines(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }}/>
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 14 }}>
+                  {[
+                    ["record", "Record"],
+                    ["ai_assistant", "AI handle"],
+                    ["ai_voicemail", "VM drop"],
+                    ["sms_post", "SMS wrap"],
+                  ].map(([key, label]) => (
+                    <button key={key} className="btn btn-ghost" onClick={() => toggle(key)}
+                      style={{ justifyContent: "center", color: toggles[key] ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                      {toggles[key] ? <Icons.Check size={12}/> : <Icons.X size={12}/>} {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <CallStageAssist lead={activeLead}/>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+          <div style={{ background: "var(--surface-elev)", border: "1px solid var(--border-subtle)", borderRadius: 8, overflow: "hidden" }}>
+            <div className="panel-h">
+              <Icons.Wallet size={13} style={{ color: "var(--accent-money)" }}/>
+              <h3>Quote assist</h3>
+              <span className="meta">{activeLead?.state || "—"}</span>
+            </div>
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 650 }}>{activeLead?.product || "Product open"}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                {activeLead ? `${activeLead.age || "Age open"} · ${activeLead.state || "state open"} · ${activeLead.heat || "warm"} lead` : "No active lead"}
+              </div>
+              <button className="btn btn-primary" onClick={runQuoteAssist} disabled={!activeLead}
+                style={{ marginTop: 14, width: "100%", justifyContent: "center", background: "var(--accent-money)", color: "#022", fontWeight: 750 }}>
+                <Icons.Sparkles size={13}/> Run quote assist
+              </button>
+            </div>
+          </div>
+          <RecentAttemptsStrip attempts={attempts}/>
+        </div>
+      </div>
     );
   }
 
@@ -1376,10 +1906,9 @@
   // remembers the last mode in localStorage.
   // ────────────────────────────────────────────────────────────────────────
   function PageFloor({ onCall, role = "rep", defaultMode }) {
-    // Floor modes (2026-05-22): live | deals | followups. Pipeline + History
-    // were dropped — they have own routes (/pipeline → PagePipeline, /calls →
-    // PageCalls). Legacy deep links (?floor=pipeline) land on "live".
-    const VALID_MODES = ["live", "deals", "followups"];
+    // Floor modes: live is the rep call cockpit. Manager-style dispatch remains
+    // available but no longer competes with the dialer on the first screen.
+    const VALID_MODES = ["live", ...(isManagerRole(role) ? ["dispatch"] : []), "deals", "followups"];
     const initialMode = (() => {
       if (defaultMode && VALID_MODES.includes(defaultMode)) return defaultMode;
       try {
@@ -1397,7 +1926,6 @@
         setMode(defaultMode);
       }
     }, [defaultMode]);
-    const [autodialer, setAutodialer] = useAutodialer();
 
     useEffect(() => {
       try { localStorage.setItem("repflow.floor.mode", mode); } catch {}
@@ -1410,39 +1938,19 @@
           <div>
             <div className="page-title">Floor</div>
             <div className="page-sub">
-              Queue · pipeline · calls · autodialer — one workspace.
+              Live dialing · call assist · quote workflow.
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <ModeTabs mode={mode} setMode={setMode}/>
+            <ModeTabs mode={mode} setMode={setMode} role={role}/>
           </div>
         </div>
 
         {/* Horizontal money bar — relevant-to-dialing numbers. Always visible. */}
         <FloorTopStrip role={role}/>
 
-        {/* Autodialer strip — the headline capability of the Floor. Always
-            visible regardless of mode so the rep can start, pause, resume,
-            or stop the dialer. Auto-record is wired in CallRecorderPanel via
-            autodial:call:start and autodial:call:end events. */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "12px 16px", marginBottom: 12,
-          background: "var(--surface-elev)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: 10,
-          gap: 14, flexWrap: "wrap",
-        }}>
-          <AutodialBar state={autodialer} setState={setAutodialer}/>
-          <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textAlign: "right", flex: "0 1 auto" }}>
-            Auto-records · auto-SMS on outcome
-          </span>
-        </div>
-
-        {/* Always-visible call recorder + recent-calls list (role-aware via RLS) */}
-        <CallRecorderPanel role={role}/>
-
-        {mode === "live"      && <LiveMode      role={role} onCall={onCall}/>}
+        {mode === "live"      && <FloorDialerCockpit role={role}/>}
+        {mode === "dispatch"  && <LiveMode      role={role} onCall={onCall}/>}
         {mode === "deals"     && <DealsMode     role={role}/>}
         {mode === "followups" && <FollowupsMode role={role}/>}
       </div>

@@ -155,8 +155,62 @@
     return { state, room: roomRef.current };
   }
 
+  function isUuid(v) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || ''));
+  }
+
+  function normalizeDialLead(l) {
+    const rawPhone = String(l.phone || l.contact_phone || '').trim();
+    const digits = rawPhone.replace(/\D/g, '');
+    const phone = rawPhone.startsWith('+')
+      ? rawPhone.replace(/[^\d+]/g, '')
+      : digits.length === 10
+        ? `+1${digits}`
+        : digits.length === 11 && digits.startsWith('1')
+          ? `+${digits}`
+          : rawPhone.replace(/[^\d+]/g, '');
+    const name = [l.first_name, l.last_name].filter(Boolean).join(' ')
+      || l.full_name
+      || l.lead
+      || l.name
+      || 'Lead';
+    return {
+      lead_id: isUuid(l.id || l.lead_id || l.leadId) ? (l.id || l.lead_id || l.leadId) : null,
+      phone,
+      state: l.state || null,
+      name,
+      product: l.product || null,
+      source: l.source || null,
+    };
+  }
+
+  function buildDialQueue(leads) {
+    return (leads || [])
+      .slice(0, 200)
+      .map(normalizeDialLead)
+      .filter(l => l.phone && l.phone.replace(/\D/g, '').length >= 10);
+  }
+
+  async function dialerAuthHeaders(base = {}) {
+    const headers = { ...base };
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb?.auth?.getSession) {
+        const { data } = await sb.auth.getSession();
+        const jwt = data?.session?.access_token || null;
+        if (jwt) headers.authorization = `Bearer ${jwt}`;
+      }
+    } catch {}
+    return headers;
+  }
+
+  async function dialerFetch(path, opts = {}) {
+    const headers = await dialerAuthHeaders(opts.headers || {});
+    return fetch(path, { ...opts, headers });
+  }
+
   // ---- launcher --------------------------------------------------------
-  function PowerDialerLauncher({ leads = [], repId, agencyId }) {
+  function PowerDialerLauncher({ leads = [], repId, agencyId, embedded = false }) {
     const [open, setOpen] = useState(false);
     const [running, setRunning] = useState(null);
     const [maxLines, setMaxLines] = useState(3);
@@ -170,16 +224,11 @@
     }, [toggles]);
 
     async function start() {
-      const queue = leads.slice(0, 200).map(l => ({
-        lead_id: l.id,
-        phone:   String(l.phone || '').replace(/[^\d+]/g, '').replace(/^(?!\+)/, '+1'),
-        state:   l.state || null,
-        name:    [l.first_name, l.last_name].filter(Boolean).join(' ') || l.full_name || 'Lead',
-      })).filter(l => l.phone.length >= 11);
+      const queue = buildDialQueue(leads);
 
       if (!queue.length) { window.toast?.('No dial-able leads in selection', 'warn'); return; }
 
-      const r = await fetch('/api/dial/start', {
+      const r = await dialerFetch('/api/dial/start', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ agencyId, repId, maxLines, leadQueue: queue, toggles }),
       });
@@ -247,6 +296,7 @@
             livekit={running.livekit}
             repId={repId}
             agencyId={agencyId}
+            embedded={embedded}
             onEnd={() => setRunning(null)}
           />
         )}
@@ -255,7 +305,7 @@
   }
 
   // ---- session takeover ------------------------------------------------
-  function PowerDialerSession({ sessionId, livekit, repId, agencyId, onEnd }) {
+  function PowerDialerSession({ sessionId, livekit, repId, agencyId, onEnd, embedded = false }) {
     // supabase-config.js sets window.SUPABASE_URL + window.SUPABASE_ANON.
     // Create our own client (RLS via the user's session JWT picked up from
     // localStorage by the supabase-js auth-storage adapter).
@@ -280,7 +330,7 @@
       if (working) return;
       setWorking(true);
       try {
-        const r = await fetch('/api/dial/dial-next', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
+        const r = await dialerFetch('/api/dial/dial-next', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
         const j = await r.json();
         if (j.reason && j.dialed === 0) window.toast?.(`No dial: ${j.reason}`, 'warn');
       } finally { setWorking(false); }
@@ -288,7 +338,7 @@
 
     const end = useCallback(async () => {
       if (!confirm('End session now?')) return;
-      await fetch('/api/dial/end', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
+      await dialerFetch('/api/dial/end', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
       onEnd?.();
     }, [sessionId, onEnd]);
 
@@ -297,9 +347,9 @@
       if (!bridged) return;
       const handler = (e) => {
         const map = { '1': 'no_answer', '2': 'voicemail_dropped', '3': 'connected',
-                      '4': 'not_interested', '5': 'callback' };
+                      '4': 'busy', '5': 'cancelled' };
         if (map[e.key]) {
-          fetch('/api/dial/disposition', {
+          dialerFetch('/api/dial/disposition', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ attemptId: bridged.id, disposition: map[e.key] }),
@@ -310,12 +360,18 @@
       return () => window.removeEventListener('keydown', handler);
     }, [bridged]);
 
-    if (!sess) return <div style={loadingStyle}>Loading session…</div>;
+    if (!sess) return <div style={embedded ? embeddedLoadingStyle : loadingStyle}>Loading session…</div>;
+
+    const rootStyle = embedded ? embeddedSessionStyle : takeoverStyle;
+    const barStyle = embedded ? embeddedTopBarStyle : topBarStyle;
+    const bodyStyle = embedded ? embeddedSessionBodyStyle : { display: 'flex', flex: 1, overflow: 'hidden' };
+    const sideStyle = embedded ? embeddedSidebarStyle : sidebarStyle;
+    const cardsStyle = embedded ? embeddedLineCardsAreaStyle : lineCardsAreaStyle;
 
     return (
-      <div style={takeoverStyle}>
+      <div style={rootStyle}>
         {/* Top bar */}
-        <div style={topBarStyle}>
+        <div style={barStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{
               display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
@@ -332,9 +388,9 @@
           <button onClick={end} style={btnDangerStyle}>End session</button>
         </div>
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={bodyStyle}>
           {/* Sidebar */}
-          <div style={sidebarStyle}>
+          <div style={sideStyle}>
             <div style={statBoxStyle}>
               <div style={statRowStyle}><span>Queue</span><strong>{sess.queue_position}/{sess.lead_queue?.length || 0}</strong></div>
               <div style={statRowStyle}><span>Dials</span><strong>{sess.stats?.dials || 0}</strong></div>
@@ -360,7 +416,7 @@
           </div>
 
           {/* Line cards */}
-          <div style={lineCardsAreaStyle}>
+          <div style={cardsStyle}>
             {Array.from({ length: sess.max_lines }).map((_, i) => {
               const a = liveAttempts[i];
               return <LineCard key={i} idx={i + 1} attempt={a} bridged={a && bridged && a.id === bridged.id} />;
@@ -373,8 +429,8 @@
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {[
-                    ['1', 'No answer'], ['2', 'Voicemail'], ['3', 'Appointment'],
-                    ['4', 'Not interested'], ['5', 'Callback']
+                    ['1', 'No answer'], ['2', 'Voicemail'], ['3', 'Connected'],
+                    ['4', 'Busy'], ['5', 'Cancel']
                   ].map(([k, lbl]) => (
                     <div key={k} style={dispoBtnStyle}>
                       <span style={{ color: '#00d4aa', fontFamily: 'monospace' }}>{k}</span> {lbl}
@@ -511,9 +567,60 @@
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
   };
 
+  const embeddedSessionStyle = {
+    minHeight: 520,
+    background: '#050505',
+    color: '#e8e8e8',
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: 'Inter, -apple-system, sans-serif',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  };
+
+  const embeddedTopBarStyle = {
+    ...topBarStyle,
+    padding: '12px 16px',
+  };
+
+  const embeddedSessionBodyStyle = {
+    display: 'flex',
+    flexWrap: 'wrap',
+    flex: 1,
+    overflow: 'hidden',
+  };
+
+  const embeddedSidebarStyle = {
+    ...sidebarStyle,
+    width: 'auto',
+    flex: '1 1 240px',
+    maxWidth: 300,
+    padding: '14px',
+  };
+
+  const embeddedLineCardsAreaStyle = {
+    ...lineCardsAreaStyle,
+    flex: '3 1 360px',
+    minWidth: 0,
+    padding: 16,
+  };
+
+  const embeddedLoadingStyle = {
+    minHeight: 420,
+    background: '#050505',
+    color: '#888',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 8,
+  };
+
   // ---- exports ----------------------------------------------------------
   window.PowerDialerLauncher = PowerDialerLauncher;
   window.PowerDialerSession  = PowerDialerSession;
+  window.PowerDialerApi = { buildDialQueue, dialerFetch, dialerAuthHeaders };
 
   // ---- global open-from-anywhere entry point ----------------------------
   // Use from console / button / nav: window.openPowerDialer()
@@ -538,4 +645,3 @@
     root.render(<PowerDialerLauncher leads={leads} repId={repId} agencyId={agencyId} />);
   };
 })();
-

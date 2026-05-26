@@ -1,7 +1,7 @@
 """twilio_dial — place an outbound call via Twilio Programmable Voice.
 
 Auth model: connector_vault holds the user's Twilio credentials. The agent
-calls /api/agent/connector/exchange to swap its agent_token for a
+calls /api/agent/connector-exchange to swap its agent_token for a
 short-lived per-request bearer that pulls the decrypted token. Token never
 touches disk.
 
@@ -26,10 +26,10 @@ RATE_BUCKET = "dial"
 
 
 def _exchange_token(api_base: str, token: str, provider: str) -> dict:
-    """Hit /api/agent/connector/exchange to get the per-call decrypted creds.
+    """Hit /api/agent/connector-exchange to get the per-call decrypted creds.
     Returns {api_key, api_secret, account_sid, ...} or raises."""
     r = _r.post(
-        f"{api_base}/api/agent/connector/exchange",
+        f"{api_base}/api/agent/connector-exchange",
         headers={"x-agent-token": token, "content-type": "application/json"},
         json={"provider": provider}, timeout=8,
     )

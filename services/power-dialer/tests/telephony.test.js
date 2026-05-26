@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Set required env BEFORE importing config (config reads env at module load).
+process.env.POWER_DIALER_SKIP_ENV_LOCAL = '1';
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://x.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'sb_test_xxx';
 process.env.TWILIO_ACCOUNT_SID ??= 'AC_test';

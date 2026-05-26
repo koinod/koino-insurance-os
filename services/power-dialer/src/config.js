@@ -7,7 +7,7 @@ const REPO_ROOT = resolve(HERE, '..', '..', '..');
 
 // Load repo-root .env.local first (dev on mac mini), then real env wins.
 const ENV_LOCAL = resolve(REPO_ROOT, '.env.local');
-if (existsSync(ENV_LOCAL)) {
+if (process.env.POWER_DIALER_SKIP_ENV_LOCAL !== '1' && existsSync(ENV_LOCAL)) {
   for (const line of readFileSync(ENV_LOCAL, 'utf8').split('\n')) {
     const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
     if (m && process.env[m[1]] === undefined) {
@@ -31,6 +31,7 @@ export const config = {
   port: Number(opt('POWER_DIALER_PORT', 9787)),
   host: opt('POWER_DIALER_HOST', '0.0.0.0'),
   publicUrl: opt('POWER_DIALER_PUBLIC_URL', 'http://localhost:9787'), // where Twilio webhooks land
+  powerDialerSecret: opt('POWER_DIALER_SECRET', ''),
   logLevel: opt('LOG_LEVEL', 'info'),
 
   // supabase — optional at config load so one-off provisioning scripts

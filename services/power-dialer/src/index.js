@@ -22,9 +22,24 @@ await app.register(websocket);
 
 // ---------- health ----------
 app.get('/healthz', async () => ({ ok: true, worker: config.workerId, ts: new Date().toISOString() }));
+app.get('/health', async () => ({ ok: true, worker: config.workerId, ts: new Date().toISOString() }));
+
+function requireWorkerAuth(req, reply, done) {
+  if (!config.powerDialerSecret) {
+    reply.code(503).send({ error: 'power_dialer_secret_missing' });
+    return;
+  }
+  const auth = req.headers.authorization || '';
+  const token = auth.replace(/^Bearer\s+/i, '');
+  if (token !== config.powerDialerSecret) {
+    reply.code(401).send({ error: 'unauthorized' });
+    return;
+  }
+  done();
+}
 
 // ---------- session control (called by the web UI via signed fetch) ----------
-app.post('/session/start', async (req, reply) => {
+app.post('/session/start', { preHandler: requireWorkerAuth }, async (req, reply) => {
   const { agencyId, repId, maxLines, leadQueue, toggles } = req.body ?? {};
   if (!agencyId || !repId) return reply.code(400).send({ error: 'agencyId+repId required' });
   try {
@@ -36,7 +51,7 @@ app.post('/session/start', async (req, reply) => {
   }
 });
 
-app.post('/session/:id/dial-next', async (req, reply) => {
+app.post('/session/:id/dial-next', { preHandler: requireWorkerAuth }, async (req, reply) => {
   try { return await dialNext({ sessionId: req.params.id }); }
   catch (e) {
     logger.error({ err: e, sessionId: req.params.id }, 'dialNext failed');
@@ -44,7 +59,7 @@ app.post('/session/:id/dial-next', async (req, reply) => {
   }
 });
 
-app.post('/session/:id/end', async (req, reply) => {
+app.post('/session/:id/end', { preHandler: requireWorkerAuth }, async (req, reply) => {
   try { return await endSessionById(req.params.id); }
   catch (e) {
     logger.error({ err: e }, 'endSession failed');
@@ -52,7 +67,7 @@ app.post('/session/:id/end', async (req, reply) => {
   }
 });
 
-app.post('/attempt/:id/disposition', async (req, reply) => {
+app.post('/attempt/:id/disposition', { preHandler: requireWorkerAuth }, async (req, reply) => {
   const { disposition } = req.body ?? {};
   if (!disposition) return reply.code(400).send({ error: 'disposition required' });
   try { return await setDisposition({ attemptId: req.params.id, disposition }); }

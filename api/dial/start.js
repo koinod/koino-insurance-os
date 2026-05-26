@@ -3,7 +3,7 @@
 // The worker URL + shared secret never reach the browser; this edge function
 // reads them from server env and forwards the request.
 
-import { cors, readUserJwt } from "../agent/_lib.js";
+import { cors, readUserJwt, loadCallerFromJwt } from "../agent/_lib.js";
 
 export const config = { runtime: "edge" };
 
@@ -13,9 +13,12 @@ export default async function handler(req) {
 
   const jwt = readUserJwt(req);
   if (!jwt) return json(401, { error: "not_authenticated" });
+  const caller = await loadCallerFromJwt(jwt);
+  if (!caller?.agency_id || !caller?.rep_id) return json(403, { error: "no_rep_context" });
 
   let body;
   try { body = await req.json(); } catch { body = {}; }
+  body = { ...body, agencyId: caller.agency_id, repId: caller.rep_id };
 
   const workerUrl = process.env.POWER_DIALER_URL;
   if (!workerUrl) return json(503, { error: "power_dialer_unconfigured", message: "Set POWER_DIALER_URL in Vercel env" });

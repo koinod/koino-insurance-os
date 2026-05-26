@@ -35,6 +35,9 @@ const RUNTIME_FILES = [
   "agent/runtime/tools/script_review.py",
   "agent/runtime/tools/file_review.py",
   "agent/runtime/tools/browser_run.py",
+  "agent/runtime/tools/create_lead.py",
+  "agent/runtime/tools/phone_link_dial.py",
+  "agent/runtime/tools/phone_link_inspect.py",
 ];
 const SCRAPER_FILES = [
   "agent/scrapers/__init__.py",
