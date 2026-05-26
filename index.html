@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<!-- Anti-FOUC: set data-theme before first paint so CSS vars resolve correctly -->
+<script>!function(){try{var t=localStorage.getItem('repflow_theme')||'dark';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}}();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Repflow — operator-grade for life & health distribution</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=88"/>
+<link rel="stylesheet" href="styles.css?v=89"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
 <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
@@ -37,7 +39,7 @@
 <script src="dist/tweaks-panel.js?v=74"></script>
 <script src="dist/data.js?v=92"></script>
 <script src="dist/icons.js?v=90"></script>
-<script src="dist/shared.js?v=105"></script>
+<script src="dist/shared.js?v=106"></script>
 <script src="dist/sidebar-composer.js?v=3"></script>
 <script src="dist/ai-sidebar.js?v=84"></script>
 <script src="dist/page-today.js?v=91"></script>
@@ -48,7 +50,7 @@
 <script src="dist/page-owner.js?v=82"></script>
 <script src="dist/page-leaddrip.js?v=99"></script>
 <script src="dist/page-ops.js?v=76"></script>
-<script src="dist/page-extras.js?v=101"></script>
+<script src="dist/page-extras.js?v=103"></script>
 <script src="dist/page-expenses.js?v=76"></script>
 <script src="dist/page-invite-team.js?v=84"></script>
 <script src="dist/page-recruiting.js?v=75"></script>
@@ -62,7 +64,7 @@
 <script src="dist/page-client-book.js?v=1"></script>
 <script src="dist/page-messages.js?v=79"></script>
 <script src="dist/page-library.js?v=85"></script>
-<script src="dist/page-platform.js?v=75"></script>
+<script src="dist/page-platform.js?v=76"></script>
 <script src="dist/page-tenant.js?v=96"></script>
 <script src="dist/page-onboarding.js?v=78"></script>
 <script src="dist/page-first-run.js?v=86"></script>
@@ -78,7 +80,7 @@
 <script src="dist/page-billing.js?v=74"></script>
 <script src="dist/page-autodialer.js?v=78"></script>
 <script src="dist/page-deal-write.js?v=97"></script>
-<script src="dist/page-floor.js?v=104"></script>
+<script src="dist/page-floor.js?v=105"></script>
 <script src="dist/page-floor-actions.js?v=78"></script>
 <script src="dist/page-redial-queue.js?v=74"></script>
 <script src="dist/page-power-dialer.js?v=3"></script>

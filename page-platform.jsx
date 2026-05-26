@@ -198,16 +198,61 @@ const _origRepflowCall = function (phone, leadName) {
 };
 window.__repflowSystemDial = _origRepflowCall;
 
-// Public dial entrypoint — cascade in priority order:
-//   1. REST bridge via /api/dial/outbound (connector_vault Twilio, bridge to rep phone)
-//      Gate: "twilio_not_connected" → explicit toast + hard stop (never silent no-op)
-//   2. In-browser Twilio Voice SDK softphone (env-var Twilio, page-tenant.jsx)
-//   3. repflow:// custom URL scheme (Repflow Desktop helper)
-//   4. tel: system dialer (last resort)
+// Public dial entrypoint — branches on the active dial provider, then cascades:
+//   Provider is read from window.__dialProviderSession (floor quick-toggle) first,
+//   then window.__agentSettings.default_dial_provider (persisted preference).
+//
+//   twilio          → REST bridge /api/dial/outbound → Twilio Voice SDK → repflow:// → tel:
+//   phone_link      → rba_post_command kind=twilio_dial via=phone_link (Windows Phone Link)
+//   bluetooth_phone → toast + fall back to Twilio (mac Continuity tool not yet wired)
+//   sendblue        → hard stop with "SendBlue is SMS, not voice" error
 //
 // Accepts opts.lead_id for REST bridge → call_events linkage.
 // Accepts opts.autodial to carry autodial context through incall:open.
 window.repflowCall = async function (phone, leadName, opts) {
+  const provider = window.__dialProviderSession
+    || (window.__agentSettings && window.__agentSettings.default_dial_provider)
+    || "twilio";
+
+  // SendBlue is SMS only — hard stop.
+  if (provider === "sendblue") {
+    window.toast && window.toast("SendBlue is for SMS, not voice — switch your Dial Provider to Twilio or Phone Link", "error");
+    return false;
+  }
+
+  // Phone Link (Windows) → send command to local RBA agent.
+  if (provider === "phone_link") {
+    if (typeof window.rba_post_command === "function") {
+      try {
+        window.toast && window.toast(`Calling ${leadName || phone} via Phone Link…`, "info");
+        await window.rba_post_command({
+          kind: "twilio_dial",
+          payload: { phone, lead_name: leadName || "", lead_id: (opts && opts.lead_id) || null, via: "phone_link" },
+        });
+        window.dispatchEvent(new CustomEvent("incall:open", { detail: {
+          lead: { id: (opts && opts.lead_id) || null, lead: leadName || phone, phone },
+          status: "Ringing (Phone Link)",
+          autodial: !!(opts && opts.autodial),
+        }}));
+        return true;
+      } catch (e) {
+        console.error("[repflowCall.phone_link]", e);
+        window.toast && window.toast(`Phone Link dial failed: ${e?.message || e} — falling back to Twilio`, "warn");
+        // fall through to Twilio
+      }
+    } else {
+      window.toast && window.toast("Phone Link: Repflow Agent not running on this machine — falling back to Twilio", "warn");
+      // fall through to Twilio
+    }
+  }
+
+  // macOS Bluetooth (FaceTime Continuity) → agent tool not yet wired, fall back gracefully.
+  if (provider === "bluetooth_phone") {
+    window.toast && window.toast("macOS Bluetooth dial not yet wired — using Twilio for this call", "info");
+    // fall through to Twilio
+  }
+
+  // Twilio path (also the fallback for phone_link/bluetooth_phone failures above).
   if (phone) {
     try {
       const resp = await fetch("/api/dial/outbound", {
@@ -227,10 +272,12 @@ window.repflowCall = async function (phone, leadName, opts) {
         window.toast && window.toast(j.message || "Twilio not connected", "error");
         return false;
       }
+      if (!resp.ok) {
+        console.error("[repflowCall.twilio] API error", resp.status, j);
+        window.toast && window.toast(j.message || `Dial error (${resp.status})`, "error");
+        return false;
+      }
       if (j.ok && j.call_sid) {
-        // Analytics: capture the dial event for PostHog cohort analysis
-        // (per-rep dial volume, source attribution, autodial vs manual).
-        // No-op if posthog-init.js hasn't loaded a key yet.
         try {
           window.posthog && window.posthog.capture && window.posthog.capture("dial_started", {
             lead_id:  (opts && opts.lead_id) || null,
@@ -238,6 +285,7 @@ window.repflowCall = async function (phone, leadName, opts) {
             autodial: !!(opts && opts.autodial),
             source:   (opts && opts.source) || "manual",
             call_sid: j.call_sid,
+            provider,
           });
         } catch (_e) { /* analytics never blocks a dial */ }
         window.dispatchEvent(new CustomEvent("incall:open", { detail: {
@@ -248,21 +296,20 @@ window.repflowCall = async function (phone, leadName, opts) {
         }}));
         return true;
       }
-      if (!resp.ok) {
-        window.toast && window.toast(j.message || `Dial error (${resp.status})`, "error");
-        return false;
-      }
-    } catch (_e) { /* REST bridge unreachable — fall through to softphone */ }
+    } catch (e) {
+      console.error("[repflowCall.twilio] fetch error", e);
+      /* REST bridge unreachable — fall through to softphone */
+    }
   }
 
-  // Fallback 2: in-browser Twilio Voice SDK (requires TWILIO_TWIML_APP_SID env var)
+  // Fallback: in-browser Twilio Voice SDK (requires TWILIO_TWIML_APP_SID env var)
   if (typeof window.repflowDialTwilio === "function") {
     try {
       const took = await window.repflowDialTwilio(phone, leadName);
       if (took) return true;
     } catch (_e) { /* fall through to system dial */ }
   }
-  // Fallback 3: repflow:// scheme + tel:
+  // Last resort: repflow:// scheme + tel:
   return _origRepflowCall(phone, leadName);
 };
 // Backwards-compat alias — old callsites that expected window.repflowDial keep working.

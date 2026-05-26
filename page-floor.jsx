@@ -1039,6 +1039,47 @@
     );
   }
 
+  const DIAL_PROVIDERS = [
+    { key: "twilio",          label: "Twilio",        desc: "Bridge dial via cloud",          mac: false, win: false },
+    { key: "phone_link",      label: "Phone Link",    desc: "Windows Bluetooth → iPhone",     mac: false, win: true  },
+    { key: "bluetooth_phone", label: "macOS BT",      desc: "FaceTime Continuity → iPhone",   mac: true,  win: false },
+    { key: "sendblue",        label: "SendBlue",      desc: "iMessage SMS only · not voice",  mac: false, win: false, warn: true },
+  ];
+
+  function DialProviderChips({ provider, onChange }) {
+    const ua = navigator.userAgent.toLowerCase();
+    const isMac = ua.includes("mac");
+    const isWin = ua.includes("win");
+    return (
+      <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>Dial via</span>
+        {DIAL_PROVIDERS.map(p => {
+          const active = provider === p.key;
+          const recommended = (p.mac && isMac) || (p.win && isWin);
+          return (
+            <button
+              key={p.key}
+              className="btn btn-ghost"
+              onClick={() => onChange(p.key)}
+              title={p.desc + (p.warn ? " — experimental" : "")}
+              style={{
+                fontSize: 11,
+                padding: "3px 10px",
+                background: active ? "color-mix(in oklch, var(--accent-money) 15%, transparent)" : "var(--bg-raised)",
+                color: active ? "var(--accent-money)" : p.warn ? "var(--text-tertiary)" : "var(--text-secondary)",
+                border: active ? "1px solid color-mix(in oklch, var(--accent-money) 40%, transparent)" : "1px solid var(--border-subtle)",
+                opacity: p.warn ? 0.65 : 1,
+              }}
+            >
+              {p.label}
+              {recommended && <span style={{ marginLeft: 4, fontSize: 9, color: "var(--accent-money)", fontWeight: 700 }}>✓ you</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   function FloorDialerCockpit({ role }) {
     const [, force] = useState(0);
     useEffect(() => {
@@ -1069,6 +1110,21 @@
     const stacked = viewportWidth < 1120;
     const [running, setRunning] = useState(null);
     const [busy, setBusy] = useState(false);
+    // Session-level dial provider override (not persisted — use Settings → Agents for the default).
+    // Seeded from window.__agentSettings on mount; re-seeds when agent_settings:loaded fires.
+    const [dialProvider, setDialProvider] = useState(() =>
+      window.__agentSettings?.default_dial_provider || "twilio"
+    );
+    useEffect(() => {
+      const h = () => setDialProvider(window.__agentSettings?.default_dial_provider || "twilio");
+      window.addEventListener("agent_settings:loaded", h);
+      return () => window.removeEventListener("agent_settings:loaded", h);
+    }, []);
+    // Publish to window so repflowCall can read the active session provider without prop-drilling.
+    useEffect(() => {
+      window.__dialProviderSession = dialProvider;
+      return () => { window.__dialProviderSession = null; };
+    }, [dialProvider]);
     const [maxLines, setMaxLines] = useState(() => {
       try { return Number(localStorage.getItem("repflow.floor.power.maxLines") || 3); } catch { return 3; }
     });
@@ -1097,19 +1153,41 @@
       if (!repId || !agencyId) return window.toast?.("Power Dialer: sign in with an agency session", "error");
       if (!queue.length) return window.toast?.("No dialable leads with phone numbers", "warn");
       setBusy(true);
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 10000);
       try {
-        const r = await floorDialerFetch("/api/dial/start", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ agencyId, repId, maxLines, leadQueue: queue, toggles }),
-        });
-        const j = await r.json().catch(() => ({}));
+        let r, j;
+        try {
+          r = await floorDialerFetch("/api/dial/start", {
+            signal: ctrl.signal,
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ agencyId, repId, maxLines, leadQueue: queue, toggles }),
+          });
+          j = await r.json().catch(() => ({}));
+        } catch (fetchErr) {
+          const aborted = fetchErr?.name === "AbortError";
+          const msg = aborted
+            ? "Dial timed out — check Settings → Agents → Dial Provider"
+            : `Network error starting session: ${fetchErr?.message || fetchErr}`;
+          console.error("[startSession]", fetchErr);
+          window.toast?.(msg, "error");
+          return;
+        }
+        // Power Dialer worker not configured → fall back to the existing AutoDialBar queue.
+        if (!r.ok && (j?.error === "power_dialer_unconfigured" || r.status === 503)) {
+          window.toast?.("Power Dialer worker not set up — starting single-line autodial mode", "info");
+          window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue } }));
+          return;
+        }
         if (!r.ok) {
-          window.toast?.(j.message || j.error || `Power Dialer failed (${r.status})`, "error");
+          console.error("[startSession] API error", r.status, j);
+          window.toast?.(j?.message || j?.error || `Power Dialer failed (${r.status})`, "error");
           return;
         }
         setRunning(j);
       } finally {
+        clearTimeout(timeout);
         setBusy(false);
       }
     };
@@ -1205,6 +1283,11 @@
                 <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : queue.length ? `Start ${maxLines} lines` : "No phone leads"}
               </button>
             </div>
+
+            {/* ── Dial Provider quick-toggle ───────────────────────────────
+                Session-level override. Defaults to agent_settings.default_dial_provider.
+                Does NOT trigger a dial — only changes routing for the next call. */}
+            <DialProviderChips provider={dialProvider} onChange={setDialProvider}/>
 
             <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: stacked ? "1fr" : "minmax(0, 1fr) 240px", gap: 14 }}>
               <div style={{

@@ -5204,6 +5204,89 @@ function AutomationRuleModal({ agencyId, onClose }) {
 
 // ─── agent_settings — per-rep agent preferences (record toggle, etc.)
 
+const _DIAL_PROVIDER_OPTS = [
+  {
+    key: "twilio",
+    label: "Twilio",
+    sub: "Bridge dial via cloud — works on any machine",
+    mac: false, win: false,
+  },
+  {
+    key: "phone_link",
+    label: "Phone Link",
+    sub: "Windows → paired iPhone over Bluetooth (Twilio still routes)",
+    mac: false, win: true,
+  },
+  {
+    key: "bluetooth_phone",
+    label: "macOS Bluetooth",
+    sub: "Mac + iPhone Continuity → iPhone places call, Mac is audio (Twilio routes)",
+    mac: true, win: false,
+  },
+  {
+    key: "sendblue",
+    label: "SendBlue",
+    sub: "iMessage / blue-bubble messaging — SMS only, not voice · experimental",
+    mac: false, win: false, warn: true,
+  },
+];
+
+function DialProviderSelector({ value, onChange }) {
+  const ua = navigator.userAgent.toLowerCase();
+  const isMac = ua.includes("mac");
+  const isWin = ua.includes("win");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {_DIAL_PROVIDER_OPTS.map(opt => {
+        const active = value === opt.key;
+        const recommended = (opt.mac && isMac) || (opt.win && isWin);
+        return (
+          <div
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 7,
+              border: active
+                ? "1.5px solid color-mix(in oklch, var(--accent-money) 55%, transparent)"
+                : "1px solid var(--border-subtle)",
+              background: active
+                ? "color-mix(in oklch, var(--accent-money) 8%, transparent)"
+                : "var(--bg-raised)",
+              cursor: "pointer",
+              opacity: opt.warn ? 0.6 : 1,
+              display: "flex", alignItems: "flex-start", gap: 10,
+            }}
+          >
+            <span style={{
+              width: 14, height: 14, borderRadius: 999, flexShrink: 0, marginTop: 2,
+              border: active ? "4px solid var(--accent-money)" : "1.5px solid var(--border-subtle)",
+              background: active ? "var(--accent-money)" : "transparent",
+              transition: "background 0.15s, border 0.15s",
+            }}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 550 }}>
+                {opt.label}
+                {recommended && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-money)", background: "color-mix(in oklch, var(--accent-money) 12%, transparent)", padding: "1px 6px", borderRadius: 99 }}>
+                    recommended for you
+                  </span>
+                )}
+                {opt.warn && (
+                  <span style={{ fontSize: 10, color: "var(--state-warning)", background: "color-mix(in oklch, var(--state-warning) 12%, transparent)", padding: "1px 6px", borderRadius: 99 }}>
+                    experimental
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 3, lineHeight: 1.45 }}>{opt.sub}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AgentSettingsEditor() {
   const [s, setS] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -5218,12 +5301,15 @@ function AgentSettingsEditor() {
         if (!session) { setLoading(false); return; }
         const aid = (await sb.rpc("current_agency_id"))?.data || null;
         const { data } = await sb.from("agent_settings").select("*").eq("user_id", session.user.id).maybeSingle();
-        setS(data || {
+        const settings = data || {
           user_id: session.user.id, agency_id: aid,
           always_record_on_pickup: true, state_match_outbound: true,
           default_dial_provider: "twilio", confirm_channel_default: "any",
           high_risk_channel: "sms",
-        });
+        };
+        setS(settings);
+        window.__agentSettings = settings;
+        window.dispatchEvent(new CustomEvent("agent_settings:loaded"));
       } finally { setLoading(false); }
     })();
   }, []);
@@ -5234,6 +5320,8 @@ function AgentSettingsEditor() {
       const sb = window.getSupabase();
       const next = { ...s, ...patch };
       setS(next);
+      window.__agentSettings = next;
+      window.dispatchEvent(new CustomEvent("agent_settings:loaded"));
       const { error } = await sb.from("agent_settings").upsert(next, { onConflict: "user_id" });
       if (error) throw error;
     } catch (e) {
@@ -5262,9 +5350,8 @@ function AgentSettingsEditor() {
           <Shared.Select value={s.state_match_outbound ? "y" : "n"} onChange={(v) => save({ state_match_outbound: v === "y" })}
             options={[{ v: "y", l: "Match lead's area code" }, { v: "n", l: "Use first number" }]}/>
         </Shared.Field>
-        <Shared.Field label="Default dial provider">
-          <Shared.Select value={s.default_dial_provider} onChange={(v) => save({ default_dial_provider: v })}
-            options={[{ v: "twilio", l: "Twilio" }, { v: "sendblue", l: "SendBlue (voice via routing)" }, { v: "bluetooth_phone", l: "Paired phone (Bluetooth)" }]}/>
+        <Shared.Field label="Dial provider">
+          <DialProviderSelector value={s.default_dial_provider} onChange={(v) => save({ default_dial_provider: v })}/>
         </Shared.Field>
         <Shared.Field label="Default confirm channel">
           <Shared.Select value={s.confirm_channel_default} onChange={(v) => save({ confirm_channel_default: v })}
@@ -6068,6 +6155,12 @@ function SettingsProfile({ role }) {
       const b = (typeof r.data === "string") ? JSON.parse(r.data) : (r.data || {});
       setBundle(b);
       const p = b?.profile || {};
+      // Apply the DB-stored theme preference immediately on profile load.
+      // localStorage is already set by the anti-FOUC script on page load;
+      // this call syncs from DB so the choice follows the user across devices.
+      if (p.theme && typeof window.applyTheme === "function") {
+        window.applyTheme(p.theme);
+      }
       setForm({
         display_name:        p.display_name || "",
         full_name:           p.full_name || "",
@@ -6080,7 +6173,7 @@ function SettingsProfile({ role }) {
         linkedin_url:        p.linkedin_url || "",
         website_url:         p.website_url || "",
         timezone:            p.timezone || "America/New_York",
-        theme:               p.theme || "system",
+        theme:               p.theme || "dark",
         density:             p.density || "comfortable",
         default_landing:     p.default_landing || "",
         npn:                 p.npn || "",
@@ -6322,9 +6415,29 @@ function SettingsProfile({ role }) {
       <div className="panel" style={{ padding: 16 }}>
         <h4 style={{ margin: "0 0 8px 0", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-tertiary)" }}>App preferences</h4>
         <div className="profile-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <Shared.Field label="Theme"><Shared.Select value={form.theme} onChange={(v) => update("theme", v)} options={[
-            { v: "system", l: "Match system" }, { v: "light",  l: "Light" }, { v: "dark",   l: "Dark" },
-          ]}/></Shared.Field>
+          <Shared.Field label="Theme">
+            <div style={{ display: "flex", gap: 6 }}>
+              {[{v:"dark",l:"Dark"},{v:"light",l:"Light"},{v:"system",l:"System"}].map(opt => {
+                const active = form.theme === opt.v;
+                return (
+                  <button key={opt.v} type="button"
+                    onClick={() => {
+                      window.applyTheme && window.applyTheme(opt.v);
+                      update("theme", opt.v);
+                    }}
+                    style={{
+                      flex: 1, padding: "6px 0", fontSize: 12, fontWeight: active ? 600 : 400,
+                      borderRadius: "var(--radius-md)", cursor: "pointer",
+                      background: active ? "var(--accent-money)" : "var(--bg-raised)",
+                      color: active ? "#fff" : "var(--text-secondary)",
+                      border: active ? "1px solid var(--accent-money)" : "1px solid var(--border-subtle)",
+                      transition: "background 100ms, color 100ms",
+                    }}
+                  >{opt.l}</button>
+                );
+              })}
+            </div>
+          </Shared.Field>
           <Shared.Field label="Density"><Shared.Select value={form.density} onChange={(v) => update("density", v)} options={[
             { v: "comfortable", l: "Comfortable" }, { v: "compact",     l: "Compact" },
           ]}/></Shared.Field>
