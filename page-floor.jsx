@@ -838,7 +838,10 @@
         </div>
         <div style={{ maxHeight: 612, overflowY: "auto" }}>
           {leads.length === 0 && (
-            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>No dialable leads with phone numbers.</div>
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+              <strong style={{ display: "block", color: "var(--text-secondary)", marginBottom: 4 }}>No dialable phone leads yet.</strong>
+              Add phone numbers in Pipeline or Book, then come back here to start the power dialer.
+            </div>
           )}
           {leads.slice(0, 28).map((l, i) => {
             const active = l.id === activeId;
@@ -1010,7 +1013,8 @@
 
     const toggle = (key) => setToggles(t => ({ ...t, [key]: !t[key] }));
     const runQuoteAssist = () => {
-      if (!activeLead || !window.enqueueAgentJob) return window.toast?.("Agent quote action unavailable", "warn");
+      if (!activeLead) return window.toast?.("Add a dialable lead first", "warn");
+      if (!window.enqueueAgentJob) return window.toast?.("Agent quote action unavailable", "warn");
       window.enqueueAgentJob({
         kind: "auto_quote",
         payload: {
@@ -1065,21 +1069,28 @@
                   <span className="dot" style={{ background: "var(--accent-money)" }}/> Floor Live
                 </div>
                 <div style={{ marginTop: 8, fontSize: 30, lineHeight: 1.1, fontWeight: 750, letterSpacing: 0 }}>
-                  {activeLead ? activeLead.lead : "Power dialer"}
+                  {activeLead ? activeLead.lead : "Build today's dial queue"}
                 </div>
-                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-tertiary)", fontSize: 12 }}>
-                  <span>{activeLead?.age || "—"} age</span>
-                  <span>·</span>
-                  <span>{activeLead?.state || "—"}</span>
-                  <span>·</span>
-                  <span>{activeLead?.phone || "no phone"}</span>
-                  <span>·</span>
-                  <span>{activeLead?.source || "pipeline"}</span>
-                </div>
+                {activeLead ? (
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-tertiary)", fontSize: 12 }}>
+                    <span>{activeLead.age || "—"} age</span>
+                    <span>·</span>
+                    <span>{activeLead.state || "—"}</span>
+                    <span>·</span>
+                    <span>{activeLead.phone || "no phone"}</span>
+                    <span>·</span>
+                    <span>{activeLead.source || "pipeline"}</span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 8, maxWidth: 520, color: "var(--text-tertiary)", fontSize: 12.5, lineHeight: 1.5 }}>
+                    Floor runs best when every lead has a phone, state, age, product, and expected premium.
+                    The dialer, quote assist, and RBA prompts will lock onto the first ranked lead.
+                  </div>
+                )}
               </div>
               <button className="btn btn-primary" onClick={startSession} disabled={busy || queue.length === 0}
                 style={{ minWidth: 190, minHeight: 44, background: queue.length ? "var(--accent-money)" : "var(--bg-raised)", color: queue.length ? "#022" : "var(--text-tertiary)", fontWeight: 800 }}>
-                <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : `Start ${maxLines} lines`}
+                <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : queue.length ? `Start ${maxLines} lines` : "No phone leads"}
               </button>
             </div>
 
@@ -1097,8 +1108,8 @@
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
                   {[
-                    ["Intent", activeLead?.product || "coverage open"],
-                    ["Next", activeLead?.next || "first dial"],
+                    ["Intent", activeLead?.product || "load dial queue"],
+                    ["Next", activeLead?.next || "add phone leads"],
                     ["Health", "conditions · meds · tobacco"],
                     ["Banking", "rep controls app"],
                     ["Quote", activeLead?.age && activeLead?.state ? "rating ready" : "age/state needed"],
@@ -1153,11 +1164,11 @@
             <div style={{ padding: 14 }}>
               <div style={{ fontSize: 12.5, fontWeight: 650 }}>{activeLead?.product || "Product open"}</div>
               <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                {activeLead ? `${activeLead.age || "Age open"} · ${activeLead.state || "state open"} · ${activeLead.heat || "warm"} lead` : "No active lead"}
+                {activeLead ? `${activeLead.age || "Age open"} · ${activeLead.state || "state open"} · ${activeLead.heat || "warm"} lead` : "Quote assist activates when a dialable lead is ranked first."}
               </div>
               <button className="btn btn-primary" onClick={runQuoteAssist} disabled={!activeLead}
-                style={{ marginTop: 14, width: "100%", justifyContent: "center", background: "var(--accent-money)", color: "#022", fontWeight: 750 }}>
-                <Icons.Sparkles size={13}/> Run quote assist
+                style={{ marginTop: 14, width: "100%", justifyContent: "center", background: activeLead ? "var(--accent-money)" : "var(--bg-raised)", color: activeLead ? "#022" : "var(--text-tertiary)", fontWeight: 750 }}>
+                <Icons.Sparkles size={13}/> {activeLead ? "Run quote assist" : "Waiting for lead"}
               </button>
             </div>
           </div>
