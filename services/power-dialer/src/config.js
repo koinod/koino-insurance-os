@@ -52,6 +52,10 @@ export const config = {
   livekitApiSecret: opt('LIVEKIT_API_SECRET', 'secret'),
   livekitSipTrunkSid: opt('LIVEKIT_SIP_TRUNK_SID', ''), // set after trunk provisioning
 
+  // telephony provider — twilio | signalwire | telnyx
+  // Picked at boot in telephony.js. Default twilio for backward compat.
+  telephonyProvider: opt('TELEPHONY_PROVIDER', 'twilio'),
+
   // sendblue (iMessage SMS lane)
   sendblueKey: opt('SENDBLUE_API_KEY', ''),
   sendblueSecret: opt('SENDBLUE_API_SECRET', ''),
