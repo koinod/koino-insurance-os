@@ -1403,6 +1403,9 @@ function DevicesAdminView() {
   const [commands, setCommands] = React.useState({});  // {device_id: [recent rba_commands rows]}
   const [anomalies, setAnomalies] = React.useState([]);
   const [busy, setBusy]         = React.useState(null);
+  // saDiagState: keyed by device_id so each drawer row keeps independent state.
+  // Shape per key: { loading: null|string, result: null|obj, error: null|string, showSqlInput: bool, sqlText: string }
+  const [saDiagState, setSaDiagState] = React.useState({});
   const subRef = React.useRef(null);
   const cmdSubRef = React.useRef(null);
 
@@ -1541,6 +1544,26 @@ function DevicesAdminView() {
     } finally { setBusy(null); }
   };
 
+  // Super-admin diagnostics helper — posts a privileged command to the device
+  // via /api/agent/post-super-admin-command and stores the result keyed by device_id.
+  const saCmd = async (deviceId, kind, payload = {}) => {
+    setSaDiagState(s => ({ ...s, [deviceId]: { ...(s[deviceId] || {}), loading: kind, result: null, error: null } }));
+    try {
+      const session = (await sb.auth.getSession())?.data?.session;
+      const token = session?.access_token || (window.__supabase_session && window.__supabase_session.access_token);
+      const res = await fetch("/api/agent/post-super-admin-command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ device_id: deviceId, kind, payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      setSaDiagState(s => ({ ...s, [deviceId]: { ...(s[deviceId] || {}), loading: null, result: data } }));
+    } catch (e) {
+      setSaDiagState(s => ({ ...s, [deviceId]: { ...(s[deviceId] || {}), loading: null, error: e.message } }));
+    }
+  };
+
   const fmtAgo = (ts) => {
     if (!ts) return "—";
     const s = (Date.now() - new Date(ts).getTime()) / 1000;
@@ -1642,6 +1665,105 @@ function DevicesAdminView() {
                           </button>
                         )}
                       </div>
+                      {/* ── Super-Admin Diagnostics ── only visible to super_admin role */}
+                      {window.me && window.me()?.role === "super_admin" && (() => {
+                        const dState = saDiagState[d.device_id] || { loading: null, result: null, error: null, showSqlInput: false, sqlText: "" };
+                        const setDState = (updater) => setSaDiagState(s => {
+                          const prev = s[d.device_id] || { loading: null, result: null, error: null, showSqlInput: false, sqlText: "" };
+                          const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
+                          return { ...s, [d.device_id]: next };
+                        });
+                        return (
+                          <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 10, marginTop: 6 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>
+                              Super-Admin Diagnostics
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                disabled={dState.loading === "sa_snapshot_state"}
+                                onClick={() => saCmd(d.device_id, "sa_snapshot_state")}>
+                                {dState.loading === "sa_snapshot_state" ? "…" : "Snapshot State"}
+                              </button>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                onClick={() => setDState(s => ({ ...s, showSqlInput: !s.showSqlInput }))}>
+                                Inspect DB
+                              </button>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                disabled={dState.loading === "sa_tail_logs"}
+                                onClick={() => saCmd(d.device_id, "sa_tail_logs")}>
+                                {dState.loading === "sa_tail_logs" ? "…" : "Tail Logs"}
+                              </button>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                disabled={dState.loading === "sa_diag_pull"}
+                                onClick={() => saCmd(d.device_id, "sa_diag_pull")}>
+                                {dState.loading === "sa_diag_pull" ? "…" : "Pull Diagnostics"}
+                              </button>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                disabled={dState.loading === "sa_replay_failed"}
+                                onClick={() => {
+                                  if (window.confirm("Re-run most recently failed command on this device?")) {
+                                    saCmd(d.device_id, "sa_replay_failed");
+                                  }
+                                }}>
+                                {dState.loading === "sa_replay_failed" ? "…" : "Replay Failed"}
+                              </button>
+                              <button className="btn"
+                                style={{ fontSize: 11 }}
+                                disabled={dState.loading === "sa_export_local_state"}
+                                onClick={() => saCmd(d.device_id, "sa_export_local_state")}>
+                                {dState.loading === "sa_export_local_state" ? "…" : "Export Local State"}
+                              </button>
+                            </div>
+                            {dState.showSqlInput && (
+                              <div style={{ marginTop: 8 }}>
+                                <textarea
+                                  rows={3}
+                                  placeholder="SELECT ..."
+                                  value={dState.sqlText}
+                                  onChange={e => setDState(s => ({ ...s, sqlText: e.target.value }))}
+                                  style={{ width: "100%", fontSize: 11, fontFamily: "var(--font-mono)", padding: "5px 7px", borderRadius: 4, border: "1px solid var(--border-subtle)", background: "var(--bg-base)", color: "var(--text-primary)", resize: "vertical", boxSizing: "border-box" }}
+                                />
+                                <button className="btn"
+                                  style={{ marginTop: 5, fontSize: 11 }}
+                                  disabled={!dState.sqlText.trim() || dState.loading === "sa_inspect_db"}
+                                  onClick={() => saCmd(d.device_id, "sa_inspect_db", { sql: dState.sqlText })}>
+                                  {dState.loading === "sa_inspect_db" ? "Running…" : "Run SQL"}
+                                </button>
+                              </div>
+                            )}
+                            {(dState.result || dState.error) && (
+                              <div style={{ marginTop: 8 }}>
+                                {dState.error && (
+                                  <div style={{ fontSize: 11, color: "var(--state-danger)", marginBottom: 4 }}>
+                                    Error: {dState.error}
+                                  </div>
+                                )}
+                                {dState.result && (
+                                  <div style={{ position: "relative" }}>
+                                    <pre className="mono" style={{ fontSize: 10, background: "var(--bg-base)", borderRadius: 5, padding: "7px 9px", maxHeight: 180, overflow: "auto", border: "1px solid var(--border-subtle)", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                                      {JSON.stringify(dState.result, null, 2)}
+                                    </pre>
+                                    <button className="btn btn-ghost"
+                                      style={{ position: "absolute", top: 4, right: 4, fontSize: 10, padding: "1px 7px" }}
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(JSON.stringify(dState.result, null, 2))
+                                          .then(() => window.toast && window.toast("Copied", "success"))
+                                          .catch(() => window.toast && window.toast("Copy failed", "error"));
+                                      }}>
+                                      Copy
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div>
                       <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>
