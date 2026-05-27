@@ -453,169 +453,24 @@ function TwilioStatusPanel({ onConfigure }) {
 
 function CallingSetup() {
   const [twilioOpen, setTwilioOpen] = React.useState(false);
-  const [os, setOs] = React.useState(() => {
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes("mac"))      return "mac";
-    if (ua.includes("win"))      return "win";
-    return "linux";
-  });
-
-  const macScript = `# Repflow Desktop click-to-call helper · macOS
-# Registers the repflow:// URL scheme and AUTO-DIALS via FaceTime over Continuity.
-# Requires: FaceTime app open + iPhone signed into the same Apple ID + "Calls
-# from iPhone" enabled in iPhone Settings → Phone → Calls on Other Devices.
-mkdir -p ~/Applications/Repflow.app/Contents/{MacOS,Resources}
-cat > ~/Applications/Repflow.app/Contents/Info.plist <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleIdentifier</key><string>com.repflow.helper</string>
-  <key>CFBundleName</key><string>Repflow</string>
-  <key>CFBundleExecutable</key><string>repflow</string>
-  <key>CFBundleURLTypes</key><array><dict>
-    <key>CFBundleURLSchemes</key><array><string>repflow</string></array>
-  </dict></array>
-</dict></plist>
-EOF
-cat > ~/Applications/Repflow.app/Contents/MacOS/repflow <<'EOF'
-#!/usr/bin/env bash
-# Receives repflow://call?to=...&lead=...
-PHONE=$(echo "$1" | sed -n 's/.*to=\\([^&]*\\).*/\\1/p' | sed 's/%2B/+/g')
-LEAD=$(echo "$1" | sed -n 's/.*lead=\\([^&]*\\).*/\\1/p' | sed 's/%20/ /g')
-osascript -e "display notification \\"Calling $LEAD ($PHONE)\\" with title \\"Repflow\\""
-# AUTO-DIAL via FaceTime — Continuity hands the call to your paired iPhone.
-# tel: URL alone DOES auto-dial here (FaceTime intercepts), no Press-Call required.
-open -a FaceTime "tel://$PHONE"
-EOF
-chmod +x ~/Applications/Repflow.app/Contents/MacOS/repflow
-# Register with Launch Services
-/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f ~/Applications/Repflow.app
-echo "Repflow helper installed. Click-to-call buttons auto-dial via FaceTime + Continuity."`;
-
-  const winScript = `# Repflow Desktop click-to-call helper · Windows (PowerShell, run as admin)
-# Registers repflow:// URL scheme + auto-clicks the Call button in Phone Link.
-# Phone Link doesn't expose an API — this uses Windows UI Automation to find
-# and click the call button after the number is entered. Requires:
-#   1. Phone Link installed + paired with your Android/iPhone
-#   2. PowerShell ExecutionPolicy: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-$dir = "$env:LOCALAPPDATA\\Repflow"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-
-# Helper: dial.ps1 — opens tel: then drives Phone Link's Call button via UI Automation
-@'
-param([string]\$Phone)
-Start-Process "tel:\$Phone"
-Start-Sleep -Milliseconds 1500   # give Phone Link a moment to focus the dialer
-Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-\$root = [System.Windows.Automation.AutomationElement]::RootElement
-\$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Phone Link")
-\$pl = \$root.FindFirst([System.Windows.Automation.TreeScope]::Children, \$cond)
-if (\$pl) {
-  \$btnCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Call")
-  \$btn = \$pl.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$btnCond)
-  if (\$btn) {
-    \$inv = \$btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-    \$inv.Invoke()
-  } else {
-    Write-Host "Call button not found in Phone Link — dial number then press Call manually."
-  }
-} else {
-  Write-Host "Phone Link window not found — open Phone Link first."
-}
-'@ | Out-File -Encoding UTF8 "$dir\\dial.ps1"
-
-# Wrapper: repflow.cmd — extracts the phone from the URL and invokes dial.ps1
-@'
-@echo off
-rem Receives repflow://call?to=...&lead=...
-set ARG=%~1
-for /f "tokens=2 delims==&" %%a in ("%ARG%") do set PHONE=%%a
-powershell -ExecutionPolicy Bypass -File "%~dp0dial.ps1" -Phone "%PHONE%"
-'@ | Out-File -Encoding ASCII "$dir\\repflow.cmd"
-
-# Register URL scheme
-New-Item -Path "HKCU:\\Software\\Classes\\repflow" -Force | Out-Null
-Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "(Default)" -Value "URL:Repflow Protocol"
-Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow" -Name "URL Protocol" -Value ""
-New-Item -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Force | Out-Null
-Set-ItemProperty -Path "HKCU:\\Software\\Classes\\repflow\\shell\\open\\command" -Name "(Default)" -Value "$dir\\repflow.cmd \`"%1\`""
-Write-Host "Repflow helper installed. Auto-clicks Phone Link's Call button after dial."`;
-
-  const linuxScript = `# Repflow Desktop click-to-call helper · Linux
-mkdir -p ~/.local/bin ~/.local/share/applications
-cat > ~/.local/bin/repflow <<'EOF'
-#!/usr/bin/env bash
-PHONE=$(echo "$1" | sed -n 's/.*to=\\([^&]*\\).*/\\1/p' | sed 's/%2B/+/g')
-notify-send "Repflow" "Calling $PHONE" 2>/dev/null || true
-xdg-open "tel:$PHONE"  # replace with twilio CLI or softphone of choice
-EOF
-chmod +x ~/.local/bin/repflow
-cat > ~/.local/share/applications/repflow.desktop <<EOF
-[Desktop Entry]
-Name=Repflow
-Exec=~/.local/bin/repflow %u
-Type=Application
-NoDisplay=true
-MimeType=x-scheme-handler/repflow;
-EOF
-xdg-mime default repflow.desktop x-scheme-handler/repflow
-echo "Repflow helper installed."`;
-
-  const script = os === "mac" ? macScript : os === "win" ? winScript : linuxScript;
-  const copy = () => navigator.clipboard.writeText(script).then(() => window.toast && window.toast("Copied — paste into your terminal", "success"));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Twilio first — this is the recommended path. Live transcription
-          captures both sides only when calls are routed via WebRTC. */}
       <TwilioStatusPanel onConfigure={() => setTwilioOpen(true)}/>
       {twilioOpen && window.TwilioConfigModal && (() => {
         const M = window.TwilioConfigModal;
         return <M onClose={() => setTwilioOpen(false)}/>;
       })()}
-
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0 }}>Fallback · click-to-call via desktop helper</h3>
-        <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          When Twilio isn't configured, Repflow's <Icons.Phone size={11} style={{ display: "inline-block", verticalAlign: "middle" }}/> buttons fall through to a
-          <span className="mono" style={{ background: "var(--bg-raised)", padding: "1px 5px", borderRadius: 3 }}>repflow://call?to=...</span> URL.
-          Installing the helper below makes that URL launch your existing softphone (Teams, Convoso, FaceTime). Without the helper,
-          dials open the OS default dialer via <span className="mono">tel:</span>. <strong>Live transcription only captures the rep's mic in this mode</strong>{" "}— the lead's audio stays on the phone hardware.
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-h">
-          <h3>Install Repflow Desktop helper</h3>
-          <div style={{ marginLeft: "auto", display: "flex", background: "var(--bg-raised)", padding: 2, borderRadius: 6 }}>
-            {[["mac", "macOS"], ["win", "Windows"], ["linux", "Linux"]].map(([k, l]) => (
-              <button key={k} onClick={() => setOs(k)} className="btn btn-ghost" style={{ padding: "3px 10px", background: os === k ? "var(--bg-overlay)" : "transparent", color: os === k ? "var(--text-primary)" : "var(--text-tertiary)" }}>{l}</button>
-            ))}
-          </div>
-        </div>
-        <div style={{ padding: 14 }}>
-          <div style={{ position: "relative", padding: 12, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.55, color: "var(--text-secondary)", whiteSpace: "pre-wrap", maxHeight: 360, overflowY: "auto" }}>
-            {script}
-            <button className="btn btn-ghost" onClick={copy} style={{ position: "absolute", top: 8, right: 8, fontSize: 11 }}>
-              <Icons.Copy size={11}/> Copy
-            </button>
-          </div>
-          <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
-            Replace the <span className="mono">tel:</span> line with your softphone — Twilio CLI, Convoso autodial, Vapi outbound,
-            etc. The helper just needs to dial when it receives the URL; the rest of Repflow is unchanged.
-          </div>
-        </div>
-      </div>
-
-      <div className="panel" style={{ padding: 16 }}>
-        <h3 style={{ margin: 0 }}>Test the wire</h3>
-        <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
-          Click below to fire a test <span className="mono">repflow://call</span> at +15125550123. If your helper is installed
-          you'll see the dialer; otherwise your OS opens its default phone app.
-        </div>
-        <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => window.repflowCall("+15125550123", "Test Lead")}>
-          <Icons.Phone size={12}/> Fire test call
-        </button>
+      <div className="panel" style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+        <Icons.Info size={13}/>
+        <span>
+          Need click-to-call without Twilio? The <span className="mono">repflow://</span> desktop helper is in{" "}
+          <button className="btn btn-ghost" style={{ padding: "1px 6px", fontSize: 12 }} onClick={() => {
+            try { sessionStorage.setItem("repflow.settings.tab", "agents"); } catch {}
+            window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" } }));
+          }}>Settings → Agents</button>
+          {" "}→ Install on a machine.
+        </span>
       </div>
     </div>
   );

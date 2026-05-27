@@ -202,6 +202,7 @@
       if (!productId)  return setError("Pick a product");
       if (!ap || Number(ap) <= 0) return setError("Enter AP");
       if (!compRate || Number(compRate) <= 0) return setError("Enter a comp rate");
+      if (!meIdent?.agency_id) return setError("Couldn't load your agency. Reload and try again.");
 
       setBusy(true);
       const sb = window.getSupabase && window.getSupabase();
@@ -241,6 +242,7 @@
       }
 
       const row = {
+        agency_id: meIdent.agency_id,
         lead_pipeline_id: lead && lead.id && typeof lead.id === "string" ? lead.id : null,
         carrier_id: carrierId,
         product_id: productId,
@@ -254,7 +256,7 @@
         initial_draft_date: draftDate || null,
         status,
         policy_number: policyNumber || null,
-        owner_rep_id: me ? me.id : null,
+        owner_rep_id: meIdent.rep_id || (me ? me.id : null),
         state: lead ? lead.state : null,
       };
 

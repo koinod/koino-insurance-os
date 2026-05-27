@@ -4428,16 +4428,409 @@ function PageBook() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   8. Settings — role-aware (org / billing / integrations / API / routing /
-      notifications). Owner sees everything, mgr sees team-relevant
-      sections, rep sees only their profile.
+   Settings helper components — used by PageSettings tab routing.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Agency tab: Organization settings + Carriers (owner-only).
+function SettingsAgency({ role }) {
+  const canEdit = role === "owner" || role === "super_admin";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <SettingsOrg/>
+      {window.SettingsCarriers && (() => {
+        const C = window.SettingsCarriers;
+        return <C canEdit={canEdit} role={role}/>;
+      })()}
+    </div>
+  );
+}
+
+// Carrier portal logins card — per-user vault entries for carrier websites.
+// Reads agency carrier list + per-user connector_vault (provider = carrier_<slug>).
+function CarrierPortalLogins() {
+  const CARRIER_PORTAL_URLS = {
+    mutual_omaha:      "https://igoapp.mutualofomaha.com",
+    transamerica:      "https://agencylink.transamerica.com",
+    americo:           "https://agent.americo.com",
+    americanamicable:  "https://agent.americanamicable.com",
+    ethos:             "https://partner.ethoslife.com",
+    foresters:         "https://link.foresters.com",
+    sbli:              "https://producer.sbli.com",
+    instabrain:        "https://agent.instabrain.io",
+    corebridge:        "https://aig.myapps.microsoftonline.com",
+    fg:                "https://agentservices.fglife.com",
+  };
+
+  const carriers = (window.AppData?.CARRIERS || []).filter(c => c.status !== "inactive");
+  const [vault, setVault] = React.useState({});
+  const [open, setOpen]   = React.useState(null); // carrier object being configured
+  const [form, setForm]   = React.useState({ username: "", password: "", portal_url: "", mfa_method: "none", capture_mode: "headless" });
+  const [saving, setSaving] = React.useState(false);
+  const [loadErr, setLoadErr] = React.useState(null);
+
+  const reloadVault = React.useCallback(async () => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) return;
+      const r = await fetch("/api/agent/connector-list", { headers: { authorization: `Bearer ${session.access_token}` } });
+      if (!r.ok) { setLoadErr("Couldn't load saved logins"); return; }
+      const { connectors = [] } = await r.json();
+      const next = {};
+      for (const c of connectors) {
+        if (!c.provider?.startsWith("carrier_")) continue;
+        const slug = c.provider.slice(8);
+        next[slug] = { username: c.account_metadata?.username || "", _has_password: true, _saved_at: c.connected_at };
+      }
+      setVault(next);
+    } catch (e) { setLoadErr(String(e?.message || e)); }
+  }, []);
+  React.useEffect(() => { reloadVault(); }, [reloadVault]);
+
+  const carrierSlug = (c) => (c.carrier_id || String(c.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48));
+
+  const openConnect = (c) => {
+    const slug = carrierSlug(c);
+    const existing = vault[slug] || {};
+    setForm({
+      username:     existing.username || "",
+      password:     "",
+      portal_url:   CARRIER_PORTAL_URLS[slug] || "",
+      mfa_method:   "none",
+      capture_mode: "headless",
+    });
+    setOpen(c);
+  };
+
+  const saveLogin = async () => {
+    if (!open) return;
+    if (!form.username.trim()) { window.toast && window.toast("Enter a username", "warn"); return; }
+    const slug = carrierSlug(open);
+    const existing = vault[slug] || {};
+    if (!form.password.trim() && !existing._has_password) {
+      window.toast && window.toast("Enter a password", "warn"); return;
+    }
+    setSaving(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+      if (!session) { window.toast && window.toast("Sign in to save", "error"); setSaving(false); return; }
+
+      if (form.password.trim()) {
+        const apiKey = JSON.stringify({
+          username:     form.username.trim(),
+          password:     form.password.trim(),
+          portal_url:   form.portal_url.trim() || null,
+          mfa_method:   form.mfa_method,
+          capture_mode: form.capture_mode,
+        });
+        const r = await fetch("/api/agent/connector-upsert", {
+          method: "POST",
+          headers: { authorization: `Bearer ${session.access_token}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            provider:      `carrier_${slug}`,
+            account_label: `Carrier portal · ${open.name}`,
+            api_key:       apiKey,
+            metadata:      { username: form.username.trim(), portal_url: form.portal_url.trim() || null },
+          }),
+        });
+        if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(t || `HTTP ${r.status}`); }
+      }
+
+      // Fire placeholder RBA test command so the agent knows to probe the login.
+      try {
+        const sb2 = window.getSupabase && window.getSupabase();
+        if (sb2) {
+          await sb2.from("rba_commands").insert({
+            kind:    "carrier_portal_test",
+            payload: { carrier_slug: slug, carrier_name: open.name, username: form.username.trim() },
+            status:  "pending",
+          });
+        }
+      } catch { /* non-blocking — agent will pick it up on next heartbeat */ }
+
+      window.toast && window.toast(`${open.name} login saved`, "success");
+      await reloadVault();
+      setOpen(null);
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message}`, "error");
+    } finally { setSaving(false); }
+  };
+
+  const clearLogin = async (c) => {
+    if (!confirm(`Clear saved login for ${c.name}?`)) return;
+    const slug = carrierSlug(c);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      if (sb) { await sb.from("connector_vault").delete().eq("provider", `carrier_${slug}`); }
+      window.toast && window.toast(`${c.name} login cleared`, "success");
+      await reloadVault();
+    } catch (e) { window.toast && window.toast(`Clear failed: ${e.message}`, "error"); }
+  };
+
+  const inp = { width: "100%", padding: "7px 10px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 13, color: "var(--text-primary)" };
+  const radio = (name, val, label, cur, set) => (
+    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+      <input type="radio" name={name} value={val} checked={cur === val} onChange={() => set(val)} style={{ accentColor: "var(--accent-money)" }}/>
+      {label}
+    </label>
+  );
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <Icons.Lock size={13}/>
+        <h3>Carrier portal logins</h3>
+        <span className="meta">{Object.keys(vault).length} saved · credentials encrypted at rest</span>
+      </div>
+      <div style={{ padding: "10px 14px 6px", fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55, background: "color-mix(in oklch, var(--accent-money) 5%, transparent)", borderBottom: "1px solid var(--border-subtle)" }}>
+        <details>
+          <summary style={{ cursor: "pointer", fontWeight: 500, color: "var(--text-secondary)" }}>How this works</summary>
+          <div style={{ marginTop: 6 }}>
+            Your credentials are saved to your encrypted connector vault — never localStorage. When you request a quote for a client,
+            the Repflow Agent installed on your machine logs in to your carrier portal, fills the quote form, and brings back the rate.
+            You're always the user logging in; this just removes the manual step.
+          </div>
+        </details>
+      </div>
+      {loadErr && <div style={{ padding: "8px 14px", color: "var(--state-danger)", fontSize: 12 }}>{loadErr}</div>}
+      {carriers.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
+          No carriers in your agency yet. Add them in{" "}
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "1px 6px" }} onClick={() => {
+            try { sessionStorage.setItem("repflow.settings.tab", "agency"); } catch {}
+            window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "settings" } }));
+          }}>Settings → Agency</button>.
+        </div>
+      ) : (
+        <div className="list">
+          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 130px 1fr 160px" }}>
+            <div>Carrier</div><div>Status</div><div>Username</div><div></div>
+          </div>
+          {carriers.map(c => {
+            const slug = carrierSlug(c);
+            const v = vault[slug];
+            const isConnected = !!v;
+            return (
+              <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 130px 1fr 160px" }}>
+                <div style={{ fontWeight: 500 }}>{c.name}</div>
+                <div>
+                  <span className={`chip ${isConnected ? "chip-money" : ""}`}>
+                    {isConnected ? `Connected${v._saved_at ? " · " + new Date(v._saved_at).toLocaleDateString() : ""}` : "Not connected"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{v?.username || "—"}</div>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  {isConnected && (
+                    <button className="btn btn-ghost" onClick={() => clearLogin(c)} style={{ fontSize: 11 }}>Clear</button>
+                  )}
+                  <button className="btn btn-primary" onClick={() => openConnect(c)} style={{ fontSize: 11 }}>
+                    {isConnected ? "Update" : "Connect"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {open && (
+        <Shared.Modal title={`Connect · ${open.name}`} width={520} onClose={() => setOpen(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setOpen(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveLogin} disabled={saving || !form.username.trim()}>
+              <Icons.Check size={11}/> {saving ? "Saving…" : "Save login"}
+            </button>
+          </>
+        }>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Shared.Field label="Username (producer portal login)">
+              <input style={inp} type="text" value={form.username} autoFocus autoComplete="off"
+                onChange={(e) => setForm(f => ({ ...f, username: e.target.value }))}
+                placeholder="producer@example.com"/>
+            </Shared.Field>
+            <Shared.Field label="Password">
+              <input style={inp} type="password" value={form.password} autoComplete="new-password"
+                onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") saveLogin(); }}
+                placeholder={vault[carrierSlug(open)]?._has_password ? "•••••••• (saved · type to replace)" : "password"}/>
+            </Shared.Field>
+            <Shared.Field label="Portal URL (pre-filled · editable)">
+              <input style={inp} type="url" value={form.portal_url}
+                onChange={(e) => setForm(f => ({ ...f, portal_url: e.target.value }))}
+                placeholder="https://agent.carrier.com"/>
+            </Shared.Field>
+            <div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}>MFA / 2FA method</div>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {radio("mfa", "none",          "None",                form.mfa_method, (v) => setForm(f => ({ ...f, mfa_method: v })))}
+                {radio("mfa", "totp",          "TOTP (authenticator)",form.mfa_method, (v) => setForm(f => ({ ...f, mfa_method: v })))}
+                {radio("mfa", "sms",           "SMS code",            form.mfa_method, (v) => setForm(f => ({ ...f, mfa_method: v })))}
+                {radio("mfa", "login_fresh",   "Login fresh each time",form.mfa_method,(v) => setForm(f => ({ ...f, mfa_method: v })))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}>Capture mode</div>
+              <div style={{ display: "flex", gap: 16 }}>
+                {radio("cap", "headless", "Headless (default)",  form.capture_mode, (v) => setForm(f => ({ ...f, capture_mode: v })))}
+                {radio("cap", "headed",   "Headed (visible browser)", form.capture_mode, (v) => setForm(f => ({ ...f, capture_mode: v })))}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-tertiary)" }}>
+                Headless is faster. Headed lets you see the browser + handle MFA prompts manually.
+              </div>
+            </div>
+            <div style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 6, fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+              Credentials stored in your encrypted connector vault. Never logged. The Repflow Agent on your machine uses them to fetch live quotes — you're always the authenticated user.
+            </div>
+          </div>
+        </Shared.Modal>
+      )}
+    </div>
+  );
+}
+
+// Connectors tab: Twilio capability status + agency integrations catalog + carrier portal logins.
+function SettingsConnectors({ role }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {window.CallingSetup && (() => { const C = window.CallingSetup; return <C/>; })()}
+      <SettingsIntegrations/>
+      <CarrierPortalLogins/>
+    </div>
+  );
+}
+
+// Compliance tab: TCPA consent, recording notice, DNC.
+function SettingsCompliance() {
+  const US_STATES_CONSENT = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+  // All-party consent states (require both parties to consent to recording).
+  const ALL_PARTY_STATES = new Set(["CA","CT","DE","FL","IL","MD","MA","MI","MT","NH","OR","PA","WA"]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="panel" style={{ padding: 16 }}>
+        <div className="panel-h" style={{ marginBottom: 10 }}>
+          <Icons.Shield size={13}/>
+          <h3>TCPA — Telephone Consumer Protection Act</h3>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.65 }}>
+          <p style={{ margin: "0 0 8px" }}>
+            <strong>Prior express written consent</strong> is required before calling or texting leads on a cell phone for marketing purposes.
+            The{" "}
+            <a href="https://www.fcc.gov/consumers/guides/stop-unwanted-robocalls-and-texts" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-money)" }}>FCC TCPA rule</a>
+            {" "}effective January 2025 requires one-to-one consent — a lead can only consent to receive calls from your agency specifically, not a shared-lead marketplace.
+          </p>
+          <p style={{ margin: "0 0 8px" }}>
+            <strong>Safe harbor for inbound leads:</strong> Leads who call <em>you</em> first give implied consent for one return call within the same 24h window.
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Action:</strong> Ensure every lead form and vendor contract includes compliant one-to-one consent language before importing leads into Repflow.
+          </p>
+        </div>
+        <div style={{ marginTop: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+          <Icons.AlertTriangle size={12} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 6, color: "var(--state-warning)" }}/>
+          This information is informational only and not legal advice. Consult a licensed compliance attorney for your agency's specific situation.
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <div className="panel-h" style={{ marginBottom: 10 }}>
+          <Icons.Mic size={13}/>
+          <h3>Call recording consent — by state</h3>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 10 }}>
+          One-party states require only the rep to consent. All-party (two-party) states require the lead to be notified and consent before recording begins.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(68px, 1fr))", gap: 4 }}>
+          {US_STATES_CONSENT.map(s => {
+            const allParty = ALL_PARTY_STATES.has(s);
+            return (
+              <div key={s} style={{
+                padding: "5px 8px",
+                borderRadius: 5,
+                fontSize: 11.5,
+                fontWeight: 500,
+                textAlign: "center",
+                background: allParty ? "color-mix(in oklch, var(--state-warning) 12%, transparent)" : "var(--bg-raised)",
+                border: `1px solid ${allParty ? "color-mix(in oklch, var(--state-warning) 30%, transparent)" : "var(--border-subtle)"}`,
+                color: allParty ? "var(--state-warning)" : "var(--text-secondary)",
+              }} title={allParty ? `${s}: All-party consent required` : `${s}: One-party consent`}>
+                {s}
+                {allParty && <div style={{ fontSize: 9, marginTop: 1, opacity: 0.8 }}>all-party</div>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>
+          <strong style={{ color: "var(--state-warning)" }}>All-party states (highlighted):</strong>{" "}
+          {[...ALL_PARTY_STATES].sort().join(", ")} — Play a disclosure before recording. Repflow's call recording disclosure is auto-played when configured.
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <div className="panel-h" style={{ marginBottom: 8 }}>
+          <Icons.X size={13}/>
+          <h3>Do Not Call (DNC)</h3>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          <p style={{ margin: "0 0 8px" }}>
+            The FTC National DNC Registry covers residential phone numbers. Medicare-supplement and Final Expense cold calling is subject to DNC scrubbing.
+            Registered numbers must not be called for solicitation; violations carry fines up to <strong>$51,744 per call</strong>.
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Exception:</strong> Leads who have an <em>established business relationship</em> with your agency (purchased a policy in the past 18 months, or made an inquiry in the past 3 months) may be called even if DNC-registered.
+          </p>
+        </div>
+        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+          <a href="https://telemarketing.donotcall.gov" target="_blank" rel="noopener noreferrer" className="btn btn-ghost" style={{ fontSize: 12 }}>
+            <Icons.ArrowUpRight size={11}/> FTC DNC portal
+          </a>
+          <a href="https://www.fcc.gov/consumers/guides/stop-unwanted-robocalls-and-texts" target="_blank" rel="noopener noreferrer" className="btn btn-ghost" style={{ fontSize: 12 }}>
+            <Icons.ArrowUpRight size={11}/> FCC TCPA guide
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Developer tab: API keys + webhooks. Gated to super_admin / owner.
+function SettingsDeveloper({ role }) {
+  if (role !== "super_admin" && role !== "owner") {
+    return (
+      <div className="panel" style={{ padding: 32, textAlign: "center", color: "var(--text-tertiary)" }}>
+        <Icons.Lock size={20} style={{ display: "inline-block", color: "var(--text-quaternary)" }}/>
+        <div style={{ fontSize: 13, fontWeight: 500, marginTop: 10 }}>Developer tools are restricted to super-admins</div>
+        <div style={{ fontSize: 12, marginTop: 4 }}>API keys and webhook secrets are managed by your agency owner.</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <SettingsApi/>
+      <SettingsRouting/>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   8. Settings — role-aware (8 sections: Profile, Agency, Agents, Connectors,
+      Team, Billing, Compliance, Developer).
    ───────────────────────────────────────────────────────────────────────── */
 function PageSettings({ role = "owner" }) {
-  const TABS = role === "owner" || role === "super_admin"
-    ? [["org","Organization"],["team","Team & invites"],["carriers","Carriers"],["billing","Billing"],["integrations","Integrations"],["agents","Agents"],["api","API keys"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-    : role === "manager"
-      ? [["team","Team & invites"],["carriers","Carriers"],["agents","Agents"],["routing","Routing rules"],["calling","Calling"],["notifications","Notifications"],["profile","Profile"]]
-      : [["carriers","Carriers"],["agents","Agents"],["calling","Calling"],["profile","Profile"],["notifications","Notifications"]];
+  const isSuperOrOwner = role === "owner" || role === "super_admin";
+  const isManagerUp    = isSuperOrOwner || role === "manager";
+  const TABS = [
+    ["profile",    "Profile"],
+    ...(isSuperOrOwner ? [["agency",     "Agency"]]     : []),
+    ["agents",     "Agents"],
+    ["connectors", "Connectors"],
+    ...(isManagerUp    ? [["team",       "Team"]]        : []),
+    ...(isSuperOrOwner ? [["billing",    "Billing"]]     : []),
+    ...(isManagerUp    ? [["compliance", "Compliance"]]  : []),
+    ...(isSuperOrOwner ? [["developer",  "Developer"]]   : []),
+  ];
   // Allow other pages to deeplink into a specific tab via sessionStorage
   // (e.g. Resources → "Manage carriers" jumps here with carriers preselected).
   const initialTab = (() => {
@@ -4457,7 +4850,7 @@ function PageSettings({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">Settings</div>
-          <div className="page-sub">{role === "owner" ? "Organization, team, carriers, billing, integrations, API, routing" : role === "manager" ? "Team, carriers, routing rules and notifications" : "Your profile and notifications"}</div>
+          <div className="page-sub">{isSuperOrOwner ? "Profile · Agency · Agents · Connectors · Team · Billing · Compliance · Developer" : isManagerUp ? "Profile · Agents · Connectors · Team · Compliance" : "Profile · Agents · Connectors"}</div>
         </div>
         {/* P7: prominent Edit Profile entry point. Works for every role
             (owner / manager / rep / imo_owner). Highlights when active so
@@ -4479,17 +4872,14 @@ function PageSettings({ role = "owner" }) {
         </div>
 
         <div>
-          {tab === "org"          && <SettingsOrg/>}
-          {tab === "billing"      && <SettingsBilling/>}
-          {tab === "integrations" && <SettingsIntegrations/>}
-          {tab === "api"          && <SettingsApi/>}
-          {tab === "routing"      && <SettingsRouting/>}
-          {tab === "calling"      && (() => { const C = window.CallingSetup; return C ? <C/> : null; })()}
-          {tab === "team"          && (() => { const T = window.SettingsTeam;  return T ? <T/> : null; })()}
-          {tab === "carriers"      && (() => { const C = window.SettingsCarriers; return C ? <C canEdit={role === "owner" || role === "manager"} role={role}/> : null; })()}
-          {tab === "agents"        && <SettingsAgents role={role}/>}
-          {tab === "notifications"&& <SettingsNotifications/>}
-          {tab === "profile"      && <SettingsProfile role={role}/>}
+          {tab === "profile"     && <SettingsProfile role={role}/>}
+          {tab === "agency"      && <SettingsAgency role={role}/>}
+          {tab === "agents"      && <SettingsAgents role={role}/>}
+          {tab === "connectors"  && <SettingsConnectors role={role}/>}
+          {tab === "team"        && (() => { const T = window.SettingsTeam; return T ? <T/> : null; })()}
+          {tab === "billing"     && <SettingsBilling/>}
+          {tab === "compliance"  && <SettingsCompliance/>}
+          {tab === "developer"   && <SettingsDeveloper role={role}/>}
         </div>
       </div>
     </div>
