@@ -134,6 +134,40 @@
     sms_lane: "sendblue_then_twilio",
   };
 
+  // Editable SMS bodies the dialer can send. {name}/{rep}/{agency} are
+  // substituted at send time. Persisted per-rep (localStorage mirror +
+  // rep_settings upsert) so the rep owns the exact words that go out —
+  // not just an on/off switch. Physical-phone dialing fires pre_call from
+  // the browser before the tel: handoff; the cloud worker honours the rest.
+  const DEFAULT_SMS_TEMPLATES = {
+    pre_call:  "Hi {name}, it's {rep} with {agency} — giving you a quick call right now about your coverage options.",
+    post_call: "Thanks for your time, {name}! I'll follow up with the options we discussed. — {rep}",
+  };
+
+  function loadSmsTemplates() {
+    try {
+      const stored = JSON.parse(localStorage.getItem("repflow.floor.sms_templates") || "{}");
+      return { ...DEFAULT_SMS_TEMPLATES, ...stored };
+    } catch { return { ...DEFAULT_SMS_TEMPLATES }; }
+  }
+
+  function renderSmsTemplate(body, lead) {
+    const me = (typeof window !== "undefined" && window.me && window.me()) || {};
+    const rep = me.full_name || me.name || "your agent";
+    const agency = (window.__agencyName) || me.agency_name || "our agency";
+    const name = (lead && (lead.lead || lead.name || lead.first_name)) || "there";
+    return String(body || "")
+      .replace(/\{name\}/g, String(name).split(" ")[0])
+      .replace(/\{rep\}/g, rep)
+      .replace(/\{agency\}/g, agency);
+  }
+
+  // Physical-phone providers dial one call at a time through the rep's own
+  // device, so parallel "lines" and cloud-leg AI features don't apply.
+  function isPhoneHandoffProvider(p) {
+    return p === "phone_link" || p === "bluetooth_phone";
+  }
+
   function isManagerRole(role) {
     return ["manager", "owner", "admin", "imo_owner", "super_admin"].includes(role);
   }
@@ -1264,6 +1298,46 @@
     );
   }
 
+  // Inline editor for the SMS bodies the dialer sends. Reps edit the exact
+  // words (with {name}/{rep}/{agency} tokens) — not just an on/off switch.
+  function MessageEditor({ templates, onSave, onClose }) {
+    const Modal = window.Shared.Modal;
+    const [draft, setDraft] = useState({ ...DEFAULT_SMS_TEMPLATES, ...(templates || {}) });
+    const sampleLead = { lead: "Jordan Vega" };
+    const ta = { width: "100%", minHeight: 72, padding: "9px 11px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5, resize: "vertical", fontFamily: "inherit" };
+    const fields = [
+      ["pre_call",  "SMS before the call", "Sent right before the phone rings (when “SMS before” is on)."],
+      ["post_call", "SMS after the call",  "Sent after you wrap the call (when “SMS after” is on)."],
+    ];
+    return (
+      <Modal title="Edit dialer messages" width={520} onClose={onClose} actions={
+        <>
+          <button className="btn" onClick={() => setDraft({ ...DEFAULT_SMS_TEMPLATES })}>Reset</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => onSave(draft)}>Save messages</button>
+        </>
+      }>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+            Tokens: <span className="mono">{"{name}"}</span> <span className="mono">{"{rep}"}</span> <span className="mono">{"{agency}"}</span> — swapped in when the text is sent.
+          </div>
+          {fields.map(([key, label, hint]) => (
+            <div key={key}>
+              <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 6 }}>{hint}</div>
+              <textarea style={ta} value={draft[key] || ""} maxLength={320}
+                onChange={(e) => setDraft(d => ({ ...d, [key]: e.target.value }))}/>
+              <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+                Preview: <span style={{ color: "var(--text-secondary)" }}>{renderSmsTemplate(draft[key], sampleLead) || "—"}</span>
+                <span style={{ float: "right" }}>{(draft[key] || "").length}/320</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
+    );
+  }
+
   function FloorDialerCockpit({ role }) {
     const [, force] = useState(0);
     useEffect(() => {
@@ -1329,6 +1403,37 @@
       } catch {}
     }, [maxLines, toggles]);
 
+    // Double dial — call each lead back-to-back this many times (1 = single).
+    const [redialAttempts, setRedialAttempts] = useState(() => {
+      try { return Math.min(4, Math.max(1, Number(localStorage.getItem("repflow.floor.redialAttempts") || 1))); }
+      catch { return 1; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem("repflow.floor.redialAttempts", String(redialAttempts)); } catch {}
+    }, [redialAttempts]);
+
+    // Editable SMS bodies + the message editor modal.
+    const [smsTemplates, setSmsTemplates] = useState(loadSmsTemplates);
+    const [msgEditorOpen, setMsgEditorOpen] = useState(false);
+    useEffect(() => {
+      try { localStorage.setItem("repflow.floor.sms_templates", JSON.stringify(smsTemplates)); } catch {}
+    }, [smsTemplates]);
+
+    const isPhoneProvider = isPhoneHandoffProvider(dialProvider);
+    // Physical-phone dialing is single-line, period.
+    const effectiveLines = isPhoneProvider ? 1 : maxLines;
+
+    // Publish session dial config so repflowCall (page-platform.jsx) can read
+    // pre-call SMS + redial settings without prop-drilling — mirrors the
+    // existing window.__dialProviderSession pattern.
+    useEffect(() => {
+      // Publish (don't null on unmount) so an autodial session that outlives a
+      // nav away from Floor keeps the rep's pre-call SMS + redial config.
+      window.__dialToggles = toggles;
+      window.__smsTemplates = smsTemplates;
+      window.__dialRedialAttempts = redialAttempts;
+    }, [toggles, smsTemplates, redialAttempts]);
+
     const calls = attempts.length;
     const connects = attempts.filter(a => a.disposition === "connected" || a.answered_at).length;
     const apQueued = leads.reduce((a, l) => a + Number(l.expectedAp || 0), 0);
@@ -1342,6 +1447,15 @@
       if (isDemo) return window.toast?.("Demo mode previews the Floor; sign in to a real agency to start dialing.", "info");
       if (!repId || !agencyId) return window.toast?.("Power Dialer: sign in with an agency session", "error");
       if (!queue.length) return window.toast?.("No dialable leads with phone numbers", "warn");
+      // Physical-phone providers dial one lead at a time through the rep's own
+      // phone — not the cloud bridge. Run the single-line autodial loop, which
+      // routes each lead through window.repflowCall (Phone Link / tel: handoff
+      // + pre-call SMS + double-dial). Never hits the Twilio worker.
+      if (isPhoneProvider) {
+        window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue, redialAttempts, smsTemplates, toggles } }));
+        window.toast?.(`Dialing through ${dialProvider === "phone_link" ? "Phone Link" : "your iPhone"} · ${queue.length} leads`, "info");
+        return;
+      }
       setBusy(true);
       const ctrl = new AbortController();
       const timeout = setTimeout(() => ctrl.abort(), 10000);
@@ -1352,7 +1466,7 @@
             signal: ctrl.signal,
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ agencyId, repId, maxLines, leadQueue: queue, toggles }),
+            body: JSON.stringify({ agencyId, repId, maxLines: effectiveLines, leadQueue: queue, toggles, redialAttempts, smsTemplates, dialProvider }),
           });
           j = await r.json().catch(() => ({}));
         } catch (fetchErr) {
@@ -1367,7 +1481,7 @@
         // Power Dialer worker not configured → fall back to the existing AutoDialBar queue.
         if (!r.ok && (j?.error === "power_dialer_unconfigured" || r.status === 503)) {
           window.toast?.("Power Dialer worker not set up — starting single-line autodial mode", "info");
-          window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue } }));
+          window.dispatchEvent(new CustomEvent("autodial:start", { detail: { queue, redialAttempts, smsTemplates, toggles } }));
           return;
         }
         if (!r.ok) {
@@ -1438,6 +1552,39 @@
             <DialMetric label="Readiness" value={readiness.ready ?? "—"} sub={readinessText}/>
           </div>
 
+          {/* Shared messaging & dialing options — apply to both Solo and
+              Power so the rep controls texting + double-dial regardless of
+              mode (matches how they actually dial: phone = Solo). */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14, padding: "10px 14px", background: "var(--surface-elev)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5 }}>Double dial</span>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[1, 2, 3, 4].map(n => (
+                  <button key={n} className="btn btn-ghost" onClick={() => setRedialAttempts(n)}
+                    title={n === 1 ? "Dial each lead once" : `Dial each lead ${n}× back-to-back until they pick up`}
+                    style={{ padding: "3px 9px", fontWeight: 700, fontSize: 12,
+                      color: redialAttempts === n ? "var(--accent-money)" : "var(--text-tertiary)",
+                      background: redialAttempts === n ? "color-mix(in oklch, var(--accent-money) 14%, transparent)" : "var(--bg-raised)",
+                      border: redialAttempts === n ? "1px solid color-mix(in oklch, var(--accent-money) 40%, transparent)" : "1px solid var(--border-subtle)" }}>
+                    {n}×
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {[["sms_pre", "SMS before"], ["sms_post", "SMS after"]].map(([key, label]) => (
+                <button key={key} className="btn btn-ghost" onClick={() => toggle(key)}
+                  style={{ padding: "3px 10px", fontSize: 12, color: toggles[key] ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                  {toggles[key] ? <Icons.Check size={12}/> : <Icons.X size={12}/>} {label}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-ghost" onClick={() => setMsgEditorOpen(true)}
+              style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 12, color: "var(--text-secondary)" }}>
+              <Icons.Edit size={12}/> Edit messages
+            </button>
+          </div>
+
           {dialMode === "solo" ? (
             <SoloDialerPanel
               leads={leads}
@@ -1479,7 +1626,7 @@
               </div>
               <button className="btn btn-primary" onClick={startSession} disabled={busy || queue.length === 0}
                 style={{ minWidth: 190, minHeight: 44, background: queue.length ? "var(--accent-money)" : "var(--bg-raised)", color: queue.length ? "#022" : "var(--text-tertiary)", fontWeight: 800 }}>
-                <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : queue.length ? `Start ${maxLines} lines` : "No phone leads"}
+                <Icons.Play size={14}/> {isDemo ? "Demo preview" : busy ? "Starting..." : !queue.length ? "No phone leads" : isPhoneProvider ? "Start dialing" : `Start ${effectiveLines} lines`}
               </button>
             </div>
 
@@ -1524,16 +1671,29 @@
                 borderRadius: 8,
               }}>
                 <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10 }}>Session</div>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>
-                  Lines <strong style={{ color: "var(--accent-money)" }}>{maxLines}</strong>
-                  <input type="range" min="1" max="10" value={maxLines} onChange={e => setMaxLines(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }}/>
-                </label>
+
+                {/* Parallel lines only apply to the cloud bridge (Twilio).
+                    Phone Link / macOS dial through the rep's own phone, one
+                    call at a time — so we hide the slider for those. */}
+                {isPhoneProvider ? (
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", padding: "8px 10px", background: "var(--surface-elev)", border: "1px solid var(--border-subtle)", borderRadius: 7 }}>
+                    <Icons.Phone size={12} style={{ color: "var(--accent-money)", marginRight: 6, verticalAlign: "middle" }}/>
+                    Single line · dials through your phone
+                  </div>
+                ) : (
+                  <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>
+                    Lines <strong style={{ color: "var(--accent-money)" }}>{maxLines}</strong>
+                    <input type="range" min="1" max="10" value={maxLines} onChange={e => setMaxLines(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }}/>
+                  </label>
+                )}
+
+                {/* Cloud-leg toggles. Recording works on every provider;
+                    AI handle / VM drop are SignalWire/Twilio worker features.
+                    SMS + double-dial live in the shared options bar above. */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 14 }}>
                   {[
                     ["record", "Record"],
-                    ["ai_assistant", "AI handle"],
-                    ["ai_voicemail", "VM drop"],
-                    ["sms_post", "SMS wrap"],
+                    ...(isPhoneProvider ? [] : [["ai_assistant", "AI handle"], ["ai_voicemail", "VM drop"]]),
                   ].map(([key, label]) => (
                     <button key={key} className="btn btn-ghost" onClick={() => toggle(key)}
                       style={{ justifyContent: "center", color: toggles[key] ? "var(--accent-money)" : "var(--text-tertiary)" }}>
@@ -1544,6 +1704,14 @@
               </div>
             </div>
           </div>
+          )}
+
+          {msgEditorOpen && window.Shared && window.Shared.Modal && (
+            <MessageEditor
+              templates={smsTemplates}
+              onSave={(next) => { setSmsTemplates(next); setMsgEditorOpen(false); window.toast?.("Messages saved", "success"); }}
+              onClose={() => setMsgEditorOpen(false)}
+            />
           )}
 
           <CallStageAssist lead={activeLead}/>

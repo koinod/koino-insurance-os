@@ -198,6 +198,38 @@ const _origRepflowCall = function (phone, leadName) {
 };
 window.__repflowSystemDial = _origRepflowCall;
 
+// Fire the rep's pre-call SMS just before a physical-phone handoff, if the
+// floor cockpit has "SMS before" enabled and a pre_call body set. Reads the
+// session config the cockpit publishes to window. Fire-and-forget — a failed
+// text must never block the dial.
+function _firePreCallSms(phone, leadName, opts) {
+  try {
+    const toggles = window.__dialToggles || {};
+    const tpl = (window.__smsTemplates && window.__smsTemplates.pre_call) || "";
+    if (!toggles.sms_pre || !tpl.trim() || !phone) return;
+    const me = (window.me && window.me()) || {};
+    const rep = me.full_name || me.name || "your agent";
+    const agency = window.__agencyName || me.agency_name || "our agency";
+    const first = String(leadName || "there").split(" ")[0];
+    const body = tpl.replace(/\{name\}/g, first).replace(/\{rep\}/g, rep).replace(/\{agency\}/g, agency);
+    fetch("/api/twilio-sms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: phone, body, lead_id: (opts && opts.lead_id) || null, source: "floor:sms_pre" }),
+    }).catch(() => {});
+    window.toast && window.toast("Pre-call text sent", "info");
+  } catch (e) { console.warn("[repflowCall._firePreCallSms]", e); }
+}
+
+// Hand the call to the rep's own phone: desktop helper (repflow:// scheme)
+// first, then tel: (which on macOS offers Call-via-iPhone Continuity, and on
+// Windows opens Phone Link). Used by the phone_link / bluetooth_phone
+// providers when the local Repflow helper isn't driving the call directly.
+function _physicalPhoneHandoff(phone, leadName, opts) {
+  _firePreCallSms(phone, leadName, opts);
+  return _origRepflowCall(phone, leadName);
+}
+
 // Public dial entrypoint — branches on the active dial provider, then cascades:
 //   Provider is read from window.__dialProviderSession (floor quick-toggle) first,
 //   then window.__agentSettings.default_dial_provider (persisted preference).
@@ -220,36 +252,41 @@ window.repflowCall = async function (phone, leadName, opts) {
     return false;
   }
 
-  // Phone Link (Windows) → send command to local RBA agent.
-  if (provider === "phone_link") {
+  // Physical-phone providers — the call rings on the rep's OWN phone, one at
+  // a time. The local Repflow helper (installed with the sales agent in the
+  // one-line install) drives the connection when present; otherwise we hand
+  // off to the OS dialer (tel:) so it STILL uses the rep's phone — never a
+  // silent Twilio fallback, which is what made click-to-call feel broken.
+  if (provider === "phone_link" || provider === "bluetooth_phone") {
+    const viaLabel = provider === "phone_link" ? "Phone Link" : "your iPhone";
+    const redial = Math.min(4, Math.max(1, Number(window.__dialRedialAttempts || 1)));
     if (typeof window.rba_post_command === "function") {
       try {
-        window.toast && window.toast(`Calling ${leadName || phone} via Phone Link…`, "info");
+        _firePreCallSms(phone, leadName, opts);
+        window.toast && window.toast(`Calling ${leadName || phone} via ${viaLabel}…`, "info");
         await window.rba_post_command({
           kind: "twilio_dial",
-          payload: { phone, lead_name: leadName || "", lead_id: (opts && opts.lead_id) || null, via: "phone_link" },
+          payload: {
+            phone, lead_name: leadName || "", lead_id: (opts && opts.lead_id) || null,
+            via: provider, redial_attempts: redial,
+          },
         });
         window.dispatchEvent(new CustomEvent("incall:open", { detail: {
           lead: { id: (opts && opts.lead_id) || null, lead: leadName || phone, phone },
-          status: "Ringing (Phone Link)",
+          status: provider === "phone_link" ? "Ringing (Phone Link)" : "Ringing (iPhone)",
           autodial: !!(opts && opts.autodial),
         }}));
         return true;
       } catch (e) {
-        console.error("[repflowCall.phone_link]", e);
-        window.toast && window.toast(`Phone Link dial failed: ${e?.message || e} — falling back to Twilio`, "warn");
-        // fall through to Twilio
+        console.error("[repflowCall.physical]", e);
+        window.toast && window.toast(`${viaLabel} dial failed — opening your phone dialer instead`, "warn");
+        return _physicalPhoneHandoff(phone, leadName, opts);
       }
-    } else {
-      window.toast && window.toast("Phone Link: Repflow Agent not running on this machine — falling back to Twilio", "warn");
-      // fall through to Twilio
     }
-  }
-
-  // macOS Bluetooth (FaceTime Continuity) → agent tool not yet wired, fall back gracefully.
-  if (provider === "bluetooth_phone") {
-    window.toast && window.toast("macOS Bluetooth dial not yet wired — using Twilio for this call", "info");
-    // fall through to Twilio
+    // No helper on this machine → go straight to the OS dialer (tel:/FaceTime),
+    // which uses the rep's phone. Install the helper for hands-free dialing.
+    window.toast && window.toast("Repflow helper not running — opening your phone dialer. Install it from Settings → Calling for hands-free dialing.", "info");
+    return _physicalPhoneHandoff(phone, leadName, opts);
   }
 
   // Twilio path (also the fallback for phone_link/bluetooth_phone failures above).
