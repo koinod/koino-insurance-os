@@ -1080,6 +1080,190 @@
     );
   }
 
+  /* DialerModeStrip — toggle between Solo (one lead, click-to-call via
+     repflowCall cascade — works with the upstream-shipped Phone Link /
+     macOS BT / Twilio provider chips) and Power (parallel SignalWire
+     worker session). The carrier choice itself lives in DialProviderChips
+     above, so Mode is a single axis here. */
+  function DialerModeStrip({ mode, setMode }) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        padding: "8px 12px",
+        background: "var(--bg-raised)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+        fontSize: 12,
+      }}>
+        <span style={{ color: "var(--text-tertiary)", textTransform: "uppercase", fontSize: 10, letterSpacing: 0.6 }}>Dialer</span>
+        {["solo", "power"].map(m => (
+          <button key={m} className="btn btn-ghost" onClick={() => setMode(m)}
+            style={{
+              padding: "4px 10px", fontSize: 12,
+              background: mode === m ? "var(--accent-money)" : "transparent",
+              color: mode === m ? "#022" : "var(--text-secondary)",
+              fontWeight: mode === m ? 700 : 500,
+            }}>
+            {m === "solo" ? "Solo (one at a time)" : "Power (parallel lines)"}
+          </button>
+        ))}
+        <span style={{ marginLeft: 12, color: "var(--text-tertiary)", fontSize: 11 }}>
+          Solo = click-to-call via your provider (Phone Link / macOS BT / Twilio). Power = SignalWire worker session.
+        </span>
+      </div>
+    );
+  }
+
+  /* SoloDialerPanel — replaces the Power Dialer banner when dialMode='solo'.
+     Walks the filtered queue one at a time. Dial fires window.repflowCall
+     which already cascades: REST bridge → Twilio Voice SDK → repflow:// →
+     tel: (macOS Continuity routes that to the paired iPhone). The recorder
+     toggle from the session controls starts CallRecorder for the call's
+     duration; the existing /api/transcribe cron picks it up. */
+  function SoloDialerPanel({ leads, repId, provider, record, onDoneCount }) {
+    const [idx, setIdx] = useState(0);
+    const [autoNext, setAutoNext] = useState(false);
+    const [delaySec, setDelaySec] = useState(8);
+    const [running, setRunning] = useState(false);
+    const recorderRef = React.useRef(null);
+    const advanceTimerRef = React.useRef(null);
+    const current = leads[idx] || null;
+
+    useEffect(() => () => {
+      try { recorderRef.current?.stop?.(); } catch {}
+      clearTimeout(advanceTimerRef.current);
+    }, []);
+
+    const stopRecorder = () => {
+      try { recorderRef.current?.stop?.(); } catch {}
+      recorderRef.current = null;
+    };
+
+    const dial = async () => {
+      if (!current) return window.toast?.("No lead to dial", "warn");
+      if (!current.phone) return window.toast?.("Lead has no phone", "warn");
+      setRunning(true);
+      stopRecorder();
+      if (record && window.CallRecorder) {
+        try {
+          const rec = new window.CallRecorder({ mode: "mic", repId, leadId: current.id });
+          await rec.start();
+          recorderRef.current = rec;
+        } catch (e) { console.warn("[SoloDialer] recorder start failed:", e); }
+      }
+      try {
+        if (typeof window.repflowCall === "function") {
+          await window.repflowCall(current.phone, current.lead, {
+            lead_id: current.id,
+            source: "solo_floor",
+            provider_hint: provider,
+          });
+        } else {
+          window.location.href = `tel:${String(current.phone).replace(/[^\d+]/g, "")}`;
+        }
+        onDoneCount?.();
+      } catch (e) {
+        window.toast?.(`Dial failed: ${e.message || e}`, "error");
+      } finally {
+        setRunning(false);
+      }
+    };
+    const skip   = () => { stopRecorder(); setIdx(i => Math.min(i + 1, leads.length - 1)); };
+    const back   = () => { stopRecorder(); setIdx(i => Math.max(i - 1, 0)); };
+    const stopAll = () => { stopRecorder(); setRunning(false); clearTimeout(advanceTimerRef.current); };
+
+    // Auto-advance: when a dial ends (via the existing rba-dial 'autodial:call:end'
+    // event OR a manual stopRecorder), wait delaySec then dial next.
+    useEffect(() => {
+      if (!autoNext) return;
+      const onEnd = () => {
+        clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = setTimeout(() => {
+          if (idx + 1 >= leads.length) return;
+          setIdx(i => i + 1);
+        }, delaySec * 1000);
+      };
+      window.addEventListener("autodial:call:end", onEnd);
+      return () => {
+        window.removeEventListener("autodial:call:end", onEnd);
+        clearTimeout(advanceTimerRef.current);
+      };
+    }, [autoNext, delaySec, idx, leads.length]);
+
+    if (leads.length === 0) {
+      return (
+        <div style={{ padding: 18, background: "var(--surface-elev)", border: "1px solid var(--border-subtle)", borderRadius: 8, color: "var(--text-tertiary)", fontSize: 13 }}>
+          No dialable leads match the current filter. Clear filters or import a CSV.
+        </div>
+      );
+    }
+    return (
+      <div style={{
+        background: "var(--surface-elev)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 8,
+        padding: 18,
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-money)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              <span className="dot" style={{ background: "var(--accent-money)" }}/> Solo dialer · via {provider === "iphone" ? "iPhone Continuity" : provider === "browser" ? "browser softphone" : provider}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 28, lineHeight: 1.1, fontWeight: 750 }}>{current?.lead || "—"}</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-tertiary)", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span>{current?.age || "—"} age</span><span>·</span>
+              <span>{current?.state || "—"}</span><span>·</span>
+              <span>{current?.phone || "no phone"}</span><span>·</span>
+              <span>{current?.product || "no product"}</span><span>·</span>
+              <span>{current?.source || "pipeline"}</span>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-quaternary)" }}>
+              {idx + 1} of {leads.length} · {record ? "recording on" : "recording off"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="btn" onClick={back} disabled={idx === 0}>
+              <Icons.ChevronRight size={11} style={{ transform: "rotate(180deg)" }}/> Back
+            </button>
+            <button className="btn btn-primary" onClick={dial} disabled={running || !current?.phone}
+              style={{ minWidth: 160, background: "var(--accent-money)", color: "#022", fontWeight: 800 }}>
+              <Icons.PhoneCall size={13}/> {running ? "Dialing…" : `Dial ${current?.lead?.split(" ")[0] || "lead"}`}
+            </button>
+            <button className="btn" onClick={skip} disabled={idx >= leads.length - 1}>
+              Skip <Icons.ChevronRight size={11}/>
+            </button>
+            <button className="btn btn-ghost" onClick={stopAll} title="Stop recording / cancel auto-advance">
+              <Icons.X size={11}/> Stop
+            </button>
+          </div>
+        </div>
+        <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--text-secondary)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={autoNext} onChange={e => setAutoNext(e.target.checked)}/>
+            Auto-advance after call ends
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            Delay
+            <input type="number" min="2" max="60" value={delaySec}
+              onChange={e => setDelaySec(Math.max(2, Math.min(60, Number(e.target.value) || 8)))}
+              className="text-input" style={{ width: 60, padding: "3px 6px", fontSize: 12 }}/>
+            s
+          </label>
+          {provider === "iphone" && (
+            <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>
+              macOS will prompt "Call with iPhone?" — approve once, then it stays approved per call.
+            </span>
+          )}
+          {provider === "browser" && (
+            <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>
+              Needs Twilio connector in Settings → Agents to route through the browser.
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function FloorDialerCockpit({ role }) {
     const [, force] = useState(0);
     useEffect(() => {
@@ -1100,6 +1284,12 @@
       try { localStorage.setItem("repflow.floor.filters", JSON.stringify(filters)); } catch {}
     }, [filters]);
     const [csvOpen, setCsvOpen] = useState(false);
+    const [dialMode, setDialMode] = useState(() => {
+      try { return localStorage.getItem("repflow.floor.dialMode") || "power"; } catch { return "power"; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem("repflow.floor.dialMode", dialMode); } catch {}
+    }, [dialMode]);
     const filterOptions = buildFloorFilterOptions(role);
     const leads = buildFloorDialerLeads(role, filters);
     const queue = buildFloorPowerQueue(leads);
@@ -1234,6 +1424,7 @@
           leadCount={leads.length}
           onUploadCsv={() => setCsvOpen(true)}
         />
+        <DialerModeStrip mode={dialMode} setMode={setDialMode}/>
         {csvOpen && window.CSVImport && (() => { const C = window.CSVImport; return <C onClose={() => setCsvOpen(false)}/>; })()}
       <div style={{ display: "grid", gridTemplateColumns: stacked ? "1fr" : "300px minmax(0, 1fr) 320px", gap: 14, alignItems: "start" }}>
         <DialQueueRail leads={leads} activeId={activeLead?.id}/>
@@ -1247,6 +1438,14 @@
             <DialMetric label="Readiness" value={readiness.ready ?? "—"} sub={readinessText}/>
           </div>
 
+          {dialMode === "solo" ? (
+            <SoloDialerPanel
+              leads={leads}
+              repId={repId}
+              provider={dialProvider}
+              record={!!toggles.record}
+            />
+          ) : (
           <div style={{
             background: "var(--surface-elev)",
             border: "1px solid var(--border-subtle)",
@@ -1256,7 +1455,7 @@
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-money)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  <span className="dot" style={{ background: "var(--accent-money)" }}/> Floor Live
+                  <span className="dot" style={{ background: "var(--accent-money)" }}/> Floor Live · {dialProvider === "twilio" ? "Twilio" : "SignalWire"} worker
                 </div>
                 <div style={{ marginTop: 8, fontSize: 30, lineHeight: 1.1, fontWeight: 750, letterSpacing: 0 }}>
                   {activeLead ? activeLead.lead : "Build today's dial queue"}
@@ -1345,6 +1544,7 @@
               </div>
             </div>
           </div>
+          )}
 
           <CallStageAssist lead={activeLead}/>
         </div>
