@@ -90,7 +90,10 @@
       if (!sessionId || !sb) return;
       let alive = true;
       sb.from('dial_sessions').select('*').eq('id', sessionId).single()
-        .then(({ data }) => { if (alive && data) setS(data); });
+        .then(({ data, error }) => {
+          if (error) { console.error('[power-dialer] session load failed', error); return; }
+          if (alive && data) setS(data);
+        });
       const ch = sb.channel(`ds:${sessionId}`)
         .on('postgres_changes',
             { event: '*', schema: 'public', table: 'dial_sessions', filter: `id=eq.${sessionId}` },
@@ -306,13 +309,16 @@
 
   // ---- session takeover ------------------------------------------------
   function PowerDialerSession({ sessionId, livekit, repId, agencyId, onEnd, embedded = false }) {
-    // supabase-config.js sets window.SUPABASE_URL + window.SUPABASE_ANON.
-    // Create our own client (RLS via the user's session JWT picked up from
-    // localStorage by the supabase-js auth-storage adapter).
+    // Use the app's shared, AUTHENTICATED singleton client. A fresh
+    // createClient() here uses the DEFAULT storageKey and silently runs as the
+    // `anon` role — the app persists its session under storageKey
+    // "repflow.auth" (see data.jsx::getSupabase). With anon, RLS on
+    // dial_sessions/call_attempts returns zero rows and zero realtime events,
+    // so `sess` never populated and the screen hung forever on "Loading
+    // session…". The shared client carries the rep's JWT for both the initial
+    // selects and the realtime channels.
     const sbRef = useRef(null);
-    if (!sbRef.current && window.supabase?.createClient) {
-      sbRef.current = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON);
-    }
+    if (!sbRef.current) sbRef.current = window.getSupabase && window.getSupabase();
     const sb = sbRef.current;
 
     const sess = useSession(sessionId, sb);
