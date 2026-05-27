@@ -82,9 +82,68 @@
     const [busy, setBusy]               = useState(false);
     const [error, setError]             = useState(null);
 
+    // Lead vendor — attribute this deal to the source that produced the
+    // lead, so the Attribution page can roll AP / ROAS up per vendor.
+    // Catalog is public.agency_lead_sources (same table the lead-spend
+    // expense flow writes to), so spend and revenue meet on one id.
+    const [leadSourceId, setLeadSourceId] = useState("");
+    const [sources, setSources]           = useState([]);
+    const [srcLoading, setSrcLoading]     = useState(false);
+    const [addingVendor, setAddingVendor] = useState(false);
+    const [newVendorName, setNewVendorName] = useState("");
+    const [vendorBusy, setVendorBusy]     = useState(false);
+
     const product = products.find(p => p.id === productId);
     const carrier = carriers.find(c => c.id === carrierId);
     const showTarget = isIULProduct(product);
+
+    // Resolve the signed-in agency once — used for vendor catalog + create.
+    const agencyId = (() => {
+      const m = (typeof window !== "undefined" && window.me && window.me()) || null;
+      return m?.agency_id || null;
+    })();
+
+    // Hydrate the active lead-vendor catalog for this agency.
+    useEffect(() => {
+      if (!agencyId) return;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      setSrcLoading(true);
+      sb.from("agency_lead_sources")
+        .select("id,name,vendor")
+        .eq("agency_id", agencyId)
+        .eq("active", true)
+        .order("name")
+        .then(({ data }) => { setSources(data || []); setSrcLoading(false); },
+              () => setSrcLoading(false));
+    }, [agencyId]);
+
+    // Inline "+ Add vendor" — minimal row (name + optional vendor label).
+    // Mirrors quick-log.jsx::createNewSource minus webhook provisioning;
+    // reps wire intake from Settings → Lead sources when they need it.
+    async function createVendor() {
+      if (!newVendorName.trim()) { setError("Name the vendor."); return; }
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !agencyId) { setError("Supabase not connected."); return; }
+      setVendorBusy(true);
+      try {
+        const { data, error } = await sb.from("agency_lead_sources")
+          .insert({ agency_id: agencyId, name: newVendorName.trim(), active: true })
+          .select("id,name,vendor")
+          .single();
+        if (error) throw error;
+        setSources(s => [...s, data].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+        setLeadSourceId(data.id);
+        setAddingVendor(false);
+        setNewVendorName("");
+        setError(null);
+        window.toast && window.toast(`Added vendor: ${data.name}`, "success");
+      } catch (e) {
+        setError(`Couldn't add vendor: ${e?.message || e}`);
+      } finally {
+        setVendorBusy(false);
+      }
+    }
 
     const selectedLead = leadId ? pipeline.find(l => String(l.id) === String(leadId)) : null;
     const isCommitted  = !!selectedLead || !!newLead;
@@ -258,6 +317,9 @@
         policy_number: policyNumber || null,
         owner_rep_id: meIdent.rep_id || (me ? me.id : null),
         state: lead ? lead.state : null,
+        // Lead-vendor attribution — links this deal's AP to the source that
+        // produced it, so Attribution can compute per-vendor ROAS.
+        lead_source_id: leadSourceId || null,
       };
 
       try {
@@ -286,14 +348,14 @@
           window.toast && window.toast(`Deal written · ${product?.name || "policy"} · ${fmt$(expectedCommission)} expected`, "success");
           // Optimistic local update
           AppData.POLICIES = [
-            { id: data.id, leadId: row.lead_pipeline_id, carrierId, productId, policyNumber: row.policy_number, product: row.product_text, ap: dollars(row.ap_cents), issuedAt: row.submission_date, status, owner: row.owner_rep_id, state: row.state },
+            { id: data.id, leadId: row.lead_pipeline_id, carrierId, productId, policyNumber: row.policy_number, product: row.product_text, ap: dollars(row.ap_cents), issuedAt: row.submission_date, status, owner: row.owner_rep_id, state: row.state, leadSourceId: row.lead_source_id },
             ...(AppData.POLICIES || []),
           ];
           window.dispatchEvent(new CustomEvent("data:hydrated"));
         } else {
           // No Supabase yet — push into local state for demo continuity
           AppData.POLICIES = [
-            { id: "local-" + Date.now(), leadId, carrierId, productId, policyNumber: row.policy_number, product: row.product_text, ap: dollars(row.ap_cents), issuedAt: row.submission_date, status, owner: row.owner_rep_id, state: row.state },
+            { id: "local-" + Date.now(), leadId, carrierId, productId, policyNumber: row.policy_number, product: row.product_text, ap: dollars(row.ap_cents), issuedAt: row.submission_date, status, owner: row.owner_rep_id, state: row.state, leadSourceId: row.lead_source_id },
             ...(AppData.POLICIES || []),
           ];
           window.dispatchEvent(new CustomEvent("data:hydrated"));
@@ -303,6 +365,7 @@
         setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
         setCarrierId(""); setProductId(""); setAp(""); setTarget("");
         setCompRate(""); setDraftDate(""); setPolNum(""); setStatus("submitted");
+        setLeadSourceId(""); setAddingVendor(false); setNewVendorName("");
         onWritten && onWritten();
       } catch (e) {
         setError(e.message || "Save failed");
@@ -439,6 +502,54 @@
             </div>
           )}
 
+          {/* Lead vendor — optional attribution. Tagging here is what lets
+              the Attribution page roll realized AP up per source (ROAS). */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Lbl>🏷️ Lead vendor <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(optional · powers per-vendor ROAS)</span></Lbl>
+            {addingVendor ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  style={inp}
+                  type="text"
+                  autoFocus
+                  value={newVendorName}
+                  onChange={(e) => setNewVendorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); createVendor(); }
+                    else if (e.key === "Escape") { setAddingVendor(false); setNewVendorName(""); }
+                  }}
+                  placeholder="e.g. SmartFinancial, Datalot, Facebook"
+                />
+                <button type="button" className="btn btn-primary" disabled={vendorBusy} onClick={createVendor} style={{ whiteSpace: "nowrap" }}>
+                  {vendorBusy ? "Adding…" : "Add"}
+                </button>
+                <button type="button" className="btn" disabled={vendorBusy} onClick={() => { setAddingVendor(false); setNewVendorName(""); }}>Cancel</button>
+              </div>
+            ) : (
+              <select
+                style={inp}
+                value={leadSourceId}
+                onChange={(e) => {
+                  if (e.target.value === "__new__") { setAddingVendor(true); setLeadSourceId(""); }
+                  else setLeadSourceId(e.target.value);
+                }}
+              >
+                <option value="">
+                  {srcLoading ? "Loading vendors…"
+                    : sources.length === 0 ? "— No vendors yet · add one below —"
+                    : "— No vendor / unattributed —"}
+                </option>
+                {sources.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}{s.vendor ? ` · ${s.vendor}` : ""}</option>
+                ))}
+                <option value="__new__">＋ Add new vendor…</option>
+              </select>
+            )}
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+              Tag the source that produced this lead so its AP and ROAS appear on Attribution → By vendor.
+            </div>
+          </div>
+
           <div>
             <Lbl required>Carrier</Lbl>
             <select style={inp} value={carrierId} onChange={(e) => setCarrierId(e.target.value)}>
@@ -541,6 +652,7 @@
             setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
             setCarrierId(""); setProductId(""); setAp(""); setTarget("");
             setCompRate(""); setDraftDate(""); setPolNum(""); setStatus("submitted"); setError(null);
+            setLeadSourceId(""); setAddingVendor(false); setNewVendorName("");
           }} disabled={busy}>Clear</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>
             {busy ? "Saving…" : "Write deal"}

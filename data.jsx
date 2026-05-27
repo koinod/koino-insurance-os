@@ -601,7 +601,8 @@ window.hydrateFromSupabase = async function () {
         submissionDate: p.submission_date, initialDraftDate: p.initial_draft_date,
         issuedAt: p.issued_at, effectiveAt: p.effective_at,
         status: p.status, persistency: p.persistency_status,
-        owner: p.owner_rep_id, state: p.state
+        owner: p.owner_rep_id, state: p.state,
+        leadSourceId: p.lead_source_id
       }));
       window.AppData.COMMISSIONS = mapRows(commissionsR, c => ({
         id: c.id, policyId: c.policy_id, repId: c.rep_id,

@@ -65,7 +65,8 @@ function monthBounds(d) {
  * actually-tagged spend (controls demo/empty-state fallbacks). */
 function useAttribution(agencyId, periodDate) {
   const [state, setState] = React.useState({
-    sources: [], spendBySource: {}, totalAP: 0, issuedCount: 0,
+    sources: [], spendBySource: {}, apBySource: {}, issuedBySource: {},
+    totalAP: 0, issuedCount: 0,
     loading: true, err: null, isLive: false,
   });
 
@@ -93,11 +94,12 @@ function useAttribution(agencyId, periodDate) {
           .gte("month", startISO)
           .lt("month", endISO);
 
-        // 3) Realized AP — sum of issued policies that landed this month.
-        //    No per-source breakdown today (no FK from policies → source);
-        //    this powers the blended KPIs only.
+        // 3) Realized AP — issued policies that landed this month. Now
+        //    carries lead_source_id (migration 0071) so AP rolls up
+        //    per vendor. Rows with a null lead_source_id still count
+        //    toward the blended KPIs, just not toward any one vendor.
         const policiesP = sb.from("policies")
-          .select("ap_cents")
+          .select("ap_cents,lead_source_id")
           .eq("agency_id", agencyId)
           .gte("issued_at", startISO)
           .lt("issued_at", endISO);
@@ -112,10 +114,20 @@ function useAttribution(agencyId, periodDate) {
         (spend || []).forEach(s => {
           spendBySource[s.lead_source_id] = (spendBySource[s.lead_source_id] || 0) + (s.spend_cents || 0);
         });
+        // Per-vendor realized AP + issued count, keyed by lead_source_id.
+        const apBySource = {};
+        const issuedBySource = {};
+        (pols || []).forEach(p => {
+          if (!p.lead_source_id) return;
+          apBySource[p.lead_source_id] = (apBySource[p.lead_source_id] || 0) + (p.ap_cents || 0);
+          issuedBySource[p.lead_source_id] = (issuedBySource[p.lead_source_id] || 0) + 1;
+        });
         const totalAP    = (pols || []).reduce((a, p) => a + (p.ap_cents || 0), 0);
         const issuedCount = (pols || []).length;
-        const isLive     = (sources || []).length > 0 && Object.keys(spendBySource).length > 0;
-        setState({ sources: sources || [], spendBySource, totalAP, issuedCount, loading: false, err, isLive });
+        // Live once we have either tagged spend OR attributed AP to show.
+        const isLive     = (sources || []).length > 0 &&
+          (Object.keys(spendBySource).length > 0 || Object.keys(apBySource).length > 0);
+        setState({ sources: sources || [], spendBySource, apBySource, issuedBySource, totalAP, issuedCount, loading: false, err, isLive });
       } catch (e) {
         if (!cancelled) setState(s => ({ ...s, loading: false, err: e.message || String(e) }));
       }
@@ -169,21 +181,32 @@ function PageAttribution({ role = "owner" }) {
       return live.sources.map(s => {
         const spendCents = live.spendBySource[s.id] || 0;
         const spend = spendCents / 100;
+        // Realized AP + issued count now attributed per vendor via
+        // policies.lead_source_id (deal-write stamps it). null still
+        // renders as "—" for the columns we don't yet attribute (leads,
+        // contacts, quotes) since those need pipeline.source wiring.
+        const apCents = live.apBySource[s.id] || 0;
+        const ap = apCents > 0 ? apCents / 100 : null;
+        const issued = live.issuedBySource[s.id] || 0;
         return {
           id: s.id,
           name: s.vendor ? `${s.name} · ${s.vendor}` : s.name,
           category: s.kind || "—",
           spend,
-          // Partial-attribution columns — null means "render as —"
-          leads: null, contacts: null, quotes: null, issued: null, ap: null,
+          // Still-unattributed columns — null renders as "—"
+          leads: null, contacts: null, quotes: null,
+          issued: issued > 0 ? issued : null,
+          ap,
           persistency: null,
-          closeRate: null, cpa: null, cpc: null, cpl: null, roas: null,
-          status: spend > 0 ? "ok" : "idle",
+          closeRate: null, cpc: null, cpl: null,
+          cpa: ap && issued > 0 && spend > 0 ? spend / issued : null,
+          roas: ap != null && spend > 0 ? ap / spend : null,
+          status: (spend > 0 || ap != null) ? "ok" : "idle",
         };
       });
     }
     return [];
-  }, [mode, live.sources, live.spendBySource]);
+  }, [mode, live.sources, live.spendBySource, live.apBySource, live.issuedBySource]);
 
   const sortBy = (k) => setSort(s => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }));
   const sorted = React.useMemo(() => {
@@ -336,7 +359,7 @@ function PageAttribution({ role = "owner" }) {
           </div>
           {mode === "live" && (
             <div style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)" }}>
-              Spend is live from <code className="mono" style={{ fontSize: 10.5 }}>agency_expenses</code> · per-source leads/issued/AP show "—" until pipeline.source carries a lead_source_id (see Settings → Lead sources to wire intake forms).
+              Spend is live from <code className="mono" style={{ fontSize: 10.5 }}>agency_expenses</code> · issued/AP/ROAS roll up per vendor from deals tagged with a lead vendor at write time. Leads/contacts show "—" until pipeline.source carries a lead_source_id (see Settings → Lead sources to wire intake forms).
             </div>
           )}
           <div className="list">
@@ -395,7 +418,7 @@ function PageAttribution({ role = "owner" }) {
                 Spend: <strong>${Math.round(totalSpend).toLocaleString()}</strong> ·
                 Realized AP: <strong>${Math.round(totalAP).toLocaleString()}</strong> ·
                 Issued: <strong>{totalIssued}</strong>.
-                Cut/scale recommendations will populate once per-source AP attribution is wired (pipeline.source → lead_source_id).
+                Per-vendor ROAS is live on the <strong>By vendor</strong> tab for deals tagged with a lead vendor at write time — tag more deals to sharpen cut/scale calls.
               </>
             )}
             {mode === "empty" && "Log a lead-spend expense and attach it to a vendor — ROI cards appear automatically."}
