@@ -4,13 +4,14 @@
 //   POST { audio_url } → fetch URL, transcribe → { text, segments }.
 //   POST multipart/form-data with `file` → direct upload (live mic chunks).
 //
-// Two-tier backend (resilient to either provider being down/unconfigured):
-//   1. PRIMARY: OpenAI Whisper (whisper-1 / gpt-4o-transcribe). Industry-best
-//      latency + accuracy. Needs OPENAI_API_KEY.
-//   2. FALLBACK: Google Gemini 2.0 Flash audio inputs. Free tier covers most
-//      transcription budgets. Needs GEMINI_API_KEY.
-//   3. If neither key is set, returns a structured 503 with which env var
-//      to set (matches the twilio-sms / nipr-verify pattern).
+// Three-tier backend (resilient to any provider being down/unconfigured):
+//   1. PRIMARY: Deepgram nova-2 (diarized + utterances). Funded on the free
+//      tier and best for two-party call recordings. Needs DEEPGRAM_API_KEY.
+//   2. FALLBACK: OpenAI Whisper (whisper-1 / gpt-4o-transcribe). Needs a
+//      *funded* OPENAI_API_KEY — a ChatGPT subscription does NOT grant API
+//      credits, so this 429s on an unloaded account.
+//   3. FALLBACK: Google Gemini 2.0 Flash audio inputs. Needs GEMINI_API_KEY.
+//   4. If no key is set, returns a structured 503 with which env var to set.
 
 export const config = { runtime: "edge" };
 
@@ -23,13 +24,14 @@ export default async function handler(req) {
     });
   }
 
+  const DEEPGRAM_KEY = process.env.DEEPGRAM_API_KEY;
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   const GEMINI_KEY = process.env.GEMINI_API_KEY;
-  if (!OPENAI_KEY && !GEMINI_KEY) {
+  if (!DEEPGRAM_KEY && !OPENAI_KEY && !GEMINI_KEY) {
     return new Response(JSON.stringify({
       error: "transcribe_not_configured",
-      detail: "Set OPENAI_API_KEY (preferred) or GEMINI_API_KEY (fallback) in Vercel project env.",
-      missing: ["OPENAI_API_KEY", "GEMINI_API_KEY"],
+      detail: "Set DEEPGRAM_API_KEY (preferred), OPENAI_API_KEY, or GEMINI_API_KEY in Vercel project env.",
+      missing: ["DEEPGRAM_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"],
     }), { status: 503, headers: { "content-type": "application/json" } });
   }
 
@@ -63,7 +65,7 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ error: "audio_too_large", max_bytes: MAX_BYTES, got: blob.size }),
         { status: 413, headers: { "content-type": "application/json" } });
     }
-    return await transcribe(blob, filename, mime, { language, prompt, OPENAI_KEY, GEMINI_KEY });
+    return await transcribe(blob, filename, mime, { language, prompt, DEEPGRAM_KEY, OPENAI_KEY, GEMINI_KEY });
   }
 
   // ── Path B: multipart `file` upload ────────────────────────────────────
@@ -81,7 +83,7 @@ export default async function handler(req) {
     }
     const language = form.get("language") || "en";
     const prompt   = form.get("prompt")   || "";
-    return await transcribe(file, file.name || "chunk.webm", file.type || "audio/webm", { language, prompt, OPENAI_KEY, GEMINI_KEY });
+    return await transcribe(file, file.name || "chunk.webm", file.type || "audio/webm", { language, prompt, DEEPGRAM_KEY, OPENAI_KEY, GEMINI_KEY });
   }
 
   return new Response(JSON.stringify({ error: "unsupported_content_type", got: ct }), {
@@ -92,28 +94,66 @@ export default async function handler(req) {
 // Try OpenAI first (better diarization + segments); on failure, fall through
 // to Gemini. Always returns the same response shape so the client doesn't
 // branch on provider.
-async function transcribe(blob, filename, mime, { language, prompt, OPENAI_KEY, GEMINI_KEY }) {
-  let openaiErr = null;
+async function transcribe(blob, filename, mime, { language, prompt, DEEPGRAM_KEY, OPENAI_KEY, GEMINI_KEY }) {
+  const errs = {};
+  // 1) Deepgram — funded (free tier) + diarized; best for two-party calls.
+  if (DEEPGRAM_KEY) {
+    try {
+      return await deepgramTranscribe(blob, mime, { language, key: DEEPGRAM_KEY });
+    } catch (e) { errs.deepgram = e?.message || "unknown"; /* fall through */ }
+  }
+  // 2) OpenAI Whisper — needs a *funded* API account (subscription ≠ credits).
   if (OPENAI_KEY) {
     try {
       return await whisperTranscribe(blob, filename, { language, prompt, key: OPENAI_KEY });
-    } catch (e) { openaiErr = e; /* fall through to Gemini */ }
+    } catch (e) { errs.openai = e?.message || "unknown"; /* fall through */ }
   }
+  // 3) Gemini.
   if (GEMINI_KEY) {
     try {
       return await geminiTranscribe(blob, filename, mime, { language, prompt, key: GEMINI_KEY });
-    } catch (e) {
-      return new Response(JSON.stringify({
-        error: "all_backends_failed",
-        openai: openaiErr?.message || (OPENAI_KEY ? "unknown" : "no_key"),
-        gemini: e?.message || "unknown",
-      }), { status: 502, headers: { "content-type": "application/json" } });
-    }
+    } catch (e) { errs.gemini = e?.message || "unknown"; }
   }
-  // Should be unreachable since handler() guards both keys, but be explicit.
-  return new Response(JSON.stringify({ error: "no_backend", openai: openaiErr?.message }), {
-    status: 502, headers: { "content-type": "application/json" },
+  return new Response(JSON.stringify({
+    error: "all_backends_failed",
+    deepgram: errs.deepgram || (DEEPGRAM_KEY ? "unknown" : "no_key"),
+    openai:   errs.openai   || (OPENAI_KEY ? "unknown" : "no_key"),
+    gemini:   errs.gemini   || (GEMINI_KEY ? "unknown" : "no_key"),
+  }), { status: 502, headers: { "content-type": "application/json" } });
+}
+
+// Deepgram prerecorded: POST raw audio bytes, get a diarized transcript +
+// per-utterance segments (start/end/speaker) — ideal for both-sides call
+// recordings. nova-2 auto-detects common containers (webm/opus, wav, mp3).
+async function deepgramTranscribe(blob, mime, { language, key }) {
+  const params = new URLSearchParams({
+    model: "nova-2", smart_format: "true", punctuate: "true",
+    diarize: "true", utterances: "true",
   });
+  if (language) params.set("language", language);
+  const buf = await blob.arrayBuffer();
+  const r = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+    method: "POST",
+    headers: { authorization: `Token ${key}`, "content-type": mime || "audio/webm" },
+    body: buf,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(`deepgram ${r.status}: ${j.err_msg || j.reason || j.error || "transcription failed"}`);
+  }
+  const alt = j.results?.channels?.[0]?.alternatives?.[0] || {};
+  const text = alt.transcript || "";
+  const utt = j.results?.utterances || [];
+  const segments = utt.length
+    ? utt.map(u => ({ start: u.start, end: u.end, text: u.transcript, speaker: u.speaker }))
+    : (text ? [{ start: 0, end: 0, text }] : []);
+  return new Response(JSON.stringify({
+    ok: true, provider: "deepgram",
+    text,
+    duration: j.metadata?.duration ?? null,
+    language: language || "en",
+    segments,
+  }), { headers: { "content-type": "application/json" } });
 }
 
 async function whisperTranscribe(fileLike, filename, { language, prompt, key }) {
