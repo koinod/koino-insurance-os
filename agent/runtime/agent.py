@@ -59,10 +59,18 @@ def parse_yaml(text: str) -> dict:
 
 def log(msg: str):
     line = f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] {msg}"
-    print(line, flush=True)
+    # Windows consoles/files default to cp1252, which can't encode non-ASCII
+    # chars (e.g. the '→' arrow in update logs). A UnicodeEncodeError here
+    # is NOT an OSError, so it would escape the except below and crash the main
+    # loop on every iteration — observed in prod 2026-05. Make logging
+    # encoding-proof: ASCII-fallback on stdout, force UTF-8 on the log file.
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with LOG_PATH.open("a") as f:
+        with LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
         pass
