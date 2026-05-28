@@ -1159,6 +1159,15 @@
     const [autoNext, setAutoNext] = useState(false);
     const [delaySec, setDelaySec] = useState(8);
     const [running, setRunning] = useState(false);
+    // Capture both sides: mic (you) + system audio (the lead's voice coming
+    // out of your PC/phone-link output). Needed because a phone-link/Continuity
+    // call's far-end audio lives in your system output, not the mic. Persisted.
+    const [recordBoth, setRecordBoth] = useState(() => {
+      try { return localStorage.getItem("repflow.floor.recordBoth") !== "0"; } catch { return true; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem("repflow.floor.recordBoth", recordBoth ? "1" : "0"); } catch {}
+    }, [recordBoth]);
     const recorderRef = React.useRef(null);
     const advanceTimerRef = React.useRef(null);
     const current = leads[idx] || null;
@@ -1180,7 +1189,7 @@
       stopRecorder();
       if (record && window.CallRecorder) {
         try {
-          const rec = new window.CallRecorder({ mode: "mic", repId, leadId: current.id });
+          const rec = new window.CallRecorder({ mode: recordBoth ? "mic+system" : "mic", repId, leadId: current.id });
           await rec.start();
           recorderRef.current = rec;
         } catch (e) { console.warn("[SoloDialer] recorder start failed:", e); }
@@ -1276,6 +1285,13 @@
             <input type="checkbox" checked={autoNext} onChange={e => setAutoNext(e.target.checked)}/>
             Auto-advance after call ends
           </label>
+          {record && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}
+              title="Captures both sides: your mic + your computer's system audio (the lead's voice from Phone Link / Continuity). On the screen-share prompt, pick your screen and tick 'Share system audio'.">
+              <input type="checkbox" checked={recordBoth} onChange={e => setRecordBoth(e.target.checked)}/>
+              Record both sides (system + mic)
+            </label>
+          )}
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
             Delay
             <input type="number" min="2" max="60" value={delaySec}
