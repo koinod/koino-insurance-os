@@ -1154,7 +1154,7 @@
      tel: (macOS Continuity routes that to the paired iPhone). The recorder
      toggle from the session controls starts CallRecorder for the call's
      duration; the existing /api/transcribe cron picks it up. */
-  function SoloDialerPanel({ leads, repId, provider, record, onDoneCount }) {
+  function SoloDialerPanel({ leads, repId, provider, onProviderChange, record, onDoneCount }) {
     const [idx, setIdx] = useState(0);
     const [autoNext, setAutoNext] = useState(false);
     const [delaySec, setDelaySec] = useState(8);
@@ -1250,7 +1250,7 @@
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-money)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              <span className="dot" style={{ background: "var(--accent-money)" }}/> Solo dialer · via {provider === "iphone" ? "iPhone Continuity" : provider === "browser" ? "browser softphone" : provider}
+              <span className="dot" style={{ background: "var(--accent-money)" }}/> Solo dialer · via {(DIAL_PROVIDERS.find(p => p.key === provider) || {}).label || provider}
             </div>
             <div style={{ marginTop: 8, fontSize: 28, lineHeight: 1.1, fontWeight: 750 }}>{current?.lead || "—"}</div>
             <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-tertiary)", display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1280,6 +1280,7 @@
             </button>
           </div>
         </div>
+        {onProviderChange && <DialProviderChips provider={provider} onChange={onProviderChange}/>}
         <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--text-secondary)" }}>
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input type="checkbox" checked={autoNext} onChange={e => setAutoNext(e.target.checked)}/>
@@ -1299,14 +1300,19 @@
               className="text-input" style={{ width: 60, padding: "3px 6px", fontSize: 12 }}/>
             s
           </label>
-          {provider === "iphone" && (
+          {provider === "bluetooth_phone" && (
             <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>
               macOS will prompt "Call with iPhone?" — approve once, then it stays approved per call.
             </span>
           )}
-          {provider === "browser" && (
+          {provider === "phone_link" && (
             <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>
-              Needs Twilio connector in Settings → Agents to route through the browser.
+              Routes through the Repflow Agent on this machine (Windows Phone Link → paired iPhone).
+            </span>
+          )}
+          {provider === "sendblue" && (
+            <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>
+              SendBlue is SMS only — voice dials fall back to Twilio. Pick another provider for calls.
             </span>
           )}
         </div>
@@ -1606,6 +1612,7 @@
               leads={leads}
               repId={repId}
               provider={dialProvider}
+              onProviderChange={setDialProvider}
               record={!!toggles.record}
             />
           ) : (
