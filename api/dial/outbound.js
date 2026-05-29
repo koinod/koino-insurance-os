@@ -34,7 +34,9 @@ export default async function handler(req) {
       { status: 400, headers: cors() });
   }
 
-  // ── 1. Read connector_vault for user's Twilio (user JWT → RLS scoped to caller)
+  // ── 1. Resolve Twilio credentials. Pay-and-play model: the PLATFORM Twilio
+  // account (env) dials by default so reps never set up Twilio. A per-rep
+  // connector_vault row (their own number/account) is an OPTIONAL override.
   const vaultR = await fetch(
     `${SUPA_URL}/rest/v1/connector_vault?provider=eq.twilio&status=eq.active&limit=1` +
     `&select=id,api_key_enc,account_metadata`,
@@ -43,41 +45,33 @@ export default async function handler(req) {
   const vaultRows = vaultR.ok ? await vaultR.json() : [];
   const twilioRow = Array.isArray(vaultRows) ? vaultRows[0] : null;
 
-  if (!twilioRow) {
-    return new Response(JSON.stringify({
-      error: "twilio_not_connected",
-      gate: true,
-      message: "Connect Twilio in Settings → Agents to enable dialing",
-    }), { status: 422, headers: cors() });
-  }
-
-  // ── 2. Extract credentials from vault row
-  const meta = (twilioRow.account_metadata && typeof twilioRow.account_metadata === "object")
+  // ── 2. Extract credentials: per-rep vault first, then platform env fallback.
+  const meta = (twilioRow && twilioRow.account_metadata && typeof twilioRow.account_metadata === "object")
     ? twilioRow.account_metadata : {};
-  const account_sid = meta.sid || meta.account_sid || "";
-  const auth_token  = twilioRow.api_key_enc || "";
-  const caller_id   = meta.caller_id || (Array.isArray(meta.phone_numbers) && meta.phone_numbers[0]) || "";
+  const account_sid = meta.sid || meta.account_sid || process.env.TWILIO_ACCOUNT_SID || "";
+  const auth_token  = (twilioRow && twilioRow.api_key_enc) || process.env.TWILIO_AUTH_TOKEN || "";
+  const caller_id   = meta.caller_id || (Array.isArray(meta.phone_numbers) && meta.phone_numbers[0]) || process.env.TWILIO_CALLER_ID || "";
   const rep_phone   = bodyRepPhone || meta.rep_phone || "";
 
   if (!account_sid || !auth_token) {
     return new Response(JSON.stringify({
-      error: "twilio_incomplete_config",
+      error: "twilio_not_configured",
       gate: true,
-      message: "Twilio account_sid or auth_token missing. Re-connect Twilio in Settings → Agents.",
+      message: "Dialing isn't set up for this workspace yet — the platform Twilio credentials are missing.",
     }), { status: 422, headers: cors() });
   }
   if (!caller_id) {
     return new Response(JSON.stringify({
       error: "twilio_no_caller_id",
       gate: true,
-      message: "No caller ID on Twilio connection. Set caller_id in your Twilio account_metadata.",
+      message: "No outbound caller ID configured for dialing.",
     }), { status: 422, headers: cors() });
   }
   if (!rep_phone) {
     return new Response(JSON.stringify({
       error: "twilio_no_rep_phone",
       gate: true,
-      message: "No rep phone configured. Add rep_phone to your Twilio connection in Settings → Agents.",
+      message: "Add your phone number in Settings → Profile so we can connect you to the lead.",
     }), { status: 422, headers: cors() });
   }
 
