@@ -50,6 +50,10 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/cron/score-reps",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/cron/manager-inactivity",
       "schedule": "0 9 * * *"
     },
