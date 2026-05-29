@@ -208,6 +208,20 @@ function CSVImport({ onClose }) {
   const REPS    = (typeof AppData !== "undefined" && AppData.REPS) || [];
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const myRepId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? REPS[0]?.id : null) || null;
+  const agencyId = meIdent?.agency_id || null;
+
+  // Lead-vendor attribution: tag every imported lead to the source that
+  // produced it (agency_lead_sources). Carries through to deal-write so
+  // per-vendor lead/contact/close rates + ROAS roll up on Attribution.
+  const [vendorId, setVendorId] = React.useState("");
+  const [vendors, setVendors]   = React.useState([]);
+  React.useEffect(() => {
+    if (!agencyId) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    sb.from("agency_lead_sources").select("id,name,vendor").eq("agency_id", agencyId).eq("active", true).order("name")
+      .then(({ data }) => setVendors(data || []), () => {});
+  }, [agencyId]);
 
   const parseInput = (raw) => {
     const { headers, rows } = parseCsvText(raw);
@@ -251,6 +265,7 @@ function CSVImport({ onClose }) {
         product: get("product") || null,
         ap,
         source:  get("source") || "CSV import",
+        lead_source_id: vendorId || null,
         owner,
         consent: "verified",
         heat:    "fresh",
@@ -259,7 +274,7 @@ function CSVImport({ onClose }) {
         next:    "First dial",
       };
     });
-  }, [parsedRows, mapping, myRepId]);
+  }, [parsedRows, mapping, myRepId, vendorId]);
 
   // Validation + dedup against existing pipeline (by phone)
   const validation = React.useMemo(() => {
@@ -385,6 +400,17 @@ function CSVImport({ onClose }) {
                 </React.Fragment>
               );
             })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 8, alignItems: "center", marginTop: 4, marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", textAlign: "right", paddingRight: 8 }}>lead vendor</span>
+            <Shared.Select
+              value={vendorId}
+              onChange={(v) => setVendorId(v)}
+              options={[{ v: "", l: vendors.length ? "— No vendor / unattributed —" : "— No vendors yet · add in Settings → Lead sources —" }, ...vendors.map(s => ({ v: s.id, l: s.name + (s.vendor ? ` · ${s.vendor}` : "") }))]}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 8 }}>
+            Tag every lead in this file to its source vendor — powers per-vendor lead/contact/close rates and ROAS on Attribution. Leave blank if mixed or unknown.
           </div>
           {!mapping.lead && (
             <div style={{ padding: 8, fontSize: 11.5, color: "var(--state-warning)", background: "color-mix(in oklch, var(--state-warning) 10%, transparent)", borderRadius: 6 }}>

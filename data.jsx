@@ -413,6 +413,7 @@ window.hydrateFromSupabase = async function () {
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
+        leadSourceId: p.lead_source_id || null,
         owner: p.owner_rep_id, consent: p.consent, heat: p.heat,
         phone: p.phone || null, email: p.email || null,
       }));
@@ -1353,11 +1354,12 @@ window.AppData.mutate = {
           days_in_stage: row.days || 0, last_activity_text: row.last, next_action: row.next,
           source: row.source, owner_rep_id: row.owner, consent: row.consent, heat: row.heat,
           phone: row.phone || null, email: row.email || null,
+          lead_source_id: row.lead_source_id || row.leadSourceId || null,
         };
-        // Tolerant insert — strip phone/email if the migration hasn't landed yet.
+        // Tolerant insert — strip newer columns if the migration hasn't landed yet.
         let { data, error } = await sb.from("pipeline").insert(dbRow).select().single();
         if (error && /column.*does not exist/i.test(error.message || "")) {
-          const { phone, email, ...legacy } = dbRow;
+          const { phone, email, lead_source_id, ...legacy } = dbRow;
           ({ data, error } = await sb.from("pipeline").insert(legacy).select().single());
         }
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }

@@ -226,6 +226,9 @@
       if (!leadId) return;
       const lead = pipeline.find(l => String(l.id) === String(leadId));
       if (!lead) return;
+      // Inherit the lead's vendor so AP/ROAS auto-attributes without the rep
+      // re-picking. The lead carries lead_source_id from intake (CSV/manual).
+      if (lead.leadSourceId) setLeadSourceId(lead.leadSourceId);
       if (!ap && lead.ap) setAp(String(lead.ap));
       if (!productId && lead.product) {
         const guess = products.find(p => lead.product.toLowerCase().includes((p.name || "").toLowerCase()));

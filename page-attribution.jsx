@@ -104,12 +104,33 @@ function useAttribution(agencyId, periodDate) {
           .gte("issued_at", startISO)
           .lt("issued_at", endISO);
 
+        // 4) Front-of-funnel — leads acquired this month per vendor, and how
+        //    many advanced past "New" (contacted+). Carries lead_source_id
+        //    (migration 0077) so per-vendor lead/contact counts + close rate
+        //    finally roll up. Scoped by created_at to match the spend period.
+        const pipelineP = sb.from("pipeline")
+          .select("lead_source_id,stage,created_at")
+          .eq("agency_id", agencyId)
+          .gte("created_at", startISO)
+          .lt("created_at", endISO);
+
         const [{ data: sources, error: e1 },
                { data: spend,   error: e2 },
-               { data: pols,    error: e3 }] = await Promise.all([sourcesP, spendP, policiesP]);
+               { data: pols,    error: e3 },
+               { data: pipe,    error: e4 }] = await Promise.all([sourcesP, spendP, policiesP, pipelineP]);
 
         if (cancelled) return;
-        const err = e1?.message || e2?.message || e3?.message || null;
+        const err = e1?.message || e2?.message || e3?.message || e4?.message || null;
+        // Per-vendor lead + contact counts from pipeline (front of funnel).
+        const leadsBySource = {};
+        const contactsBySource = {};
+        (pipe || []).forEach(p => {
+          if (!p.lead_source_id) return;
+          leadsBySource[p.lead_source_id] = (leadsBySource[p.lead_source_id] || 0) + 1;
+          if (p.stage && p.stage !== "New") {
+            contactsBySource[p.lead_source_id] = (contactsBySource[p.lead_source_id] || 0) + 1;
+          }
+        });
         const spendBySource = {};
         (spend || []).forEach(s => {
           spendBySource[s.lead_source_id] = (spendBySource[s.lead_source_id] || 0) + (s.spend_cents || 0);
@@ -126,8 +147,8 @@ function useAttribution(agencyId, periodDate) {
         const issuedCount = (pols || []).length;
         // Live once we have either tagged spend OR attributed AP to show.
         const isLive     = (sources || []).length > 0 &&
-          (Object.keys(spendBySource).length > 0 || Object.keys(apBySource).length > 0);
-        setState({ sources: sources || [], spendBySource, apBySource, issuedBySource, totalAP, issuedCount, loading: false, err, isLive });
+          (Object.keys(spendBySource).length > 0 || Object.keys(apBySource).length > 0 || Object.keys(leadsBySource).length > 0);
+        setState({ sources: sources || [], spendBySource, apBySource, issuedBySource, leadsBySource, contactsBySource, totalAP, issuedCount, loading: false, err, isLive });
       } catch (e) {
         if (!cancelled) setState(s => ({ ...s, loading: false, err: e.message || String(e) }));
       }
@@ -188,25 +209,33 @@ function PageAttribution({ role = "owner" }) {
         const apCents = live.apBySource[s.id] || 0;
         const ap = apCents > 0 ? apCents / 100 : null;
         const issued = live.issuedBySource[s.id] || 0;
+        // Front-of-funnel now attributed via pipeline.lead_source_id (0077).
+        const leads = (live.leadsBySource || {})[s.id] || 0;
+        const contacts = (live.contactsBySource || {})[s.id] || 0;
         return {
           id: s.id,
           name: s.vendor ? `${s.name} · ${s.vendor}` : s.name,
           category: s.kind || "—",
           spend,
-          // Still-unattributed columns — null renders as "—"
-          leads: null, contacts: null, quotes: null,
+          leads: leads > 0 ? leads : null,
+          contacts: contacts > 0 ? contacts : null,
+          quotes: null,
           issued: issued > 0 ? issued : null,
           ap,
           persistency: null,
-          closeRate: null, cpc: null, cpl: null,
+          // Close rate = issued / contacts (fall back to issued / leads when
+          // no stage progression captured yet). CPC/CPL from period spend.
+          closeRate: issued > 0 ? (contacts > 0 ? (issued / contacts) * 100 : leads > 0 ? (issued / leads) * 100 : null) : null,
+          cpc: spend > 0 && contacts > 0 ? spend / contacts : null,
+          cpl: spend > 0 && leads > 0 ? spend / leads : null,
           cpa: ap && issued > 0 && spend > 0 ? spend / issued : null,
           roas: ap != null && spend > 0 ? ap / spend : null,
-          status: (spend > 0 || ap != null) ? "ok" : "idle",
+          status: (spend > 0 || ap != null || leads > 0) ? "ok" : "idle",
         };
       });
     }
     return [];
-  }, [mode, live.sources, live.spendBySource, live.apBySource, live.issuedBySource]);
+  }, [mode, live.sources, live.spendBySource, live.apBySource, live.issuedBySource, live.leadsBySource, live.contactsBySource]);
 
   const sortBy = (k) => setSort(s => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }));
   const sorted = React.useMemo(() => {
@@ -237,7 +266,7 @@ function PageAttribution({ role = "owner" }) {
     : (live.totalAP || 0) / 100;
   const totalLeads = mode === "demo"
     ? DEMO_VENDORS.reduce((a, v) => a + v.leads, 0)
-    : null; // unknown until pipeline source-tagging lands
+    : Object.values(live.leadsBySource || {}).reduce((a, c) => a + c, 0) || null;
   const totalIssued = mode === "demo"
     ? DEMO_VENDORS.reduce((a, v) => a + v.issued, 0)
     : live.issuedCount || 0;
@@ -359,7 +388,7 @@ function PageAttribution({ role = "owner" }) {
           </div>
           {mode === "live" && (
             <div style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-subtle)" }}>
-              Spend is live from <code className="mono" style={{ fontSize: 10.5 }}>agency_expenses</code> · issued/AP/ROAS roll up per vendor from deals tagged with a lead vendor at write time. Leads/contacts show "—" until pipeline.source carries a lead_source_id (see Settings → Lead sources to wire intake forms).
+              Spend is live from <code className="mono" style={{ fontSize: 10.5 }}>agency_expenses</code>. Leads/contacts roll up per vendor from leads tagged at intake (CSV import → "Lead vendor"); issued/AP/ROAS from deals, which inherit the lead's vendor at write time. Tag leads on import to populate the full funnel.
             </div>
           )}
           <div className="list">

@@ -413,6 +413,20 @@ function CsvImportModal({ reps, onClose }) {
   const [progress, setProgress]   = React.useState({ done: 0, total: 0, errors: 0 });
   const fileRef = React.useRef(null);
 
+  // Lead-vendor attribution (agency_lead_sources) — tags every imported lead
+  // so per-vendor lead/contact/close + ROAS roll up on Attribution, and the
+  // vendor inherits into deal-write.
+  const _agencyId = (window.me && window.me()?.agency_id) || null;
+  const [vendorId, setVendorId] = React.useState("");
+  const [vendors, setVendors]   = React.useState([]);
+  React.useEffect(() => {
+    if (!_agencyId) return;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    sb.from("agency_lead_sources").select("id,name,vendor").eq("agency_id", _agencyId).eq("active", true).order("name")
+      .then(({ data }) => setVendors(data || []), () => {});
+  }, [_agencyId]);
+
   const onFile = async (f) => {
     if (!f) return;
     const text = await f.text();
@@ -461,6 +475,7 @@ function CsvImportModal({ reps, onClose }) {
         state: (get("state") || "").toUpperCase().slice(0, 2) || null,
         product: get("product") || "Med Supp Plan G",
         source: get("source") || defaultSource,
+        lead_source_id: vendorId || null,
         stage,
         ap,
         days: 0,
@@ -537,6 +552,15 @@ function CsvImportModal({ reps, onClose }) {
             </Shared.Field>
             <Shared.Field label="Assign all to">
               <Shared.Select value={defaultOwner} onChange={setDefaultOwner} options={reps.map(r => ({ v: r.id, l: r.name }))}/>
+            </Shared.Field>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <Shared.Field label="Lead vendor (attribution → ROAS)">
+              <Shared.Select
+                value={vendorId}
+                onChange={setVendorId}
+                options={[{ v: "", l: vendors.length ? "— No vendor / unattributed —" : "— No vendors yet · add in Settings → Lead sources —" }, ...vendors.map(s => ({ v: s.id, l: s.name + (s.vendor ? ` · ${s.vendor}` : "") }))]}/>
             </Shared.Field>
           </div>
 
