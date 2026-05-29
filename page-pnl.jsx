@@ -693,6 +693,25 @@
       { k: "custom",  l: "Custom" },
     ];
 
+    // GAP-RP1 — CSV export of the per-rep P&L + commission breakdown so owners
+    // can hand it to an accountant. Mirrors page-performance::exportStandingsCsv.
+    const exportPnlCsv = () => {
+      if (!rows || !rows.length) { window.toast && window.toast("Nothing to export for this period", "info"); return; }
+      const c2d = (c) => ((c || 0) / 100).toFixed(2);
+      const esc = (v) => typeof v === "string" && (v.includes(",") || v.includes('"')) ? `"${v.replace(/"/g, '""')}"` : v;
+      const headers = ["Rep","Handle","Deals","Submitted AP","Earned commission","Own commission","Override commission","Expenses","Net"];
+      const body = rows.map(r => [
+        r.rep_name || "", r.rep_handle || "", r.deals || 0,
+        c2d(r.submitted_ap_cents), c2d(r.earned_comm_cents), c2d(r.own_comm_cents),
+        c2d(r.override_comm_cents), c2d(r.expenses_cents), c2d((r.earned_comm_cents || 0) - (r.expenses_cents || 0)),
+      ]);
+      const csv = [headers.join(","), ...body.map(r => r.map(esc).join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `pnl-${range.from}_${range.to}.csv`; a.click(); URL.revokeObjectURL(url);
+      window.toast && window.toast(`Exported ${body.length} reps · ${range.from} → ${range.to}`, "success");
+    };
+
     return (
       <div className="page-pad">
         {/* Header */}
@@ -706,6 +725,7 @@
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <Shared.SectionPill items={PERIODS} value={period} onChange={setPeriod} dense/>
+            <button className="btn btn-ghost" onClick={exportPnlCsv} title="Export P&L + commissions to CSV" style={{ fontSize: 12 }}>Export CSV</button>
             {period === "custom" && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
                 <input className="text-input" type="date" value={custom.from} style={{ width: 130 }}
