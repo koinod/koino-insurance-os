@@ -93,7 +93,28 @@ function PagePerformance() {
   // streak-derived demo value (bounded 88–94) only on the demo agency, else
   // null so tier calc treats them as below threshold (forces real data first).
   const _isDemoPerf = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || false;
-  const _persByRep = React.useMemo(() => {
+  // Per-rep persistency via SECURITY DEFINER RPC (persistency_by_rep, 0081)
+  // so a rep doesn't need agency-wide policies read to see standings — this
+  // decouples the page from raw peer policies so 0082 can tighten policies
+  // RLS to rep-own. Client compute kept as fallback (pre-RLS-tighten / if
+  // RPC unavailable).
+  const [_persByRepRpc, setPersByRepRpc] = React.useState(null);
+  React.useEffect(() => {
+    const me = (typeof window !== "undefined" && window.me && window.me()) || null;
+    const aid = me?.agency_id;
+    const sb = window.getSupabase && window.getSupabase();
+    if (!aid || !sb) return;
+    sb.rpc("persistency_by_rep", { p_agency_id: aid }).then(
+      ({ data }) => {
+        if (!Array.isArray(data)) return;
+        const m = {};
+        data.forEach(r => { m[r.rep_id] = Number(r.persistency_pct) || 0; });
+        setPersByRepRpc(m);
+      },
+      () => {},
+    );
+  }, []);
+  const _persByRepLocal = React.useMemo(() => {
     const policies = AppData.POLICIES || [];
     const total = {}, active = {};
     for (const p of policies) {
@@ -109,6 +130,7 @@ function PagePerformance() {
     }
     return out;
   }, [AppData.POLICIES]);
+  const _persByRep = _persByRepRpc || _persByRepLocal;
   const persFor = (rep) => {
     const live = _persByRep[rep.id];
     if (typeof live === "number") return live;
