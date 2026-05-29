@@ -49,11 +49,23 @@ export default async function handler(req) {
   const meta = (twilioRow && twilioRow.account_metadata && typeof twilioRow.account_metadata === "object")
     ? twilioRow.account_metadata : {};
   const account_sid = meta.sid || meta.account_sid || process.env.TWILIO_ACCOUNT_SID || "";
-  const auth_token  = (twilioRow && twilioRow.api_key_enc) || process.env.TWILIO_AUTH_TOKEN || "";
   const caller_id   = meta.caller_id || (Array.isArray(meta.phone_numbers) && meta.phone_numbers[0]) || process.env.TWILIO_CALLER_ID || "";
   const rep_phone   = bodyRepPhone || meta.rep_phone || "";
 
-  if (!account_sid || !auth_token) {
+  // Basic-auth pair for the Twilio REST call. The URL path always uses the
+  // Account SID; the auth user/pass can be either Account SID + Auth Token OR
+  // an API Key SID + Secret. Resolution order: per-rep vault token → platform
+  // API key (prod uses this) → platform Auth Token.
+  let authUser = "", authPass = "";
+  if (twilioRow && twilioRow.api_key_enc) {
+    authUser = account_sid;                 authPass = twilioRow.api_key_enc;
+  } else if (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET) {
+    authUser = process.env.TWILIO_API_KEY_SID; authPass = process.env.TWILIO_API_KEY_SECRET;
+  } else if (process.env.TWILIO_AUTH_TOKEN) {
+    authUser = account_sid;                 authPass = process.env.TWILIO_AUTH_TOKEN;
+  }
+
+  if (!account_sid || !authPass) {
     return new Response(JSON.stringify({
       error: "twilio_not_configured",
       gate: true,
@@ -108,7 +120,7 @@ export default async function handler(req) {
     {
       method:  "POST",
       headers: {
-        authorization:  "Basic " + btoa(`${account_sid}:${auth_token}`),
+        authorization:  "Basic " + btoa(`${authUser}:${authPass}`),
         "content-type": "application/x-www-form-urlencoded",
       },
       body: twilioParams.toString(),
