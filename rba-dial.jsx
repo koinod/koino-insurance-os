@@ -82,6 +82,7 @@ function clearDialState(commandId, finalStatus, lingerMs = 8000) {
         leadId: cur.lead_id || null,
         leadName: cur.lead_name || null,
         toNumber: cur.to_number || null,
+        outcomeHint: cur.outcome_hint || null,   // connected | no_answer | unknown
       },
     }));
   } catch {}
@@ -114,6 +115,7 @@ async function dispatch(args) {
       dial_count:  args.dial_count || undefined,
       dial_interval_seconds: args.dial_interval_seconds || undefined,
       method:      args.method || undefined,
+      monitor:     args.monitor || undefined,
     }),
   });
   let body = null;
@@ -200,6 +202,7 @@ function installHijack() {
       dial_count:            (opts && opts.dial_count)            || s.count || 1,
       dial_interval_seconds: (opts && opts.dial_interval_seconds) || s.intervalSec || 15,
       method:    (opts && opts.method)    || null,
+      monitor:   (opts && opts.monitor)   || false,
     });
   }
   wrapped.__rbaWrapped = true;
@@ -277,6 +280,7 @@ window.repflowDialViaAgent = async function (args) {
     attempt: (r.attempts && r.attempts.length) || count,
     method_used: r.method_used,
     status: r.cancelled ? "cancelled" : inner,
+    outcome_hint: r.outcome_hint || null,
   });
   if (inner === "cancelled" || r.cancelled) {
     window.toast && window.toast(

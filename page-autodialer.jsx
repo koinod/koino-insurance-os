@@ -355,8 +355,13 @@ function AutoDialBar() {
     window.markDialAttempt && window.markDialAttempt(current.id);
     window.repflowCall && window.repflowCall(current.phone, current.lead, {
       lead_id: current.leadId || null,
+      dial_count: 1,    // power-dial list: one ring per lead (redial queue handles retries) — never dial over a live call
+      monitor: true,    // have the agent / status callback report the call outcome so we can auto-advance
     });
     window.dispatchEvent(new CustomEvent("incall:open", { detail: { lead: current, autodial: true } }));
+    // Reveal disposition controls shortly after dialing so the rep can tag
+    // any time. Confident no-answers auto-advance via the effect below; this
+    // timer is just the floor so the bar is always actionable.
     const t = setTimeout(() => setStage("outcome"), 3000);
     return () => clearTimeout(t);
 
@@ -383,6 +388,55 @@ function AutoDialBar() {
       window.removeEventListener("autodial:stop-request", onStopFromInCall);
     };
   }, [queue, idx, results]);
+
+  // Power-dialer auto-advance — drive the list off the REAL call-end signal for
+  // BOTH providers instead of a blind timer:
+  //   * Phone Link -> the agent classifies the call via its on-screen UI and
+  //     reports `outcomeHint` on the autodial:call:end event.
+  //   * Twilio     -> the status callback writes a terminal call_events row.
+  // A confident no-pickup auto-records "no_answer" and advances; a connected
+  // call (or anything ambiguous) is left for the rep. Purely additive: if no
+  // end-signal arrives, the 3s timer + manual tap still work as before.
+  React.useEffect(() => {
+    if (queue.length === 0 || !current) return;
+    const NO_PICKUP = new Set(["no_answer", "no-answer", "busy", "failed", "canceled", "cancelled"]);
+    const already = () => !!results[current.id];
+    const sameLead = (id) => !id || !current.leadId || String(id) === String(current.leadId);
+
+    const onCallEnd = (e) => {
+      const d = e.detail || {};
+      if (stage === "idle" || already() || !sameLead(d.leadId)) return;
+      if (d.outcomeHint === "no_answer") recordOutcome("no_answer");
+      // "connected" / "unknown" -> buttons already shown; rep dispositions.
+    };
+    window.addEventListener("autodial:call:end", onCallEnd);
+
+    // Twilio: terminal call_events for this lead -> advance.
+    let ch = null;
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const meRec = window.me && window.me();
+      if (sb && meRec && meRec.agency_id) {
+        ch = sb.channel(`autodial-ce-${current.id}`)
+          .on("postgres_changes",
+            { event: "INSERT", schema: "public", table: "call_events", filter: `agency_id=eq.${meRec.agency_id}` },
+            (payload) => {
+              const row = payload.new || {};
+              if (stage === "idle" || already() || !sameLead(row.lead_id)) return;
+              const st = String(row.status || "").toLowerCase();
+              if (NO_PICKUP.has(st)) recordOutcome("no_answer");
+              else if (st === "completed") setStage("outcome"); // real talk -> rep tags it
+            })
+          .subscribe();
+      }
+    } catch (err) { console.warn("[autodial.callEvents]", err); }
+
+    return () => {
+      window.removeEventListener("autodial:call:end", onCallEnd);
+      try { const sb = window.getSupabase && window.getSupabase(); ch && sb && sb.removeChannel(ch); } catch (_e) {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, idx, stage, current, results]);
 
   // Hotkeys (only when no input is focused; keep working even when InCall open)
   React.useEffect(() => {

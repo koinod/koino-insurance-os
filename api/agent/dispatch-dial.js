@@ -163,6 +163,7 @@ export default async function handler(req) {
     } : null,
     dial_count: dialCount,
     dial_interval_seconds: dialInterval,
+    monitor: !!body.monitor,   // power-dialer: agent watches call outcome
   };
   // Phone Link uses UIA selectors learned via phone_link_inspect — auto
   // method tries UIA first, falls back to sendinput.

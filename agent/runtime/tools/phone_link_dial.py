@@ -475,14 +475,81 @@ def _send_digits(digits: str):
     user32.keybd_event(0x0D, 0, 0x0002, 0)
 
 
-def _dial_once(num: str, method: str) -> dict:
+# ── Power-dialer outcome monitoring ────────────────────────────────────────
+# Phone Link reports NO call status via API — but its UIA tree does. When a
+# call connects, an "End call"/"Hang up"/"Mute"/"Keypad"/"Speaker" control or a
+# running m:ss duration timer appears; when the call ends, the view returns to
+# the idle dialer. We read that so the web autodialer can auto-advance the
+# list. Bias is deliberately conservative: we only return "no_answer" on a
+# HIGH-CONFIDENCE signal (the call view closed back to the dialer without ever
+# connecting). Anything ambiguous → "connected", which makes the rep
+# disposition it by hand — we never auto-skip a call that might be live.
+
+_CONNECTED_RX = re.compile(
+    r"\b(end call|hang ?up|mute|unmute|keypad|dial ?pad|speaker|add call|"
+    r"hold|in call|call in progress|connected)\b", re.IGNORECASE)
+_DURATION_RX = re.compile(r"\b\d{1,2}:\d{2}\b")   # 0:07 / 12:43 live call timer
+
+
+def _connected_now(win) -> bool:
+    """True if Phone Link currently shows an ACTIVE/connected call."""
+    try:
+        els = _snapshot_tree(win, max_depth=5)
+    except Exception:
+        return False
+    for el in els or []:
+        hay = " ".join([_norm_text(el.get("name")), _norm_text(el.get("automation_id"))])
+        if _CONNECTED_RX.search(hay):
+            return True
+        if _norm_text(el.get("control_type")).lower() == "text" and _DURATION_RX.search(hay):
+            return True
+    return False
+
+
+def _monitor_outcome(win, answer_timeout: float = 35.0) -> str:
+    """Watch the call UI right after a dial is placed. Returns
+    'connected' | 'no_answer' | 'unknown'. Conservative — ambiguous maps to
+    'connected' so a human dispositions; we never auto-skip a possibly-live
+    call."""
+    start = time.time()
+    deadline = start + answer_timeout
+    saw_call_ui = False
+    while time.time() < deadline:
+        try:
+            if _connected_now(win):
+                return "connected"
+            saw_call_ui = saw_call_ui or _connected_now(win)
+            edit, _lbl = _find_dialer_edit(win)
+        except Exception:
+            edit = None
+        # High-confidence no-answer: after a few seconds of ring the call view
+        # has closed back to the dialer field without ever connecting.
+        if edit is not None and (time.time() - start) > 7:
+            return "no_answer"
+        time.sleep(0.8)
+    # Rang the whole window with no detectable connect AND no return-to-dialer:
+    # ambiguous (some PL layouts keep the dialer hidden mid-ring). Let a human
+    # decide rather than risk skipping a live call.
+    return "unknown"
+
+
+def _dial_once(num: str, method: str, monitor: bool = False) -> dict:
     if not _open_phone_link():
         return {"status": "phone_link_launch_failed",
                 "fix": "Open Microsoft Phone Link manually once — agent then keeps it warm."}
     if method in ("auto", "uia"):
         ok, detail, _, verification, stage = _try_uia(num)
         if ok:
-            return {"status": "dialed_via_phone_link", "method_used": "uia", "detail": detail, "verification": verification}
+            res = {"status": "dialed_via_phone_link", "method_used": "uia", "detail": detail, "verification": verification}
+            if monitor:
+                try:
+                    from pywinauto import Application
+                    app = Application(backend="uia").connect(title="Phone Link", timeout=4)
+                    res["outcome_hint"] = _monitor_outcome(app.window(title="Phone Link"))
+                except Exception as e:
+                    res["outcome_hint"] = "unknown"
+                    res["monitor_error"] = str(e)
+            return res
         # Bluetooth calling link down — sendinput can't help (no dial pad
         # exists). Surface a crisp, actionable error instead of falling through.
         if stage == "calling_disconnected":
@@ -520,6 +587,7 @@ def run(payload, ctx):
     auto = bool(payload.get("auto_dial"))
     count = max(1, min(5, int(payload.get("dial_count") or 1)))
     interval = max(5, min(120, int(payload.get("dial_interval_seconds") or 15)))
+    monitor = bool(payload.get("monitor"))   # power-dialer: watch call outcome
 
     if not auto:
         r = _r.post(
@@ -545,6 +613,7 @@ def run(payload, ctx):
     attempts = []
     cancelled = False
     any_success = False
+    outcome_hint = None
     for i in range(count):
         if i > 0:
             # sleep in 1s slices so cancel-check is responsive
@@ -553,7 +622,7 @@ def run(payload, ctx):
                     cancelled = True; break
                 time.sleep(1)
             if cancelled: break
-        attempt = _dial_once(num, method)
+        attempt = _dial_once(num, method, monitor=monitor)
         attempt["at"] = time.time()
         attempt["attempt_number"] = i + 1
         attempts.append(attempt)
@@ -563,6 +632,14 @@ def run(payload, ctx):
         elif status in ("phone_link_launch_failed", "phone_link_window_not_found", "uia_failed", "platform_unsupported", "phone_link_calling_disconnected"):
             # Setup/launch failures are fatal. A later retry won't help.
             break
+        # Smart retry for back-to-back multi-dial: only ring again if NOBODY
+        # picked up. If the call connected, stop — never dial over a live call.
+        if monitor:
+            hint = attempt.get("outcome_hint")
+            if hint:
+                outcome_hint = hint
+            if hint == "connected":
+                break
 
     return {
         "status": "cancelled" if cancelled else ("dialed_via_phone_link" if any_success else "failed"),
@@ -573,4 +650,5 @@ def run(payload, ctx):
         "dial_interval_seconds": interval,
         "attempts": attempts,
         "cancelled": cancelled,
+        "outcome_hint": outcome_hint,   # connected | no_answer | unknown | None
     }

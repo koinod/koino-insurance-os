@@ -52,9 +52,12 @@ export default async function handler(req) {
   const to        = p.get("To") || "";
   const fromNum   = p.get("From") || "";
 
-  // We only fire on terminal events with real duration. Twilio sends
-  // multiple status events per call.
-  if (!callSid || status !== "completed") {
+  // Act on TERMINAL events only — Twilio sends many status events per call.
+  // We persist a call_events row for every terminal outcome (so the web
+  // power-dialer can auto-advance on no-answer/busy/failed, not just on a
+  // completed conversation); automation_fire below still keys off duration.
+  const TERMINAL = new Set(["completed", "no-answer", "busy", "failed", "canceled"]);
+  if (!callSid || !TERMINAL.has(status)) {
     return new Response("ok", { status: 200 });
   }
 
