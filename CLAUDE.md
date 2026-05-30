@@ -423,8 +423,10 @@ grep -rn "<filename>\.js?v=" --include="*.html"
   `reset-demo` and `score-recent-calls` were intentionally dropped; their
   endpoints exist under `api/cron/` but aren't scheduled. Never add
   sub-daily crons to `vercel.json`.
-- **DEEPGRAM_API_KEY** not set in Vercel → `/api/twilio/media-stream`
-  returns 503. Set it to unblock live call transcription.
+- **DEEPGRAM_API_KEY** is set in Vercel Production (verified 2026-05-29
+  via `vercel env ls production`). Live transcription via
+  `/api/twilio/media-stream` is unblocked at the config layer — any 503
+  now is a runtime issue, not a missing key.
 
 ## Supabase rules
 

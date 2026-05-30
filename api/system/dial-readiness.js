@@ -108,13 +108,20 @@ export default async function handler(req) {
 
     if (provider === "twilio" || provider === "sendblue") {
       const v = vaults?.get(provider);
-      if (!v) {
-        reasons.push(`provider=${provider} but no connector_vault row — creds missing`);
+      // Twilio: platform-env creds (pay-and-play default per /api/dial/outbound)
+      // count as ready when present — a per-rep vault row is just an optional
+      // override. SendBlue still requires a vault row.
+      const platformTwilio = provider === "twilio"
+        && !!process.env.TWILIO_ACCOUNT_SID
+        && !!(process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_AUTH_TOKEN)
+        && !!process.env.TWILIO_CALLER_ID;
+      if (!v && !platformTwilio) {
+        reasons.push(`provider=${provider} but no connector_vault row${provider === "twilio" ? " and no platform Twilio creds" : ""} — creds missing`);
         ready = false;
-      } else if (provider === "twilio") {
+      } else if (v && provider === "twilio") {
         const nums = Array.isArray(v.account_metadata?.phone_numbers) ? v.account_metadata.phone_numbers : [];
-        if (nums.length === 0) {
-          reasons.push("twilio vault present but no phone_numbers in account_metadata");
+        if (nums.length === 0 && !platformTwilio) {
+          reasons.push("twilio vault present but no phone_numbers in account_metadata (and no platform caller_id fallback)");
           ready = false;
         }
       }
