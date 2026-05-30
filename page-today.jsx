@@ -159,11 +159,19 @@ function PredictiveCards({ scope }) {
                     : reps;
   if (visibleReps.length === 0) return null;
 
-  const scored = visibleReps.map(r => ({
-    rep: r,
-    risk:     computeRiskScore(r),
-    breakout: computeBreakoutScore(r),
-  }));
+  // Prefer the durable nightly snapshot (rep_score_snapshots, written by
+  // /api/cron/score-reps) so scores are consistent across viewers + trendable.
+  // Falls back to the live client heuristic for reps without a snapshot yet
+  // (brand new, or before the first nightly run).
+  const stored = AppData.REP_SCORES || {};
+  const scored = visibleReps.map(r => {
+    const snap = stored[r.id];
+    return {
+      rep: r,
+      risk:     snap ? snap.risk     : computeRiskScore(r),
+      breakout: snap ? snap.breakout : computeBreakoutScore(r),
+    };
+  });
   const atRisk    = scored.filter(s => s.risk >= 50).sort((a,b) => b.risk - a.risk).slice(0, 3);
   const breakouts = scored.filter(s => s.breakout >= 50).sort((a,b) => b.breakout - a.breakout).slice(0, 3);
 

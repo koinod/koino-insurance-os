@@ -101,6 +101,23 @@ const WORKFLOWS_SEED = [
   { id: "w4", name: "Cross-sell: FE issued → Med Supp 60d", runs: "12/d", lastRun: "3h ago" },
 ];
 
+const SEQUENCES_SEED = [
+  {
+    id: "seq_demo_speed_to_lead",
+    name: "Fresh lead speed-to-lead",
+    description: "Demo drip for newly quoted leads.",
+    steps: [
+      { day: 0, ch: "SMS", template: "Hi {{first}}, this is {{rep}} — I just sent your quote. Want me to walk you through it?" },
+      { day: 1, ch: "SMS", template: "Quick follow-up, {{first}} — any questions on the plan options?" },
+      { day: 3, ch: "SMS", template: "{{first}}, should I keep this quote active or close the loop for now?" },
+    ],
+    active: true,
+    agencyId: "atlas-demo",
+    audience: "lead",
+    createdAt: new Date().toISOString(),
+  },
+];
+
 // AppData ships EMPTY on first paint. The Supabase hydrate or a deliberate
 // loadDemoSeed() call (demo-skip / is_demo agency) is what populates these.
 // This prevents Marcus / Cheryl / Atlas IMO from bleeding into a real
@@ -109,6 +126,7 @@ window.AppData = {
   TIERS, TIER_LABELS,
   REPS: [], PIPELINE: [], QUEUE: [], COURSES: [], RECORDINGS: [],
   CONNECTIONS: [], HARDWARE: [], AGENTS: [], WORKFLOWS: [],
+  SEQUENCES: [], SEQUENCE_ENROLLMENTS: [],
   ORG_SETTINGS: {},
   TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
   SEGMENTS: [],
@@ -131,6 +149,8 @@ window.loadDemoSeed = function () {
   window.AppData.HARDWARE = HARDWARE_SEED.slice();
   window.AppData.AGENTS = AGENTS_SEED.slice();
   window.AppData.WORKFLOWS = WORKFLOWS_SEED.slice();
+  window.AppData.SEQUENCES = SEQUENCES_SEED.slice();
+  window.AppData.SEQUENCE_ENROLLMENTS = [];
   try { window.dispatchEvent(new CustomEvent("data:hydrated")); } catch (e) { console.warn("[data.hydrated:dispatch]", e); }
 };
 
@@ -292,7 +312,7 @@ window.hydrateFromSupabase = async function () {
     const TABLES_WITH_AGENCY_ID = new Set([
       "reps", "pipeline", "queue", "courses", "recordings", "connections",
       "hardware", "ai_agents", "workflows", "policies", "commissions",
-      "payouts", "clawbacks", "agent_deployments", "agent_runs",
+      "payouts", "clawbacks", "agent_deployments", "agent_runs", "rep_score_snapshots",
       "automation_rules", "automation_runs", "followup_runs",
       "followup_templates", "onboarding_progress", "recruiting_applicants",
       "recruiting_campaigns", "recruiting_messages", "sequence_enrollments",
@@ -494,6 +514,7 @@ window.hydrateFromSupabase = async function () {
         sequencesR, seqEnrollmentsR,
         tieringOverridesR,
         agentDeploymentsR, agentRunsR,
+        repScoresR,
       ] = await Promise.all([
         // Reference tables (global) — NOT agency-scoped:
         sb.from("carriers").select("*").order("name"),
@@ -551,6 +572,10 @@ window.hydrateFromSupabase = async function () {
         scope(sb.from("tiering_overrides").select("*")),
         scope(sb.from("agent_deployments").select("*").order("started_at", { ascending: false }).limit(50)),
         scope(sb.from("agent_runs").select("*").order("started_at", { ascending: false }).limit(100)),
+        // GAP-X1 predictive engine: latest persisted snapshots (one row per
+        // rep per day, ordered desc). Consumed by PredictiveCards which
+        // takes the first occurrence per rep_id = the latest score.
+        scope(sb.from("rep_score_snapshots").select("rep_id,risk_score,breakout_score,as_of_date").order("as_of_date", { ascending: false }).limit(500)),
       ].map(p => Promise.resolve(p).catch(err => ({ data: [], error: err }))));
       // ↑ Resilience: any single query that throws is converted into `{ data: [],
       // error }` so the rest of the hydrate proceeds. Without this, one missing
@@ -788,12 +813,15 @@ window.hydrateFromSupabase = async function () {
         targetApps: a.target_apps, targetAp: cents(a.target_ap_cents),
         completedApps: a.completed_apps, completedAp: cents(a.completed_ap_cents)
       }));
-      window.AppData.SEQUENCES = mapRows(sequencesR, s => ({
+      const sequenceRows = mapRows(sequencesR, s => ({
         id: s.id, name: s.name, description: s.description,
         steps: s.steps, active: s.is_active,
         agencyId: s.agency_id, audience: s.audience || "lead",
         createdAt: s.created_at,
       }));
+      if (!demoMode || hasRows(sequencesR)) {
+        window.AppData.SEQUENCES = sequenceRows;
+      }
       window.AppData.SEQUENCE_ENROLLMENTS = mapRows(seqEnrollmentsR, e => ({
         id: e.id, leadId: e.lead_pipeline_id, sequenceId: e.sequence_id,
         owner: e.owner_rep_id, status: e.status, currentStep: e.current_step,
@@ -816,6 +844,15 @@ window.hydrateFromSupabase = async function () {
         startedAt: r.started_at, endedAt: r.ended_at, durationMs: r.duration_ms,
         status: r.status, output: r.output_text, error: r.error_text
       }));
+      // GAP-X1 predictive: latest persisted snapshot per rep (rows are
+      // sorted by as_of_date desc, so the first occurrence wins).
+      const _scoresByRep = {};
+      (Array.isArray(repScoresR?.data) ? repScoresR.data : []).forEach(s => {
+        if (s.rep_id && !_scoresByRep[s.rep_id]) {
+          _scoresByRep[s.rep_id] = { risk: s.risk_score, breakout: s.breakout_score, asOf: s.as_of_date };
+        }
+      });
+      window.AppData.REP_SCORES = _scoresByRep;
     } catch (v2err) {
       // v2 tables may not exist yet — that's fine, v1 hydrate already succeeded.
       console.warn("[supabase] v2 hydrate skipped:", v2err?.message ?? v2err);
