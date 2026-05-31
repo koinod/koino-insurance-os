@@ -125,7 +125,7 @@ def has_session(carrier: str) -> bool:
 
 
 def supabase_get(path: str, params: dict | None = None) -> list:
-    from scrapling.fetchers import Fetcher
+    import requests as _r
     headers = {
         "apikey": SUPABASE_ANON,
         "Authorization": f"Bearer {SUPABASE_ANON}",
@@ -135,9 +135,9 @@ def supabase_get(path: str, params: dict | None = None) -> list:
     if params:
         from urllib.parse import urlencode
         url = f"{url}?{urlencode(params)}"
-    page = Fetcher.get(url, headers=headers)
     try:
-        return json.loads(page.body)
+        resp = _r.get(url, headers=headers, timeout=20)
+        return resp.json() if resp.text else []
     except Exception:
         return []
 
@@ -162,7 +162,7 @@ def supabase_patch(path: str, body: dict, eq_filter: dict) -> dict:
 
 
 def supabase_insert(path: str, body: dict) -> dict:
-    from scrapling.fetchers import Fetcher
+    import requests as _r
     headers = {
         "apikey": SUPABASE_ANON,
         "Authorization": f"Bearer {SUPABASE_ANON}",
@@ -170,9 +170,9 @@ def supabase_insert(path: str, body: dict) -> dict:
         "Prefer": "return=representation",
     }
     url = f"{SUPABASE_URL}/rest/v1/{path}"
-    page = Fetcher.post(url, headers=headers, data=json.dumps(body))
     try:
-        result = json.loads(page.body)
+        resp = _r.post(url, headers=headers, data=json.dumps(body), timeout=20)
+        result = resp.json() if resp.text else []
         return result[0] if isinstance(result, list) and result else {}
     except Exception:
         return {}
@@ -180,7 +180,7 @@ def supabase_insert(path: str, body: dict) -> dict:
 
 def supabase_upsert(path: str, body: dict, on_conflict: str) -> dict:
     """Upsert by primary key (e.g. on_conflict='rep_id,carrier_id')."""
-    from scrapling.fetchers import Fetcher
+    import requests as _r
     headers = {
         "apikey": SUPABASE_ANON,
         "Authorization": f"Bearer {SUPABASE_ANON}",
@@ -188,9 +188,9 @@ def supabase_upsert(path: str, body: dict, on_conflict: str) -> dict:
         "Prefer": "resolution=merge-duplicates,return=representation",
     }
     url = f"{SUPABASE_URL}/rest/v1/{path}?on_conflict={on_conflict}"
-    page = Fetcher.post(url, headers=headers, data=json.dumps(body))
     try:
-        result = json.loads(page.body)
+        resp = _r.post(url, headers=headers, data=json.dumps(body), timeout=20)
+        result = resp.json() if resp.text else []
         return result[0] if isinstance(result, list) and result else {}
     except Exception:
         return {}
