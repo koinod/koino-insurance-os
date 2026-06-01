@@ -6,10 +6,26 @@
 <title>Repflow — the operating system for insurance distribution</title>
 <meta name="description" content="Auto-dialer, multi-tenant CRM, AI copilot, recruiting, and call coaching — built for IMOs, agencies, and solo producers."/>
 <link rel="icon" href="/icon.svg" type="image/svg+xml"/>
+<!-- Social sharing preview -->
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Repflow"/>
+<meta property="og:title" content="Repflow — operator-grade OS for life &amp; health distribution"/>
+<meta property="og:description" content="Auto-dialer, multi-tenant CRM, AI copilot, recruiting, and call coaching — built for IMOs, agencies, and solo producers."/>
+<meta property="og:url" content="https://repflow.koino.capital/landing"/>
+<meta property="og:image" content="https://repflow.koino.capital/og-image.png?v=1"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Repflow — operator-grade OS for life &amp; health distribution"/>
+<meta name="twitter:image" content="https://repflow.koino.capital/og-image.png?v=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet"/>
 <style>
   :root{
     --bg:#0f1115;
     --bg-elev:#161922;
+    --bg-elev-2:#1b1f29;
     --line:#23272f;
     --line-strong:#2f343d;
     --text:#f4f5f7;
@@ -18,65 +34,133 @@
     --accent:#7ad9a3;
     --accent-dim:#3e8a5d;
     --radius:8px;
+    --radius-lg:14px;
     --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;letter-spacing:-0.01em}
   a{color:inherit;text-decoration:none}
   .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+  .muted{color:var(--text-2)}
   /* Header */
-  .nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-bottom:1px solid var(--line)}
+  .nav{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;padding:18px 0;border-bottom:1px solid var(--line);background:rgba(15,17,21,.82);backdrop-filter:saturate(140%) blur(10px)}
   .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
   .brand-mark{width:26px;height:26px;border-radius:6px;background:linear-gradient(180deg,#2a2f3a,#1a1d24);border:1px solid var(--line-strong);display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--accent)}
-  .nav-links{display:flex;align-items:center;gap:18px;font-size:13px;color:var(--text-2)}
+  .nav-links{display:flex;align-items:center;gap:20px;font-size:13px;color:var(--text-2)}
   .nav-links a:hover{color:var(--text)}
-  /* Hero */
-  .hero{padding:80px 0 64px;display:flex;flex-direction:column;align-items:flex-start;gap:22px;max-width:760px}
-  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
-  h1{font-size:clamp(34px,5.2vw,56px);line-height:1.05;font-weight:600;letter-spacing:-0.025em;margin:0}
-  .sub{font-size:clamp(15px,1.6vw,18px);line-height:1.55;color:var(--text-2);max-width:600px;margin:0}
-  .cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
+  /* Buttons */
   .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:var(--radius);font-size:14px;font-weight:500;border:1px solid transparent;transition:transform .12s ease,background .12s ease,border-color .12s ease;cursor:pointer}
   .btn-primary{background:var(--accent);color:#0a0e0c;border-color:var(--accent)}
   .btn-primary:hover{transform:translateY(-1px);background:#92e3b3}
   .btn-secondary{background:transparent;color:var(--text);border-color:var(--line-strong)}
   .btn-secondary:hover{border-color:#4a525e;background:var(--bg-elev)}
+  .btn-sm{padding:9px 14px;font-size:13px}
   .btn-arrow{font-size:13px;opacity:.7}
-  /* Proof */
-  .proof{margin-top:28px;font-size:12.5px;color:var(--text-3);display:flex;align-items:center;gap:10px}
+  /* Section scaffolding */
+  section{scroll-margin-top:80px}
+  .kicker{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .section-head{max-width:620px;margin:0 0 36px}
+  .section-head h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;font-weight:600;letter-spacing:-0.025em;margin:12px 0 10px}
+  .section-head p{font-size:15px;line-height:1.6;color:var(--text-2);margin:0}
+  /* Hero */
+  .hero{padding:84px 0 52px;display:flex;flex-direction:column;align-items:flex-start;gap:22px;max-width:780px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-size:clamp(36px,5.4vw,60px);line-height:1.04;font-weight:600;letter-spacing:-0.03em;margin:0}
+  .sub{font-size:clamp(15px,1.6vw,18px);line-height:1.55;color:var(--text-2);max-width:620px;margin:0}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
+  .proof{margin-top:22px;font-size:12.5px;color:var(--text-3);display:flex;align-items:center;gap:10px}
   .proof-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(122,217,163,.12)}
+  /* Hero showcase image */
+  .hero-shot{margin:14px 0 8px;width:100%}
+  .frame{border:1px solid var(--line-strong);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg-elev);box-shadow:0 24px 60px -28px rgba(0,0,0,.7)}
+  .frame-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--bg-elev-2)}
+  .frame-dot{width:9px;height:9px;border-radius:50%;background:#33383f}
+  .frame-url{margin-left:8px;font-size:11px;color:var(--text-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .frame img{display:block;width:100%;height:auto}
   /* Features */
-  .features{padding:48px 0 80px;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
-  .feature{display:flex;flex-direction:column;gap:10px}
+  .features{padding:64px 0;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);gap:30px 28px}
+  .feature{display:flex;flex-direction:column;gap:9px}
   .feature-num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-3);letter-spacing:.08em}
-  .feature h3{font-size:16px;font-weight:600;margin:0;letter-spacing:-0.01em}
+  .feature h3{font-size:15.5px;font-weight:600;margin:0;letter-spacing:-0.01em}
   .feature p{font-size:13.5px;line-height:1.55;color:var(--text-2);margin:0}
+  /* Demo gallery */
+  .demo{padding:64px 0;border-top:1px solid var(--line)}
+  .demo-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:32px}
+  .grid-shots{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}
+  .shot{display:block;group:shot}
+  .shot .frame{transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+  .shot:hover .frame{transform:translateY(-3px);border-color:#43505c;box-shadow:0 30px 70px -30px rgba(0,0,0,.8)}
+  .shot-cap{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+  .shot-cap .t{font-size:13.5px;font-weight:600}
+  .shot-cap .d{font-size:12.5px;color:var(--text-2);margin-top:2px}
+  .shot-link{font-size:12.5px;color:var(--accent);white-space:nowrap;font-weight:500}
+  .shot:hover .shot-link{text-decoration:underline}
+  /* Pricing */
+  .pricing{padding:64px 0;border-top:1px solid var(--line)}
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;align-items:stretch}
+  .plan{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius-lg);padding:26px 22px;background:var(--bg-elev)}
+  .plan.feature-plan{border-color:var(--accent-dim);background:linear-gradient(180deg,rgba(122,217,163,.05),var(--bg-elev) 60%);position:relative}
+  .plan-badge{position:absolute;top:-11px;left:22px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#0a0e0c;background:var(--accent);padding:4px 10px;border-radius:999px}
+  .plan-name{font-size:14px;font-weight:600}
+  .plan-for{font-size:12.5px;color:var(--text-3);margin-top:3px;min-height:34px}
+  .plan-price{margin:16px 0 4px;display:flex;align-items:baseline;gap:6px}
+  .plan-price .n{font-size:34px;font-weight:600;letter-spacing:-0.03em}
+  .plan-price .per{font-size:13px;color:var(--text-3)}
+  .plan-note{font-size:12px;color:var(--text-3);min-height:16px}
+  .plan ul{list-style:none;margin:18px 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
+  .plan li{font-size:13px;line-height:1.45;color:var(--text-2);display:flex;gap:9px;align-items:flex-start}
+  .plan li::before{content:"";flex:0 0 auto;width:15px;height:15px;margin-top:1px;border-radius:50%;background:rgba(122,217,163,.14);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237ad9a3' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:center;background-size:10px}
+  .plan .btn{width:100%;justify-content:center;margin-top:auto}
+  .plan-sub{font-size:11.5px;color:var(--text-3);text-align:center;margin-top:10px}
+  /* Invitee note */
+  .invite-note{margin-top:24px;border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 20px;background:var(--bg-elev);display:flex;gap:14px;align-items:flex-start}
+  .invite-note .ic{flex:0 0 auto;width:30px;height:30px;border-radius:8px;background:rgba(122,217,163,.1);display:grid;place-items:center;color:var(--accent);font-size:15px;font-weight:700}
+  .invite-note .b{font-size:13.5px;line-height:1.55;color:var(--text-2)}
+  .invite-note .b strong{color:var(--text);font-weight:600}
+  /* CTA band */
+  .cta-band{padding:64px 0;border-top:1px solid var(--line);text-align:center}
+  .cta-band h2{font-size:clamp(24px,3.4vw,34px);font-weight:600;letter-spacing:-0.025em;margin:0 0 10px}
+  .cta-band p{color:var(--text-2);font-size:15px;margin:0 auto 22px;max-width:520px}
+  .cta-band .cta-row{justify-content:center}
   /* Footer */
-  footer{border-top:1px solid var(--line);padding:24px 0 36px;font-size:12px;color:var(--text-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  footer{border-top:1px solid var(--line);padding:26px 0 40px;font-size:12px;color:var(--text-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  footer a:hover{color:var(--text-2)}
   /* Responsive */
-  @media (max-width:760px){
-    .hero{padding:56px 0 40px}
-    .features{grid-template-columns:1fr;gap:32px;padding:40px 0 64px}
+  @media (max-width:860px){
+    .features{grid-template-columns:repeat(2,1fr)}
+    .plans{grid-template-columns:1fr;gap:16px}
+    .grid-shots{grid-template-columns:1fr}
+  }
+  @media (max-width:600px){
+    .hero{padding:56px 0 36px}
+    .features{grid-template-columns:1fr;gap:30px;padding:48px 0}
     .nav-links a:not(.btn){display:none}
   }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="nav">
-      <div class="brand">
+  <header class="nav">
+    <div class="wrap" style="display:flex;align-items:center;justify-content:space-between;padding:0">
+      <a class="brand" href="/landing">
         <div class="brand-mark">R</div>
         <span>Repflow</span>
-      </div>
+      </a>
       <nav class="nav-links">
         <a href="#features">Features</a>
+        <a href="#demo">Demo</a>
+        <a href="#pricing">Pricing</a>
         <a href="/login">Sign in</a>
-        <a class="btn btn-secondary" href="/login?signup=1">Get started</a>
+        <a class="btn btn-secondary btn-sm" href="/login?signup=1">Get started</a>
       </nav>
-    </header>
+    </div>
+  </header>
 
+  <div class="wrap">
+
+    <!-- HERO -->
     <section class="hero">
-      <div class="eyebrow">Insurance OS</div>
+      <div class="eyebrow">Insurance distribution OS</div>
       <h1>The operating system for insurance distribution.</h1>
       <p class="sub">
         Auto-dialer, multi-tenant CRM, AI copilot, carrier appointments, recruiting, and call coaching — in one place. Built for IMOs, agencies, and solo producers who run a real book.
@@ -85,8 +169,8 @@
         <a class="btn btn-primary" href="/login?signup=1">
           Start free <span class="btn-arrow">→</span>
         </a>
-        <a class="btn btn-secondary" href="/login">
-          See it in action
+        <a class="btn btn-secondary" href="/?demo=1">
+          View live demo
         </a>
       </div>
       <div class="proof">
@@ -95,27 +179,172 @@
       </div>
     </section>
 
+    <!-- HERO SHOWCASE -->
+    <a class="hero-shot shot" href="/?demo=1" aria-label="Open the live demo">
+      <div class="frame">
+        <div class="frame-bar">
+          <span class="frame-dot"></span><span class="frame-dot"></span><span class="frame-dot"></span>
+          <span class="frame-url">repflow.koino.capital/?demo=1</span>
+        </div>
+        <img src="/marketing/shots/floor-today.png" width="1440" height="900" alt="Repflow live floor dashboard — daily AP, producers, and coaching cards" loading="eager"/>
+      </div>
+      <div class="shot-cap">
+        <div><div class="t">The floor, live</div><div class="d">Daily AP, producer leaderboard, and AI coaching cards in one view.</div></div>
+        <span class="shot-link">Open live demo →</span>
+      </div>
+    </a>
+
+    <!-- FEATURES -->
     <section id="features" class="features">
       <div class="feature">
         <div class="feature-num">01 / Dial</div>
-        <h3>Auto-dialer with cadence + redial queue</h3>
-        <p>Reps work a single queue. The system handles dispositions, redials, and follow-ups so nothing rots in a spreadsheet.</p>
+        <h3>Auto-dialer + redial queue</h3>
+        <p>Reps work one queue. The system handles dispositions, redials, and follow-ups so nothing rots in a spreadsheet.</p>
       </div>
       <div class="feature">
         <div class="feature-num">02 / Sell</div>
         <h3>Pipeline from lead to commission</h3>
-        <p>Lead, quote, write, NIGO, paid — tracked end-to-end. Carrier appointments and E&O on every producer.</p>
+        <p>Lead, quote, write, NIGO, paid — tracked end-to-end, with carrier appointments and E&amp;O on every producer.</p>
       </div>
       <div class="feature">
         <div class="feature-num">03 / Coach</div>
         <h3>AI copilot trained on your floor</h3>
-        <p>Call recordings transcribed and scored. Coaching prompts, recruiting funnel, and an onboarding wizard scoped per role.</p>
+        <p>Calls transcribed and scored. Coaching prompts and drill replays scoped per rep, derived from the last 7 days.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-num">04 / Recruit</div>
+        <h3>Recruiting workbench</h3>
+        <p>Source, sequence, and onboard producers. Inbound DM AI and a funnel that tracks recruit → licensed → producing.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-num">05 / Quote</div>
+        <h3>Carrier-grounded quoting</h3>
+        <p>Underwriting rules and rates sourced from producer guides — best-pick recommendations with the citation behind them.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-num">06 / Run</div>
+        <h3>Owner dashboard + P&amp;L</h3>
+        <p>Tiering, attribution, forecasting, and a real P&amp;L. Multi-tenant: invite producers and scope every view by role.</p>
+      </div>
+    </section>
+
+    <!-- DEMO GALLERY -->
+    <section id="demo" class="demo">
+      <div class="demo-head">
+        <div class="section-head" style="margin:0">
+          <div class="kicker">See it in action</div>
+          <h2>A real workspace, not a sizzle reel.</h2>
+          <p>These are live screens from the product. Click any of them to open the interactive demo — no signup, no card.</p>
+        </div>
+        <a class="btn btn-primary" href="/?demo=1">Open the live demo <span class="btn-arrow">→</span></a>
+      </div>
+
+      <div class="grid-shots">
+        <a class="shot" href="/?demo=1">
+          <div class="frame"><img src="/marketing/shots/pipeline.png" width="1440" height="900" alt="Repflow pipeline board" loading="lazy"/></div>
+          <div class="shot-cap"><div><div class="t">Pipeline</div><div class="d">Lead → quote → issued, with next action on every row.</div></div><span class="shot-link">View demo →</span></div>
+        </a>
+        <a class="shot" href="/?demo=1">
+          <div class="frame"><img src="/marketing/shots/crm.png" width="1440" height="900" alt="Repflow CRM book of business" loading="lazy"/></div>
+          <div class="shot-cap"><div><div class="t">CRM</div><div class="d">The whole book: close rate, AP, sources, owners.</div></div><span class="shot-link">View demo →</span></div>
+        </a>
+        <a class="shot" href="/?demo=1">
+          <div class="frame"><img src="/marketing/shots/coaching.png" width="1440" height="900" alt="Repflow AI call coaching" loading="lazy"/></div>
+          <div class="shot-cap"><div><div class="t">Call coaching</div><div class="d">Scorecards and per-rep coaching cards from real calls.</div></div><span class="shot-link">View demo →</span></div>
+        </a>
+        <a class="shot" href="/?demo=1">
+          <div class="frame"><img src="/marketing/shots/recruiting.png" width="1440" height="900" alt="Repflow recruiting funnel" loading="lazy"/></div>
+          <div class="shot-cap"><div><div class="t">Recruiting</div><div class="d">Pipeline of recruits from first touch to producing.</div></div><span class="shot-link">View demo →</span></div>
+        </a>
+      </div>
+    </section>
+
+    <!-- PRICING -->
+    <section id="pricing" class="pricing">
+      <div class="section-head">
+        <div class="kicker">Pricing</div>
+        <h2>Start free. Pay when it's running your floor.</h2>
+        <p>Every plan starts with a free trial. No setup fee to look around — you only pay once you're live.</p>
+      </div>
+
+      <div class="plans">
+        <!-- SOLO -->
+        <div class="plan">
+          <div class="plan-name">Solo</div>
+          <div class="plan-for">For the independent producer running their own book.</div>
+          <div class="plan-price"><span class="n">$97</span><span class="per">/mo</span></div>
+          <div class="plan-note">7-day free trial · no card to start</div>
+          <ul>
+            <li>Pipeline, dial queue &amp; call review for one producer</li>
+            <li>AI copilot + click-to-call softphone</li>
+            <li>Compliance vault + SOA generator</li>
+            <li>Mobile rep app · cancel anytime</li>
+          </ul>
+          <a class="btn btn-secondary" href="/login?signup=1&plan=rep_solo">Start free trial</a>
+          <div class="plan-sub">Then $97/mo</div>
+        </div>
+
+        <!-- AGENCY (highlight) -->
+        <div class="plan feature-plan">
+          <span class="plan-badge">Most teams pick this</span>
+          <div class="plan-name">Agency</div>
+          <div class="plan-for">For agencies and IMOs running a team — up to 15 agents.</div>
+          <div class="plan-price"><span class="n">$997</span><span class="per">/mo</span></div>
+          <div class="plan-note">7-day free trial · up to 15 agents</div>
+          <ul>
+            <li>Everything in Solo, for the whole team</li>
+            <li>Multi-tenant: invite producers, scope by role</li>
+            <li>Recruiting workbench + sequences + inbound DM AI</li>
+            <li>Tiering, NIGO, attribution, P&amp;L, forecasting</li>
+            <li>Owner dashboard + audit log &amp; compliance export</li>
+          </ul>
+          <a class="btn btn-primary" href="/login?signup=1&plan=agency_trial_7d">Start free trial</a>
+          <div class="plan-sub">Then $997/mo · white-glove onboarding included</div>
+        </div>
+
+        <!-- ENTERPRISE -->
+        <div class="plan">
+          <div class="plan-name">Enterprise</div>
+          <div class="plan-for">For large IMOs and multi-agency groups beyond 15 agents.</div>
+          <div class="plan-price"><span class="n">Let's talk</span></div>
+          <div class="plan-note">Custom seats &amp; rollout</div>
+          <ul>
+            <li>Unlimited agents across multiple agencies</li>
+            <li>Multi-agency hierarchy &amp; downline rollups</li>
+            <li>Custom carrier integrations &amp; data residency</li>
+            <li>SSO, priority support &amp; dedicated onboarding</li>
+          </ul>
+          <a class="btn btn-secondary" href="https://cal.com/koino" target="_blank" rel="noopener">Book a call</a>
+          <div class="plan-sub">15-minute fit call · custom quote</div>
+        </div>
+      </div>
+
+      <!-- Invitee note -->
+      <div class="invite-note">
+        <div class="ic">R</div>
+        <div class="b">
+          <strong>Joining a team that's already on Repflow?</strong> You don't pay anything. Ask your agency admin for an invite link — it drops you straight into your workspace. Your seat is covered by the agency's plan.
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA BAND -->
+    <section class="cta-band">
+      <h2>Run your distribution like an operator.</h2>
+      <p>Spin up a workspace in minutes, or walk the live demo first. No card required to start.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/login?signup=1">Start free <span class="btn-arrow">→</span></a>
+        <a class="btn btn-secondary" href="/?demo=1">View live demo</a>
       </div>
     </section>
 
     <footer>
       <div>© Repflow · A KOINO Capital product</div>
-      <div><a href="/">Open the app →</a></div>
+      <div style="display:flex;gap:18px">
+        <a href="#pricing">Pricing</a>
+        <a href="/login">Sign in</a>
+        <a href="/">Open the app →</a>
+      </div>
     </footer>
   </div>
 </body>
