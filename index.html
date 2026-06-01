@@ -5,6 +5,8 @@
 <!-- Anti-FOUC: set data-theme before first paint so CSS vars resolve correctly -->
 <script>!function(){try{var t=localStorage.getItem('repflow_theme')||'dark';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}}();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<!-- Stash a plan chosen on the marketing page so onboarding's Billing step can preselect it. -->
+<script>try{var _pp=new URLSearchParams(location.search).get('plan');if(_pp&&/^(rep_solo|agency_trial_7d|agency_setup)$/.test(_pp))sessionStorage.setItem('repflow.pending_plan',_pp);}catch(e){}</script>
 <title>Repflow — operator-grade for life & health distribution</title>
 <meta name="description" content="Auto-dialer, multi-tenant CRM, AI copilot, recruiting, and call coaching — the operator-grade OS for life &amp; health insurance distribution."/>
 <!-- Open Graph / social sharing preview -->
@@ -82,7 +84,7 @@
 <script src="dist/page-platform.js?v=79"></script>
 <script src="dist/page-tenant.js?v=96"></script>
 <script src="dist/page-onboarding.js?v=78"></script>
-<script src="dist/page-first-run.js?v=86"></script>
+<script src="dist/page-first-run.js?v=87"></script>
 <script src="dist/page-admin.js?v=90"></script>
 <script src="dist/rba-confirmations.js?v=1"></script>
 <script src="dist/rba-lead-activity.js?v=1"></script>

@@ -798,7 +798,19 @@ function StepInviteTeam({ sb, agencyId, onSubmit, busy, err }) {
 }
 
 function StepBilling({ agencyId, onSubmit, busy, err }) {
-  const [plan, setPlan] = React.useState("trial");
+  // Honor a plan chosen on the marketing page (/login?signup=1&plan=…). index.html
+  // stashes it to sessionStorage on load; it may also still be on the URL. Only
+  // Stripe-valid keys are accepted — these MUST match /api/stripe/checkout's
+  // ALLOWED_PLANS (rep_solo / agency_trial_7d / agency_setup), or checkout 400s.
+  const VALID = ["rep_solo", "agency_trial_7d", "agency_setup"];
+  const pendingPlan = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("plan")
+                || sessionStorage.getItem("repflow.pending_plan");
+      return VALID.includes(p) ? p : null;
+    } catch { return null; }
+  })();
+  const [plan, setPlan] = React.useState(pendingPlan || "trial");
   const [checkoutBusy, setCheckoutBusy] = React.useState(false);
   const startCheckout = async () => {
     setCheckoutBusy(true);
@@ -809,7 +821,7 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
         body: JSON.stringify({ agency_id: agencyId, plan }),
       });
       const j = await r.json().catch(() => ({}));
-      if (j?.url) { window.open(j.url, "_blank", "noopener,noreferrer"); }
+      if (j?.url) { try { sessionStorage.removeItem("repflow.pending_plan"); } catch (e) {} window.open(j.url, "_blank", "noopener,noreferrer"); }
       else { window.toast && window.toast(j?.error || "Stripe checkout unavailable — add STRIPE_SECRET_KEY in Vercel.", "warn"); }
     } catch (e) {
       window.toast && window.toast("Stripe call failed — set up your keys and try later.", "warn");
@@ -822,10 +834,9 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
       </div>
       <div style={{ display: "grid", gap: 6 }}>
         {[
-          { k: "trial",    name: "Trial",        price: "$0",     desc: "14 days, full features, no card required." },
-          { k: "starter",  name: "Starter",      price: "$49/mo", desc: "Single producer, 1 phone number, 2 connectors." },
-          { k: "growth",   name: "Growth",       price: "$249/mo", desc: "Up to 10 seats, 5 numbers, unlimited connectors." },
-          { k: "scale",    name: "Scale",        price: "$899/mo", desc: "Unlimited seats, IMO hierarchy, custom carriers." },
+          { k: "trial",           name: "Stay on trial", price: "$0",      desc: "Full features while you set up. Add a plan anytime — no card required now." },
+          { k: "rep_solo",        name: "Solo",          price: "$97/mo",  desc: "One producer. 7-day free trial, then $97/mo. Cancel anytime." },
+          { k: "agency_trial_7d", name: "Agency",        price: "$997/mo", desc: "Whole team, up to 15 agents. 7-day free trial, then $997/mo + one-time onboarding." },
         ].map(p => {
           const on = plan === p.k;
           return (
@@ -838,6 +849,9 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
             </label>
           );
         })}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
+        More than 15 agents or a multi-agency rollout? <a href="https://cal.com/koino" target="_blank" rel="noopener" style={{ color: "var(--accent-money)" }}>Book an Enterprise call →</a>
       </div>
       {plan !== "trial" && (
         <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={startCheckout} disabled={checkoutBusy}>
