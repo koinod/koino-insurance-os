@@ -264,7 +264,20 @@
       <div class="section-head">
         <div class="kicker">Pricing</div>
         <h2>Start free. Pay when it's running your floor.</h2>
-        <p>Every plan starts with a free trial. No setup fee to look around — you only pay once you're live.</p>
+        <p>Every plan starts with a free trial. No setup fee — you only pay once you're live. Save 2 months when you pay annually.</p>
+      </div>
+
+      <style>
+        .bill-toggle{display:flex;justify-content:center;margin:-10px 0 30px}
+        .bill-toggle .seg{display:inline-flex;background:var(--bg-elev);border:1px solid var(--line-strong);border-radius:999px;padding:4px;gap:2px}
+        .bill-opt{appearance:none;border:0;cursor:pointer;font:inherit;font-size:13px;color:var(--text-2);background:transparent;padding:8px 16px;border-radius:999px;transition:background .12s ease,color .12s ease}
+        .bill-opt.is-on{background:var(--accent);color:#0a0e0c;font-weight:600}
+      </style>
+      <div class="bill-toggle">
+        <div class="seg" role="tablist">
+          <button type="button" class="bill-opt is-on" data-bill="monthly">Monthly</button>
+          <button type="button" class="bill-opt" data-bill="annual">Annual · 2 months free</button>
+        </div>
       </div>
 
       <div class="plans">
@@ -272,16 +285,16 @@
         <div class="plan">
           <div class="plan-name">Solo</div>
           <div class="plan-for">For the independent producer running their own book.</div>
-          <div class="plan-price"><span class="n">$97</span><span class="per">/mo</span></div>
-          <div class="plan-note">7-day free trial · no card to start</div>
+          <div class="plan-price"><span class="n" id="solo-amt">$97</span><span class="per" id="solo-per">/mo</span></div>
+          <div class="plan-note" id="solo-note">7-day free trial · no card to start</div>
           <ul>
             <li>Pipeline, dial queue &amp; call review for one producer</li>
             <li>AI copilot + click-to-call softphone</li>
             <li>Compliance vault + SOA generator</li>
             <li>Mobile rep app · cancel anytime</li>
           </ul>
-          <a class="btn btn-secondary" href="/login?signup=1&plan=rep_solo">Start free trial</a>
-          <div class="plan-sub">Then $97/mo</div>
+          <a class="btn btn-secondary" id="solo-cta" href="/login?signup=1&plan=rep_solo">Start free trial</a>
+          <div class="plan-sub" id="solo-sub">Then $97/mo</div>
         </div>
 
         <!-- AGENCY (highlight) -->
@@ -289,8 +302,8 @@
           <span class="plan-badge">Most teams pick this</span>
           <div class="plan-name">Agency</div>
           <div class="plan-for">For agencies and IMOs running a team — up to 15 agents.</div>
-          <div class="plan-price"><span class="n">$997</span><span class="per">/mo</span></div>
-          <div class="plan-note">7-day free trial · up to 15 agents</div>
+          <div class="plan-price"><span class="n" id="agy-amt">$997</span><span class="per" id="agy-per">/mo</span></div>
+          <div class="plan-note" id="agy-note">7-day free trial · up to 15 agents</div>
           <ul>
             <li>Everything in Solo, for the whole team</li>
             <li>Multi-tenant: invite producers, scope by role</li>
@@ -298,8 +311,8 @@
             <li>Tiering, NIGO, attribution, P&amp;L, forecasting</li>
             <li>Owner dashboard + audit log &amp; compliance export</li>
           </ul>
-          <a class="btn btn-primary" href="/login?signup=1&plan=agency_trial_7d">Start free trial</a>
-          <div class="plan-sub">Then $997/mo · white-glove onboarding included</div>
+          <a class="btn btn-primary" id="agy-cta" href="/login?signup=1&plan=agency_trial_7d">Start free trial</a>
+          <div class="plan-sub" id="agy-sub">Then $997/mo · no setup fee</div>
         </div>
 
         <!-- ENTERPRISE -->
@@ -347,5 +360,35 @@
       </div>
     </footer>
   </div>
+  <script>
+    // Pricing billing toggle: swap Solo/Agency prices + CTAs between monthly and annual (2 months free).
+    (function () {
+      var COPY = {
+        monthly: {
+          solo: { amt: "$97",  per: "/mo", note: "7-day free trial · no card to start", sub: "Then $97/mo",  href: "/login?signup=1&plan=rep_solo" },
+          agy:  { amt: "$997", per: "/mo", note: "7-day free trial · up to 15 agents",  sub: "Then $997/mo · no setup fee", href: "/login?signup=1&plan=agency_trial_7d" }
+        },
+        annual: {
+          solo: { amt: "$970",   per: "/yr", note: "2 months free vs monthly",            sub: "Billed yearly · cancel anytime",  href: "/login?signup=1&plan=rep_solo&billing=annual" },
+          agy:  { amt: "$9,970", per: "/yr", note: "2 months free · up to 15 agents",     sub: "Billed yearly · no setup fee",    href: "/login?signup=1&plan=agency_trial_7d&billing=annual" }
+        }
+      };
+      function set(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+      function apply(mode) {
+        var c = COPY[mode];
+        set("solo-amt", c.solo.amt); set("solo-per", c.solo.per); set("solo-note", c.solo.note); set("solo-sub", c.solo.sub);
+        set("agy-amt", c.agy.amt);   set("agy-per", c.agy.per);   set("agy-note", c.agy.note);   set("agy-sub", c.agy.sub);
+        var sc = document.getElementById("solo-cta"); if (sc) sc.setAttribute("href", c.solo.href);
+        var ac = document.getElementById("agy-cta");  if (ac) ac.setAttribute("href", c.agy.href);
+      }
+      document.querySelectorAll(".bill-opt").forEach(function (b) {
+        b.addEventListener("click", function () {
+          document.querySelectorAll(".bill-opt").forEach(function (x) { x.classList.remove("is-on"); });
+          b.classList.add("is-on");
+          apply(b.getAttribute("data-bill"));
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

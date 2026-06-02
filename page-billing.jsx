@@ -55,17 +55,21 @@ const PLANS = [
 ];
 window.PRICING_PLANS = PLANS;
 
+// Annual price labels (2 months free) for plans that support yearly prepay.
+const ANNUAL_LABELS = { rep_solo: "$970/yr", agency_setup: "$9,970/yr" };
+
 function PricingModal({ onClose, currentTier, agencyId, customerEmail }) {
   const [busy, setBusy] = React.useState(null);
   const [err, setErr]   = React.useState("");
+  const [billing, setBilling] = React.useState("monthly"); // monthly | annual
 
-  const startCheckout = async (plan) => {
+  const startCheckout = async (plan, billingArg) => {
     setBusy(plan); setErr("");
     try {
       const r = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ plan, agency_id: agencyId, customer_email: customerEmail }),
+        body: JSON.stringify({ plan, agency_id: agencyId, customer_email: customerEmail, billing: billingArg || "monthly" }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error === "stripe_not_configured" ? "Stripe not connected — see Settings → Integrations → Stripe (admin only)" : (j.error || "checkout failed"));
@@ -79,23 +83,38 @@ function PricingModal({ onClose, currentTier, agencyId, customerEmail }) {
     <Shared.Modal title="Choose a plan" width={920} onClose={onClose} actions={
       <button className="btn btn-ghost" onClick={onClose}>Maybe later</button>
     }>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <div style={{ display: "inline-flex", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 8, padding: 3 }}>
+          {[["monthly", "Monthly"], ["annual", "Annual · 2 months free"]].map(([k, label]) => (
+            <button key={k} onClick={() => setBilling(k)} className="btn btn-ghost"
+              style={{ padding: "6px 14px", fontSize: 12.5, borderRadius: 6, background: billing === k ? "var(--accent-money)" : "transparent", color: billing === k ? "#0a0e0c" : "var(--text-secondary)", fontWeight: billing === k ? 600 : 400 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="pricing-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        {PLANS.map(p => (
+        {PLANS.map(p => {
+          const useAnnual = billing === "annual" && ANNUAL_LABELS[p.id] != null;
+          const priceLabel = useAnnual ? ANNUAL_LABELS[p.id] : p.priceLabel;
+          return (
           <div key={p.id} className="panel" style={{ padding: 18, position: "relative", borderColor: p.highlight ? p.color : undefined, boxShadow: p.highlight ? `0 0 0 1px ${p.color}, 0 12px 28px -16px rgba(0,0,0,0.5)` : undefined, opacity: currentTier === p.id ? 0.6 : 1 }}>
             {p.badge && <span className="chip" style={{ position: "absolute", top: 10, right: 10, background: `color-mix(in oklch, ${p.color} 14%, transparent)`, color: p.color, borderColor: `color-mix(in oklch, ${p.color} 30%, transparent)` }}>{p.badge}</span>}
             <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500 }}>{p.id === "rep_solo" ? "Solo" : p.id === "agency_setup" ? "Agency" : "Trial"}</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{p.name}</div>
-            <div className="tabular" style={{ fontSize: 18, fontWeight: 500, color: p.color, marginTop: 4 }}>{p.priceLabel}</div>
+            <div className="tabular" style={{ fontSize: 18, fontWeight: 500, color: p.color, marginTop: 4 }}>{priceLabel}</div>
+            {useAnnual && <div style={{ fontSize: 11, color: "var(--accent-money)", marginTop: 2 }}>2 months free vs monthly</div>}
             <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55, marginTop: 10 }}>{p.pitch}</div>
             <ul style={{ margin: "12px 0", paddingLeft: 18, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
               {p.bullets.map((b, i) => <li key={i}>{b}</li>)}
             </ul>
             {p.trial && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>{p.trial}</div>}
-            <button className={`btn ${p.highlight ? "btn-primary" : ""}`} style={{ width: "100%", justifyContent: "center", marginTop: 14 }} onClick={() => startCheckout(p.id)} disabled={busy != null || currentTier === p.id}>
+            <button className={`btn ${p.highlight ? "btn-primary" : ""}`} style={{ width: "100%", justifyContent: "center", marginTop: 14 }} onClick={() => startCheckout(p.id, useAnnual ? "annual" : "monthly")} disabled={busy != null || currentTier === p.id}>
               {busy === p.id ? "Redirecting..." : currentTier === p.id ? "Current plan" : p.cta}
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
       {err && <div style={{ marginTop: 12, padding: 10, background: "color-mix(in oklch, var(--state-danger) 10%, transparent)", borderRadius: 6, color: "var(--state-danger)", fontSize: 12 }}>{err}</div>}
       <div style={{ marginTop: 14, padding: 10, background: "var(--bg-raised)", borderRadius: 6, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.55 }}>

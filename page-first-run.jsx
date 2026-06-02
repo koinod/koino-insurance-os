@@ -810,18 +810,28 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
       return VALID.includes(p) ? p : null;
     } catch { return null; }
   })();
+  const pendingBilling = (() => {
+    try {
+      const b = new URLSearchParams(window.location.search).get("billing")
+                || sessionStorage.getItem("repflow.pending_billing");
+      return b === "annual" ? "annual" : "monthly";
+    } catch { return "monthly"; }
+  })();
   const [plan, setPlan] = React.useState(pendingPlan || "trial");
+  const [billing, setBilling] = React.useState(pendingBilling);
   const [checkoutBusy, setCheckoutBusy] = React.useState(false);
+  // Annual price labels (2 months free) for the paid plans.
+  const ANNUAL = { rep_solo: "$970/yr", agency_trial_7d: "$9,970/yr", agency_setup: "$9,970/yr" };
   const startCheckout = async () => {
     setCheckoutBusy(true);
     try {
       const r = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agency_id: agencyId, plan }),
+        body: JSON.stringify({ agency_id: agencyId, plan, billing }),
       });
       const j = await r.json().catch(() => ({}));
-      if (j?.url) { try { sessionStorage.removeItem("repflow.pending_plan"); } catch (e) {} window.open(j.url, "_blank", "noopener,noreferrer"); }
+      if (j?.url) { try { sessionStorage.removeItem("repflow.pending_plan"); sessionStorage.removeItem("repflow.pending_billing"); } catch (e) {} window.open(j.url, "_blank", "noopener,noreferrer"); }
       else { window.toast && window.toast(j?.error || "Stripe checkout unavailable — add STRIPE_SECRET_KEY in Vercel.", "warn"); }
     } catch (e) {
       window.toast && window.toast("Stripe call failed — set up your keys and try later.", "warn");
@@ -839,17 +849,31 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
           { k: "agency_trial_7d", name: "Agency",        price: "$997/mo", desc: "Whole team, up to 15 agents. 7-day free trial, then $997/mo. No setup fee." },
         ].map(p => {
           const on = plan === p.k;
+          const showPrice = (billing === "annual" && ANNUAL[p.k]) ? ANNUAL[p.k] : p.price;
           return (
             <label key={p.k} className="panel" style={{ padding: 12, display: "flex", gap: 10, alignItems: "center", cursor: "pointer", border: on ? "1px solid var(--accent-money)" : undefined }}>
               <input type="radio" name="plan" checked={on} onChange={() => setPlan(p.k)}/>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {p.price}</span></div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {showPrice}</span></div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>{p.desc}</div>
               </div>
             </label>
           );
         })}
       </div>
+      {plan !== "trial" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <div style={{ display: "inline-flex", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: 7, padding: 2 }}>
+            {[["monthly", "Monthly"], ["annual", "Annual"]].map(([k, label]) => (
+              <button key={k} type="button" onClick={() => setBilling(k)} className="btn btn-ghost"
+                style={{ padding: "4px 12px", fontSize: 12, borderRadius: 5, background: billing === k ? "var(--accent-money)" : "transparent", color: billing === k ? "#0a0e0c" : "var(--text-secondary)", fontWeight: billing === k ? 600 : 400 }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {billing === "annual" && <span style={{ fontSize: 11.5, color: "var(--accent-money)" }}>2 months free</span>}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
         More than 15 agents or a multi-agency rollout? <a href="https://cal.com/koino" target="_blank" rel="noopener" style={{ color: "var(--accent-money)" }}>Book an Enterprise call →</a>
       </div>
