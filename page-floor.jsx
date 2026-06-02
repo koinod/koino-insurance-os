@@ -449,25 +449,11 @@
   // Mode toggle — pill row at the top
   // ────────────────────────────────────────────────────────────────────────
   function ModeTabs({ mode, setMode, role }) {
-    // Floor = dialing + closing. Other surfaces have own routes:
-    //   /pipeline → PagePipeline (kanban)
-    //   /calls    → PageCalls    (history)
-    //   /today    → PageToday    (team / manager KPIs)
-    // Floor's tabs: Live (queue + redial), Deals (deal-write form), Follow-ups
-    // (rep action queue — 1-click voicemail dropoff / recap text).
-    return (
-      <Shared.SectionPill
-        items={[
-          { k: "live",      l: "Live" },
-          ...(isManagerRole(role) ? [{ k: "dispatch", l: "Dispatch" }] : []),
-          { k: "deals",     l: "Deals" },
-          { k: "followups", l: "Follow-ups" },
-        ]}
-        value={mode}
-        onChange={setMode}
-        dense
-      />
-    );
+    // Floor is the dialer cockpit — power dialer / autodialer ONLY.
+    // Deals → Pipeline / Book. Follow-ups → Today. Dispatch (manager) → Today
+    // team panel. Keeping Floor single-purpose so the dial loop never competes
+    // with closing forms or task queues for screen real estate.
+    return null;
   }
   // ────────────────────────────────────────────────────────────────────────
   // Quick-stats strip — always visible at top of Live mode
@@ -1033,42 +1019,71 @@
         {opts.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
+    const listLabel = filters.source || "All lists";
     return (
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-        padding: "10px 12px",
-        background: "var(--surface-elev)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: 8,
-      }}>
-        <Icons.Filter size={13} style={{ color: "var(--text-tertiary)" }}/>
-        <Sel k="source"  label="List"    opts={options.sources}/>
-        <Sel k="state"   label="State"   opts={options.states}/>
-        <Sel k="product" label="Product" opts={options.products}/>
-        <Sel k="stage"   label="Stage"   opts={options.stages}/>
-        <select
-          value={filters.heat || ""}
-          onChange={(e) => set("heat", e.target.value)}
-          className="text-input"
-          style={{ padding: "6px 8px", fontSize: 12, width: "auto", background: filters.heat ? "color-mix(in oklch, var(--accent-money) 16%, var(--surface-elev))" : "var(--surface-elev)" }}
-        >
-          <option value="">Heat: any</option>
-          <option value="hot">hot</option>
-          <option value="fresh">fresh</option>
-          <option value="warm">warm</option>
-          <option value="cold">cold</option>
-        </select>
-        {active > 0 && (
-          <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setFilters({ source: "", state: "", product: "", stage: "", heat: "" })}>
-            Clear ({active})
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Primary: Lead list selector — dominant control. The dialer
+            queue is built strictly from rows that match this list. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          padding: "12px 14px",
+          background: "color-mix(in oklch, var(--accent-money) 8%, var(--surface-elev))",
+          border: "1px solid color-mix(in oklch, var(--accent-money) 35%, var(--border-subtle))",
+          borderRadius: 10,
+        }}>
+          <Icons.ListChecks size={15} style={{ color: "var(--accent-money)" }}/>
+          <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Lead list</span>
+          <select
+            value={filters.source || ""}
+            onChange={(e) => set("source", e.target.value)}
+            className="text-input"
+            style={{ padding: "7px 10px", fontSize: 13, fontWeight: 600, minWidth: 220, background: "var(--surface-elev)" }}
+          >
+            <option value="">All lists (everything dialable)</option>
+            {options.sources.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <div style={{ flex: 1 }}/>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            <span style={{ color: "var(--text-tertiary)" }}>Dialing</span>
+            <strong style={{ color: "var(--accent-money)", fontSize: 16, fontWeight: 700 }}>{leadCount}</strong>
+            <span style={{ color: "var(--text-tertiary)" }}>from</span>
+            <strong style={{ color: "var(--text-primary)" }}>{listLabel}</strong>
+          </div>
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 10px" }} onClick={onUploadCsv}>
+            <Icons.ArrowUpRight size={11}/> Import CSV
           </button>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)" }}>
-          {leadCount} dialable
-        </span>
-        <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onUploadCsv}>
-          <Icons.ArrowUpRight size={11}/> Import CSV
-        </button>
+        </div>
+        {/* Secondary: narrowing filters within the selected list. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+          padding: "8px 12px",
+          background: "var(--surface-elev)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: 8,
+        }}>
+          <Icons.Filter size={12} style={{ color: "var(--text-tertiary)" }}/>
+          <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 }}>Narrow by</span>
+          <Sel k="state"   label="State"   opts={options.states}/>
+          <Sel k="product" label="Product" opts={options.products}/>
+          <Sel k="stage"   label="Stage"   opts={options.stages}/>
+          <select
+            value={filters.heat || ""}
+            onChange={(e) => set("heat", e.target.value)}
+            className="text-input"
+            style={{ padding: "6px 8px", fontSize: 12, width: "auto", background: filters.heat ? "color-mix(in oklch, var(--accent-money) 16%, var(--surface-elev))" : "var(--surface-elev)" }}
+          >
+            <option value="">Heat: any</option>
+            <option value="hot">hot</option>
+            <option value="fresh">fresh</option>
+            <option value="warm">warm</option>
+            <option value="cold">cold</option>
+          </select>
+          {active > 0 && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setFilters({ source: "", state: "", product: "", stage: "", heat: "" })}>
+              Clear ({active})
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -2506,53 +2521,24 @@
   // remembers the last mode in localStorage.
   // ────────────────────────────────────────────────────────────────────────
   function PageFloor({ onCall, role = "rep", defaultMode }) {
-    // Floor modes: live is the rep call cockpit. Manager-style dispatch remains
-    // available but no longer competes with the dialer on the first screen.
-    const VALID_MODES = ["live", ...(isManagerRole(role) ? ["dispatch"] : []), "deals", "followups"];
-    const initialMode = (() => {
-      if (defaultMode && VALID_MODES.includes(defaultMode)) return defaultMode;
-      try {
-        const url = new URL(window.location.href);
-        const m = url.searchParams.get("floor");
-        if (m && VALID_MODES.includes(m)) return m;
-        const stored = localStorage.getItem("repflow.floor.mode");
-        if (stored && VALID_MODES.includes(stored)) return stored;
-      } catch {}
-      return "live";
-    })();
-    const [mode, setMode] = useState(initialMode);
-    useEffect(() => {
-      if (defaultMode && VALID_MODES.includes(defaultMode)) {
-        setMode(defaultMode);
-      }
-    }, [defaultMode]);
-
-    useEffect(() => {
-      try { localStorage.setItem("repflow.floor.mode", mode); } catch {}
-    }, [mode]);
-
-
+    // Floor is the dialer cockpit. No sub-modes — Deals/Follow-ups live in
+    // their own surfaces (Pipeline / Today). This keeps the dial loop
+    // uncluttered and on a single screen.
     return (
       <div className="page-pad">
         <div className="page-h">
           <div>
-            <div className="page-title">Floor</div>
+            <div className="page-title">Power Dialer</div>
             <div className="page-sub">
-              Live dialing · call assist · quote workflow.
+              Pick a lead list, hit start. Calls run through your provider · auto-recorded · outcome-tagged.
             </div>
-          </div>
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <ModeTabs mode={mode} setMode={setMode} role={role}/>
           </div>
         </div>
 
         {/* Horizontal money bar — relevant-to-dialing numbers. Always visible. */}
         <FloorTopStrip role={role}/>
 
-        {mode === "live"      && <FloorDialerCockpit role={role}/>}
-        {mode === "dispatch"  && <LiveMode      role={role} onCall={onCall}/>}
-        {mode === "deals"     && <DealsMode     role={role}/>}
-        {mode === "followups" && <FollowupsMode role={role}/>}
+        <FloorDialerCockpit role={role}/>
       </div>
     );
   }
