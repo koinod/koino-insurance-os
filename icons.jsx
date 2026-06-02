@@ -75,6 +75,7 @@ const Icons = {
   AlertTriangle: (p) => <Ic {...p} d={<><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>}/>,
   Circle: (p) => <Ic {...p} d={<><circle cx="12" cy="12" r="10"/></>}/>,
   Info: (p) => <Ic {...p} d={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>}/>,
+  GraduationCap: (p) => <Ic {...p} d={<><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"/></>}/>,
 };
 
 window.Icons = Icons;

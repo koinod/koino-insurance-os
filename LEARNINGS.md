@@ -1026,3 +1026,40 @@ closed a deal with it."
 *Appended 2026-05-22. The 12 Guiding Principles in CLAUDE.md are the
 rules; the 10 mistake classes above are the observed failure modes
 they prevent. Read them together.*
+
+---
+
+## TODO 2026-06-02 — Licensing module needs a cited-content batch
+
+`page-licensing.jsx` + `lib/licensing-data.json` shipped today as a
+scaffold. The page renders "research pending" for every (state, line)
+cell because no data has been gathered yet. Closing this loop:
+
+1. **Spawn a parallel research-agent batch — one agent per (state, line) pair.**
+   50 states × 4 lines = 200 cells. Pattern is migration `0059b`: each
+   agent gets the cell schema in `lib/licensing-data.json._cell_schema`
+   and a hard rule — fill every field with `source_url` + `source_quote`,
+   OR set `research_pending: true` with a brief reason. **Inventing
+   values = automatic reject.** Primary sources only: state DOI
+   producer pages, NIPR, state statute. Third-party blogs are
+   secondary corroboration, never `source_url`.
+
+2. **Land the populated JSON** by replacing `states.<CODE>.lines.<line>`
+   with the agent output. Don't edit cells by hand.
+
+3. **Then migrate to DB.** Long-term home is
+   `public.licensing_requirements` (per (state, line) row) +
+   `hydrateFromSupabase()` pattern mirroring `lib/rate-engine.js`. Same
+   rule — every approved row carries `source_url` + `source_quote`.
+   The static JSON is the v1 shape; DB is the v2 shape with edit
+   workflow + super_admin review.
+
+4. **Study guide + practice exam stubs** in `page-licensing.jsx` will
+   route through `/api/copilot` with a system prompt scoped per
+   (state, line). Question bank lives in `public.licensing_questions`
+   (TBD migration), weighted per state outline.
+
+Acceptance: every cell either has `research_pending: false` with full
+citations, OR `research_pending: true` with a captured reason. No
+silent missing fields. No invented codes. The "Source" button in the
+RequirementsCard opens the cited URL.
