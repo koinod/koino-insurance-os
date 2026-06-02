@@ -22,16 +22,16 @@ const PLANS = [
   },
   {
     id: "agency_setup",
-    name: "Agency Starter",
-    priceLabel: "$5,000 setup + $997/mo",
-    pitch: "Full IMO operating system. The $5k onboarding fee covers white-glove setup, carrier integrations, producer onboarding, and your first 30 days. No charge until day 31.",
+    name: "Agency",
+    priceLabel: "$997/mo",
+    pitch: "Full IMO operating system for the whole team — up to 15 agents. No setup fee. Start now, or take the 7-day free trial first.",
     bullets: [
-      "Everything in Rep Solo, for the whole team",
+      "Everything in Rep Solo, for up to 15 agents",
       "Multi-tenant: invite producers, scope by role",
       "Recruiting workbench + sequences + inbound DM AI",
       "Tiering, NIGO, attribution, P&L, forecasting",
       "Owner dashboard + per-agency notifications",
-      "Audit log + compliance export",
+      "Audit log + compliance export · no setup fee",
     ],
     badge: "Most teams pick this",
     cta: "Start Agency",
@@ -41,11 +41,11 @@ const PLANS = [
   {
     id: "agency_trial_7d",
     name: "Try Agency · 7 days",
-    priceLabel: "Free for 7 days",
-    pitch: "Want to kick the tires before committing the $5k setup? Run the full agency stack for 7 days; convert and the setup fee bills at trial end.",
+    priceLabel: "Free 7 days, then $997/mo",
+    pitch: "Run the full agency stack free for 7 days — up to 15 agents. Convert and it's just $997/mo. No setup fee; cancel before day 7 for no charge.",
     bullets: [
-      "Full Agency Starter feature set during trial",
-      "Setup fee + first month bill at trial end",
+      "Full Agency feature set during trial — up to 15 agents",
+      "Just $997/mo at trial end — no setup fee",
       "Cancel before day 7 — no charge, no questions",
       "Your data stays in your Supabase project either way",
     ],
@@ -152,7 +152,7 @@ function AdminPlanCard({ agency }) {
 
         {trialDaysLeft != null && trialDaysLeft > 0 && (
           <div style={{ marginTop: 10, padding: 10, background: "color-mix(in oklch, var(--state-info) 10%, transparent)", borderRadius: 6, fontSize: 12, color: "var(--state-info)" }}>
-            <strong>{trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in trial.</strong> {agency?.trial_kind === "agency_trial_7d" ? "$5,000 setup + $997 first month bills at end." : "Then $997/mo recurring."}
+            <strong>{trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in trial.</strong> Then $997/mo recurring — no setup fee.
           </div>
         )}
 
@@ -170,7 +170,7 @@ function AdminPlanCard({ agency }) {
                 <Icons.ArrowUpRight size={12}/> Activate subscription
               </button>
               <div style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
-                $5k Agency · $97 Rep Solo · 7-day free trial available
+                $997/mo Agency (up to 15 agents) · $97 Rep Solo · 7-day free trial
               </div>
             </>
           ) : (

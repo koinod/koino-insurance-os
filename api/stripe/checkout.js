@@ -1,15 +1,15 @@
 // /api/stripe/checkout — creates a Checkout Session for the agency.
 //
-// Plans:
+// Plans (no setup fee — dropped 2026-06-01; Agency is a flat $997/mo up to 15 agents):
 //   rep_solo            — $97/mo, optional 7-day trial
-//   agency_setup        — $5,000 one-time setup (includes month 1 via 30-day trial) + $997/mo recurring
-//   agency_trial_7d      — 7-day free trial → $5,000 setup invoiced at trial-end + $997/mo recurring
+//   agency_setup        — $997/mo recurring, billed immediately
+//   agency_trial_7d      — 7-day free trial → $997/mo recurring
 //
 // Required env vars:
 //   STRIPE_SECRET_KEY
-//   STRIPE_PRICE_SETUP_5000      (one-time price)
 //   STRIPE_PRICE_AGENCY_MONTHLY  (recurring $997)
 //   STRIPE_PRICE_REP_MONTHLY      (recurring $97)
+// (STRIPE_PRICE_SETUP_5000 is no longer used.)
 //
 // Optional:
 //   STRIPE_SUCCESS_URL  (defaults to origin/?stripe=ok)
@@ -50,17 +50,15 @@ export default async function handler(req) {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
   const secret  = process.env.STRIPE_SECRET_KEY;
-  const setupId = process.env.STRIPE_PRICE_SETUP_5000;
   const agencyMo= process.env.STRIPE_PRICE_AGENCY_MONTHLY;
   const repMo   = process.env.STRIPE_PRICE_REP_MONTHLY;
 
   if (!secret) {
     return new Response(JSON.stringify({
       error: "stripe_not_configured",
-      detail: "Set STRIPE_SECRET_KEY + STRIPE_PRICE_SETUP_5000 + STRIPE_PRICE_AGENCY_MONTHLY + STRIPE_PRICE_REP_MONTHLY on Vercel. Then create the prices in Stripe Dashboard: $5,000 one-time setup; $997/mo recurring (agency); $97/mo recurring (rep solo).",
+      detail: "Set STRIPE_SECRET_KEY + STRIPE_PRICE_AGENCY_MONTHLY + STRIPE_PRICE_REP_MONTHLY on Vercel. Then create the prices in Stripe Dashboard: $997/mo recurring (agency); $97/mo recurring (rep solo).",
       missing: [
         !secret  ? "STRIPE_SECRET_KEY"          : null,
-        !setupId ? "STRIPE_PRICE_SETUP_5000"     : null,
         !agencyMo? "STRIPE_PRICE_AGENCY_MONTHLY" : null,
         !repMo   ? "STRIPE_PRICE_REP_MONTHLY"    : null,
       ].filter(Boolean)
@@ -104,12 +102,12 @@ export default async function handler(req) {
         allow_promotion_codes: true,
       });
     } else if (plan === "agency_trial_7d") {
-      // 7-day free trial → $5k setup invoiced at trial end + $997/mo
+      // 7-day free trial → $997/mo. No setup fee (dropped 2026-06-01: Agency is a
+      // flat $997/mo for up to 15 agents).
       session = await stripe("checkout/sessions", secret, {
         mode: "subscription",
         line_items: [
           { price: agencyMo, quantity: 1 },
-          { price: setupId,  quantity: 1 },
         ],
         subscription_data: { trial_period_days: 7, metadata: { agency_id, plan: "agency_trial_7d" } },
         success_url, cancel_url,
@@ -119,14 +117,13 @@ export default async function handler(req) {
         allow_promotion_codes: true,
       });
     } else {
-      // agency_setup (default): $5k setup charged immediately + 30-day trial covers month 1 + $997/mo recurring
+      // agency_setup: $997/mo, billed immediately, no trial, no setup fee.
       session = await stripe("checkout/sessions", secret, {
         mode: "subscription",
         line_items: [
-          { price: setupId,  quantity: 1 },
           { price: agencyMo, quantity: 1 },
         ],
-        subscription_data: { trial_period_days: 30, metadata: { agency_id, plan: "agency_setup" } },
+        subscription_data: { metadata: { agency_id, plan: "agency_setup" } },
         success_url, cancel_url,
         client_reference_id: agency_id,
         customer_email: customer_email || undefined,

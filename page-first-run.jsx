@@ -836,7 +836,7 @@ function StepBilling({ agencyId, onSubmit, busy, err }) {
         {[
           { k: "trial",           name: "Stay on trial", price: "$0",      desc: "Full features while you set up. Add a plan anytime — no card required now." },
           { k: "rep_solo",        name: "Solo",          price: "$97/mo",  desc: "One producer. 7-day free trial, then $97/mo. Cancel anytime." },
-          { k: "agency_trial_7d", name: "Agency",        price: "$997/mo", desc: "Whole team, up to 15 agents. 7-day free trial, then $997/mo + one-time onboarding." },
+          { k: "agency_trial_7d", name: "Agency",        price: "$997/mo", desc: "Whole team, up to 15 agents. 7-day free trial, then $997/mo. No setup fee." },
         ].map(p => {
           const on = plan === p.k;
           return (
