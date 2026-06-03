@@ -30,7 +30,7 @@
 (function () {
   const { useState, useEffect, useMemo, useRef } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=5";
+  const DATA_URL = "/lib/licensing-data.json?v=6";
 
   /* ───── Default-variety synthesis ─────
      For states that don't yet have curated exam_varieties[], we build a
