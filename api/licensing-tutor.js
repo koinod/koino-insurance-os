@@ -1,13 +1,20 @@
 // api/licensing-tutor.js — Edge function backing the /licensing page's
 // Claude-tutored study guide + practice exam.
 //
-// Two modes:
-//   mode: "tutor"    — chat Q&A. Body: { state, line, prompt, history? }.
-//                      Returns { text, model }.
-//   mode: "practice" — serve one randomized multiple-choice question scoped
-//                      to (state, line). Body: { state, line, domain? }.
-//                      Returns JSON: { stem, options:[4], correct_index,
-//                                       explanation, domain }.
+// Three modes:
+//   mode: "tutor"       — chat Q&A. Body: { state, line, prompt, history? }.
+//                          Returns { text, model }.
+//   mode: "practice"    — serve one randomized multiple-choice question scoped
+//                          to (state, line, variety_name?, domain?). Returns JSON:
+//                          { stem, options:[4], correct_index, explanation, domain }.
+//   mode: "study_guide" — generate ONE structured section of a state-exam study
+//                          guide. Body: { state, line, variety_name, domain,
+//                          weight_pct?, topics?: [string], section_number? }.
+//                          Returns JSON: { section_number, title, blocks: [...] }
+//                          where each block is heading | intro | table | bullets |
+//                          callout. Renderer in page-licensing.jsx walks blocks
+//                          to produce the same dense layout as the VA Series 1105
+//                          cheat sheet.
 //
 // FREE-MODEL CASCADE — same vendors as api/copilot.js. Anthropic/Claude is
 // PAID via OpenRouter; never add. The shared cost discipline lives in
@@ -65,13 +72,68 @@ ITEM-WRITING RULES:
 
 RETURN VALID JSON ONLY. Anything outside the JSON object will be rejected.`;
 
-async function tryGemini(model, key, prompt, want_json) {
+const STUDY_GUIDE_SYSTEM = (state, line, variety_name, domain, weight_pct, topics, section_number) => `You are a licensing-exam study-guide writer for Repflow's /licensing surface. Your output renders as a dense, exam-grade cheat-sheet section in the style of the Virginia Series 1105 "Life & Annuities" guide produced by koinocapital.com — tight tables, bold key terms, no fluff, no padding paragraphs.
+
+WRITE ONE SECTION:
+  - State: ${state}
+  - Exam variety: "${variety_name}"
+  - Line of authority: ${line.toUpperCase()}
+  - Section number: "${section_number || "01"}"
+  - Section title (domain from the official content outline): "${domain}"
+  - Domain weight on the exam: ${weight_pct != null ? weight_pct + "%" : "unspecified"}
+  - Sub-topics from the official content outline: ${Array.isArray(topics) && topics.length ? topics.join(" · ") : "(use standard sub-topics for this domain)"}
+
+OUTPUT — return EXACTLY ONE JSON object, no preamble, no markdown fence, no commentary:
+{
+  "section_number": "${section_number || "01"}",
+  "title": "<the section title, ALL CAPS preferred — e.g. INSURANCE REGULATION>",
+  "subtitle": "<one short line · summary of what this section covers>",
+  "blocks": [
+    /* a sequence of 4-9 blocks. Each block is one of: */
+
+    { "type": "heading", "text": "<subsection name — e.g. Virginia Bureau of Insurance>" },
+
+    { "type": "intro", "text": "<1-2 sentence framing line — only when truly needed>" },
+
+    { "type": "table", "rows": [
+        { "label": "<key term>",  "value": "<short emphasis — like '10 days' or '$1,000'>", "description": "<one-line explainer>" },
+        { "label": "<key term>",  "value": null,                                              "description": "<one-line explainer>" }
+      ]
+    },
+
+    { "type": "bullets", "items": [
+        { "bold": "<bolded prefix — optional, can be null>", "text": "<the bullet content>" }
+      ]
+    },
+
+    { "type": "callout", "kind": "<test_trick | warning | info>", "text": "<the highlight>" }
+  ]
+}
+
+STYLE RULES — match the koinocapital VA guide:
+1. The first block is always a "heading". Most sections have 2-4 subsections (each its own heading + a table or bullets).
+2. Tables — use \`value\` only for time periods, money amounts, percentages, or short emphasis tokens (e.g. "10 days", "$50,000", "70%"). Otherwise leave \`value\` null and let \`description\` carry the explainer.
+3. Bullets — use \`bold\` for the term being defined ("Term life:") and \`text\` for the definition. \`bold\` can be null for plain-prose bullets.
+4. Callouts:
+   - \`kind: "test_trick"\` — green-box-style "✓ Test trick: ..." (memorable trick / mnemonic for the exam)
+   - \`kind: "warning"\` — red-box-style "■ ..." (e.g. "Must get WRITTEN APPROVAL before...", "Once a MEC, ALWAYS a MEC")
+   - \`kind: "info"\` — blue-box-style notes (definitions, scope statements)
+5. Be ${state}-specific where ${state} has a unique rule (CE hours, suitability training, free-look extensions, DOI structure, statute fines). Mark state-specific rows in the \`description\` when relevant.
+6. NEVER copy or paraphrase actual exam questions — explain the concept the question tests, not the question itself.
+7. Numbers MUST be accurate (10-day free look, 31-day grace, 2-year incontestability, 7-pay test, $50k group-life cap, etc.). Federal tax / NAIC numbers are universal; state fines + CE hours + suitability are state-specific.
+8. Aim for ~4-9 blocks per section. Be DENSE. No throat-clearing intros, no "in conclusion" closings.
+
+For the special domain "Master Numbers Drill" — return a single section with 2-3 grouped tables (Time Periods, Money & Percentages, Claims Numbers) covering every testable number relevant to a ${state} ${variety_name} exam-taker.
+
+RETURN VALID JSON ONLY.`;
+
+async function tryGemini(model, key, prompt, want_json, max_tokens) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: want_json ? 0.7 : 0.5,
-      maxOutputTokens: want_json ? 1500 : 900,
+      maxOutputTokens: max_tokens || (want_json ? 1500 : 900),
       ...(want_json ? { responseMimeType: "application/json" } : {})
     }
   };
@@ -88,7 +150,7 @@ async function tryGemini(model, key, prompt, want_json) {
   return { ok: true, text };
 }
 
-async function tryOpenRouter(key, prompt, model, want_json) {
+async function tryOpenRouter(key, prompt, model, want_json, max_tokens) {
   let resp;
   try {
     resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -103,7 +165,7 @@ async function tryOpenRouter(key, prompt, model, want_json) {
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: want_json ? 0.7 : 0.5,
-        max_tokens: want_json ? 1500 : 900,
+        max_tokens: max_tokens || (want_json ? 1500 : 900),
         ...(want_json ? { response_format: { type: "json_object" } } : {})
       })
     });
@@ -117,16 +179,16 @@ async function tryOpenRouter(key, prompt, model, want_json) {
   return { ok: true, text };
 }
 
-async function runCascade(prompt, want_json) {
+async function runCascade(prompt, want_json, max_tokens) {
   const gKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
   if (!gKey && !orKey) return { error: "no AI keys set" };
   const cascade = [
-    ["gemini-2.5-flash",        () => gKey  && tryGemini("gemini-2.5-flash", gKey, prompt, want_json)],
-    ["gemini-2.0-flash",        () => gKey  && tryGemini("gemini-2.0-flash", gKey, prompt, want_json)],
-    ["gemini-2.0-flash (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "google/gemini-2.0-flash-001", want_json)],
-    ["llama-3.3-70b:free (OR)", () => orKey && tryOpenRouter(orKey, prompt, "meta-llama/llama-3.3-70b-instruct:free", want_json)],
-    ["deepseek-v3:free (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "deepseek/deepseek-chat-v3-0324:free", want_json)],
+    ["gemini-2.5-flash",        () => gKey  && tryGemini("gemini-2.5-flash", gKey, prompt, want_json, max_tokens)],
+    ["gemini-2.0-flash",        () => gKey  && tryGemini("gemini-2.0-flash", gKey, prompt, want_json, max_tokens)],
+    ["gemini-2.0-flash (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "google/gemini-2.0-flash-001", want_json, max_tokens)],
+    ["llama-3.3-70b:free (OR)", () => orKey && tryOpenRouter(orKey, prompt, "meta-llama/llama-3.3-70b-instruct:free", want_json, max_tokens)],
+    ["deepseek-v3:free (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "deepseek/deepseek-chat-v3-0324:free", want_json, max_tokens)],
   ];
   const attempts = [];
   for (const [name, fn] of cascade) {
@@ -154,7 +216,7 @@ export default async function handler(req) {
   const mode  = String(body.mode  || "").toLowerCase().trim();
   if (!VALID_STATES.has(state))     return bad(`invalid state: ${state}`);
   if (!VALID_LINES.has(line))       return bad(`invalid line: ${line}`);
-  if (mode !== "tutor" && mode !== "practice") return bad(`mode must be 'tutor' or 'practice'`);
+  if (mode !== "tutor" && mode !== "practice" && mode !== "study_guide") return bad(`mode must be 'tutor', 'practice', or 'study_guide'`);
 
   if (mode === "tutor") {
     const prompt = String(body.prompt || "").trim();
@@ -171,24 +233,43 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ text: r.text, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
   }
 
-  // mode === "practice"
-  const domain = body.domain ? String(body.domain).slice(0, 80) : null;
-  const fullPrompt = PRACTICE_SYSTEM(state, line, domain);
+  if (mode === "practice") {
+    const domain = body.domain ? String(body.domain).slice(0, 80) : null;
+    const fullPrompt = PRACTICE_SYSTEM(state, line, domain);
+    const t0 = Date.now();
+    const r = await runCascade(fullPrompt, true);
+    if (!r.ok) return new Response(JSON.stringify({ error: r.error || "model failed", attempts: r.attempts }), { status: 502, headers: { "content-type": "application/json" }});
+    let q = parseJsonLoose(r.text);
+    if (!q || typeof q.stem !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || typeof q.correct_index !== "number" || q.correct_index < 0 || q.correct_index > 3) {
+      return new Response(JSON.stringify({ error: "model returned invalid question shape", raw: q || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
+    }
+    return new Response(JSON.stringify({ ...q, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
+  }
+
+  // mode === "study_guide"
+  const domain         = String(body.domain || "").slice(0, 120).trim();
+  const variety_name   = String(body.variety_name || "").slice(0, 120).trim();
+  const weight_pct     = (typeof body.weight_pct === "number") ? body.weight_pct : null;
+  const topics         = Array.isArray(body.topics) ? body.topics.slice(0, 12).map(t => String(t).slice(0, 100)) : null;
+  const section_number = String(body.section_number || "").slice(0, 8).trim() || "01";
+  if (!domain || !variety_name) return bad("study_guide mode requires variety_name and domain");
+
+  const fullPrompt = STUDY_GUIDE_SYSTEM(state, line, variety_name, domain, weight_pct, topics, section_number);
   const t0 = Date.now();
-  const r = await runCascade(fullPrompt, true);
+  const r = await runCascade(fullPrompt, true, 3500);
   if (!r.ok) return new Response(JSON.stringify({ error: r.error || "model failed", attempts: r.attempts }), { status: 502, headers: { "content-type": "application/json" }});
-  // Parse + validate the JSON the model returned.
-  let q;
-  try {
-    q = JSON.parse(r.text);
-  } catch {
-    // Some models wrap in ```json``` fences despite the instruction.
-    const m = r.text.match(/\{[\s\S]*\}/);
-    if (!m) return new Response(JSON.stringify({ error: "model returned non-JSON", raw: r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
-    try { q = JSON.parse(m[0]); } catch { return new Response(JSON.stringify({ error: "model returned malformed JSON", raw: r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }}); }
+  const section = parseJsonLoose(r.text);
+  if (!section || typeof section !== "object" || !Array.isArray(section.blocks)) {
+    return new Response(JSON.stringify({ error: "model returned invalid section shape", raw: section || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
   }
-  if (!q || typeof q.stem !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || typeof q.correct_index !== "number" || q.correct_index < 0 || q.correct_index > 3) {
-    return new Response(JSON.stringify({ error: "model returned invalid question shape", raw: q }), { status: 502, headers: { "content-type": "application/json" }});
-  }
-  return new Response(JSON.stringify({ ...q, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
+  return new Response(JSON.stringify({ ...section, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
+}
+
+function parseJsonLoose(text) {
+  if (typeof text !== "string") return null;
+  try { return JSON.parse(text); } catch {}
+  // Some models wrap in ```json``` fences or add chatter despite the instruction.
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
 }
