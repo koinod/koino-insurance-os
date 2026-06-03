@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Anti-FOUC: set data-theme before first paint -->
+<script>!function(){try{var t=localStorage.getItem('repflow_theme')||'dark';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}}();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Licensing — Repflow</title>
+<meta name="description" content="State-by-state roadmap to a producer license — Life, Health, Annuity, Mortgage Protection. NIPR codes, exam vendors, fingerprinting, fees, CE hours."/>
+<meta property="og:title" content="Licensing — Repflow"/>
+<meta property="og:description" content="State-by-state roadmap to a producer license, with Claude-tutored study guide + practice exams."/>
+<meta property="og:url" content="https://repflow.koino.capital/licensing"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css?v=89"/>
+<link rel="icon" type="image/svg+xml" href="/icon.svg"/>
+<style>
+  /* Standalone wrapper — no sidebar, no topbar, no auth. */
+  body { background: var(--bg-base); margin: 0; }
+  .lic-shell {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    max-width: 1280px; margin: 0 auto;
+  }
+  .lic-banner {
+    padding: 10px 22px;
+    background: color-mix(in oklch, var(--accent-money) 10%, var(--bg-elevated));
+    border-bottom: 1px solid color-mix(in oklch, var(--accent-money) 25%, transparent);
+    display: flex; align-items: center; gap: 12px; font-size: 12px;
+  }
+  .lic-banner strong { color: var(--accent-money); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
+  .lic-banner a { color: var(--text-primary); text-decoration: underline; opacity: 0.85; }
+  .lic-banner a:hover { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+
+<!-- Minimum dependencies for PageLicensing to render. The page only fetches
+     /lib/licensing-data.json and POSTs to /api/licensing-tutor — no Supabase,
+     no AppData, no auth required. Order: icons → shared → page-licensing. -->
+<script src="dist/icons.js?v=92"></script>
+<script src="dist/shared.js?v=107"></script>
+<script src="dist/page-licensing.js?v=5"></script>
+
+<script>
+/* Standalone licensing shell.
+   Mounts window.PageLicensing directly. No sidebar, no auth, no role
+   switcher. Defaults to manager role since the page's UI is identical
+   across roles. */
+(function () {
+  function LicensingApp() {
+    var Page = window.PageLicensing;
+    if (!Page) {
+      return React.createElement("div", {
+        style: { padding: 40, color: "var(--text-tertiary)", fontSize: 13 }
+      }, "Loading…");
+    }
+    return React.createElement("div", { className: "lic-shell" },
+      React.createElement("div", { className: "lic-banner" },
+        React.createElement("strong", null, "Repflow Licensing"),
+        React.createElement("span", { style: { color: "var(--text-secondary)" } },
+          "Public roadmap · no sign-in required · powered by Repflow"
+        ),
+        React.createElement("a", { href: "/", style: { marginLeft: "auto" } },
+          "Open the full Repflow app →"
+        )
+      ),
+      React.createElement(Page, { role: "manager" })
+    );
+  }
+  var root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(React.createElement(LicensingApp));
+})();
+</script>
+</body>
+</html>

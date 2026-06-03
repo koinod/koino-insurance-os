@@ -77,9 +77,11 @@
             <a className="btn btn-ghost" href="https://nipr.com/" target="_blank" rel="noopener noreferrer">
               <Icons.FileText size={12}/> NIPR
             </a>
-            <button className="btn btn-ghost" onClick={() => window.gotoPage && window.gotoPage("recruits")}>
-              <Icons.Users size={12}/> Recruits
-            </button>
+            {typeof window !== "undefined" && typeof window.gotoPage === "function" && (
+              <button className="btn btn-ghost" onClick={() => window.gotoPage("recruits")}>
+                <Icons.Users size={12}/> Recruits
+              </button>
+            )}
           </div>
         </div>
 
