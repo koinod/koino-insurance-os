@@ -19,7 +19,7 @@
 (function () {
   const { useState, useEffect, useMemo } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=1";
+  const DATA_URL = "/lib/licensing-data.json?v=2";
 
   function PageLicensing({ role = "manager" }) {
     const [data, setData] = useState(null);
@@ -130,8 +130,8 @@
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <RequirementsCard cell={cell} isPending={isPending} stateCode={stateCode} lineLabel={(lines.find(l => l.id === lineId) || {}).label || lineId}/>
             <CoursesCard cell={cell} isPending={isPending}/>
-            <StudyGuideStub stateCode={stateCode} lineLabel={(lines.find(l => l.id === lineId) || {}).label || lineId}/>
-            <PracticeExamStub stateCode={stateCode} lineLabel={(lines.find(l => l.id === lineId) || {}).label || lineId}/>
+            <StudyGuide stateCode={stateCode} lineId={lineId} lineLabel={(lines.find(l => l.id === lineId) || {}).label || lineId}/>
+            <PracticeExam stateCode={stateCode} lineId={lineId} lineLabel={(lines.find(l => l.id === lineId) || {}).label || lineId}/>
           </div>
         )}
 
@@ -230,32 +230,229 @@
     );
   }
 
-  function StudyGuideStub({ stateCode, lineLabel }) {
+  /* ───── Study guide — chat-style Q&A via /api/licensing-tutor mode=tutor ───── */
+  function StudyGuide({ stateCode, lineId, lineLabel }) {
+    const [turns, setTurns] = useState([]); // [{q, a, model, ms}]
+    const [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [err, setErr]   = useState(null);
+
+    // Reset history when state or line changes — different scope = different tutor.
+    useEffect(() => { setTurns([]); setErr(null); }, [stateCode, lineId]);
+
+    const ask = async () => {
+      const q = draft.trim();
+      if (!q || busy) return;
+      setDraft("");
+      setBusy(true);
+      setErr(null);
+      const history = turns.slice(-3).map(t => ({ q: t.q, a: t.a }));
+      const pendingTurn = { q, a: null };
+      setTurns(prev => [...prev, pendingTurn]);
+      try {
+        const resp = await fetch("/api/licensing-tutor", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode: "tutor", state: stateCode, line: lineId, prompt: q, history })
+        });
+        const j = await resp.json();
+        if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+        setTurns(prev => prev.map((t, i) => i === prev.length - 1 ? { q, a: j.text || "(empty response)", model: j.model, ms: j.ms } : t));
+      } catch (e) {
+        setErr(e.message || String(e));
+        setTurns(prev => prev.slice(0, -1));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
+    };
+
     return (
       <div className="panel">
-        <div className="panel-h"><h3>Claude-tutored study guide</h3><span className="chip">coming soon</span></div>
-        <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-          {stateCode} · {lineLabel} study guide. Will route through <code>/api/copilot</code> with a
-          system prompt scoped to {stateCode} {lineLabel} exam content. Section-by-section
-          walkthrough (basics → policy provisions → riders → tax treatment → state law),
-          with "ask anything" turn-by-turn Q&amp;A and citation-backed answers.
+        <div className="panel-h"><h3>Tutor · {stateCode} {lineLabel}</h3><span className="meta">⌘↵ to send</span></div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 260, overflowY: "auto" }}>
+            {turns.length === 0 && (
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5, padding: "4px 0" }}>
+                Ask anything about {stateCode} {lineLabel} exam content. Plain-language explanations,
+                concept definitions, sample mechanics. Not exam-question content (that's the Practice panel).
+              </div>
+            )}
+            {turns.map((t, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ alignSelf: "flex-end", maxWidth: "80%", background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", padding: "6px 10px", fontSize: 12 }}>{t.q}</div>
+                <div style={{ alignSelf: "flex-start", maxWidth: "92%", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", padding: "8px 12px", fontSize: 12, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
+                  {t.a == null ? <span style={{ color: "var(--text-quaternary)" }}>thinking…</span> : t.a}
+                </div>
+              </div>
+            ))}
+          </div>
+          {err && <div style={{ fontSize: 11, color: "var(--state-danger)" }}>{err}</div>}
+          <div style={{ display: "flex", gap: 6 }}>
+            <input className="text-input" style={{ flex: 1 }} placeholder={`Ask about ${stateCode} ${lineLabel}…`} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKey} disabled={busy}/>
+            <button className="btn btn-primary" onClick={ask} disabled={busy || !draft.trim()}>{busy ? "…" : "Send"}</button>
+          </div>
         </div>
       </div>
     );
   }
 
-  function PracticeExamStub({ stateCode, lineLabel }) {
+  /* ───── Practice exam — one question at a time, per-domain accuracy in localStorage ───── */
+  const PRACTICE_LS_KEY = (state, line) => `repflow.licensing.practice.${state}.${line}`;
+
+  function PracticeExam({ stateCode, lineId, lineLabel }) {
+    const [q, setQ]       = useState(null);    // current question
+    const [picked, setPicked] = useState(null); // user's chosen option index
+    const [busy, setBusy] = useState(false);
+    const [err, setErr]   = useState(null);
+    const [stats, setStats] = useState(() => loadStats(stateCode, lineId));
+
+    useEffect(() => {
+      setQ(null); setPicked(null); setErr(null);
+      setStats(loadStats(stateCode, lineId));
+    }, [stateCode, lineId]);
+
+    const fetchOne = async () => {
+      setBusy(true); setErr(null); setPicked(null); setQ(null);
+      try {
+        const resp = await fetch("/api/licensing-tutor", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode: "practice", state: stateCode, line: lineId })
+        });
+        const j = await resp.json();
+        if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+        setQ(j);
+      } catch (e) {
+        setErr(e.message || String(e));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const onPick = (i) => {
+      if (picked != null || !q) return;
+      setPicked(i);
+      const correct = i === q.correct_index;
+      const next = recordResult(stats, q.domain || "Unknown", correct);
+      setStats(next);
+      saveStats(stateCode, lineId, next);
+    };
+
+    const totalAnswered = Object.values(stats).reduce((s, d) => s + d.total, 0);
+    const totalCorrect  = Object.values(stats).reduce((s, d) => s + d.correct, 0);
+    const overallPct = totalAnswered ? Math.round(100 * totalCorrect / totalAnswered) : null;
+
     return (
       <div className="panel">
-        <div className="panel-h"><h3>Practice exams</h3><span className="chip">coming soon</span></div>
-        <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-          State-randomized question bank scoped to {stateCode} {lineLabel}. Domains weighted
-          per state outline (typical: General Insurance, Life Basics, Policies, Riders,
-          Underwriting, Tax, State Law). Tracks per-domain accuracy and recommends focus
-          areas the rep should re-study before the real exam.
+        <div className="panel-h"><h3>Practice · {stateCode} {lineLabel}</h3>
+          {overallPct != null && <span className="chip chip-money">{overallPct}% · {totalAnswered} q</span>}
+        </div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {!q && !busy && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                One question at a time, scoped to {stateCode} {lineLabel}. Per-domain accuracy
+                tracked locally so you can see which areas to re-study.
+              </div>
+              <button className="btn btn-primary" onClick={fetchOne}>Start a question</button>
+              {totalAnswered > 0 && <DomainBreakdown stats={stats}/>}
+            </div>
+          )}
+          {busy && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Writing a fresh question…</div>}
+          {err && <div style={{ fontSize: 11, color: "var(--state-danger)" }}>{err}</div>}
+          {q && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {q.domain && <span className="chip">{q.domain}</span>}
+                {q.difficulty && <span className="chip chip-status">{q.difficulty}</span>}
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.5 }}>{q.stem}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {q.options.map((opt, i) => {
+                  const isPicked = picked === i;
+                  const isCorrect = picked != null && i === q.correct_index;
+                  const isWrongPick = picked != null && isPicked && i !== q.correct_index;
+                  const bg = isCorrect ? "color-mix(in oklch, var(--accent-money) 18%, transparent)"
+                           : isWrongPick ? "color-mix(in oklch, var(--state-danger) 18%, transparent)"
+                           : isPicked ? "var(--bg-elevated)" : "var(--bg-raised)";
+                  return (
+                    <button key={i}
+                      className="btn"
+                      onClick={() => onPick(i)}
+                      disabled={picked != null}
+                      style={{
+                        justifyContent: "flex-start", textAlign: "left",
+                        background: bg,
+                        border: "1px solid var(--border-subtle)",
+                        padding: "8px 10px", fontSize: 12, fontWeight: 400,
+                        cursor: picked != null ? "default" : "pointer"
+                      }}>
+                      <span style={{ fontFamily: "var(--font-mono)", marginRight: 8, color: "var(--text-tertiary)" }}>
+                        {String.fromCharCode(65 + i)}.
+                      </span>
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+              {picked != null && (
+                <div style={{ padding: 10, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: 11.5, lineHeight: 1.55 }}>
+                  <strong style={{ color: picked === q.correct_index ? "var(--accent-money)" : "var(--state-danger)" }}>
+                    {picked === q.correct_index ? "Correct." : `Incorrect — answer was ${String.fromCharCode(65 + q.correct_index)}.`}
+                  </strong>
+                  {q.explanation && <span style={{ color: "var(--text-secondary)" }}> {q.explanation}</span>}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn btn-primary" onClick={fetchOne} disabled={busy}>Next question</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
+  }
+
+  function DomainBreakdown({ stats }) {
+    const rows = Object.entries(stats).sort((a, b) => b[1].total - a[1].total);
+    if (rows.length === 0) return null;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 500 }}>By domain</div>
+        {rows.map(([dom, d]) => {
+          const pct = d.total ? Math.round(100 * d.correct / d.total) : 0;
+          return (
+            <div key={dom} style={{ display: "grid", gridTemplateColumns: "1fr 60px 40px", gap: 8, alignItems: "center", fontSize: 11 }}>
+              <div style={{ color: "var(--text-secondary)" }}>{dom}</div>
+              <div style={{ height: 4, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: pct >= 70 ? "var(--accent-money)" : pct >= 50 ? "var(--accent-status)" : "var(--state-danger)" }}/>
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", textAlign: "right" }}>{pct}%</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function loadStats(state, line) {
+    try {
+      const raw = localStorage.getItem(PRACTICE_LS_KEY(state, line));
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  }
+  function saveStats(state, line, stats) {
+    try { localStorage.setItem(PRACTICE_LS_KEY(state, line), JSON.stringify(stats)); } catch {}
+  }
+  function recordResult(stats, domain, correct) {
+    const next = { ...stats };
+    const prev = next[domain] || { total: 0, correct: 0 };
+    next[domain] = { total: prev.total + 1, correct: prev.correct + (correct ? 1 : 0) };
+    return next;
   }
 
   window.PageLicensing = PageLicensing;
