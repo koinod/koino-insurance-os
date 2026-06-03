@@ -71,7 +71,7 @@ async function tryGemini(model, key, prompt, want_json) {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: want_json ? 0.7 : 0.5,
-      maxOutputTokens: want_json ? 700 : 900,
+      maxOutputTokens: want_json ? 1500 : 900,
       ...(want_json ? { responseMimeType: "application/json" } : {})
     }
   };
@@ -103,7 +103,7 @@ async function tryOpenRouter(key, prompt, model, want_json) {
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: want_json ? 0.7 : 0.5,
-        max_tokens: want_json ? 700 : 900,
+        max_tokens: want_json ? 1500 : 900,
         ...(want_json ? { response_format: { type: "json_object" } } : {})
       })
     });
