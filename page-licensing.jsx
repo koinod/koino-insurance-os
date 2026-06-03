@@ -19,7 +19,7 @@
 (function () {
   const { useState, useEffect, useMemo } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=3";
+  const DATA_URL = "/lib/licensing-data.json?v=4";
 
   function PageLicensing({ role = "manager" }) {
     const [data, setData] = useState(null);
