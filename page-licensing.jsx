@@ -30,7 +30,7 @@
 (function () {
   const { useState, useEffect, useMemo, useRef } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=6";
+  const DATA_URL = "/lib/licensing-data.json?v=7";
 
   /* ───── Default-variety synthesis ─────
      For states that don't yet have curated exam_varieties[], we build a
@@ -267,7 +267,7 @@
             {tab === "practice"    && variety && <PracticeTab    stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
             {tab === "study_guide" && variety && <StudyGuideTab  stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
             {tab === "tutor"       && variety && <TutorTab       stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
-            {tab === "logistics"   &&             <LogisticsTab  stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} cell={cell} stepByStep={data._step_by_step_template}/>}
+            {tab === "logistics"   &&             <LogisticsTab  stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} cell={cell} stepByStep={data._step_by_step_template} stateRec={data.states[stateCode]}/>}
           </>
         )}
       </div>
@@ -311,7 +311,7 @@
         const resp = await fetch("/api/licensing-tutor", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode: "practice", state: stateCode, line: lineId, domain, variety_name: variety.name })
+          body: JSON.stringify({ mode: "practice", state: stateCode, line: lineId, domain, variety_id: variety.id, variety_name: variety.name })
         });
         const j = await resp.json();
         if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
@@ -592,6 +592,7 @@
               mode: "study_guide",
               state: stateCode,
               line: lineId,
+              variety_id: variety.id,
               variety_name: variety.name,
               domain: section.domain,
               weight_pct: section.weight_pct,
@@ -629,6 +630,7 @@
               mode: "study_guide",
               state: stateCode,
               line: lineId,
+              variety_id: variety.id,
               variety_name: variety.name,
               domain: section.domain,
               weight_pct: section.weight_pct,
@@ -831,12 +833,12 @@
   }
 
   /* ───── Logistics tab (Requirements + Courses + step-by-step) ───── */
-  function LogisticsTab({ stateCode, lineId, lineLabel, cell, stepByStep }) {
+  function LogisticsTab({ stateCode, lineId, lineLabel, cell, stepByStep, stateRec }) {
     const isPending = !cell || cell.research_pending !== false;
     return (
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <RequirementsCard cell={cell} isPending={isPending} stateCode={stateCode} lineLabel={lineLabel}/>
-        <CoursesCard cell={cell} isPending={isPending}/>
+        <CoursesCard cell={cell} isPending={isPending} stateRec={stateRec} lineId={lineId}/>
         <div className="panel" style={{ gridColumn: "1 / -1" }}>
           <div className="panel-h"><h3>How to get licensed — step by step</h3><span className="meta">Applies in every state · specifics above</span></div>
           <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
@@ -916,26 +918,60 @@
     );
   }
 
-  function CoursesCard({ cell, isPending }) {
-    const vendors = Array.isArray(cell?.approved_course_vendors) ? cell.approved_course_vendors : [];
+  function CoursesCard({ cell, isPending, stateRec, lineId }) {
+    // Prefer the state-level approved_courses (from the DOI courses batch) over the
+    // older per-cell approved_course_vendors. Filter by line of authority when the
+    // course rows carry lines_covered.
+    const stateCourses = Array.isArray(stateRec?.approved_courses) ? stateRec.approved_courses : [];
+    const filtered = stateCourses.filter(c => !Array.isArray(c?.lines_covered) || c.lines_covered.includes(lineId));
+    const vendors  = filtered.length > 0 ? filtered : (Array.isArray(cell?.approved_course_vendors) ? cell.approved_course_vendors : []);
+    const courseMeta = stateRec?.course_meta || {};
+    const educationRequired = courseMeta.education_required;
+
     return (
       <div className="panel">
-        <div className="panel-h"><h3>Approved pre-licensing courses</h3>{isPending && <span className="chip chip-status">research pending</span>}</div>
-        <div style={{ padding: 12 }}>
-          {vendors.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-              State-approved provider list will appear here once research lands.
-              Generic national providers (Kaplan, ExamFX, Insurance Schools Inc.) cover most
-              states but are NOT a substitute for the state-DOI-approved list.
+        <div className="panel-h">
+          <h3>Approved pre-licensing courses</h3>
+          {educationRequired === false && <span className="chip chip-money">not required in this state</span>}
+          {educationRequired === true && vendors.length === 0 && isPending && <span className="chip chip-status">research pending</span>}
+        </div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {educationRequired === false && (
+            <div style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              {courseMeta.pre_licensing_notes || `This state has eliminated mandatory pre-licensing education for ${lineId} producers. You can sit the exam directly — providers below are optional but commonly used by candidates who want structured prep.`}
             </div>
+          )}
+          {vendors.length === 0 ? (
+            educationRequired === false ? null : (
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                State-approved provider list will appear here once research lands.
+                Generic national providers (Kaplan, ExamFX, A.D. Banker, WebCE, Xcel
+                Solutions) cover most states but are NOT a substitute for the
+                state-DOI-approved list.
+              </div>
+            )
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {vendors.map((v, i) => (
-                <a key={i} className="btn btn-ghost" href={v.url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: "flex-start" }}>
-                  <Icons.FileText size={11}/> {v.name}
+                <a key={i} className="btn btn-ghost" href={v.url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: "flex-start", textAlign: "left" }}>
+                  <Icons.FileText size={11}/>
+                  <span style={{ flex: 1, marginLeft: 6 }}>{v.name}</span>
+                  {Array.isArray(v.formats) && v.formats.length > 0 && (
+                    <span style={{ fontSize: 10, color: "var(--text-quaternary)" }}>{v.formats.join(" · ")}</span>
+                  )}
                 </a>
               ))}
             </div>
+          )}
+          {courseMeta.lookup_tool_url && (
+            <a className="btn btn-ghost" href={courseMeta.lookup_tool_url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: "flex-start", marginTop: 4 }}>
+              <Icons.FileText size={11}/> Official DOI provider lookup
+            </a>
+          )}
+          {courseMeta.doi_approved_providers_url && courseMeta.doi_approved_providers_url !== courseMeta.lookup_tool_url && (
+            <a className="btn btn-ghost" href={courseMeta.doi_approved_providers_url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: "flex-start" }}>
+              <Icons.FileText size={11}/> State DOI providers page
+            </a>
           )}
         </div>
       </div>

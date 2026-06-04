@@ -22,6 +22,19 @@
 
 export const config = { runtime: "edge" };
 
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
+const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+
+async function dbSelect(path) {
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+      headers: { apikey: SUPA_ANON, authorization: `Bearer ${SUPA_ANON}` }
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
 const VALID_STATES = new Set([
   "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
   "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM",
@@ -234,7 +247,30 @@ export default async function handler(req) {
   }
 
   if (mode === "practice") {
-    const domain = body.domain ? String(body.domain).slice(0, 80) : null;
+    const domain        = body.domain ? String(body.domain).slice(0, 120) : null;
+    const variety_id    = body.variety_id ? String(body.variety_id).slice(0, 60) : null;
+    const variety_name  = body.variety_name ? String(body.variety_name).slice(0, 160) : null;
+
+    // Try the pre-stored question bank first if the variety has any.
+    // Sampling: PostgREST doesn't have a great random op, so we pull the bank
+    // (or 100 rows of it) and pick client-side. For typical bank sizes (20-50)
+    // this is one cheap request.
+    if (variety_id) {
+      const filters = [
+        `state_code=eq.${state}`,
+        `variety_id=eq.${encodeURIComponent(variety_id)}`,
+        ...(domain ? [`domain=eq.${encodeURIComponent(domain)}`] : []),
+        "select=stem,options,correct_index,explanation,domain,difficulty,source_url",
+        "limit=100",
+      ];
+      const rows = await dbSelect(`licensing_questions?${filters.join("&")}`);
+      if (Array.isArray(rows) && rows.length > 0) {
+        const pick = rows[Math.floor(Math.random() * rows.length)];
+        return new Response(JSON.stringify({ ...pick, source: "bank", ms: 0 }), { status: 200, headers: { "content-type": "application/json" }});
+      }
+    }
+
+    // Fallback: live generate.
     const fullPrompt = PRACTICE_SYSTEM(state, line, domain);
     const t0 = Date.now();
     const r = await runCascade(fullPrompt, true);
@@ -243,17 +279,34 @@ export default async function handler(req) {
     if (!q || typeof q.stem !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || typeof q.correct_index !== "number" || q.correct_index < 0 || q.correct_index > 3) {
       return new Response(JSON.stringify({ error: "model returned invalid question shape", raw: q || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
     }
-    return new Response(JSON.stringify({ ...q, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
+    return new Response(JSON.stringify({ ...q, source: "live", model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
   }
 
   // mode === "study_guide"
   const domain         = String(body.domain || "").slice(0, 120).trim();
-  const variety_name   = String(body.variety_name || "").slice(0, 120).trim();
+  const variety_id     = String(body.variety_id || "").slice(0, 60).trim();
+  const variety_name   = String(body.variety_name || "").slice(0, 160).trim();
   const weight_pct     = (typeof body.weight_pct === "number") ? body.weight_pct : null;
   const topics         = Array.isArray(body.topics) ? body.topics.slice(0, 12).map(t => String(t).slice(0, 100)) : null;
   const section_number = String(body.section_number || "").slice(0, 8).trim() || "01";
   if (!domain || !variety_name) return bad("study_guide mode requires variety_name and domain");
 
+  // Try the pre-stored section first if a variety_id was provided.
+  if (variety_id) {
+    const filters = [
+      `state_code=eq.${state}`,
+      `variety_id=eq.${encodeURIComponent(variety_id)}`,
+      `section_number=eq.${encodeURIComponent(section_number)}`,
+      "select=section_doc,model,generated_at",
+      "limit=1",
+    ];
+    const rows = await dbSelect(`licensing_guide_sections?${filters.join("&")}`);
+    if (Array.isArray(rows) && rows.length > 0 && rows[0].section_doc) {
+      return new Response(JSON.stringify({ ...rows[0].section_doc, source: "bank", model: rows[0].model || null, generated_at: rows[0].generated_at }), { status: 200, headers: { "content-type": "application/json" }});
+    }
+  }
+
+  // Fallback: live generate.
   const fullPrompt = STUDY_GUIDE_SYSTEM(state, line, variety_name, domain, weight_pct, topics, section_number);
   const t0 = Date.now();
   const r = await runCascade(fullPrompt, true, 3500);
@@ -262,7 +315,7 @@ export default async function handler(req) {
   if (!section || typeof section !== "object" || !Array.isArray(section.blocks)) {
     return new Response(JSON.stringify({ error: "model returned invalid section shape", raw: section || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
   }
-  return new Response(JSON.stringify({ ...section, model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
+  return new Response(JSON.stringify({ ...section, source: "live", model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
 }
 
 function parseJsonLoose(text) {
