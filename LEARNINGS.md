@@ -1063,3 +1063,63 @@ Acceptance: every cell either has `research_pending: false` with full
 citations, OR `research_pending: true` with a captured reason. No
 silent missing fields. No invented codes. The "Source" button in the
 RequirementsCard opens the cited URL.
+
+---
+
+## 2026-06-03 — Carrier deposit ledger (migration 0087, page-deposits.jsx)
+
+The `commissions` table holds **projected** commission rows materialized
+from policies — it answers "what should this carrier owe me." It does
+**not** track what the carrier actually paid. Without that, the rep
+can't answer "did the F&G deposit hit yet, or should I call?"
+
+Migration `0087_carrier_deposits.sql` adds the actual-payment ledger
+alongside (not on top of) `commissions`:
+
+- `carrier_deposits` — one row per real deposit event (carrier, date,
+  gross, statement ref).
+- `deposit_allocations` — N rows per deposit splitting the gross into
+  `kind ∈ {advance, as_earned, trail, override, renewal,
+  chargeback_recoup, bonus, other}` + optional `policy_id`.
+- `carriers.payment_cycle_days int default 14` — drives the overdue
+  signal.
+- View `v_carrier_balance` — per `(agency_id, carrier_id)`: expected
+  (sum of `commissions` joined through `policies`) vs received (sum of
+  `carrier_deposits.gross_cents`), plus override / advance / recoup
+  splits from `deposit_allocations`, plus `open_chargeback_cents` from
+  `clawbacks`, plus `last_deposit_date` / `days_since` / `overdue`
+  (= `days_since > payment_cycle_days + 5`).
+- RLS mirrors `commissions`/`payouts`/`clawbacks`: manager+ write,
+  reps read only deposits where `rep_id = my_rep_id_in_agency(agency_id)`.
+
+**Load-bearing trigger gotcha.** `tg_deposit_allocations_guard` is
+`BEFORE INSERT OR UPDATE OR DELETE`, but it must `return OLD` (and
+skip the parent lookup) on `DELETE`. When the parent `carrier_deposits`
+row is removed, `ON DELETE CASCADE` fires this trigger AFTER the parent
+is already gone within the same statement — so `select … from
+carrier_deposits where id = v_deposit_id` returns nothing and the
+trigger raises a spurious "parent not found." Caught during smoke
+test before push. Pattern applies to any BEFORE-DELETE trigger on a
+child table with `ON DELETE CASCADE` from the parent.
+
+**UI surface.** `page-deposits.jsx` mounts as the **Deposits** tab in
+`page-book-host.jsx` (between Clients and Analytics). KPI row +
+overdue strip + per-carrier balance cards + recent-deposits list +
+Log Deposit modal that lets you split one deposit across N allocation
+rows with kind + amount + optional policy. The allocation sum is
+checked live in the modal AND server-side by the trigger.
+
+**Do not** mutate `commissions` rows from the deposits flow. The two
+ledgers stay separate by design — `commissions` is the projection, the
+deposit/allocation pair is what actually landed. If you want
+"commission paid_at" semantics later, add a derived column or a
+nightly job that updates `commissions.paid_at` from matched
+allocations; do not couple inserts.
+
+**Deferred (TODOs for a future session):**
+- `page-pnl.jsx` could grow a fourth KPI tile "Received YTD" reading
+  from `v_carrier_balance` (data already there).
+- Edit-existing-deposit modal (v1 only creates + deletes).
+- Auto-suggest allocations: when logging a deposit for carrier X,
+  surface the open expected commission rows ordered by age and let
+  the rep one-click attach.
