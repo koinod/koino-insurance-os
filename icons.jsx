@@ -31,6 +31,7 @@ const Icons = {
   Mic: (p) => <Ic {...p} d={<><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v3"/></>}/>,
   Shield: (p) => <Ic {...p} d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>,
   Wallet: (p) => <Ic {...p} d={<><path d="M20 12V8a2 2 0 0 0-2-2H5a3 3 0 0 1-3-3v0a3 3 0 0 1 3-3h13a2 2 0 0 1 2 2"/><path d="M2 7v13a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4"/><path d="M16 14h6"/></>}/>,
+  DollarSign: (p) => <Ic {...p} d={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>}/>,
   Book: (p) => <Ic {...p} d={<><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></>}/>,
   Cpu: (p) => <Ic {...p} d={<><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></>}/>,
   Workflow: (p) => <Ic {...p} d={<><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M6 9v3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9"/><path d="M12 14v1"/></>}/>,
