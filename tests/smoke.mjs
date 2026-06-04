@@ -33,7 +33,9 @@ await mkdir(ARTIFACT_DIR, { recursive: true });
 const MIN_NAV_ITEMS = {
   rep:         6,
   manager:     8,
-  super_admin: 7,
+  // Super admin sidebar intentionally collapsed to HQ + Settings on 2026-05-25.
+  // PageAdminHub hosts the previously separate admin sections.
+  super_admin: 2,
 };
 
 // Console-error patterns that should fail the build. Keep narrow — the
