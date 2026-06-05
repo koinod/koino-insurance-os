@@ -116,11 +116,14 @@ for (const [stateCode, stateRec] of Object.entries(data.states)) {
           });
           written++;
           process.stdout.write(`  ${dom.domain.slice(0,28)} #${i+1} ✓\n`);
-          await sleep(400);
+          // 3s between successful calls — same reasoning as the study-guide
+          // generator. With N=3 per (variety, domain) and ~48 outline-filled
+          // varieties × ~7 domains, ~1000 calls × 3s ≈ 50 min sustained.
+          await sleep(3000);
         } catch (e) {
           failed++;
           process.stderr.write(`  ${dom.domain.slice(0,28)} #${i+1} ✗ ${e.message}\n`);
-          await sleep(2000);
+          await sleep(/all providers failed/.test(e.message) ? 90000 : 5000);
         }
       }
     }

@@ -159,11 +159,15 @@ for (const [stateCode, stateRec] of Object.entries(data.states)) {
         );
         written++;
         process.stdout.write(`  ${section.section_number} ${section.domain.slice(0, 32)}… ✓\n`);
-        await sleep(500);
+        // 3s between successful calls — keeps us under Gemini free-tier
+        // RPM and well below the ~250 req/day quota for a multi-hour run.
+        await sleep(3000);
       } catch (e) {
         failed++;
         process.stderr.write(`  ${section.section_number} ${section.domain.slice(0, 32)}… ✗ ${e.message}\n`);
-        await sleep(2000);
+        // If we hit "all providers failed" the daily quota is likely gone —
+        // back off for 90s so we don't hammer dead endpoints. Otherwise 5s.
+        await sleep(/all providers failed/.test(e.message) ? 90000 : 5000);
       }
     }
   }
