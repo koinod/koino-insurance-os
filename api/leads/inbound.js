@@ -364,11 +364,133 @@ export default async function handler(req) {
     firstTouchSms.reason = "no_phone";
   }
 
+  // ── Live-transfer (transfer_now) ──────────────────────────────────────
+  // When a public funnel signals { transfer_now: true } on the lead body,
+  // dial the lead via Twilio immediately; on answer, /api/twilio/twiml-bridge
+  // bridges to the configured advisor phone. This is what powers a "Talk to
+  // an advisor right now" CTA on a marketing site (e.g. UEP).
+  //
+  // Config: per-source advisor phone via env (TRANSFER_AGENT_PHONE_<SOURCE>)
+  // — falls back to TRANSFER_AGENT_PHONE for any caller without an override.
+  // Source slug for env lookup is the inbound source uppercased with non-
+  // alphanumerics → underscores (e.g. "uep_website:quiz" → "UEP_WEBSITE_QUIZ").
+  //
+  // Failure is non-blocking — the lead already sits in pipeline; bridge
+  // failure just downgrades the response so the caller knows the bridge
+  // didn't fire and can fall back to "we'll call you" UI.
+  let liveTransfer = { attempted: false, reason: "not_requested" };
+  if (body.transfer_now === true || body.transfer_now === "true") {
+    if (!lead.phone) {
+      liveTransfer = { attempted: false, reason: "no_phone" };
+    } else {
+      try {
+        const sourceKey = String(lead.source || "")
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, "_")
+          .replace(/^_|_$/g, "");
+        const agentPhone =
+          (sourceKey && process.env[`TRANSFER_AGENT_PHONE_${sourceKey}`]) ||
+          process.env.TRANSFER_AGENT_PHONE ||
+          "";
+        const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+        const callerId   = process.env.TWILIO_CALLER_ID || "";
+        // Same auth resolution as /api/dial/outbound — API key pair preferred,
+        // Auth Token as fallback.
+        const authUser   = process.env.TWILIO_API_KEY_SID || accountSid;
+        const authPass   = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_AUTH_TOKEN || "";
+
+        if (!agentPhone || !accountSid || !callerId || !authPass) {
+          liveTransfer = {
+            attempted: false,
+            reason: "not_configured",
+            missing: [
+              !agentPhone && "TRANSFER_AGENT_PHONE",
+              !accountSid && "TWILIO_ACCOUNT_SID",
+              !callerId   && "TWILIO_CALLER_ID",
+              !authPass   && "TWILIO_API_KEY_SECRET|TWILIO_AUTH_TOKEN",
+            ].filter(Boolean),
+          };
+        } else {
+          const proto   = req.headers.get("x-forwarded-proto") || "https";
+          const host    = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+          const baseUrl = `${proto}://${host}`;
+          const bridgeParams = new URLSearchParams({
+            rep_phone: agentPhone,
+            caller_id: callerId,
+            lead_id:   String(inserted.id),
+          });
+          const bridgeUrl = `${baseUrl}/api/twilio/twiml-bridge?${bridgeParams}`;
+
+          const twilioParams = new URLSearchParams({
+            To:   lead.phone,
+            From: callerId,
+            Url:  bridgeUrl,
+            StatusCallback:       `${baseUrl}/api/twilio-app`,
+            StatusCallbackMethod: "POST",
+            StatusCallbackEvent:  "initiated ringing in-progress completed busy no-answer failed canceled",
+          });
+          if ((process.env.TWILIO_RECORD || "true") === "true") {
+            twilioParams.set("Record", "true");
+            twilioParams.set("RecordingStatusCallback", `${baseUrl}/api/twilio-recording`);
+          }
+
+          const basic = "Basic " + btoa(`${authUser}:${authPass}`);
+          const callResp = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls.json`,
+            {
+              method: "POST",
+              headers: { authorization: basic, "content-type": "application/x-www-form-urlencoded" },
+              body: twilioParams,
+            }
+          );
+          const callJson = await callResp.json().catch(() => ({}));
+          if (callResp.ok && callJson.sid) {
+            liveTransfer = {
+              attempted: true,
+              fired: true,
+              call_sid: callJson.sid,
+              status:   callJson.status || "queued",
+            };
+            // Best-effort: stamp the pipeline row so the dialer / CRM sees
+            // an active transfer call attached to the lead.
+            try {
+              await fetch(`${SUPA_URL}/rest/v1/pipeline?id=eq.${inserted.id}`, {
+                method:  "PATCH",
+                headers: {
+                  apikey: SERVICE,
+                  authorization: `Bearer ${SERVICE}`,
+                  "content-type": "application/json",
+                  prefer: "return=minimal",
+                  ...(agencyId ? { "x-agency-id": agencyId } : {}),
+                },
+                body: JSON.stringify({
+                  heat: "hot",
+                  last_activity_text: `Live transfer initiated via ${lead.source}`,
+                  next_action: "Bridge to advisor",
+                }),
+              });
+            } catch { /* best-effort */ }
+          } else {
+            liveTransfer = {
+              attempted: true,
+              fired: false,
+              reason: callJson.message || callJson.error || `HTTP ${callResp.status}`,
+              twilio_code: callJson.code || null,
+            };
+          }
+        }
+      } catch (e) {
+        liveTransfer = { attempted: true, fired: false, reason: e?.message || "network_error" };
+      }
+    }
+  }
+
   return ok({
     ok: true,
     pipeline_id: inserted.id,
     touchpoint_recorded: touchOk,
     first_touch_sms: firstTouchSms,
+    live_transfer: liveTransfer,
     received: { name: lead.name, source: lead.source, agency_id: agencyId },
   });
 }
