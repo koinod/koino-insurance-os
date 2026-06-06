@@ -651,16 +651,18 @@ function ManageVendorsModal({ agencyId, sources, onClose, onSaved }) {
     id: s.id, name: s.name, cost_per_lead: s.cost_per_lead_cents != null ? (s.cost_per_lead_cents / 100).toFixed(2) : "", active: !!s.active, dirty: false,
   })));
   const [busyId, setBusyId] = React.useState(null);
+  const [savingAll, setSavingAll] = React.useState(false);
   const setDraft = (id, patch) => setDrafts(arr => arr.map(d => d.id === id ? { ...d, ...patch, dirty: true } : d));
+  const buildPatch = (d) => ({
+    name: (d.name || "").trim() || "Untitled",
+    cost_per_lead_cents: d.cost_per_lead === "" ? null : Math.round(parseFloat(d.cost_per_lead) * 100),
+    active: !!d.active,
+  });
   const save = async (d) => {
     setBusyId(d.id);
     try {
       const sb = window.getSupabase && window.getSupabase();
-      const patch = {
-        name: (d.name || "").trim() || "Untitled",
-        cost_per_lead_cents: d.cost_per_lead === "" ? null : Math.round(parseFloat(d.cost_per_lead) * 100),
-        active: !!d.active,
-      };
+      const patch = buildPatch(d);
       const { error } = await sb.from("agency_lead_sources").update(patch).eq("id", d.id);
       if (error) throw error;
       window.toast && window.toast(`Updated "${patch.name}"`, "success");
@@ -672,9 +674,36 @@ function ManageVendorsModal({ agencyId, sources, onClose, onSaved }) {
       setBusyId(null);
     }
   };
+  // Save-all-then-close: catches the "edited three rows, hit Done" case
+  // where per-row Save was never clicked. Each row's update fires in
+  // parallel; any error stops the close so the user can fix and retry.
+  const dirtyCount = drafts.filter(d => d.dirty).length;
+  const doneClick = async () => {
+    if (dirtyCount === 0) { onClose && onClose(); return; }
+    setSavingAll(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const dirty = drafts.filter(d => d.dirty);
+      const results = await Promise.all(dirty.map(d =>
+        sb.from("agency_lead_sources").update(buildPatch(d)).eq("id", d.id).then(r => ({ d, error: r.error }))
+      ));
+      const failed = results.filter(r => r.error);
+      if (failed.length) {
+        window.toast && window.toast(`${failed.length} save${failed.length > 1 ? "s" : ""} failed — check the rows and try again`, "error");
+        return;
+      }
+      window.toast && window.toast(`Saved ${dirty.length} vendor${dirty.length > 1 ? "s" : ""}`, "success");
+      onSaved && onSaved();
+      onClose && onClose();
+    } finally {
+      setSavingAll(false);
+    }
+  };
   return (
-    <Shared.Modal title="Manage vendors" width={620} onClose={onClose} actions={
-      <button className="btn" onClick={onClose}>Done</button>
+    <Shared.Modal title="Manage vendors" width={620} onClose={dirtyCount > 0 ? undefined : onClose} actions={
+      <button className="btn btn-primary" onClick={doneClick} disabled={savingAll}>
+        {savingAll ? "Saving…" : dirtyCount > 0 ? `Save ${dirtyCount} & close` : "Done"}
+      </button>
     }>
       {sources.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
