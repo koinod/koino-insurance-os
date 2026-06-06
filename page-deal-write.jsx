@@ -74,7 +74,11 @@
     const [productId, setProductId]     = useState("");
     const [ap, setAp]                   = useState(defaultAp ? String(defaultAp) : "");
     const [targetPremium, setTarget]    = useState("");
+    // 2026-06-05: fully manual — rep types comp rate AND expected commission $
+    // directly. No more AP×rate auto-derivation. Rates vary too much by rep /
+    // product / state to project reliably.
     const [compRate, setCompRate]       = useState("");
+    const [expectedComm, setExpectedComm] = useState("");
     const [submissionDate, setSubDate]  = useState(today());
     const [draftDate, setDraftDate]     = useState("");
     const [status, setStatus]           = useState("submitted");
@@ -202,24 +206,11 @@
       }
     }, [carrierId]);
 
-    // Default comp rate — Override model (decided 2026-05-23):
-    //   1. rep.base_comp_pct (manager-set per-rep effective rate, edited at
-    //      Pay → Producers → Base %; backfilled by migration 0027).
-    //   2. fall back to product.compPct (carrier preset on the selected
-    //      product) when the rep has no base set.
-    //   3. fall back to 50 if neither is available.
-    // The rep is the signed-in producer; we resolve via window.me() at mount.
-    // The user can override the default by typing a value before submit.
-    useEffect(() => {
-      if (compRate) return;
-      const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
-      const meRep = meIdent?.rep_id ? (AppData.REPS || []).find(r => r.id === meIdent.rep_id) : null;
-      const repBase = meRep && meRep.baseCompPct != null ? meRep.baseCompPct : null;
-      const productBase = product && product.compPct != null ? product.compPct : null;
-      const seed = repBase != null ? repBase : (productBase != null ? productBase : 50);
-      setCompRate(String(seed));
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [productId]);
+    // No comp-rate auto-seed (removed 2026-06-05): rep types it as a note
+    // alongside the actual expected $ amount, so we don't pretend to know
+    // the rate when it varies per rep / product / state. Both fields are
+    // optional and informational only — nothing in the system derives money
+    // from them anymore.
 
     // Auto-fill carrier/AP if lead has hints (lead.product matches a product name)
     useEffect(() => {
@@ -239,12 +230,8 @@
       }
     }, [leadId]);
 
-    const expectedCommission = useMemo(() => {
-      const base = showTarget && targetPremium ? Number(targetPremium) : Number(ap);
-      const rate = Number(compRate);
-      if (!base || !rate) return 0;
-      return base * rate / 100;
-    }, [ap, targetPremium, compRate, showTarget]);
+    // expectedCommission is just whatever the rep typed — no math.
+    const expectedCommission = useMemo(() => Number(expectedComm) || 0, [expectedComm]);
 
     const productOptions = products.filter(p => !carrierId || p.carrierId === carrierId);
 
@@ -263,7 +250,8 @@
       if (!carrierId)  return setError("Pick a carrier");
       if (!productId)  return setError("Pick a product");
       if (!ap || Number(ap) <= 0) return setError("Enter AP");
-      if (!compRate || Number(compRate) <= 0) return setError("Enter a comp rate");
+      // Comp rate + expected commission are optional now — rep can leave blank
+      // and log the actual commission later via Book → Deposits.
       if (!meIdent?.agency_id) return setError("Couldn't load your agency. Reload and try again.");
 
       setBusy(true);
@@ -311,9 +299,11 @@
         product_text: product ? product.name : null,
         ap_cents: cents(ap),
         target_premium_cents: showTarget && targetPremium ? cents(targetPremium) : null,
-        comp_rate_pct: Number(compRate),
-        // expected_commission_cents auto-populated by DB trigger if omitted
-        expected_commission_cents: cents(expectedCommission),
+        // Both optional / informational now — DB auto-derive triggers were
+        // dropped in migration 0088 (2026-06-05). Whatever the rep typed is
+        // exactly what gets stored; nulls stay null.
+        comp_rate_pct: compRate ? Number(compRate) : null,
+        expected_commission_cents: expectedComm ? cents(expectedComm) : null,
         submission_date: submissionDate || null,
         initial_draft_date: draftDate || null,
         status,
@@ -602,7 +592,7 @@
           {!showTarget && <div/>}
 
           <div>
-            <Lbl required>Comp Rate</Lbl>
+            <Lbl>Comp Rate <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(optional note)</span></Lbl>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <input style={inp} type="number" min="0" max="200" step="0.5" value={compRate} onChange={(e) => setCompRate(e.target.value)} placeholder="110"/>
               <span style={{ color: "var(--text-tertiary)" }}>%</span>
@@ -610,9 +600,10 @@
           </div>
 
           <div>
-            <Lbl>Expected Commission</Lbl>
-            <div style={{ ...inp, background: "color-mix(in oklch, var(--accent-money) 8%, transparent)", borderColor: "color-mix(in oklch, var(--accent-money) 30%, transparent)", color: "var(--accent-money)", fontWeight: 600, fontSize: 14, fontVariantNumeric: "tabular-nums" }}>
-              {fmt$(expectedCommission)}
+            <Lbl>Expected Commission <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(you know your rate — type the $ amount)</span></Lbl>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ color: "var(--text-tertiary)" }}>$</span>
+              <input style={inp} type="number" min="0" step="50" value={expectedComm} onChange={(e) => setExpectedComm(e.target.value)} placeholder="2640"/>
             </div>
           </div>
 
@@ -654,7 +645,7 @@
           <button className="btn" onClick={() => {
             setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
             setCarrierId(""); setProductId(""); setAp(""); setTarget("");
-            setCompRate(""); setDraftDate(""); setPolNum(""); setStatus("submitted"); setError(null);
+            setCompRate(""); setExpectedComm(""); setDraftDate(""); setPolNum(""); setStatus("submitted"); setError(null);
             setLeadSourceId(""); setAddingVendor(false); setNewVendorName("");
           }} disabled={busy}>Clear</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>

@@ -89,7 +89,10 @@
           const { data, error } = await sb.from("v_carrier_balance")
             .select("*")
             .eq("agency_id", agencyId)
-            .order("owed_lifetime_cents", { ascending: false });
+            // Sort: overdue first, then by most-recently-received, then by name
+            .order("overdue", { ascending: false })
+            .order("last_deposit_date", { ascending: false, nullsFirst: false })
+            .order("carrier_name", { ascending: true });
           if (error) throw error;
           setRows(data || []);
         } catch (e) {
@@ -228,13 +231,14 @@
       return { received, count, overrideRcvd, ownRcvd, recoupRcvd };
     }, [deposits, cutoff]);
 
-    // Overdue + owed summaries (lifetime, not period-scoped)
+    // Overdue + chargeback summaries (lifetime). 2026-06-05: dropped
+    // "owed" — comp-rate math was unreliable and is now manual-entry only.
     const carrierSummary = useMemo(() => {
       if (!balances) return null;
-      const owed = balances.reduce((a, b) => a + (b.owed_lifetime_cents || 0), 0);
-      const charged = balances.reduce((a, b) => a + (b.open_chargeback_cents || 0), 0);
-      const overdue = balances.filter(b => b.overdue);
-      return { owed, charged, overdue };
+      const charged   = balances.reduce((a, b) => a + (b.open_chargeback_cents || 0), 0);
+      const lifetime  = balances.reduce((a, b) => a + (b.received_lifetime_cents || 0), 0);
+      const overdue   = balances.filter(b => b.overdue);
+      return { charged, lifetime, overdue };
     }, [balances]);
 
     const exportCsv = () => {
@@ -266,7 +270,7 @@
           <div>
             <div className="page-title">Deposits</div>
             <div className="page-sub">
-              Log carrier payments · reconcile against projected commissions
+              Manual ledger · log what carriers actually paid, by deal + kind
               {totals && <> · {totals.count} {period} · {fmt$(totals.received)} received</>}
             </div>
           </div>
@@ -304,7 +308,7 @@
           </div>
         )}
 
-        {/* KPI row */}
+        {/* KPI row — pure received-side ledger (no projection math) */}
         {totals && carrierSummary && (
           <div className="kpi-row">
             <Shared.KpiCard hero
@@ -312,9 +316,9 @@
               value={fmt$(totals.received).slice(1)} prefix="$"
               sub={`${totals.count} deposit${totals.count===1?"":"s"}`}/>
             <Shared.KpiCard
-              label="Owed by carriers (lifetime)"
-              value={fmt$(carrierSummary.owed).slice(1)} prefix="$"
-              sub={carrierSummary.owed > 0 ? "expected − received" : "all caught up"}/>
+              label="Lifetime received"
+              value={fmt$(carrierSummary.lifetime).slice(1)} prefix="$"
+              sub={`across ${balances?.filter(b => (b.received_lifetime_cents||0) > 0).length || 0} carrier${(balances?.filter(b => (b.received_lifetime_cents||0) > 0).length || 0) === 1 ? "" : "s"}`}/>
             <Shared.KpiCard
               label="Open chargebacks"
               value={fmt$(carrierSummary.charged).slice(1)} prefix="$"
@@ -331,7 +335,7 @@
         <div className="panel" style={{ padding: 14, marginTop: 14 }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 14 }}>Per-carrier balance</h3>
-            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>expected vs received · lifetime</span>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>received · last deposit · overdue check</span>
           </div>
           {!balances ? (
             <div style={{ color: "var(--text-tertiary)", padding: 14, fontSize: 13 }}>Loading…</div>
@@ -444,19 +448,19 @@
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
           <div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Expected (lifetime)</div>
-            <div style={{ fontWeight: 600 }}>{fmt$(b.expected_lifetime_cents)}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Received · YTD</div>
+            <div style={{ fontWeight: 600, color: "var(--accent-money)" }}>{fmt$(b.received_ytd_cents)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Received (lifetime)</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Received · lifetime</div>
             <div style={{ fontWeight: 600, color: "var(--accent-money)" }}>{fmt$(b.received_lifetime_cents)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Owed</div>
-            <div style={{ fontWeight: 600, color: (b.owed_lifetime_cents > 0) ? "var(--state-warning)" : "var(--text-secondary)" }}>{fmt$(b.owed_lifetime_cents)}</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Own production</div>
+            <div style={{ fontWeight: 600 }}>{fmt$(b.received_own_cents)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Overrides recv'd</div>
+            <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Overrides</div>
             <div style={{ fontWeight: 600 }}>{fmt$(b.received_override_cents)}</div>
           </div>
         </div>
