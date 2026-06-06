@@ -80,6 +80,8 @@
     const [refreshKey, setRefreshKey] = useState(0);
     const [income, setIncome]     = useState(null);
     const [expenses, setExpenses] = useState(null);
+    const [recentDeals, setRecentDeals] = useState(null);
+    const [editingDealId, setEditingDealId] = useState(null);
 
     useEffect(() => {
       if (!agencyId) return;
@@ -87,8 +89,8 @@
       (async () => {
         try {
           const sb = window.getSupabase && window.getSupabase();
-          if (!sb) { setIncome([]); setExpenses([]); return; }
-          const [{ data: deps }, { data: exps }] = await Promise.all([
+          if (!sb) { setIncome([]); setExpenses([]); setRecentDeals([]); return; }
+          const [{ data: deps }, { data: exps }, { data: pols }] = await Promise.all([
             sb.from("carrier_deposits")
               .select("id, deposit_date, carrier_id, rep_id, gross_cents, statement_ref, notes")
               .eq("agency_id", agencyId)
@@ -97,6 +99,10 @@
               .select("id, paid_at, kind, amount_cents, description, vendor, paid_by_rep_id, notes")
               .eq("agency_id", agencyId)
               .order("paid_at", { ascending: false, nullsFirst: false }).limit(1000),
+            sb.from("policies")
+              .select("id, carrier_id, product_text, ap_cents, expected_commission_cents, status, submission_date, owner_rep_id, created_at")
+              .eq("agency_id", agencyId)
+              .order("created_at", { ascending: false }).limit(50),
           ]);
           let allocs = [];
           const ids = (deps || []).map(d => d.id);
@@ -110,9 +116,10 @@
           for (const a of allocs) (byDep[a.deposit_id] = byDep[a.deposit_id] || []).push(a);
           setIncome((deps || []).map(d => ({ ...d, allocations: byDep[d.id] || [] })));
           setExpenses(exps || []);
+          setRecentDeals(pols || []);
         } catch (e) {
           console.warn("[pnl/summary] load failed", e);
-          if (!cancelled) { setIncome([]); setExpenses([]); }
+          if (!cancelled) { setIncome([]); setExpenses([]); setRecentDeals([]); }
         }
       })();
       return () => { cancelled = true; };
@@ -128,6 +135,7 @@
         .on("postgres_changes", { event: "*", schema: "public", table: "carrier_deposits",    filter: `agency_id=eq.${agencyId}` }, bump)
         .on("postgres_changes", { event: "*", schema: "public", table: "deposit_allocations", filter: `agency_id=eq.${agencyId}` }, bump)
         .on("postgres_changes", { event: "*", schema: "public", table: "agency_expenses",     filter: `agency_id=eq.${agencyId}` }, bump)
+        .on("postgres_changes", { event: "*", schema: "public", table: "policies",            filter: `agency_id=eq.${agencyId}` }, bump)
         .subscribe();
       return () => { try { sb.removeChannel(ch); } catch {} };
     }, [agencyId]);
@@ -309,6 +317,63 @@
             </div>
           )}
         </div>
+
+        {/* Recent deals panel — written policies show up here as soon as
+            saved. Click a row to edit (opens DealEditModal). Deals don't
+            count toward income/profit until a deposit is logged against
+            them. */}
+        <div className="panel" style={{ marginTop: 14, padding: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 14 }}>Recent deals</h3>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+                Policies written. Not income yet — log a deposit under <strong>Money in</strong> when the carrier pays.
+              </div>
+            </div>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{recentDeals?.length || 0} total</span>
+          </div>
+          {recentDeals === null ? (
+            <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>Loading…</div>
+          ) : recentDeals.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              No deals yet. Use the Deal button in the topbar or <strong>Floor → Deals</strong>.
+            </div>
+          ) : (
+            <div className="list">
+              <div className="list-h" style={{ gridTemplateColumns: "80px 1fr 1.4fr 100px 110px 90px 70px" }}>
+                <div>Submitted</div>
+                <div>Carrier</div>
+                <div>Product</div>
+                <div className="tabular" style={{ textAlign: "right" }}>AP</div>
+                <div className="tabular" style={{ textAlign: "right" }}>Expected</div>
+                <div>Status</div>
+                <div></div>
+              </div>
+              {recentDeals.slice(0, 20).map(p => {
+                const carrier = carriersById.get(p.carrier_id);
+                return (
+                  <div key={p.id} className="row" style={{ gridTemplateColumns: "80px 1fr 1.4fr 100px 110px 90px 70px" }}>
+                    <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{fmtDate(p.submission_date) || fmtDate(p.created_at?.slice(0,10))}</div>
+                    <div className="cell-truncate" style={{ color: "var(--text-secondary)" }}>{carrier?.name || p.carrier_id || "—"}</div>
+                    <div className="cell-truncate" style={{ fontWeight: 500 }}>{p.product_text || "—"}</div>
+                    <div className="tabular" style={{ textAlign: "right" }}>{p.ap_cents ? fmt$(p.ap_cents) : "—"}</div>
+                    <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>{p.expected_commission_cents ? fmt$(p.expected_commission_cents) : "—"}</div>
+                    <div><span className="chip" style={{ fontSize: 10.5 }}>{p.status}</span></div>
+                    <div>
+                      <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+                              onClick={() => setEditingDealId(p.id)}>Edit</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {editingDealId && (() => {
+          const DealEdit = window.DealEditModal;
+          return DealEdit ? <DealEdit policyId={editingDealId} onClose={() => setEditingDealId(null)}/> : null;
+        })()}
       </div>
     );
   }
