@@ -1447,7 +1447,7 @@
 
                   {agentRunStatus === "idle" && (
                     <span style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
-                      Pulls binding quotes from each carrier's portal — the only source of a real $/mo in this tool (~60-90s per carrier). Requires the local RBA agent + carrier credentials set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "admin" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
+                      Pulls binding quotes from each carrier's portal — the only source of a real $/mo in this tool (~60-90s per carrier). Requires the local RBA agent + carrier credentials set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "auto-quoter" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
                     </span>
                   )}
 
