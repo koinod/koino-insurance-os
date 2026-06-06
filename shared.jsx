@@ -82,6 +82,7 @@ const NAV = {
     { id: "floor",       label: "Floor",        icon: "Phone" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "book",        label: "Book",         icon: "Activity" },
+    { id: "attribution", label: "Lead Vendors", icon: "ArrowUpRight" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
     { id: "pnl",         label: "P&L",          icon: "Wallet" },
     { id: "vault",       label: "Vault",        icon: "Folder" },

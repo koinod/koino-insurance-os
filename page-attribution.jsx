@@ -63,7 +63,7 @@ function monthBounds(d) {
  * from Supabase in one shot. Returns { sources, spendBySource, totalAP,
  * issuedCount, loading, err, isLive } where isLive flags whether we have
  * actually-tagged spend (controls demo/empty-state fallbacks). */
-function useAttribution(agencyId, periodDate) {
+function useAttribution(agencyId, periodDate, reloadTick = 0) {
   const [state, setState] = React.useState({
     sources: [], spendBySource: {}, apBySource: {}, issuedBySource: {},
     totalAP: 0, issuedCount: 0,
@@ -155,7 +155,7 @@ function useAttribution(agencyId, periodDate) {
     })();
 
     return () => { cancelled = true; };
-  }, [agencyId, periodDate.getFullYear(), periodDate.getMonth()]);
+  }, [agencyId, periodDate.getFullYear(), periodDate.getMonth(), reloadTick]);
 
   return state;
 }
@@ -171,7 +171,13 @@ function PageAttribution({ role = "owner" }) {
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const periodLabel = periodDate.toLocaleString("en-US", { month: "long" });
 
-  const live = useAttribution(agencyId, periodDate);
+  // In-page management — modal pivots replace the old "go to Settings /
+  // Expenses" navigations so vendors + lead-spend are owned by this page.
+  const [modal, setModal] = React.useState(null); // null | "new-vendor" | "log-spend" | "manage"
+  const [reloadTick, setReloadTick] = React.useState(0);
+  const bumpReload = () => setReloadTick(t => t + 1);
+
+  const live = useAttribution(agencyId, periodDate, reloadTick);
 
   // ── Choose the rendering set ───────────────────────────────────────────
   // Three modes:
@@ -331,12 +337,22 @@ function PageAttribution({ role = "owner" }) {
             }}
           ><Icons.ArrowUpRight size={13}/> Export</button>
           <button
+            className="btn"
+            onClick={() => setModal("log-spend")}
+            disabled={!agencyId}
+            title={agencyId ? "Log a lead-spend expense against a vendor" : "Demo agency — log spend disabled"}
+          ><Icons.DollarSign size={13}/> Log spend</button>
+          <button
+            className="btn"
+            onClick={() => setModal("manage")}
+            disabled={!agencyId}
+            title={agencyId ? "Rename / archive / cost-per-lead per vendor" : "Demo agency — manage disabled"}
+          ><Icons.Settings size={13}/> Manage</button>
+          <button
             className="btn btn-primary"
-            onClick={() => {
-              try { sessionStorage.setItem("repflow.settings.tab", "integrations"); } catch {}
-              if (window.gotoPage) window.gotoPage("settings");
-              window.toast && window.toast("New vendor → connect via Settings → Integrations", "info");
-            }}
+            onClick={() => setModal("new-vendor")}
+            disabled={!agencyId}
+            title={agencyId ? "Create a new lead vendor" : "Demo agency — create disabled"}
           ><Icons.Plus size={13}/> New vendor</button>
         </div>
       </div>
@@ -370,11 +386,11 @@ function PageAttribution({ role = "owner" }) {
             populates immediately.
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "center" }}>
-            <button className="btn btn-primary" onClick={() => window.gotoPage && window.gotoPage("expenses")}>
+            <button className="btn btn-primary" onClick={() => setModal("log-spend")} disabled={!agencyId}>
               <Icons.Plus size={13}/> Log lead spend
             </button>
-            <button className="btn" onClick={() => { try { sessionStorage.setItem("repflow.settings.tab", "lead-sources"); } catch {} window.gotoPage && window.gotoPage("settings"); }}>
-              <Icons.Settings size={13}/> Manage lead sources
+            <button className="btn" onClick={() => setModal("new-vendor")} disabled={!agencyId}>
+              <Icons.Plus size={13}/> Add a vendor
             </button>
           </div>
         </div>
@@ -454,7 +470,242 @@ function PageAttribution({ role = "owner" }) {
           </div>
         </div>
       )}
+
+      {modal === "new-vendor" && (
+        <NewVendorModal agencyId={agencyId} onClose={() => setModal(null)} onSaved={() => { setModal(null); bumpReload(); }} />
+      )}
+      {modal === "log-spend" && (
+        <LogSpendModal agencyId={agencyId} sources={live.sources || []} onClose={() => setModal(null)} onSaved={() => { setModal(null); bumpReload(); }} />
+      )}
+      {modal === "manage" && (
+        <ManageVendorsModal agencyId={agencyId} sources={live.sources || []} onClose={() => setModal(null)} onSaved={() => bumpReload()} />
+      )}
     </div>
+  );
+}
+
+/* ── In-page management modals ─────────────────────────────────────────
+ * Three modals replace the old "navigate to Settings / Expenses" pivots
+ * so vendors + lead-spend live and are managed on this page. Each one
+ * is self-contained: own form state, own supabase call, fires onSaved()
+ * to trigger a reload. None of them try to be the full lead-drip
+ * connector UI (HMAC / webhooks / field-map live in LeadDrip) — they
+ * cover the attribution surface only: name, vendor brand, kind, CPL,
+ * active, archived. */
+
+function NewVendorModal({ agencyId, onClose, onSaved }) {
+  const [form, setForm] = React.useState({ name: "", vendor: "", kind: "manual", cost_per_lead: "", active: true });
+  const [busy, setBusy] = React.useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) { window.toast && window.toast("Name is required", "warn"); return; }
+    setBusy(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const row = {
+        agency_id: agencyId,
+        name: form.name.trim(),
+        vendor: form.vendor.trim() || null,
+        kind: form.kind || "manual",
+        cost_per_lead_cents: form.cost_per_lead ? Math.round(parseFloat(form.cost_per_lead) * 100) : null,
+        active: !!form.active,
+      };
+      const { error } = await sb.from("agency_lead_sources").insert(row);
+      if (error) throw error;
+      window.toast && window.toast(`Vendor "${row.name}" created`, "success");
+      onSaved && onSaved();
+    } catch (err) {
+      window.toast && window.toast(`Create failed: ${err.message || err}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Shared.Modal title="New lead vendor" width={460} onClose={onClose} actions={
+      <>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="submit" form="new-vendor-form" className="btn btn-primary" disabled={busy}>
+          {busy ? "Saving…" : "Create vendor"}
+        </button>
+      </>
+    }>
+      <form id="new-vendor-form" onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Shared.Field label="Display name" hint="What you'll see in tables + dropdowns">
+          <input className="input" autoFocus value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Facebook · T65 v3" />
+        </Shared.Field>
+        <Shared.Field label="Brand / partner" hint="Optional — Facebook, GoatLeads, Convoso, etc.">
+          <input className="input" value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} placeholder="Facebook" />
+        </Shared.Field>
+        <Shared.Field label="Channel">
+          <select className="input" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value })}>
+            <option value="manual">Manual / list</option>
+            <option value="paid_social">Paid social</option>
+            <option value="paid_search">Paid search</option>
+            <option value="inbound">Inbound calls</option>
+            <option value="referral">Referral</option>
+            <option value="webhook">Webhook</option>
+          </select>
+        </Shared.Field>
+        <Shared.Field label="Cost per lead" hint="Optional — dollars per lead (used by ROAS estimates)">
+          <input className="input" type="number" min="0" step="0.01" value={form.cost_per_lead} onChange={e => setForm({ ...form, cost_per_lead: e.target.value })} placeholder="0.00" />
+        </Shared.Field>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
+          <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />
+          Active (shows up in spend + lead-tagging dropdowns)
+        </label>
+      </form>
+    </Shared.Modal>
+  );
+}
+
+function LogSpendModal({ agencyId, sources, onClose, onSaved }) {
+  const meIdent = (window.me && window.me()) || null;
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = React.useState({
+    lead_source_id: sources[0]?.id || "",
+    amount: "",
+    paid_at: today,
+    description: "",
+    notes: "",
+  });
+  const [busy, setBusy] = React.useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(form.amount);
+    if (!amount || amount <= 0) { window.toast && window.toast("Enter an amount", "warn"); return; }
+    if (!form.lead_source_id) { window.toast && window.toast("Pick a vendor", "warn"); return; }
+    setBusy(true);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const row = {
+        agency_id: agencyId,
+        kind: "lead_spend",
+        amount_cents: Math.round(amount * 100),
+        description: form.description || null,
+        vendor: (sources.find(s => s.id === form.lead_source_id)?.vendor) || null,
+        paid_at: form.paid_at,
+        paid_by: "agency",
+        paid_by_rep_id: null,
+        reimbursable: false,
+        lead_source_id: form.lead_source_id,
+        notes: form.notes || null,
+        created_by: meIdent?.user_id || undefined,
+      };
+      const { error } = await sb.from("agency_expenses").insert(row);
+      if (error) throw error;
+      window.toast && window.toast(`Logged $${amount.toFixed(2)} lead spend`, "success");
+      onSaved && onSaved();
+    } catch (err) {
+      window.toast && window.toast(`Save failed: ${err.message || err}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!sources.length) {
+    return (
+      <Shared.Modal title="Log lead spend" width={420} onClose={onClose} actions={
+        <button className="btn" onClick={onClose}>Close</button>
+      }>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+          No vendors yet. Create a vendor first ("New vendor"), then come back to log spend against it.
+        </div>
+      </Shared.Modal>
+    );
+  }
+  return (
+    <Shared.Modal title="Log lead spend" width={460} onClose={onClose} actions={
+      <>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="submit" form="log-spend-form" className="btn btn-primary" disabled={busy}>
+          {busy ? "Saving…" : "Log spend"}
+        </button>
+      </>
+    }>
+      <form id="log-spend-form" onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Shared.Field label="Vendor">
+          <select className="input" value={form.lead_source_id} onChange={e => setForm({ ...form, lead_source_id: e.target.value })}>
+            {sources.map(s => (
+              <option key={s.id} value={s.id}>{s.vendor ? `${s.name} · ${s.vendor}` : s.name}</option>
+            ))}
+          </select>
+        </Shared.Field>
+        <Shared.Field label="Amount (USD)">
+          <input className="input" type="number" min="0" step="0.01" autoFocus value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="500.00" />
+        </Shared.Field>
+        <Shared.Field label="Paid on">
+          <input className="input" type="date" value={form.paid_at} onChange={e => setForm({ ...form, paid_at: e.target.value })} />
+        </Shared.Field>
+        <Shared.Field label="Description" hint="Optional — shows on the expense row">
+          <input className="input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="June Facebook spend" />
+        </Shared.Field>
+        <Shared.Field label="Notes" hint="Optional — internal context">
+          <input className="input" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+        </Shared.Field>
+      </form>
+    </Shared.Modal>
+  );
+}
+
+function ManageVendorsModal({ agencyId, sources, onClose, onSaved }) {
+  const [drafts, setDrafts] = React.useState(() => sources.map(s => ({
+    id: s.id, name: s.name, cost_per_lead: s.cost_per_lead_cents != null ? (s.cost_per_lead_cents / 100).toFixed(2) : "", active: !!s.active, dirty: false,
+  })));
+  const [busyId, setBusyId] = React.useState(null);
+  const setDraft = (id, patch) => setDrafts(arr => arr.map(d => d.id === id ? { ...d, ...patch, dirty: true } : d));
+  const save = async (d) => {
+    setBusyId(d.id);
+    try {
+      const sb = window.getSupabase && window.getSupabase();
+      const patch = {
+        name: (d.name || "").trim() || "Untitled",
+        cost_per_lead_cents: d.cost_per_lead === "" ? null : Math.round(parseFloat(d.cost_per_lead) * 100),
+        active: !!d.active,
+      };
+      const { error } = await sb.from("agency_lead_sources").update(patch).eq("id", d.id);
+      if (error) throw error;
+      window.toast && window.toast(`Updated "${patch.name}"`, "success");
+      setDrafts(arr => arr.map(x => x.id === d.id ? { ...x, dirty: false } : x));
+      onSaved && onSaved();
+    } catch (err) {
+      window.toast && window.toast(`Save failed: ${err.message || err}`, "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <Shared.Modal title="Manage vendors" width={620} onClose={onClose} actions={
+      <button className="btn" onClick={onClose}>Done</button>
+    }>
+      {sources.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          No vendors yet. Use "New vendor" to create your first one.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 110px 80px 80px", gap: 8, fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, padding: "0 6px" }}>
+            <div>Name</div>
+            <div style={{ textAlign: "right" }}>Cost / lead</div>
+            <div style={{ textAlign: "center" }}>Active</div>
+            <div></div>
+          </div>
+          {drafts.map(d => (
+            <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1.6fr 110px 80px 80px", gap: 8, alignItems: "center", padding: "6px", borderRadius: 6, background: d.dirty ? "color-mix(in oklch, var(--accent-money) 6%, transparent)" : "transparent" }}>
+              <input className="input" value={d.name} onChange={e => setDraft(d.id, { name: e.target.value })} />
+              <input className="input" type="number" min="0" step="0.01" value={d.cost_per_lead} onChange={e => setDraft(d.id, { cost_per_lead: e.target.value })} placeholder="—" style={{ textAlign: "right" }} />
+              <label style={{ display: "flex", justifyContent: "center" }}>
+                <input type="checkbox" checked={d.active} onChange={e => setDraft(d.id, { active: e.target.checked })} />
+              </label>
+              <button
+                className="btn btn-primary"
+                onClick={() => save(d)}
+                disabled={!d.dirty || busyId === d.id}
+                style={{ padding: "4px 10px", fontSize: 11 }}
+              >{busyId === d.id ? "…" : "Save"}</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Shared.Modal>
   );
 }
 

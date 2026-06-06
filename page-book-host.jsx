@@ -1,11 +1,12 @@
 // Book host — manager-nav consolidation 2026-05-19.
 // One sidebar item ("Book") wraps the customer lifecycle: pipeline (CRM
-// default) → in-force analytics → lead sources → drip sequences → NIGO.
-// Each tab mounts an existing page; no business logic lives in the host.
+// default) → in-force analytics. Lead vendors / attribution moved to
+// its own sidebar entry 2026-06-05 (self-managing PageAttribution).
+// Sequences + NIGO removed from the host the same day.
 //
-// Why default to CRM, not Analytics or LeadDrip:
+// Why default to CRM, not Analytics:
 //   CRM is the daily-driver — "what's moving in my pipeline right now."
-//   Analytics is end-of-week. LeadDrip is set-and-forget.
+//   Analytics is end-of-week.
 //
 // Quicklinks header is a thin chip row mirroring Vault > Resources so a
 // manager mid-call doesn't have to navigate away to grab a carrier doc.
@@ -15,9 +16,6 @@ function PageBookHost() {
     { k: "clients",   l: "Clients",    icon: "Wallet"       },
     { k: "deposits",  l: "Deposits",   icon: "DollarSign"   },
     { k: "analytics", l: "Analytics",  icon: "Activity"     },
-    { k: "sources",   l: "Sources",    icon: "ArrowUpRight" },
-    { k: "sequences", l: "Sequences",  icon: "Bolt"         },
-    { k: "nigo",      l: "NIGO",       icon: "Bell"         },
   ];
   // Persist tab selection across navigations within the session.
   const [tab, setTab] = React.useState(() => {
@@ -44,7 +42,7 @@ function PageBookHost() {
       <div className="page-h">
         <div>
           <div className="page-title">Book</div>
-          <div className="page-sub">Pipeline · in-force · sources · sequences · NIGO</div>
+          <div className="page-sub">Pipeline · clients · deposits · analytics</div>
         </div>
         <BookQuicklinks/>
       </div>
@@ -55,9 +53,6 @@ function PageBookHost() {
       {tab === "clients"   && Stub("PageClientBook")}
       {tab === "deposits"  && Stub("PageDeposits")}
       {tab === "analytics" && Stub("PageBook")}
-      {tab === "sources"   && Stub("PageAttribution")}
-      {tab === "sequences" && Stub("PageLeadDrip")}
-      {tab === "nigo"      && Stub("PageNIGO")}
     </div>
   );
 }
