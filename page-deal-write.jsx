@@ -48,7 +48,10 @@
   // --------------------------------------------------------------------------
   // <DealWriteForm/> — the form itself
   // --------------------------------------------------------------------------
-  function DealWriteForm({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, onWritten }) {
+  function DealWriteForm({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, onWritten, policyId }) {
+    // policyId truthy → edit mode. Loads the existing row on mount and
+    // switches submit() to UPDATE. Delete button surfaces too.
+    const isEdit = !!policyId;
     const carriers = AppData.CARRIERS || [];
     const products = AppData.PRODUCTS || [];
     const pipeline = AppData.PIPELINE || [];
@@ -85,6 +88,39 @@
     const [policyNumber, setPolNum]     = useState("");
     const [busy, setBusy]               = useState(false);
     const [error, setError]             = useState(null);
+    const [loadedEdit, setLoadedEdit]   = useState(false);
+
+    // Edit-mode hydration — pull the policy row + populate all the state
+    // setters. Runs once when policyId becomes available.
+    useEffect(() => {
+      if (!isEdit || loadedEdit) return;
+      (async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          if (!sb) { setLoadedEdit(true); return; }
+          const { data, error } = await sb.from("policies").select("*").eq("id", policyId).single();
+          if (error) throw error;
+          if (data) {
+            setLeadId(data.lead_pipeline_id || "");
+            setCarrierId(data.carrier_id || "");
+            setProductId(data.product_id || "");
+            setAp(data.ap_cents != null ? String(dollars(data.ap_cents)) : "");
+            setTarget(data.target_premium_cents != null ? String(dollars(data.target_premium_cents)) : "");
+            setCompRate(data.comp_rate_pct != null ? String(data.comp_rate_pct) : "");
+            setExpectedComm(data.expected_commission_cents != null ? String(dollars(data.expected_commission_cents)) : "");
+            setSubDate(data.submission_date || "");
+            setDraftDate(data.initial_draft_date || "");
+            setStatus(data.status || "submitted");
+            setPolNum(data.policy_number || "");
+            setLeadSourceId(data.lead_source_id || "");
+          }
+        } catch (e) {
+          setError("Couldn't load deal for editing: " + (e.message || e));
+        } finally {
+          setLoadedEdit(true);
+        }
+      })();
+    }, [isEdit, policyId, loadedEdit]);
 
     // Lead vendor — attribute this deal to the source that produced the
     // lead, so the Attribution page can roll AP / ROAS up per vendor.
@@ -233,6 +269,20 @@
     // expectedCommission is just whatever the rep typed — no math.
     const expectedCommission = useMemo(() => Number(expectedComm) || 0, [expectedComm]);
 
+    // Expected advance = 9 months on the AP (i.e. 75% of full commission).
+    //   advance = expected_commission × 0.75
+    // Fallback when the rep hasn't typed expectedComm but did type AP+comp:
+    //   advance = base × (comp_rate / 100) × 0.75   where base = target_premium ?? ap
+    // Display-only and fully derivable — not persisted to DB (per migration
+    // 0088 Ian dropped DB-side comp math; rep-typed values are ground truth).
+    const expectedAdvance = useMemo(() => {
+      if (expectedCommission > 0) return expectedCommission * 0.75;
+      const base = (showTarget && Number(targetPremium)) ? Number(targetPremium) : Number(ap);
+      const rate = Number(compRate);
+      if (base > 0 && rate > 0) return base * (rate / 100) * 0.75;
+      return 0;
+    }, [expectedCommission, ap, targetPremium, compRate, showTarget]);
+
     const productOptions = products.filter(p => !carrierId || p.carrierId === carrierId);
 
     async function submit() {
@@ -316,6 +366,17 @@
       };
 
       try {
+        if (sb && isEdit) {
+          // UPDATE existing policy. agency_id stays — never reparent.
+          const { agency_id, ...patch } = row;
+          const { data, error } = await sb.from("policies").update(patch).eq("id", policyId).select().single();
+          if (error) throw error;
+          window.toast && window.toast(`Deal updated · ${product?.name || "policy"}`, "success");
+          window.dispatchEvent(new CustomEvent("data:hydrated"));
+          onWritten && onWritten();
+          setBusy(false);
+          return;
+        }
         if (sb) {
           const { data, error } = await sb.from("policies").insert(row).select().single();
           if (error) throw error;
@@ -379,7 +440,10 @@
 
     return (
       <div className="panel" style={{ padding: 18, maxWidth: 720 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 14, fontSize: 16 }}>Write deal</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 14, fontSize: 16 }}>
+          {isEdit ? "Edit deal" : "Write deal"}
+          {isEdit && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-tertiary)", fontWeight: 400 }}>id · {String(policyId).slice(0, 8)}</span>}
+        </h3>
 
         {prefillSource && (
           <div style={{ padding: "8px 12px", marginBottom: 12, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -608,6 +672,26 @@
           </div>
 
           <div>
+            <Lbl>Expected Advance <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(9-mo advance · 75%)</span></Lbl>
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 10px",
+                background: expectedAdvance > 0 ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "var(--surface-2)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                fontSize: 13,
+                fontVariantNumeric: "tabular-nums",
+                color: expectedAdvance > 0 ? "var(--accent-money)" : "var(--text-tertiary)",
+                fontWeight: expectedAdvance > 0 ? 600 : 400,
+              }}
+              title="AP × comp rate × 0.75 — the 9-month advance that hits before as-earned starts"
+            >
+              {expectedAdvance > 0 ? `$${expectedAdvance.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+            </div>
+          </div>
+
+          <div>
             <Lbl required>Submission Date</Lbl>
             <input style={inp} type="date" value={submissionDate} onChange={(e) => setSubDate(e.target.value)}/>
           </div>
@@ -642,6 +726,24 @@
         )}
 
         <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {isEdit && (
+            <button className="btn" style={{ marginRight: "auto", color: "var(--state-danger)" }} disabled={busy}
+              onClick={async () => {
+                if (!window.confirm("Delete this deal? This removes the policy row and any allocations attached to it.")) return;
+                setBusy(true);
+                try {
+                  const sb = window.getSupabase && window.getSupabase();
+                  if (sb) {
+                    const { error } = await sb.from("policies").delete().eq("id", policyId);
+                    if (error) throw error;
+                  }
+                  window.toast && window.toast("Deal deleted", "info");
+                  onWritten && onWritten();
+                } catch (e) {
+                  setError(e.message || "Delete failed");
+                } finally { setBusy(false); }
+              }}>Delete</button>
+          )}
           <button className="btn" onClick={() => {
             setLeadId(""); setNewLead(null); setQuery(""); setPickerOpen(false);
             setCarrierId(""); setProductId(""); setAp(""); setTarget("");
@@ -649,7 +751,7 @@
             setLeadSourceId(""); setAddingVendor(false); setNewVendorName("");
           }} disabled={busy}>Clear</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>
-            {busy ? "Saving…" : "Write deal"}
+            {busy ? "Saving…" : (isEdit ? "Save changes" : "Write deal")}
           </button>
         </div>
       </div>
@@ -663,6 +765,10 @@
     const policies = AppData.POLICIES || [];
     const carriers = AppData.CARRIERS || [];
     const carrierById = new Map(carriers.map(c => [c.id, c]));
+    // 2026-06-06: every deal row gets an Edit action → opens DealEditModal
+    // with the full form prefilled. Save updates the policies row; Delete
+    // removes it. Fully editable per Ian's mandate.
+    const [editingId, setEditingId] = useState(null);
     // All my policies, for the totals; only the top `limit` get rendered.
     const allMine = policies.filter(p => !repId || p.owner === repId);
     const mine = allMine.slice(0, limit);
@@ -690,18 +796,19 @@
           </div>
         ) : (
           <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 1.2fr 90px 100px 100px" }}>
+            <div className="list-h" style={{ gridTemplateColumns: "1.3fr 1fr 1.1fr 80px 90px 90px 70px" }}>
               <div>Lead / policy</div>
               <div>Carrier</div>
               <div>Product</div>
               <div className="tabular" style={{ textAlign: "right" }}>AP</div>
               <div className="tabular" style={{ textAlign: "right" }}>Submitted</div>
               <div>Status</div>
+              <div></div>
             </div>
             {mine.map(p => {
               const c = carrierById.get(p.carrierId);
               return (
-                <div key={p.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 1.2fr 90px 100px 100px" }}>
+                <div key={p.id} className="row" style={{ gridTemplateColumns: "1.3fr 1fr 1.1fr 80px 90px 90px 70px" }}>
                   <div className="cell-truncate" style={{ fontWeight: 500 }}>
                     {p.policyNumber || (p.id ? String(p.id).slice(0, 8) : "—")}
                   </div>
@@ -712,10 +819,17 @@
                     {p.issuedAt ? p.issuedAt.slice(5) : "—"}
                   </div>
                   <div>{statusChip(p.status)}</div>
+                  <div>
+                    <button className="btn btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+                      onClick={() => setEditingId(p.id)}>Edit</button>
+                  </div>
                 </div>
               );
             })}
           </div>
+        )}
+        {editingId && (
+          <DealEditModal policyId={editingId} onClose={() => setEditingId(null)}/>
         )}
       </div>
     );
@@ -757,7 +871,21 @@
     );
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // <DealEditModal/> — same form, edit mode. Mounts inside Shared.Modal
+  // and forwards onClose to the form's onWritten so save/delete dismisses.
+  // ──────────────────────────────────────────────────────────────────────
+  function DealEditModal({ policyId, onClose }) {
+    const Modal = (window.Shared && window.Shared.Modal) || null;
+    const form = <DealWriteForm policyId={policyId} onWritten={onClose}/>;
+    if (!Modal) return form;
+    return (
+      <Modal title="Edit deal" width={780} onClose={onClose}>{form}</Modal>
+    );
+  }
+
   window.DealWriteForm  = DealWriteForm;
   window.DealWriteModal = DealWriteModal;
+  window.DealEditModal  = DealEditModal;
   window.RecentDeals    = RecentDeals;
 })();

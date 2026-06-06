@@ -308,26 +308,15 @@
           </div>
         )}
 
-        {/* KPI row — pure received-side ledger (no projection math) */}
+        {/* Compact inline summary — value-dense, no hero tiles. Ian 2026-06-06:
+            "tabs should be below, why is received MTD and all the numbers at
+            the top" — ledger lives at the top, summary is a thin strip. */}
         {totals && carrierSummary && (
-          <div className="kpi-row">
-            <Shared.KpiCard hero
-              label={`Received · ${period}`}
-              value={fmt$(totals.received).slice(1)} prefix="$"
-              sub={`${totals.count} deposit${totals.count===1?"":"s"}`}/>
-            <Shared.KpiCard
-              label="Lifetime received"
-              value={fmt$(carrierSummary.lifetime).slice(1)} prefix="$"
-              sub={`across ${balances?.filter(b => (b.received_lifetime_cents||0) > 0).length || 0} carrier${(balances?.filter(b => (b.received_lifetime_cents||0) > 0).length || 0) === 1 ? "" : "s"}`}/>
-            <Shared.KpiCard
-              label="Open chargebacks"
-              value={fmt$(carrierSummary.charged).slice(1)} prefix="$"
-              sub={carrierSummary.charged > 0 ? "carrier debt" : "clear"}
-              neg={carrierSummary.charged > 0}/>
-            <Shared.KpiCard
-              label="Override $ received"
-              value={fmt$(totals.overrideRcvd).slice(1)} prefix="$"
-              sub={totals.received ? Math.round(totals.overrideRcvd / totals.received * 100) + "% of period" : ""}/>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", padding: "6px 12px", marginBottom: 10, fontSize: 12, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>
+            <span><span style={{ color: "var(--text-tertiary)" }}>Received {period}</span> <strong style={{ color: "var(--accent-money)" }}>{fmt$(totals.received)}</strong> <span style={{ color: "var(--text-tertiary)" }}>· {totals.count}</span></span>
+            <span><span style={{ color: "var(--text-tertiary)" }}>Lifetime</span> <strong>{fmt$(carrierSummary.lifetime)}</strong></span>
+            <span><span style={{ color: "var(--text-tertiary)" }}>Overrides {period}</span> <strong>{fmt$(totals.overrideRcvd)}</strong></span>
+            <span style={{ color: carrierSummary.charged > 0 ? "var(--state-danger)" : "var(--text-secondary)" }}><span style={{ color: "var(--text-tertiary)" }}>Chargebacks</span> <strong>{fmt$(carrierSummary.charged)}</strong></span>
           </div>
         )}
 
