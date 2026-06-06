@@ -22,8 +22,9 @@
 
 export const config = { runtime: "edge" };
 
-const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
+const SUPA_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfphwmzwteermalzwojp.supabase.co";
 const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+const SUPA_SRV  = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 async function dbSelect(path) {
   try {
@@ -33,6 +34,26 @@ async function dbSelect(path) {
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
+}
+
+// Best-effort write. If SUPABASE_SERVICE_ROLE_KEY isn't set, we silently
+// skip — the live response still goes to the user; the bank just doesn't
+// grow this turn. Designed so live-gen self-fills the cache: rep #1 pays
+// the 5-10s LLM wait, rep #2 onward gets source:"bank" instantly.
+async function dbUpsert(table, row, conflictCols) {
+  if (!SUPA_SRV) return false;
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?on_conflict=${conflictCols}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_SRV, authorization: `Bearer ${SUPA_SRV}`,
+        "content-type": "application/json",
+        prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
+    return r.ok;
+  } catch { return false; }
 }
 
 const VALID_STATES = new Set([
@@ -279,6 +300,20 @@ export default async function handler(req) {
     if (!q || typeof q.stem !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || typeof q.correct_index !== "number" || q.correct_index < 0 || q.correct_index > 3) {
       return new Response(JSON.stringify({ error: "model returned invalid question shape", raw: q || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
     }
+    // Fire-and-forget cache write so the bank grows organically through use.
+    if (variety_id && domain) {
+      const line_ = String(body.line || "").toLowerCase().trim() || "life";
+      // No await — let it run after the response goes out. Edge fn runtime allows this.
+      dbUpsert(
+        "licensing_questions",
+        {
+          state_code: state, line: line_, variety_id, domain,
+          stem: q.stem, options: q.options, correct_index: q.correct_index,
+          explanation: q.explanation || null, difficulty: q.difficulty || null,
+        },
+        "" // no conflict cols — every live gen adds a new row to the bank
+      ).catch(() => {});
+    }
     return new Response(JSON.stringify({ ...q, source: "live", model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
   }
 
@@ -314,6 +349,22 @@ export default async function handler(req) {
   const section = parseJsonLoose(r.text);
   if (!section || typeof section !== "object" || !Array.isArray(section.blocks)) {
     return new Response(JSON.stringify({ error: "model returned invalid section shape", raw: section || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
+  }
+  // Fire-and-forget cache upsert. Next rep on the same (state, variety, section)
+  // gets source:"bank" instantly. This is how the bank fills despite Gemini's
+  // 250-RPD free quota that makes batch pre-generation infeasible.
+  if (variety_id) {
+    dbUpsert(
+      "licensing_guide_sections",
+      {
+        state_code: state, variety_id, section_number,
+        domain, weight_pct,
+        section_doc: section,
+        model: r.model || null,
+        generated_at: new Date().toISOString(),
+      },
+      "state_code,variety_id,section_number"
+    ).catch(() => {});
   }
   return new Response(JSON.stringify({ ...section, source: "live", model: r.model, ms: Date.now() - t0 }), { status: 200, headers: { "content-type": "application/json" }});
 }

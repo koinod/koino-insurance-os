@@ -78,6 +78,8 @@ async function callTutor(body, retries = 2) {
 }
 
 let written = 0, failed = 0;
+let consecutiveFails = 0;
+const ABORT_AFTER = 8;
 
 for (const [stateCode, stateRec] of Object.entries(data.states)) {
   if (ONLY_STATE && stateCode !== ONLY_STATE) continue;
@@ -115,6 +117,7 @@ for (const [stateCode, stateRec] of Object.entries(data.states)) {
             difficulty:    q.difficulty || null,
           });
           written++;
+          consecutiveFails = 0;
           process.stdout.write(`  ${dom.domain.slice(0,28)} #${i+1} ✓\n`);
           // 3s between successful calls — same reasoning as the study-guide
           // generator. With N=3 per (variety, domain) and ~48 outline-filled
@@ -122,8 +125,14 @@ for (const [stateCode, stateRec] of Object.entries(data.states)) {
           await sleep(3000);
         } catch (e) {
           failed++;
+          consecutiveFails++;
           process.stderr.write(`  ${dom.domain.slice(0,28)} #${i+1} ✗ ${e.message}\n`);
-          await sleep(/all providers failed/.test(e.message) ? 90000 : 5000);
+          if (consecutiveFails >= ABORT_AFTER) {
+            console.error(`\n${consecutiveFails} consecutive failures — assuming daily LLM quota is gone, aborting.`);
+            console.error(`Resume tomorrow with: node scripts/generate-question-bank.mjs --n 3`);
+            process.exit(0);
+          }
+          await sleep(5000);
         }
       }
     }

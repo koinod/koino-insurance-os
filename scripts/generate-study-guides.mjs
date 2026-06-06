@@ -117,6 +117,8 @@ async function existingKeys(stateCode, varietyId) {
 let written = 0;
 let skipped = 0;
 let failed  = 0;
+let consecutiveFails = 0;
+const ABORT_AFTER = 8; // after 8 consecutive failures we assume the daily LLM quota is dead and stop
 
 for (const [stateCode, stateRec] of Object.entries(data.states)) {
   if (ONLY_STATE && stateCode !== ONLY_STATE) continue;
@@ -158,16 +160,21 @@ for (const [stateCode, stateRec] of Object.entries(data.states)) {
           "state_code,variety_id,section_number"
         );
         written++;
+        consecutiveFails = 0;
         process.stdout.write(`  ${section.section_number} ${section.domain.slice(0, 32)}… ✓\n`);
         // 3s between successful calls — keeps us under Gemini free-tier
         // RPM and well below the ~250 req/day quota for a multi-hour run.
         await sleep(3000);
       } catch (e) {
         failed++;
+        consecutiveFails++;
         process.stderr.write(`  ${section.section_number} ${section.domain.slice(0, 32)}… ✗ ${e.message}\n`);
-        // If we hit "all providers failed" the daily quota is likely gone —
-        // back off for 90s so we don't hammer dead endpoints. Otherwise 5s.
-        await sleep(/all providers failed/.test(e.message) ? 90000 : 5000);
+        if (consecutiveFails >= ABORT_AFTER) {
+          console.error(`\n${consecutiveFails} consecutive failures — assuming daily LLM quota is gone, aborting to save tomorrow's runway.`);
+          console.error(`Resume with: node scripts/generate-study-guides.mjs --skip-existing`);
+          process.exit(0);
+        }
+        await sleep(5000);
       }
     }
   }
