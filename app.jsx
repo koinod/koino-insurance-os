@@ -246,33 +246,34 @@ function App() {
       case "carrier-appointments":
                           return F("PageCarrierAppointments", { role });
       case "settings":    return F("PageSettings",   { role });
-      // admin: super_admin gets the real PageAdmin panel; everyone else falls
-      // through to Today so old deep links don't 404. The admin-* deep-link
-      // ids drive the super_admin sidebar — each lands on a specific PageAdmin
-      // tab. `key` forces a remount so PageAdmin's useState picks up the new
-      // initialTab.
-      // All admin-* deep links land on the PageAdminHub with the right
-      // initial sub-tab. The old per-route page mapping (one sidebar item per
-      // admin surface) was collapsed 2026-05-25 — sidebar now has just "HQ".
-      case "admin-hq":       return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hq"       initialSubpage="hq"/>       : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin":          return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-agencies" initialSubpage="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-billing":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-billing"  initialSubpage="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-members":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-members"  initialSubpage="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-invites":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-invites"  initialSubpage="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-carriers": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-carriers" initialSubpage="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-security": return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-security" initialSubpage="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-audit":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-audit"      initialSubpage="audit"/>      : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      // Pinnable sub-pages added 2026-05-25 — widget composer can drop these
-      // directly into the sidebar. Each lands on the hub with the right
-      // initialSubpage. Hierarchy/scrape/devices fall through the hub to
-      // PageAdmin internally; the hub pill won't highlight (those tabs
-      // aren't in HUB_TABS yet) which is acceptable for niche surfaces.
-      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-flags"     initialSubpage="flags"/>     : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-system"    initialSubpage="system"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-customize":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-customize" initialSubpage="customize"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-hierarchy":  return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-hierarchy" initialSubpage="hierarchy"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-scrape":     return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-scrape"    initialSubpage="scrape"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-devices":    return role === "super_admin" ? (() => { const P = window.PageAdminHub; return P ? <P key="hub-devices"   initialSubpage="devices"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      // admin-*: super_admin sidebar fans these out as 1 entry per surface
+      // (restored 2026-06-06). Each route renders the underlying component
+      // directly — no PageAdminHub wrapper. `key` forces a remount so the
+      // target's useState picks up the new initialTab/subpage. Everyone
+      // else falls through to Today so old deep links don't 404.
+      //
+      // PagePlatformAdmin owns cross-tenant operator views (HQ, Flags,
+      // System); PageAdmin owns tenant-mgmt CRUD (Clients, Subscriptions,
+      // Users, Onboarding, Carriers, Security, Audit + niche surfaces).
+      case "admin-hq":         return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-hq"       subpage="platform"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-flags"    subpage="flags"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-system"   subpage="system"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin":            return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-agencies"  initialTab="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-billing":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-billing"   initialTab="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-members":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-members"   initialTab="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-invites":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-invites"   initialTab="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-carriers":   return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-carriers"  initialTab="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-security":   return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-security"  initialTab="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-audit":      return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-audit"     initialTab="audit"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-hierarchy":  return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-hierarchy" initialTab="hierarchy"/>: <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-scrape":     return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-scrape"    initialTab="scrape"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-devices":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-devices"   initialTab="devices"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      // Customize → open the sidebar composer directly (the dispatch is
+      // idempotent; listener in shared.jsx handles double-fires).
+      case "admin-customize":  return role === "super_admin" ? (() => {
+        try { window.dispatchEvent(new CustomEvent("sidebar:composer:open")); } catch {}
+        return <div className="page-pad"><div className="panel" style={{ padding: 20, fontSize: 13, color: "var(--text-secondary)" }}>Sidebar composer opening… <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => window.dispatchEvent(new CustomEvent("sidebar:composer:open"))}>Reopen</button></div></div>;
+      })() : F("PageToday", { role });
       case "platform":
       case "agencies":
       case "users":

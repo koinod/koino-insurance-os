@@ -110,15 +110,23 @@ NAV.imo_owner = NAV.owner;
 // agencies, subscriptions, security, carriers config, onboarding, and the
 // growth funnel for the software business itself. Each entry deep-links into
 // a PageAdmin tab via initialTab.
-// super_admin sidebar collapsed 10 → 2 items (2026-05-25). The HQ hub
-// (PageAdminHub) now hosts every platform/admin surface behind one
-// horizontal nav: HQ · Clients · Subscriptions · Users · Onboarding · Carriers ·
-// Security · Audit · Flags · System · Lab · Customize. Deep links into the
-// old admin-* routes still resolve via the app.jsx switch — they all land
-// on the hub with the correct initial sub-tab.
+// super_admin sidebar — every HQ surface gets its own entry (2026-06-06,
+// reverted from 2026-05-25 hub-collapse). app.jsx routes each id directly
+// to PagePlatformAdmin (hq/flags/system — cross-tenant operator views) or
+// PageAdmin (everything else — tenant-mgmt CRUD). No PageAdminHub wrapper.
 NAV.super_admin = [
-  { id: "admin-hq",       label: "HQ",             icon: "BarChart3" }, // single platform hub
-  { id: "settings",       label: "Settings",       icon: "Settings"  },
+  { id: "admin-hq",        label: "HQ",            icon: "Activity"  },
+  { id: "admin",           label: "Clients",       icon: "Building"  },
+  { id: "admin-billing",   label: "Subscriptions", icon: "Wallet"    },
+  { id: "admin-members",   label: "Users",         icon: "Users"     },
+  { id: "admin-invites",   label: "Onboarding",    icon: "Bell"      },
+  { id: "admin-carriers",  label: "Carriers",      icon: "Shield"    },
+  { id: "admin-security",  label: "Security",      icon: "Lock"      },
+  { id: "admin-audit",     label: "Audit",         icon: "FileText"  },
+  { id: "admin-flags",     label: "Flags",         icon: "Bolt"      },
+  { id: "admin-system",    label: "System",        icon: "Cpu"       },
+  { id: "admin-customize", label: "Customize",     icon: "Edit"      },
+  { id: "settings",        label: "Settings",      icon: "Settings"  },
 ];
 
 const SidebarBrand = () => {
