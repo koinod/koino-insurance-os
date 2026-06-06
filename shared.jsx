@@ -211,9 +211,17 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
   // While async load is in flight, fall back to the static map so the sidebar
   // isn't blank. Once the DB row resolves, customLayout replaces it.
-  const items = isDynamic
+  const itemsRaw = isDynamic
     ? (customLayout !== null ? customLayout : (NAV[role] || []))
     : (NAV[role] || []);
+
+  // Floor temporarily disabled for non-super_admin accounts (2026-06-05).
+  // Hide the sidebar entry; route is also gated in app.jsx so deep links land
+  // on a disabled stub. Revert by removing this block + the app.jsx gate.
+  const _floorIsSuperOnly = !(typeof window !== "undefined" && window.isSuperAdmin && window.isSuperAdmin());
+  const items = _floorIsSuperOnly
+    ? itemsRaw.filter(i => i.id !== "floor" && (i.pageId || i.id) !== "floor")
+    : itemsRaw;
 
   function renderItem(item) {
     const kind = item.kind || "nav";

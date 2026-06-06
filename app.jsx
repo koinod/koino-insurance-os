@@ -193,15 +193,25 @@ function App() {
       const P = window[key];
       return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
     };
-    if (mobile && role === "rep") return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+    // Floor temporarily disabled for non-super_admin accounts (2026-06-05).
+    // Non-super_admin: route falls through to Today (desktop) / MobileRep
+    // (mobile). Sidebar entry is also hidden in shared.jsx Sidebar.
+    const _floorEnabled = !!(window.isSuperAdmin && window.isSuperAdmin());
+    if (mobile && role === "rep") return _floorEnabled
+      ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
+      : F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { role });
-      case "floor":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+      case "floor":       return _floorEnabled
+                                 ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
+                                 : F("PageToday", { role });
       // Pipeline + Calls used to mount through Floor; refactored 2026-05-22
       // so they route to their own pages — Floor is dialer-first now.
       case "pipeline":    return F("PagePipeline", { role });
-      case "queue":       return F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+      case "queue":       return _floorEnabled
+                                 ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
+                                 : F("PageToday", { role });
       case "leaderboard": return (() => {
         // page-leaderboard.jsx was removed — fall through to Performance for
         // owners, or a stub message for non-owner roles.
