@@ -2038,6 +2038,7 @@ function buildStatement({ repId } = {}) {
       return {
         policyId: p.id,
         date: fmtDate(p.submissionDate || p.issuedAt),
+        dateISO: p.submissionDate || p.issuedAt || null,
         lead: lead?.lead || (p.policyNumber ? `Policy ${p.policyNumber}` : "—"),
         carrier: carrier?.name || p.carrierId || "—",
         product: p.product || "—",
@@ -2055,6 +2056,7 @@ function buildStatement({ repId } = {}) {
     .forEach(cb => rows.push({
       policyId: cb.policyId,
       date: fmtDate(cb.recordedAt),
+      dateISO: cb.recordedAt || null,
       lead: "(chargeback)",
       carrier: "—", product: "—", ap: 0, pct: 0,
       expected: 0, paid: -(cb.amount || 0), status: "Chargeback",
@@ -2063,20 +2065,96 @@ function buildStatement({ repId } = {}) {
   return rows;
 }
 
+// Producer pay periods — forward-planning windows, not trailing ones.
+// Producers plan against today / this week / this month / this quarter;
+// trailing-90-style views don't help them plan, so they're not offered.
+const PAY_PERIODS = [
+  { k: "today",   l: "Today" },
+  { k: "week",    l: "Week" },
+  { k: "month",   l: "Month" },
+  { k: "quarter", l: "Quarter" },
+];
+const PAY_PERIOD_LABEL = { today: "today", week: "this week", month: "this month", quarter: "this quarter" };
+function payPeriodStart(key) {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  if (key === "week")    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday start
+  if (key === "month")   d.setDate(1);
+  if (key === "quarter") d.setMonth(Math.floor(d.getMonth() / 3) * 3, 1);
+  return d;
+}
+
 function CommissionsRep() {
-  // Always recompute from policies + commissions ledger so any deal entered
-  // anywhere by this rep flows through immediately.
+  // Statement rows recompute from policies + clawbacks so any deal entered
+  // anywhere by this rep flows through immediately. PAID money, however,
+  // comes from deposit_allocations (Book → Deposits) — the projected
+  // `commissions` table is never written in prod, so summing it showed
+  // producers $0 paid forever. Advances are the number producers plan on.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const _isDemoCR = !!(window.isDemoAgency && window.isDemoAgency());
   const repId = meIdent?.rep_id || (_isDemoCR ? (AppData.REPS && AppData.REPS[0] && AppData.REPS[0].id) : null);
+
+  const [period, setPeriod] = React.useState("month");
+  const [allocs, setAllocs] = React.useState(null);   // deposit_allocations for this rep
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        if (!sb || !repId) { if (!cancelled) setAllocs([]); return; }
+        const { data, error } = await sb.from("deposit_allocations")
+          .select("kind, amount_cents, carrier_deposits(deposit_date)")
+          .eq("rep_id", repId)
+          .limit(2000);
+        if (error) throw error;
+        if (!cancelled) setAllocs(data || []);
+      } catch (e) {
+        console.warn("[commissions] deposit_allocations load failed", e);
+        if (!cancelled) setAllocs([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [repId, refreshKey]);
+
+  // Realtime — a deposit logged in Book → Deposits shows up here live.
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    const agencyId = meIdent?.agency_id;
+    if (!sb || !agencyId) return;
+    const ch = sb.channel("commissions-rep:" + agencyId)
+      .on("postgres_changes", { event: "*", schema: "public", table: "deposit_allocations", filter: `agency_id=eq.${agencyId}` }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { try { sb.removeChannel(ch); } catch {} };
+  }, [meIdent?.agency_id]);
+
+  const start = payPeriodStart(period);
+  const inPeriod = (iso) => {
+    if (!iso) return false;
+    const d = new Date(iso.length <= 10 ? iso + "T12:00:00" : iso);
+    return !isNaN(d) && d >= start;
+  };
+
   const liveRows = buildStatement({ repId });
-  const ROWS = (liveRows && liveRows.length) ? liveRows : (_isDemoCR ? STATEMENT : []);
+  const usingDemoRows = !(liveRows && liveRows.length) && _isDemoCR;
+  const allRows = (liveRows && liveRows.length) ? liveRows : (usingDemoRows ? STATEMENT : []);
+  const ROWS = usingDemoRows ? allRows : allRows.filter(r => inPeriod(r.dateISO));
+
+  // Actual money received this period, from real carrier deposits.
+  const periodAllocs = (allocs || []).filter(a => inPeriod(a.carrier_deposits?.deposit_date));
+  const sumKind = (pred) => Math.round(periodAllocs.filter(pred).reduce((s, a) => s + (a.amount_cents || 0), 0) / 100);
+  let advancePaid = sumKind(a => a.kind === "advance");
+  let totalPaid   = sumKind(a => a.kind !== "chargeback_recoup");
+  if (usingDemoRows) { // demo agency has no deposit rows — derive from demo statement
+    advancePaid = allRows.filter(r => r.status === "advance").reduce((s, r) => s + Math.max(0, r.paid), 0);
+    totalPaid   = allRows.reduce((s, r) => s + Math.max(0, r.paid), 0);
+  }
+
   const total = ROWS.reduce((a, r) => a + r.expected, 0);
-  const paid  = ROWS.reduce((a, r) => a + r.paid, 0);
-  const inClearing = total - Math.max(0, paid);
   const charge = ROWS.filter(r => r.paid < 0).reduce((a, r) => a + r.paid, 0);
   const issuedCount = ROWS.filter(r => r.expected > 0 && r.paid >= 0).length;
   const nigoCount   = ROWS.filter(r => /nigo|declined|withdrawn/i.test(r.status || "")).length;
+  const periodLbl = PAY_PERIOD_LABEL[period];
   return (
     <div className="page-pad">
       <div className="page-h">
@@ -2084,11 +2162,14 @@ function CommissionsRep() {
           <div className="page-title">Commissions · Me</div>
           <div className="page-sub">Statement · advances vs as-earned · NIGO and chargeback alerts</div>
         </div>
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => {
+        <div style={{ marginLeft: "auto" }}>
+          <Shared.SectionPill items={PAY_PERIODS} value={period} onChange={setPeriod} dense/>
+        </div>
+        <button className="btn" style={{ marginLeft: 8 }} onClick={() => {
           const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
           const producerName = meIdent?.full_name || "Producer";
           const orgName = meIdent?.agency_name || "Your agency";
-          const periodLabel = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
+          const periodLabel = `${PAY_PERIODS.find(p => p.k === period)?.l || "Month"} · ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
           const html = `
             <h1>Statement · ${periodLabel}</h1>
             <div class="meta">${producerName} · ${orgName} · ${new Date().toLocaleDateString()}</div>
@@ -2115,15 +2196,15 @@ function CommissionsRep() {
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Expected MTD" prefix="$" value={total.toLocaleString()} sub={`across ${issuedCount} issue${issuedCount === 1 ? "" : "s"}`} trend={total > 0 ? "up" : undefined}/>
-        <Shared.KpiCard label="Paid MTD" prefix="$" value={Math.max(0, paid).toLocaleString()} sub="advances + as-earned"/>
-        <Shared.KpiCard label="In clearing" prefix="$" value={inClearing.toLocaleString()} sub={nigoCount > 0 ? `${nigoCount} NIGO` : "expected − paid"}/>
-        <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(charge).toLocaleString()} sub="last 30d" neg/>
+        <Shared.KpiCard hero label="Advance paid" prefix="$" value={advancePaid.toLocaleString()} sub={`${periodLbl} · actual carrier deposits`} trend={advancePaid > 0 ? "up" : undefined}/>
+        <Shared.KpiCard label="Total paid" prefix="$" value={totalPaid.toLocaleString()} sub="advances + as-earned + trails"/>
+        <Shared.KpiCard label="Expected" prefix="$" value={total.toLocaleString()} sub={nigoCount > 0 ? `${issuedCount} issues · ${nigoCount} NIGO` : `across ${issuedCount} issue${issuedCount === 1 ? "" : "s"}`}/>
+        <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(charge).toLocaleString()} sub={periodLbl} neg/>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{ROWS.length} row{ROWS.length === 1 ? "" : "s"} · this month</span></div>
-        {ROWS.length === 0 && (
+        <div className="panel-h"><Icons.Wallet size={13}/><h3>Statement</h3><span className="meta">{ROWS.length} row{ROWS.length === 1 ? "" : "s"} · {periodLbl}</span></div>
+        {ROWS.length === 0 && allRows.length === 0 && (
           <div style={{ padding: "32px 24px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 13, lineHeight: 1.55 }}>
             <div style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 6 }}>No deals on your statement yet.</div>
             <div>Write your first deal in <strong>Floor → Deals</strong> — comp % is captured at deal-write and flows here automatically.</div>
@@ -2134,6 +2215,11 @@ function CommissionsRep() {
               }}>
               <Icons.Plus size={12}/> Write a deal
             </button>
+          </div>
+        )}
+        {ROWS.length === 0 && allRows.length > 0 && (
+          <div style={{ padding: "26px 24px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+            No statement rows {periodLbl}. Switch the period filter to widen the window.
           </div>
         )}
         <div className="list">
