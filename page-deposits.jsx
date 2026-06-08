@@ -188,6 +188,7 @@
     const [period, setPeriod] = useState("MTD");
     const [refreshKey, setRefreshKey] = useState(0);
     const [showLog, setShowLog]   = useState(false);
+    const [editDep, setEditDep]   = useState(null);   // deposit being edited (with allocations)
     const [openId, setOpenId]     = useState(null);   // expanded deposit row
 
     const carriers           = useCarriers(agencyId);
@@ -373,6 +374,7 @@
                       {unalloc > 0 && (
                         <span className="chip" style={{ fontSize: 11, color: "var(--state-warning)" }}>{fmt$(unalloc)} unallocated</span>
                       )}
+                      <button className="btn btn-ghost" onClick={() => setEditDep(d)} title="Edit deposit" style={{ padding: "2px 8px", fontSize: 11 }}>Edit</button>
                       <DeleteDepositBtn dep={d} onDone={() => setRefreshKey(k => k+1)}/>
                     </div>
                     {isOpen && (
@@ -405,14 +407,15 @@
           )}
         </div>
 
-        {showLog && (
+        {(showLog || editDep) && (
           <LogDepositModal
             agencyId={agencyId}
             carriers={carriers || []}
             policiesLookup={policiesLookup}
             me={me}
-            onClose={() => setShowLog(false)}
-            onSaved={() => { setShowLog(false); setRefreshKey(k => k+1); }}
+            editDep={editDep}
+            onClose={() => { setShowLog(false); setEditDep(null); }}
+            onSaved={() => { setShowLog(false); setEditDep(null); setRefreshKey(k => k+1); }}
           />
         )}
       </div>
@@ -493,15 +496,25 @@
     );
   }
 
-  /* ── Log Deposit modal ──────────────────────────────────────────────── */
-  function LogDepositModal({ agencyId, carriers, policiesLookup, me, onClose, onSaved }) {
+  /* ── Log / Edit Deposit modal ───────────────────────────────────────────
+     Doubles as create (editDep null) and edit (editDep = deposit row with
+     .allocations). On edit-save we UPDATE the deposit then reconcile
+     allocations by delete-all + re-insert — simplest correct shape given the
+     Σallocations≤gross guard trigger (0087): deleting first means the insert
+     is always checked against the NEW gross, never a stale one. */
+  function LogDepositModal({ agencyId, carriers, policiesLookup, me, editDep, onClose, onSaved }) {
+    const isEdit = !!editDep;
     const today = new Date().toISOString().slice(0, 10);
-    const [carrierId, setCarrierId] = useState("");
-    const [date, setDate]           = useState(today);
-    const [gross, setGross]         = useState("");
-    const [ref, setRef]             = useState("");
-    const [notes, setNotes]         = useState("");
-    const [allocs, setAllocs]       = useState([{ kind: "as_earned", amount: "", policy_id: "", notes: "" }]);
+    const [carrierId, setCarrierId] = useState(editDep?.carrier_id || "");
+    const [date, setDate]           = useState(editDep?.deposit_date || today);
+    const [gross, setGross]         = useState(editDep ? String((editDep.gross_cents || 0) / 100) : "");
+    const [ref, setRef]             = useState(editDep?.statement_ref || "");
+    const [notes, setNotes]         = useState(editDep?.notes || "");
+    const [allocs, setAllocs]       = useState(
+      (editDep?.allocations && editDep.allocations.length)
+        ? editDep.allocations.map(a => ({ kind: a.kind, amount: String((a.amount_cents || 0) / 100), policy_id: a.policy_id || "", notes: a.notes || "" }))
+        : [{ kind: "as_earned", amount: "", policy_id: "", notes: "" }]
+    );
     const [policies, setPolicies]   = useState(null);
     const [busy, setBusy]           = useState(false);
 
@@ -523,6 +536,11 @@
       setPolicies(list);
     };
 
+    // Edit mode: eager-load policies so picker labels render and the
+    // rep_id-from-policy-owner stamping in save() resolves even if the user
+    // never touches the policy dropdown.
+    useEffect(() => { if (isEdit) loadPolicies(); }, [isEdit]);
+
     const addAlloc = () => setAllocs(a => [...a, { kind: "as_earned", amount: "", policy_id: "", notes: "" }]);
     const removeAlloc = (i) => setAllocs(a => a.filter((_, idx) => idx !== i));
     const updateAlloc = (i, patch) => setAllocs(a => a.map((x, idx) => idx === i ? { ...x, ...patch } : x));
@@ -533,34 +551,65 @@
       try {
         const sb = window.getSupabase && window.getSupabase();
         if (!sb) throw new Error("Supabase not connected");
-        // Insert deposit
-        const { data: dep, error: e1 } = await sb.from("carrier_deposits").insert({
-          agency_id:     agencyId,
-          carrier_id:    carrierId,
-          rep_id:        me?.rep_id || null,
-          deposit_date:  date,
-          gross_cents:   grossCents,
-          statement_ref: ref || null,
-          notes:         notes || null,
-          created_by:    me?.user_id || null,
-        }).select("id").single();
-        if (e1) throw e1;
-        // Insert allocations (skip empties)
+
+        let depId;
+        if (isEdit) {
+          // Update the deposit. Bump gross FIRST so a same-tx allocation
+          // insert is never rejected against a stale (smaller) gross.
+          const { error: eu } = await sb.from("carrier_deposits").update({
+            carrier_id:    carrierId,
+            deposit_date:  date,
+            gross_cents:   grossCents,
+            statement_ref: ref || null,
+            notes:         notes || null,
+            updated_at:    new Date().toISOString(),
+          }).eq("id", editDep.id);
+          if (eu) throw eu;
+          depId = editDep.id;
+          // Reconcile allocations: wipe + re-insert (see modal header note).
+          const { error: ed } = await sb.from("deposit_allocations").delete().eq("deposit_id", depId);
+          if (ed) throw ed;
+        } else {
+          const { data: dep, error: e1 } = await sb.from("carrier_deposits").insert({
+            agency_id:     agencyId,
+            carrier_id:    carrierId,
+            rep_id:        me?.rep_id || null,
+            deposit_date:  date,
+            gross_cents:   grossCents,
+            statement_ref: ref || null,
+            notes:         notes || null,
+            created_by:    me?.user_id || null,
+          }).select("id").single();
+          if (e1) throw e1;
+          depId = dep.id;
+        }
+
+        // Build allocation rows. Stamp rep_id from the allocated policy's
+        // owner so the producer Commissions tab can attribute advances; fall
+        // back to the deposit's logger rep. Without this the advance-paid KPI
+        // (page-extras CommissionsRep, filters on deposit_allocations.rep_id)
+        // stays empty.
+        const polById = new Map((policies || []).map(p => [p.id, p]));
         const allocRows = allocs
-          .map(a => ({
-            deposit_id:   dep.id,
-            agency_id:    agencyId,         // mirrored by trigger but satisfies NOT NULL pre-trigger
-            kind:         a.kind,
-            amount_cents: Math.round(parseFloat(a.amount || "0") * 100) || 0,
-            policy_id:    a.policy_id || null,
-            notes:        a.notes || null,
-          }))
+          .map(a => {
+            const pol = a.policy_id ? polById.get(a.policy_id) : null;
+            return {
+              deposit_id:   depId,
+              agency_id:    agencyId,         // mirrored by trigger but satisfies NOT NULL pre-trigger
+              rep_id:       pol?.owner_rep_id || me?.rep_id || null,
+              kind:         a.kind,
+              amount_cents: Math.round(parseFloat(a.amount || "0") * 100) || 0,
+              policy_id:    a.policy_id || null,
+              notes:        a.notes || null,
+            };
+          })
           .filter(r => r.amount_cents > 0);
         if (allocRows.length) {
           const { error: e2 } = await sb.from("deposit_allocations").insert(allocRows);
           if (e2) throw e2;
         }
-        window.toast && window.toast(`Logged ${fmt$(grossCents)} from ${carriers.find(c=>c.id===carrierId)?.name || carrierId}`, "ok");
+        const carrierName = carriers.find(c=>c.id===carrierId)?.name || carrierId;
+        window.toast && window.toast(`${isEdit ? "Updated" : "Logged"} ${fmt$(grossCents)} from ${carrierName}`, "ok");
         onSaved && onSaved();
       } catch (e) {
         window.toast && window.toast(e.message || "Save failed", "error");
@@ -574,7 +623,7 @@
         <div onClick={(e) => e.stopPropagation()} className="panel"
              style={{ padding: 18, width: "100%", maxWidth: 720, maxHeight: "92vh", overflow: "auto", background: "var(--bg-elevated, var(--bg-surface))" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Log carrier deposit</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>{isEdit ? "Edit carrier deposit" : "Log carrier deposit"}</h2>
             <button className="btn btn-ghost" onClick={onClose}>✕</button>
           </div>
 
@@ -662,7 +711,7 @@
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
             <button className="btn btn-primary" onClick={save} disabled={!canSave || busy}>
-              {busy ? "Saving…" : "Save deposit"}
+              {busy ? "Saving…" : isEdit ? "Save changes" : "Save deposit"}
             </button>
           </div>
         </div>
