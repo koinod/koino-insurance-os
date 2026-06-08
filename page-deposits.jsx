@@ -585,10 +585,13 @@
         }
 
         // Build allocation rows. Stamp rep_id from the allocated policy's
-        // owner so the producer Commissions tab can attribute advances; fall
-        // back to the deposit's logger rep. Without this the advance-paid KPI
-        // (page-extras CommissionsRep, filters on deposit_allocations.rep_id)
-        // stays empty.
+        // owner so the producer Commissions tab can attribute advances. With
+        // no policy link, fall back to the deposit's OWN rep (the original
+        // logger on edit, me on create) — never the editor, so editing
+        // someone else's deposit doesn't reattribute it. Without this the
+        // advance-paid KPI (page-extras CommissionsRep, which filters on
+        // deposit_allocations.rep_id) stays empty.
+        const depRep = (isEdit ? editDep?.rep_id : me?.rep_id) || null;
         const polById = new Map((policies || []).map(p => [p.id, p]));
         const allocRows = allocs
           .map(a => {
@@ -596,7 +599,7 @@
             return {
               deposit_id:   depId,
               agency_id:    agencyId,         // mirrored by trigger but satisfies NOT NULL pre-trigger
-              rep_id:       pol?.owner_rep_id || me?.rep_id || null,
+              rep_id:       pol?.owner_rep_id || depRep,
               kind:         a.kind,
               amount_cents: Math.round(parseFloat(a.amount || "0") * 100) || 0,
               policy_id:    a.policy_id || null,
