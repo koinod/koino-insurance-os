@@ -10,7 +10,7 @@
 // AS PLAINTEXT in vault and we just rename them server-side. The schema
 // is forward-compatible: when pgsodium lands, we decrypt here and the
 // agent contract is unchanged.
-import { SUPA_URL, SERVICE, cors, loadInstallByToken, readAgentToken } from "./_lib.js";
+import { SUPA_URL, SERVICE, cors, loadInstallByToken, readAgentToken, writeAgentAudit } from "./_lib.js";
 
 export const config = { runtime: "edge" };
 
@@ -59,6 +59,17 @@ export default async function handler(req) {
     headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json", prefer: "return=minimal" },
     body: JSON.stringify({ last_used_at: new Date().toISOString() }),
   }).catch(() => {});
+
+  // Audit every credential fetch — this is the only place secrets leave the
+  // vault, so leave a non-blocking trail of who/what/when for forensics.
+  writeAgentAudit({
+    agency_id: inst.agency_id || null,
+    user_id: inst.user_id || null,
+    kind: "connector.exchange",
+    decision: "allow",
+    reason: body.provider,
+    metadata: { provider: body.provider, account_label: body.account_label || null, device_id: inst.device_id || null },
+  }).catch?.(() => {});
 
   // Provider-specific shape — flatten common keys for the agent.
   const meta = row.account_metadata || {};
