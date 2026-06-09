@@ -2083,6 +2083,71 @@ function payPeriodStart(key) {
   return d;
 }
 
+// Agency-wide deposit allocations — the SOURCE OF TRUTH for paid commission.
+// Manager/owner rollups read this (RLS lets manager+ see every allocation in
+// their agency). The projected `commissions` table is never written in prod,
+// so the old buildStatement-derived "paid" was always $0. Realtime so a
+// deposit logged in Book → Deposits moves the rollup live.
+function useAgencyAllocations() {
+  const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const agencyId = meIdent?.agency_id || null;
+  const [allocs, setAllocs] = React.useState(null);
+  const [refreshKey, setRefreshKey] = React.useState(0);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        if (!sb || !agencyId) { if (!cancelled) setAllocs([]); return; }
+        const { data, error } = await sb.from("deposit_allocations")
+          .select("rep_id, kind, amount_cents, carrier_deposits(deposit_date)")
+          .eq("agency_id", agencyId)
+          .limit(5000);
+        if (error) throw error;
+        if (!cancelled) setAllocs(data || []);
+      } catch (e) {
+        console.warn("[commissions] agency allocations load failed", e);
+        if (!cancelled) setAllocs([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [agencyId, refreshKey]);
+  React.useEffect(() => {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !agencyId) return;
+    const ch = sb.channel("commissions-agency:" + agencyId)
+      .on("postgres_changes", { event: "*", schema: "public", table: "deposit_allocations", filter: `agency_id=eq.${agencyId}` }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { try { sb.removeChannel(ch); } catch {} };
+  }, [agencyId]);
+  return allocs;
+}
+
+// Roll allocations up by rep for a pay period. Returns { map, team } where
+// map[rep_id] = { paid, advance, override } in dollars and team is the sum.
+// chargeback_recoup is excluded from paid (it's carrier clawing money back).
+function rollupAllocations(allocs, period) {
+  const start = payPeriodStart(period);
+  const inP = (iso) => {
+    if (!iso) return false;
+    const d = new Date(iso.length <= 10 ? iso + "T12:00:00" : iso);
+    return !isNaN(d) && d >= start;
+  };
+  const map = {};
+  const team = { paid: 0, advance: 0, override: 0 };
+  for (const a of (allocs || [])) {
+    if (!inP(a.carrier_deposits?.deposit_date)) continue;
+    if (a.kind === "chargeback_recoup") continue;
+    const c = Math.round((a.amount_cents || 0) / 100);
+    const key = a.rep_id || "_unassigned";
+    const m = map[key] = map[key] || { paid: 0, advance: 0, override: 0 };
+    m.paid += c; team.paid += c;
+    if (a.kind === "advance")  { m.advance += c; team.advance += c; }
+    if (a.kind === "override") { m.override += c; team.override += c; }
+  }
+  return { map, team };
+}
+
 function CommissionsRep() {
   // Statement rows recompute from policies + clawbacks so any deal entered
   // anywhere by this rep flows through immediately. PAID money, however,
@@ -2302,20 +2367,27 @@ function BaseCompPctInput({ rep }) {
 function CommissionsManager() {
   const { REPS } = AppData;
   const scopeIds = (typeof window !== "undefined" && window.scopeRepIds && window.scopeRepIds()) || null;
-  
-  // Aggregate buildStatement per rep — same comp% input flows up
+  const [period, setPeriod] = React.useState("month");
+  const periodLbl = PAY_PERIOD_LABEL[period];
+
+  // Paid = real money from deposit_allocations, period-scoped. Expected + AP
+  // stay derived from policies (buildStatement) — those are projections, the
+  // right source for "what we're owed". Paid must be actuals.
+  const allocs = useAgencyAllocations();
+  const { map: paidMap, team: paidTeam } = rollupAllocations(allocs, period);
+
   const perRep = REPS.filter(r => !scopeIds || scopeIds.includes(r.id)).map(r => {
     const rows = buildStatement({ repId: r.id });
     const issued = rows.filter(x => x.status === "paid" || x.status === "pending payout").length;
     const ap     = rows.reduce((a, x) => a + (x.ap || 0), 0);
     const expected = rows.reduce((a, x) => a + (x.expected || 0), 0);
-    const paid    = rows.reduce((a, x) => a + Math.max(0, x.paid || 0), 0);
+    const paid    = paidMap[r.id]?.paid || 0;       // ACTUAL received this period
     const charge  = rows.filter(x => (x.paid || 0) < 0)?.reduce((a, x) => a + x.paid, 0);
     return { rep: r, issued, ap, expected, paid, ic: Math.max(0, expected - paid), charge };
   });
   const teamAp       = perRep.reduce((a, x) => a + x.ap, 0);
   const teamExpected = perRep.reduce((a, x) => a + x.expected, 0);
-  const teamPaid     = perRep.reduce((a, x) => a + x.paid, 0);
+  const teamPaid     = paidTeam.paid;
   const teamIc       = Math.max(0, teamExpected - teamPaid);
   const teamCharge   = perRep.reduce((a, x) => a + x.charge, 0);
 
@@ -2332,19 +2404,22 @@ function CommissionsManager() {
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Team rollup</div>
-          <div className="page-sub">Per-producer ledger · manager-set base comp rates + recursive debt audit</div>
+          <div className="page-sub">Per-producer ledger · expected from policies · paid from real carrier deposits</div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <Shared.SectionPill items={PAY_PERIODS} value={period} onChange={setPeriod} dense/>
         </div>
       </div>
 
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Team expected MTD" prefix="$" value={display.expected.toLocaleString()} sub={`across ${perRep.reduce((a, x) => a + x.issued, 0) || (_isDemoCM ? 14 : 0)} issues`} trend="up"/>
-        <Shared.KpiCard label="Team paid MTD" prefix="$" value={display.paid.toLocaleString()} sub="advances + as-earned"/>
+        <Shared.KpiCard hero label="Team paid" prefix="$" value={display.paid.toLocaleString()} sub={`${periodLbl} · actual deposits`} trend={display.paid > 0 ? "up" : undefined}/>
+        <Shared.KpiCard label="Team expected" prefix="$" value={display.expected.toLocaleString()} sub={`across ${perRep.reduce((a, x) => a + x.issued, 0) || (_isDemoCM ? 14 : 0)} issues`}/>
         <Shared.KpiCard label="In clearing" prefix="$" value={display.ic.toLocaleString()} sub={(isEmpty && _isDemoCM) ? "14 apps" : "expected − paid"}/>
         <Shared.KpiCard label="Chargebacks" prefix="$" value={Math.abs(display.charge).toLocaleString()} sub="last 30d" neg/>
       </div>
 
       <div className="panel">
-        <div className="panel-h"><h3>Producers · this month</h3><span className="meta">{perRep.length} producers in scope</span></div>
+        <div className="panel-h"><h3>Producers · {periodLbl}</h3><span className="meta">{perRep.length} producers in scope</span></div>
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "1.6fr 70px 90px 100px 100px 100px 100px" }}>
             <div>Producer</div>
@@ -2394,22 +2469,32 @@ function CommissionsOwner() {
   const agency = (AGENCIES || []).find(a => a.id === me?.agency_id) || AGENCIES?.[0] || {};
   
   const [overridePct, setOverridePct] = React.useState(agency.defaultOverridePct || 20);
-  
+  const [period, setPeriod] = React.useState("month");
+  const periodLbl = PAY_PERIOD_LABEL[period];
+
   const handleOverrideSave = (val) => {
     setOverridePct(val);
     if (agency.id) AppData.mutate.agencyOverridePctSave(agency.id, val);
   };
 
+  // Projections from policies; actuals from deposit_allocations.
   const allRows = buildStatement();
   const issued = allRows.filter(r => r.status === "paid" || r.status === "pending payout").length;
   const totalAp       = allRows.reduce((a, r) => a + (r.ap || 0), 0);
-  const totalPaid     = allRows.reduce((a, r) => a + Math.max(0, r.paid || 0), 0);
-  const overridePool  = Math.round(totalAp * overridePct / 100);
-  const isEmpty = totalAp === 0;
+  const overridePool  = Math.round(totalAp * overridePct / 100);   // projected slice
 
-  const display = isEmpty
-    ? { pool: 258420, net: 104700, paidOut: 412300, totalAp: 731000 }
-    : { pool: overridePool, net: Math.round(overridePool * 0.4), paidOut: totalPaid, totalAp };
+  const allocs = useAgencyAllocations();
+  const { team } = rollupAllocations(allocs, period);
+  const overrideReceived = team.override;   // ACTUAL override deposits, period
+  const paidOut          = team.paid;        // ACTUAL paid to producers, period
+
+  // Demo numbers are gated to the demo agency ONLY. A real agency with no
+  // data shows zeros + empty state, never mock dollars (rickroll rule).
+  const _isDemoCO = !!(window.isDemoAgency && window.isDemoAgency());
+  const isEmpty = totalAp === 0 && paidOut === 0 && overrideReceived === 0;
+  const display = (isEmpty && _isDemoCO)
+    ? { pool: 258420, overrideReceived: 51680, paidOut: 412300, totalAp: 731000 }
+    : { pool: overridePool, overrideReceived, paidOut, totalAp };
 
   const exportCommissions = () => {
     const headers = ["Period","Rep","Carrier","Lead","AP","Expected","Paid","Status"];
@@ -2430,15 +2515,18 @@ function CommissionsOwner() {
       <div className="page-h">
         <div>
           <div className="page-title">Commissions · Override pool</div>
-          <div className="page-sub">Account-wide rollup · persisted override slice · {issued || 14} issues this period</div>
+          <div className="page-sub">Account-wide rollup · projected slice from policies · actuals from deposits</div>
         </div>
-        <button className="btn" onClick={exportCommissions} disabled={isEmpty} title={isEmpty ? "No commission rows to export" : "Download CSV of all commission rows"}>Export CSV</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <Shared.SectionPill items={PAY_PERIODS} value={period} onChange={setPeriod} dense/>
+          <button className="btn" onClick={exportCommissions} disabled={isEmpty} title={isEmpty ? "No commission rows to export" : "Download CSV of all commission rows"}>Export CSV</button>
+        </div>
       </div>
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Override pool · MTD" prefix="$" value={display.pool.toLocaleString()} sub={`${overridePct}% of $${display.totalAp.toLocaleString()} AP`} trend="up"/>
-        <Shared.KpiCard label="Net to owner" prefix="$" value={display.net.toLocaleString()} sub="after lead spend + NIGO" trend="up"/>
-        <Shared.KpiCard label="Paid to producers" prefix="$" value={display.paidOut.toLocaleString()} sub={`${REPS.length} producers`}/>
-        <Shared.KpiCard label="Coverage" value={`${(display.pool / 100000).toFixed(2)}x`} sub="vs $100k goal" trend={display.pool >= 100000 ? "up" : "down"}/>
+        <Shared.KpiCard hero label="Override received" prefix="$" value={display.overrideReceived.toLocaleString()} sub={`${periodLbl} · actual deposits`} trend={display.overrideReceived > 0 ? "up" : undefined}/>
+        <Shared.KpiCard label="Paid to producers" prefix="$" value={display.paidOut.toLocaleString()} sub={`${periodLbl} · ${REPS.length} producers`}/>
+        <Shared.KpiCard label="Projected pool" prefix="$" value={display.pool.toLocaleString()} sub={`${overridePct}% of $${display.totalAp.toLocaleString()} AP`}/>
+        <Shared.KpiCard label="Coverage" value={`${(display.pool / 100000).toFixed(2)}x`} sub="projected vs $100k goal" trend={display.pool >= 100000 ? "up" : "down"}/>
       </div>
 
       <div className="panel" style={{ marginBottom: 14 }}>
