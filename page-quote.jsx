@@ -159,6 +159,20 @@
       };
     }, []);
 
+    // Per-rep carrier-visibility prefs (reps.carrier_prefs.quotes) can change
+    // from Settings → Carriers; bump a version so the appointedIds memo
+    // re-filters immediately.
+    const [prefsVersion, setPrefsVersion] = useState(0);
+    useEffect(() => {
+      const bump = () => setPrefsVersion(v => v + 1);
+      window.addEventListener("carrier-prefs:changed", bump);
+      window.addEventListener("me:loaded", bump);
+      return () => {
+        window.removeEventListener("carrier-prefs:changed", bump);
+        window.removeEventListener("me:loaded", bump);
+      };
+    }, []);
+
     // Carrier selection — null means "all appointed carriers for this product"
     const [selectedCarrierIds, setSelectedCarrierIds] = useState(null);
     // Agent request tracking
@@ -231,14 +245,21 @@
       // mark rows 'not_pursuing' to hide. 'self' / 'bridge' / 'active' carry
       // appointment semantics, but for *visibility* the only excluded state
       // is 'not_pursuing'.
-      const writable = appts.filter(a =>
-        ["self", "bridge", "active", "pending"].includes(String(a.status || "").toLowerCase())
-      );
+      // Per-rep visibility: a rep can hide carriers from THEIR quote tool via
+      // Settings → Carriers (reps.carrier_prefs.quotes). Only an explicit
+      // `false` hides; missing = visible.
+      const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs("quotes")) || {};
+      const writable = appts.filter(a => {
+        const status = String(a.status || "").toLowerCase();
+        if (!["self", "bridge", "active", "pending"].includes(status)) return false;
+        if (prefs[a.carrierId] === false) return false; // rep hid this carrier
+        return true;
+      });
       // Hydrated but empty → return empty Set so the empty-state CTA
       // renders. Distinct from "not ready yet" above.
       const ids = new Set(writable.map(a => normalizeNicheId(a.carrierId)));
       return ids;
-    }, [window.AppData?.AGENCY_APPOINTMENTS?.length]);
+    }, [window.AppData?.AGENCY_APPOINTMENTS?.length, prefsVersion]);
 
     // Carriers eligible for this product after appointment filter — drives checkboxes
     const eligibleForProduct = useMemo(() => {

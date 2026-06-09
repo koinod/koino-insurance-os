@@ -2231,15 +2231,26 @@ window.AppData.mutate = {
     const id = a.id || ("tmp-" + Date.now());
     const me = window.me && window.me();
     const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    // Preserve any status/bridge fields the caller didn't pass so this legacy
+    // save path (Settings → Carriers) never NULLs the 5-state status or the
+    // bridge metadata set on the Carrier Appointments page. New rows default
+    // to 'pending' (matches page-carrier-appointments + migration 0069e).
+    const existing = a.id ? list.find(x => x.id === a.id) : null;
+    const keep = (k, def) => (a[k] !== undefined ? a[k] : (existing ? existing[k] : def));
     const jsRow = {
       id, agencyId,
       carrierId: a.carrierId || null,
       carrierName: a.carrierName || null,
       npn: a.npn || null,
       compRatePct: a.compRatePct != null ? Number(a.compRatePct) : null,
-      appointedStates: Array.isArray(a.appointedStates) ? a.appointedStates : [],
+      appointedStates: Array.isArray(a.appointedStates) ? a.appointedStates : (existing?.appointedStates || []),
       notes: a.notes || null,
       active: a.active !== false,
+      status: keep("status", (a.active === false ? "not_pursuing" : "pending")),
+      bridgeUnderName: keep("bridgeUnderName", null),
+      bridgeUnderNpn: keep("bridgeUnderNpn", null),
+      contractedAt: keep("contractedAt", null),
+      transferredAt: keep("transferredAt", null),
     };
     const idx = a.id ? list.findIndex(x => x.id === a.id) : -1;
     if (idx >= 0) list[idx] = { ...list[idx], ...jsRow };
@@ -2256,6 +2267,11 @@ window.AppData.mutate = {
         appointed_states: jsRow.appointedStates,
         notes: jsRow.notes,
         active: jsRow.active,
+        status: jsRow.status,
+        bridge_under_name: jsRow.bridgeUnderName,
+        bridge_under_npn: jsRow.bridgeUnderNpn,
+        contracted_at: jsRow.contractedAt,
+        transferred_at: jsRow.transferredAt,
       };
       let resp;
       if (a.id && !String(a.id).startsWith("tmp-")) {
