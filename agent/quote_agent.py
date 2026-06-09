@@ -137,8 +137,12 @@ def supabase_get(path: str, params: dict | None = None) -> list:
         url = f"{url}?{urlencode(params)}"
     try:
         resp = _r.get(url, headers=headers, timeout=20)
+        if resp.status_code >= 300:
+            log(f"supabase_get {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
+            return []
         return resp.json() if resp.text else []
-    except Exception:
+    except Exception as e:
+        log(f"supabase_get {path} error: {e}")
         return []
 
 
@@ -155,6 +159,9 @@ def supabase_patch(path: str, body: dict, eq_filter: dict) -> dict:
     url = f"{SUPABASE_URL}/rest/v1/{path}?{urlencode(eq_filter)}"
     try:
         resp = _r.patch(url, headers=headers, data=json.dumps(body), timeout=20)
+        if resp.status_code >= 300:
+            log(f"supabase_patch {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
+            return {}
         return resp.json() if resp.text else {}
     except Exception as e:
         log(f"supabase_patch error: {e}")
@@ -172,9 +179,13 @@ def supabase_insert(path: str, body: dict) -> dict:
     url = f"{SUPABASE_URL}/rest/v1/{path}"
     try:
         resp = _r.post(url, headers=headers, data=json.dumps(body), timeout=20)
+        if resp.status_code >= 300:
+            log(f"supabase_insert {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
+            return {}
         result = resp.json() if resp.text else []
         return result[0] if isinstance(result, list) and result else {}
-    except Exception:
+    except Exception as e:
+        log(f"supabase_insert {path} error: {e}")
         return {}
 
 
@@ -190,9 +201,13 @@ def supabase_upsert(path: str, body: dict, on_conflict: str) -> dict:
     url = f"{SUPABASE_URL}/rest/v1/{path}?on_conflict={on_conflict}"
     try:
         resp = _r.post(url, headers=headers, data=json.dumps(body), timeout=20)
+        if resp.status_code >= 300:
+            log(f"supabase_upsert {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
+            return {}
         result = resp.json() if resp.text else []
         return result[0] if isinstance(result, list) and result else {}
-    except Exception:
+    except Exception as e:
+        log(f"supabase_upsert {path} error: {e}")
         return {}
 
 
@@ -461,6 +476,161 @@ def recommend_carrier_order(case: dict, candidate_carriers: list[str]) -> tuple[
     return ordered + tail, declined
 
 
+# ─── Credential resolution (hybrid: vault → local file → capture session) ───
+
+
+def connector_exchange(carrier_id: str, settings: dict) -> dict | None:
+    """Fetch this rep's saved carrier-portal creds from the SERVER vault via
+    /api/agent/connector-exchange. The Auto Quoter UI uploads them there
+    (provider="carrier_<id>", the {username,password,extra} blob in api_key).
+
+    Returns {username, password, extra} or None. Per-rep by construction: the
+    agent_token resolves to one install → one user_id, so the exchange only
+    ever returns that rep's credentials. Requires settings['agent_token'].
+    """
+    token = settings.get("agent_token")
+    if not token:
+        return None
+    try:
+        import requests as _r
+        resp = _r.post(
+            f"{API_BASE}/api/agent/connector-exchange",
+            headers={"x-agent-token": token, "content-type": "application/json"},
+            data=json.dumps({
+                "provider": f"carrier_{carrier_id}",
+                "account_label": f"Carrier portal · {carrier_id}",
+            }),
+            timeout=15,
+        )
+    except Exception as e:
+        log(f"connector-exchange {carrier_id}: network error {e}")
+        return None
+    if resp.status_code == 404:
+        return None  # no connector saved for this carrier — expected, not an error
+    if resp.status_code != 200:
+        log(f"connector-exchange {carrier_id}: HTTP {resp.status_code} {resp.text[:200]}")
+        return None
+    try:
+        data = resp.json()
+    except Exception:
+        return None
+    blob = data.get("api_key")  # UI stores {username,password,extra} as a JSON string here
+    if not blob:
+        return None
+    try:
+        c = json.loads(blob) if isinstance(blob, str) else blob
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(c, dict) or not (c.get("username") or c.get("password")):
+        return None
+    return c
+
+
+def resolve_creds(carrier_id: str, local_creds: dict, settings: dict) -> dict | None:
+    """Hybrid, per-rep credential resolution:
+      1. local credentials.json (dev / manual override) wins,
+      2. else the server vault via connector-exchange,
+      3. else None — caller falls back to a captured session or asks the rep
+         to capture/save a login.
+    """
+    c = local_creds.get(carrier_id)
+    if c and (c.get("username") or c.get("password")):
+        return c
+    return connector_exchange(carrier_id, settings)
+
+
+# ─── Login / session reuse ──────────────────────────────────────────────────
+
+
+def _generic_login(page, scraper, creds: dict):
+    """Best-effort generic portal login: navigate to LOGIN_URL, fill the first
+    username + password fields, submit. Carriers with bespoke flows (MFA,
+    multi-step) should define their own login(page, creds) in the scraper."""
+    login_url = getattr(scraper, "LOGIN_URL", None)
+    if login_url:
+        page.goto(login_url, timeout=30000)
+        page.wait_for_load_state("domcontentloaded", timeout=15000)
+    user = creds.get("username") or creds.get("user") or creds.get("email") or ""
+    pw = creds.get("password") or creds.get("pass") or ""
+    for sel in ('input[type="email"]', 'input[autocomplete="username"]',
+                'input[name*="user" i]', 'input[name*="email" i]',
+                'input[id*="user" i]', 'input[id*="email" i]'):
+        el = page.query_selector(sel)
+        if el:
+            el.fill(user); break
+    for sel in ('input[type="password"]', 'input[autocomplete="current-password"]',
+                'input[name*="pass" i]', 'input[id*="pass" i]'):
+        el = page.query_selector(sel)
+        if el:
+            el.fill(pw); break
+    for sel in ('button[type="submit"]', 'input[type="submit"]',
+                'button:has-text("Sign in")', 'button:has-text("Log in")',
+                'button:has-text("Login")'):
+        el = page.query_selector(sel)
+        if el:
+            el.click(); break
+    try:
+        page.wait_for_load_state("networkidle", timeout=20000)
+    except Exception:
+        pass
+
+
+def ensure_logged_in(page, scraper, carrier_id: str, creds: dict | None) -> dict:
+    """Before quoting, confirm we're authenticated on the carrier portal —
+    reusing the persistent context's existing cookies when possible, and only
+    logging in when needed. This is the "go to site → already logged in? →
+    log in if not" step.
+
+    Returns {"ok": True} when authenticated (already, or after auto-login),
+    else {"ok": False, "status": <semantic>, "error": <why>} so the caller
+    records a useful result row instead of letting the scraper crash deep in.
+    """
+    if not getattr(scraper, "REQUIRES_LOGIN", False):
+        return {"ok": True}
+
+    indicator = getattr(scraper, "LOGGED_IN_INDICATOR", None)
+    landing = getattr(scraper, "QUOTE_URL", None) or getattr(scraper, "LOGIN_URL", None)
+
+    # 1. Probe current auth state using whatever cookies we already hold.
+    try:
+        if landing:
+            page.goto(landing, timeout=30000)
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+    except Exception as e:
+        return {"ok": False, "status": "error", "error": f"could not open carrier site: {str(e)[:160]}"}
+
+    if _detect_logged_in(page, indicator):
+        return {"ok": True}  # already logged in — reuse the session, skip re-login
+
+    # 2. Not logged in. Auto-login if we have creds + a way to drive the form.
+    if creds:
+        login_fn = getattr(scraper, "login", None)
+        try:
+            if callable(login_fn):
+                login_fn(page, creds)
+            else:
+                _generic_login(page, scraper, creds)
+        except Exception as e:
+            return {"ok": False, "status": "login_failed", "error": f"auto-login error: {str(e)[:160]}"}
+        try:
+            page.wait_for_timeout(1500)
+        except Exception:
+            pass
+        if _detect_logged_in(page, indicator):
+            # Persist the fresh session so later headless runs reuse it.
+            try:
+                page.context.storage_state(path=str(storage_path_for(carrier_id)))
+            except Exception:
+                pass
+            return {"ok": True}
+        return {"ok": False, "status": "login_failed",
+                "error": "auto-login submitted but login wasn't confirmed — re-capture this carrier from Setup, or check the saved password."}
+
+    # 3. No creds and not logged in — the rep must capture/save a login.
+    return {"ok": False, "status": "needs_login",
+            "error": f"not logged in to {carrier_id} and no saved credentials — open Setup → capture a login or save credentials."}
+
+
 # ─── Quote flow ─────────────────────────────────────────────────────────────
 
 
@@ -504,12 +674,14 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
             })
             continue
 
-        carrier_creds = creds.get(carrier_id) if scraper.REQUIRES_LOGIN else None
+        # Per-rep credential resolution: local file → server vault. May be
+        # None when the rep relies on a captured session instead.
+        carrier_creds = resolve_creds(carrier_id, creds, settings) if scraper.REQUIRES_LOGIN else None
         if scraper.REQUIRES_LOGIN and not has_session(carrier_id) and not carrier_creds:
             supabase_insert("auto_quote_results", {
                 "request_id": req_id, "carrier_id": carrier_id,
                 "status": "no_creds",
-                "error": f"No session captured for {carrier_id} and no credentials saved — open Setup tab and capture login.",
+                "error": f"No session captured for {carrier_id} and no credentials saved — open Setup tab and capture login or save credentials.",
             })
             continue
 
@@ -517,6 +689,21 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
             p, context = get_browser(headless, carrier_id, persistent=True)
             try:
                 page = context.new_page()
+                # Reuse the existing session if still valid; auto-login when we
+                # have creds; otherwise tell the rep exactly why we stopped.
+                auth = ensure_logged_in(page, scraper, carrier_id, carrier_creds)
+                if not auth.get("ok"):
+                    ui_status = {"needs_login": "no_creds", "login_failed": "error"}.get(auth.get("status"), "error")
+                    supabase_insert("auto_quote_results", {
+                        "request_id": req_id, "carrier_id": carrier_id,
+                        "status": ui_status, "error": auth.get("error"),
+                    })
+                    if rep_id:
+                        supabase_upsert("carrier_sessions", {
+                            "rep_id": rep_id, "carrier_id": carrier_id,
+                            "last_failure": (auth.get("error") or "login failed")[:200],
+                        }, on_conflict="rep_id,carrier_id")
+                    continue
                 result = scraper.quote(profile, page, creds=carrier_creds)
                 supabase_insert("auto_quote_results", {
                     "request_id": req_id, "carrier_id": carrier_id,

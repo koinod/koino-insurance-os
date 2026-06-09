@@ -455,10 +455,36 @@
       return "linux";
     };
     const [osTab, setOsTab] = useState(detectOs);
+    // One-shot install token (5-min TTL) so the agent can pull centrally-saved
+    // carrier credentials from the server vault. Minted on demand; baked into
+    // the install one-liner as KOINO_RBA_TOKEN when present.
+    const [installToken, setInstallToken] = useState(null);
+    const [mintingToken, setMintingToken] = useState(false);
+    const mintInstallToken = async () => {
+      setMintingToken(true);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+        if (!session) { window.toast && window.toast("Sign in first to connect the agent.", "warn"); return; }
+        const r = await fetch("/api/agent/install-token", {
+          method: "POST",
+          headers: { authorization: `Bearer ${session.access_token}`, "content-type": "application/json" },
+          body: JSON.stringify({ role: me?.role || "rep" }),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.token) throw new Error(j.error || "mint failed");
+        setInstallToken(j.token);
+        window.toast && window.toast("Install token ready — paste the command within 5 min.", "success");
+      } catch (e) {
+        window.toast && window.toast(`Couldn't mint install token: ${e.message || e}`, "error");
+      } finally { setMintingToken(false); }
+    };
+    const tokEnvSh  = installToken ? `KOINO_RBA_TOKEN="${installToken}" ` : "";
+    const tokEnvPs  = installToken ? `$env:KOINO_RBA_TOKEN="${installToken}"; ` : "";
     const INSTALL_CMDS = {
-      macos:   `KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
-      linux:   `KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
-      windows: `$env:KOINO_REP_ID="${repId}"; iwr -useb "https://koino-insurance-os.vercel.app/agent/install.ps1" | iex`,
+      macos:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
+      linux:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
+      windows: `${tokEnvPs}$env:KOINO_REP_ID="${repId}"; iwr -useb "https://koino-insurance-os.vercel.app/agent/install.ps1" | iex`,
     };
     const OS_LABELS = {
       macos:   { label: "macOS",   sub: "bash · launchd" },
@@ -734,9 +760,13 @@
                 <pre className="mono" style={{ background: "var(--bg-raised)", padding: 12, borderRadius: 6, fontSize: 11.5, overflow: "auto", margin: 0, lineHeight: 1.55 }}>
                   {installCmd}
                 </pre>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="btn" onClick={() => { navigator.clipboard.writeText(installCmd); window.toast && window.toast(`${OS_LABELS[osTab].label} install command copied`, "success"); }}>
                     <Icons.Copy size={11}/> Copy
+                  </button>
+                  <button className="btn" onClick={mintInstallToken} disabled={mintingToken}
+                    title="Mint a 5-min one-shot token so the agent can pull your centrally-saved carrier logins from the vault">
+                    {mintingToken ? "Minting…" : installToken ? "↻ New token" : "🔑 Connect saved logins"}
                   </button>
                   {osTab === "windows" && (
                     <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", alignSelf: "center", flex: 1 }}>
@@ -746,7 +776,9 @@
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
                   Files installed to <code style={{ fontSize: 10.5 }}>{osTab === "windows" ? "%LOCALAPPDATA%\\Koino\\auto-quoter\\" : "~/.koino/auto-quoter/"}</code>.
-                  Credentials stored locally — never leave your machine.
+                  {installToken
+                    ? <> Token baked in — the agent will fetch your saved carrier logins. <strong>Run within 5 min</strong> (one-shot).</>
+                    : <> Click <strong>Connect saved logins</strong> to also pull your centrally-saved carrier credentials; otherwise the agent uses captured sessions + local <code style={{ fontSize: 10 }}>credentials.json</code>.</>}
                 </div>
               </div>
             </div>

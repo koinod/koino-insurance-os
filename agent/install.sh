@@ -128,15 +128,48 @@ echo "              koino-quote inspect <carrier>   (dump quote-form selectors)"
 echo "              koino-quote status              (list captured sessions)"
 
 # ── 5. Initial settings ────────────────────────────────────────────────────
+# Optional: redeem a one-shot install token (generated in Settings → Agents)
+# so the agent can fetch saved carrier credentials from the server vault via
+# /api/agent/connector-exchange. Without it the agent still works using
+# captured sessions + the local credentials.json; it just can't pull the
+# centrally-saved logins.
+API_BASE="${KOINO_API_BASE:-https://os.koino.capital}"
+AGENT_TOKEN_JSON="null"
+if [ -n "${KOINO_RBA_TOKEN:-}" ]; then
+  echo "  redeeming install token against ${API_BASE} ..."
+  REDEEM=$(curl -fsS -X POST "${API_BASE}/api/agent/redeem" \
+    -H 'content-type: application/json' \
+    -d "{\"token\":\"${KOINO_RBA_TOKEN}\",\"hostname\":\"$(hostname)\",\"os\":\"$(uname -s)\",\"cpu\":\"$(uname -m)\",\"ram_gb\":0,\"version\":\"0.2.0\",\"models\":[]}" 2>/dev/null || echo "")
+  TOK=$(printf '%s' "$REDEEM" | grep -oE '"agent_token":"[^"]+"' | head -1 | cut -d\" -f4)
+  if [ -n "$TOK" ]; then
+    AGENT_TOKEN_JSON="\"${TOK}\""
+    echo "  ✓ install token redeemed — saved-credential fetch enabled"
+  else
+    echo "  ⚠ install token redeem failed; continuing without vault fetch ($REDEEM)"
+  fi
+fi
 SETTINGS_PATH="${INSTALL_DIR}/settings.json"
 if [ ! -f "$SETTINGS_PATH" ]; then
   cat > "$SETTINGS_PATH" <<JSON
 {
   "rep_id": "${KOINO_REP_ID:-}",
   "headless": true,
-  "agent_token": null
+  "agent_token": ${AGENT_TOKEN_JSON}
 }
 JSON
+elif [ "$AGENT_TOKEN_JSON" != "null" ]; then
+  # Settings already exist — patch in the freshly redeemed token without
+  # clobbering the rep's other settings (rep_id, headless).
+  "$PY" - "$SETTINGS_PATH" "$AGENT_TOKEN_JSON" <<'PYEOF'
+import json, sys
+path, tok_json = sys.argv[1], sys.argv[2]
+try:
+    s = json.load(open(path))
+except Exception:
+    s = {}
+s["agent_token"] = json.loads(tok_json)
+json.dump(s, open(path, "w"), indent=2)
+PYEOF
 fi
 chmod 600 "$SETTINGS_PATH"
 touch "${INSTALL_DIR}/credentials.json"

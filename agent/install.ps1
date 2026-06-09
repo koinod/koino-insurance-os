@@ -88,11 +88,38 @@ foreach ($f in $Scrapers) {
 Write-Host "  agent files + scrapers installed (14 carriers)"
 
 # ── 6. Initial settings + creds files ───────────────────────────────────────
+# Optional: redeem a one-shot install token (Settings → Agents) so the agent
+# can fetch saved carrier credentials from the server vault. Without it the
+# agent still runs on captured sessions + local credentials.json.
+$ApiBase = if ($env:KOINO_API_BASE) { $env:KOINO_API_BASE } else { "https://os.koino.capital" }
+$AgentToken = $null
+if ($env:KOINO_RBA_TOKEN) {
+  Write-Host "  redeeming install token against $ApiBase ..."
+  try {
+    $body = @{ token = $env:KOINO_RBA_TOKEN; hostname = $env:COMPUTERNAME; os = "windows"; cpu = $env:PROCESSOR_ARCHITECTURE; ram_gb = 0; version = "0.2.0"; models = @() } | ConvertTo-Json
+    $redeem = Invoke-RestMethod -Uri "$ApiBase/api/agent/redeem" -Method Post -ContentType "application/json" -Body $body
+    if ($redeem.agent_token) {
+      $AgentToken = $redeem.agent_token
+      Write-Host "  OK install token redeemed - saved-credential fetch enabled" -ForegroundColor Green
+    } else {
+      Write-Host "  WARN install token redeem returned no agent_token" -ForegroundColor Yellow
+    }
+  } catch {
+    Write-Host "  WARN install token redeem failed: $_" -ForegroundColor Yellow
+  }
+}
 $SettingsPath = Join-Path $InstallDir "settings.json"
 if (-not (Test-Path $SettingsPath)) {
   $repId = if ($env:KOINO_REP_ID) { $env:KOINO_REP_ID } else { "" }
-  $settings = @{ rep_id = $repId; headless = $true; agent_token = $null } | ConvertTo-Json
+  $settings = @{ rep_id = $repId; headless = $true; agent_token = $AgentToken } | ConvertTo-Json
   $settings | Out-File -Encoding utf8 $SettingsPath
+} elseif ($AgentToken) {
+  # Patch the freshly redeemed token into existing settings without clobbering.
+  try {
+    $existing = Get-Content $SettingsPath -Raw | ConvertFrom-Json
+    $existing | Add-Member -NotePropertyName agent_token -NotePropertyValue $AgentToken -Force
+    $existing | ConvertTo-Json | Out-File -Encoding utf8 $SettingsPath
+  } catch { }
 }
 $CredsPath = Join-Path $InstallDir "credentials.json"
 if (-not (Test-Path $CredsPath)) { "{}" | Out-File -Encoding utf8 $CredsPath }
