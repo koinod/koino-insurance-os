@@ -65,4 +65,66 @@ class NoLoginScraper:
 check("ensure_logged_in ok when REQUIRES_LOGIN is False",
       qa.ensure_logged_in(FakePage(), NoLoginScraper(), "x", None) == {"ok": True})
 
+
+# _profile_value: profile → field mapping.
+prof = {"age": 65, "state": "TX", "zip": "75201", "gender": "M", "tobacco": True, "planVariant": "G"}
+check("_profile_value age", qa._profile_value(prof, "age") == 65)
+check("_profile_value tobacco→yes", qa._profile_value(prof, "tobacco") == "yes")
+check("_profile_value plan alias", qa._profile_value(prof, "plan") == "G")
+check("_profile_value override wins", qa._profile_value(prof, "age", 99) == 99)
+
+
+# run_mapped_quote: replay a map against a fully fake page.
+class FakeEl:
+    def __init__(self, text=""):
+        self._text = text
+        self.filled = None
+        self.selected = None
+        self.clicked = False
+    def fill(self, v): self.filled = v
+    def select_option(self, v): self.selected = v
+    def click(self): self.clicked = True
+    def inner_text(self, timeout=0): return self._text
+
+
+class FakeLocator:
+    def __init__(self, text): self._t = text
+    def inner_text(self, timeout=0): return self._t
+
+
+class MapFakePage:
+    def __init__(self, body_text):
+        self.url = "https://carrier/quote"
+        self._body = body_text
+        self.selectors_seen = []
+    def goto(self, url, timeout=0): self.url = url
+    def wait_for_load_state(self, *a, **k): pass
+    def wait_for_timeout(self, *a, **k): pass
+    def locator(self, sel): return FakeLocator(self._body)
+    def query_selector(self, sel):
+        self.selectors_seen.append(sel)
+        return FakeEl()
+
+
+m = {
+    "carrier_id": "demo",
+    "quote_url": "https://carrier/quote",
+    "fields": [
+        {"key": "age", "selector": "#age", "type": "fill"},
+        {"key": "state", "selector": "#state", "type": "select"},
+    ],
+    "submit_selector": "#go",
+    "rate_regex": r"\$(\d+(?:\.\d{2})?)/mo",
+}
+res = qa.run_mapped_quote(m, prof, MapFakePage("Your rate is $142.30/mo today"))
+check("run_mapped_quote parses premium", res.get("premium") == 142.30 and not res.get("decline"))
+
+res2 = qa.run_mapped_quote(m, prof, MapFakePage("no price here"))
+check("run_mapped_quote declines when no rate matches", res2.get("decline") is True)
+
+# MapScraper exposes the scraper contract.
+ms = qa.MapScraper({"carrier_id": "demo", "login_url": "https://x/login", "logged_in_indicator": "selector:.out"})
+check("MapScraper REQUIRES_LOGIN derived", ms.REQUIRES_LOGIN is True)
+check("MapScraper LOGIN_URL", ms.LOGIN_URL == "https://x/login")
+
 print("\nall quote_agent wiring smokes passed")

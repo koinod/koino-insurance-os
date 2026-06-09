@@ -631,6 +631,145 @@ def ensure_logged_in(page, scraper, carrier_id: str, creds: dict | None) -> dict
             "error": f"not logged in to {carrier_id} and no saved credentials — open Setup → capture a login or save credentials."}
 
 
+# ─── Saved rate-path maps (record + replay) ─────────────────────────────────
+
+
+def fetch_quote_map(carrier_id: str, settings: dict) -> dict | None:
+    """GET this rep's agency map for a carrier from /api/agent/quote-map.
+    Returns the map dict or None. Requires settings['agent_token']."""
+    token = settings.get("agent_token")
+    if not token:
+        return None
+    try:
+        import requests as _r
+        resp = _r.get(
+            f"{API_BASE}/api/agent/quote-map",
+            headers={"x-agent-token": token},
+            params={"carrier": carrier_id},
+            timeout=12,
+        )
+    except Exception as e:
+        log(f"quote-map {carrier_id}: network error {e}")
+        return None
+    if resp.status_code != 200:
+        if resp.status_code not in (401, 404):
+            log(f"quote-map {carrier_id}: HTTP {resp.status_code} {resp.text[:160]}")
+        return None
+    try:
+        m = resp.json()
+    except Exception:
+        return None
+    return m if isinstance(m, dict) and m.get("carrier_id") else None
+
+
+def _profile_value(profile: dict, key, override=None):
+    """Resolve a map field's value from the lead profile (or a fixed override)."""
+    if override not in (None, ""):
+        return override
+    k = str(key or "").lower()
+    if k in ("zip", "zipcode"):       return profile.get("zip")
+    if k == "age":                    return profile.get("age")
+    if k == "state":                  return profile.get("state")
+    if k in ("gender", "sex"):        return profile.get("gender")
+    if k in ("tobacco", "smoker"):    return "yes" if profile.get("tobacco") else "no"
+    if k in ("plan", "planvariant"):  return profile.get("planVariant")
+    return profile.get(key)
+
+
+def run_mapped_quote(m: dict, profile: dict, page) -> dict:
+    """Replay a saved carrier_quote_maps row to pull a rate. Same return shape
+    as a hand-coded scraper.quote(). Login is handled upstream by
+    ensure_logged_in via the MapScraper shim."""
+    import re
+    try:
+        quote_url = m.get("quote_url")
+        if quote_url:
+            page.goto(quote_url, timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+
+        # Pre-fill navigation steps (dismiss modals, click "New quote", etc.)
+        for step in (m.get("steps") or []):
+            action = str(step.get("action") or "").lower()
+            sel = step.get("selector")
+            if action == "goto" and (step.get("value") or sel):
+                page.goto(step.get("value") or sel, timeout=30000)
+            elif action == "click" and sel:
+                el = page.query_selector(sel)
+                if el:
+                    el.click()
+            elif action == "wait":
+                try:
+                    page.wait_for_timeout(int(step.get("value") or 1000))
+                except Exception:
+                    pass
+
+        # Map lead-profile values onto form fields.
+        for f in (m.get("fields") or []):
+            sel = f.get("selector")
+            if not sel:
+                continue
+            val = _profile_value(profile, f.get("key"), f.get("value"))
+            if val is None or val == "":
+                continue
+            el = page.query_selector(sel)
+            if not el:
+                continue
+            typ = str(f.get("type") or "fill").lower()
+            if typ == "select":
+                el.select_option(str(val))
+            elif typ in ("radio", "click", "check"):
+                el.click()
+            else:
+                el.fill(str(val))
+
+        if m.get("submit_selector"):
+            el = page.query_selector(m["submit_selector"])
+            if el:
+                el.click()
+        try:
+            page.wait_for_load_state("networkidle", timeout=20000)
+            page.wait_for_timeout(1200)
+        except Exception:
+            pass
+
+        text = ""
+        if m.get("rate_selector"):
+            el = page.query_selector(m["rate_selector"])
+            if el:
+                text = el.inner_text() or ""
+        if not text:
+            text = page.locator("body").inner_text(timeout=3000) or ""
+
+        rx = m.get("rate_regex") or r"\$(\d{2,5}(?:\.\d{2})?)"
+        mt = re.search(rx, text)
+        if not mt:
+            return {"decline": True,
+                    "reason": "mapped quote ran but no rate matched rate_regex — refine the map in Auto Quoter → Map",
+                    "raw": text[:600]}
+        premium = float(mt.group(mt.lastindex or 1))
+        return {"premium": premium, "decline": False, "raw": text[:1000]}
+    except Exception as e:
+        return {"decline": True, "reason": f"mapped quote error: {str(e)[:200]}"}
+
+
+class MapScraper:
+    """Adapts a saved carrier_quote_maps row to the scraper contract so the
+    generic login + quote flow drives it exactly like a hand-coded module."""
+    def __init__(self, m: dict):
+        self._m = m
+        self.CARRIER_NAME = m.get("carrier_id")
+        self.LOGIN_URL = m.get("login_url")
+        self.QUOTE_URL = m.get("quote_url")
+        self.LOGGED_IN_INDICATOR = m.get("logged_in_indicator")
+        self.REQUIRES_LOGIN = bool(m.get("login_url") or m.get("logged_in_indicator"))
+
+    def quote(self, profile, page, creds=None) -> dict:
+        return run_mapped_quote(self._m, profile, page)
+
+
 # ─── Quote flow ─────────────────────────────────────────────────────────────
 
 
@@ -667,10 +806,17 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
 
     for carrier_id in enabled_carriers:
         scraper = scrapers.get(carrier_id)
+        # A saved, rep-authored rate-path map takes precedence over (and fills
+        # in for) a hand-coded scraper.
+        saved_map = fetch_quote_map(carrier_id, settings)
+        if saved_map:
+            scraper = MapScraper(saved_map)
+            log(f"QUOTE {req_id} / {carrier_id}: using saved rate-path map")
         if not scraper:
             supabase_insert("auto_quote_results", {
                 "request_id": req_id, "carrier_id": carrier_id,
-                "status": "no_scraper", "error": f"No scraper module for {carrier_id}",
+                "status": "no_scraper",
+                "error": f"No scraper or saved map for {carrier_id} — map it in Auto Quoter → Map, or add a scraper.",
             })
             continue
 

@@ -882,6 +882,9 @@
                 })}
               </div>
             </div>
+
+            {/* ─── Rate-path map (record + replay) ──────────────────────────── */}
+            <RatePathMapEditor carriers={SUPPORTED_CARRIERS}/>
           </div>
         )}
 
@@ -1050,6 +1053,119 @@
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ─── Rate-path map editor ──────────────────────────────────────────────
+  // Author/edit a carrier_quote_maps row (per-agency). The agent replays it
+  // to pull rates without a hand-coded scraper. Use the per-carrier "Inspect"
+  // button above to dump selectors, then paste them into the fields here.
+  function RatePathMapEditor({ carriers = [] }) {
+    const { useState } = React;
+    const [carrierId, setCarrierId] = useState(carriers[0]?.id || "");
+    const [json, setJson]   = useState("");
+    const [busy, setBusy]   = useState(false);
+    const [status, setStatus] = useState("");
+
+    const TEMPLATE = (cid) => ({
+      carrier_id: cid,
+      quote_url: "",
+      login_url: "",
+      logged_in_indicator: "",          // "selector:<css>" or a URL substring
+      steps: [],                         // [{action:"click"|"wait"|"goto", selector?, value?}]
+      fields: [                          // [{key, selector, type:"fill"|"select"|"radio"}]
+        { key: "age",   selector: "", type: "fill" },
+        { key: "state", selector: "", type: "select" },
+        { key: "zip",   selector: "", type: "fill" },
+      ],
+      submit_selector: "",
+      rate_selector: "",
+      rate_regex: "\\$(\\d{2,5}(?:\\.\\d{2})?)",
+      active: true,
+    });
+
+    const authHeader = async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      const { data: { session } } = sb ? await sb.auth.getSession() : { data: { session: null } };
+      return session ? { authorization: `Bearer ${session.access_token}` } : null;
+    };
+
+    const load = async () => {
+      if (!carrierId) return;
+      setBusy(true); setStatus("");
+      try {
+        const h = await authHeader();
+        if (!h) { setStatus("Sign in first"); return; }
+        const r = await fetch(`/api/agent/quote-map?carrier=${encodeURIComponent(carrierId)}`, { headers: h });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "load failed");
+        if (j) {
+          setJson(JSON.stringify({
+            carrier_id: carrierId,
+            quote_url: j.quote_url || "", login_url: j.login_url || "",
+            logged_in_indicator: j.logged_in_indicator || "",
+            steps: j.steps || [], fields: j.fields || [],
+            submit_selector: j.submit_selector || "", rate_selector: j.rate_selector || "",
+            rate_regex: j.rate_regex || "", active: j.active !== false,
+          }, null, 2));
+          setStatus("Loaded saved map");
+        } else {
+          setJson(JSON.stringify(TEMPLATE(carrierId), null, 2));
+          setStatus("No map yet — template loaded");
+        }
+      } catch (e) { setStatus(e.message); } finally { setBusy(false); }
+    };
+
+    const save = async () => {
+      setBusy(true); setStatus("");
+      try {
+        let body;
+        try { body = JSON.parse(json); } catch { setStatus("Invalid JSON — fix and retry"); return; }
+        body.carrier_id = carrierId;
+        const h = await authHeader();
+        if (!h) { setStatus("Sign in first"); return; }
+        const r = await fetch("/api/agent/quote-map", {
+          method: "POST", headers: { ...h, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "save failed");
+        setStatus("Saved ✓");
+        window.toast && window.toast(`Rate-path map saved for ${carrierId}`, "success");
+      } catch (e) {
+        setStatus(e.message);
+        window.toast && window.toast(`Map save failed: ${e.message}`, "error");
+      } finally { setBusy(false); }
+    };
+
+    const inp = { padding: "6px 8px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 12, color: "var(--text-primary)" };
+    return (
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-h">
+          <Icons.Search size={13}/>
+          <h3>Rate-path map <span style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 400 }}>· record &amp; replay (no scraper needed)</span></h3>
+        </div>
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            Map a carrier's quote form once and the agent replays it — no code. Pick a carrier, click <strong>Inspect</strong> above to dump its selectors, then fill <code style={{ fontSize: 11 }}>fields[].selector</code>, <code style={{ fontSize: 11 }}>submit_selector</code> and <code style={{ fontSize: 11 }}>rate_regex</code> below and save. A saved map takes precedence over the built-in scraper.
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <select style={inp} value={carrierId} onChange={(e) => setCarrierId(e.target.value)}>
+              {carriers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button className="btn" disabled={busy} onClick={load}>Load</button>
+            <button className="btn btn-primary" disabled={busy || !json} onClick={save}>Save map</button>
+            {status && <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{status}</span>}
+          </div>
+          <textarea
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            spellCheck={false}
+            placeholder='Click "Load" to start from the saved map or a template…'
+            style={{ ...inp, minHeight: 240, fontFamily: "var(--font-mono, monospace)", fontSize: 11.5, lineHeight: 1.5, whiteSpace: "pre", overflowWrap: "normal", overflowX: "auto" }}
+          />
+        </div>
       </div>
     );
   }
