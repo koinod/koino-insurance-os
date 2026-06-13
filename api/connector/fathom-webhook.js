@@ -5,19 +5,56 @@
 //   3. Post a `post_call_followup` command to the lead-owner's device(s)
 //      so the agent can fire the post-meeting drip.
 //
-// No bearer auth — Fathom signs requests but we don't yet verify (TODO:
-// HMAC verification once we know which header Fathom uses). Idempotency:
+// Verifies the Standard-Webhooks signature Fathom sends (webhook-id /
+// webhook-timestamp / webhook-signature) against FATHOM_WEBHOOK_SECRET when
+// configured. Fail-open when the secret is unset so the integration keeps
+// working until the operator sets it (mirrors verifyCalendly). Idempotency:
 // fathom event_id is upserted into meeting_notes.
 import { SUPA_URL, SERVICE, cors } from "../agent/_lib.js";
 
 export const config = { runtime: "edge" };
 
+// Standard Webhooks (Svix) verification. Per https://developers.fathom.ai/webhooks
+// the signed content is `${webhook-id}.${webhook-timestamp}.${rawBody}`, HMAC-SHA256
+// keyed by base64-decode(secret after the `whsec_` prefix), and the result is
+// base64-encoded. `webhook-signature` is a space-delimited list of `v1,<base64sig>`
+// entries — a match on any one passes. We reject deliveries whose timestamp drifts
+// more than 5 minutes (the spec's recommended replay window).
+export async function verifyFathom(rawBody, headers, secret) {
+  if (!secret) return true;                      // unconfigured → fail open (non-breaking)
+  const id  = headers.get("webhook-id");
+  const ts  = headers.get("webhook-timestamp");
+  const sigHeader = headers.get("webhook-signature");
+  if (!id || !ts || !sigHeader) return false;
+  const t = parseInt(ts, 10);
+  if (!Number.isFinite(t) || Math.abs(Math.floor(Date.now() / 1000) - t) > 300) return false;
+  const keyB64 = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+  let keyBytes;
+  try { keyBytes = Uint8Array.from(atob(keyB64), c => c.charCodeAt(0)); } catch { return false; }
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${id}.${ts}.${rawBody}`));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+  for (const entry of sigHeader.split(" ")) {
+    const comma = entry.indexOf(",");
+    const provided = comma === -1 ? entry : entry.slice(comma + 1);   // strip `v1,` version prefix
+    if (provided.length !== expected.length) continue;
+    let r = 0; for (let i = 0; i < expected.length; i++) r |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+    if (r === 0) return true;                     // constant-time match
+  }
+  return false;
+}
+
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: cors() });
 
+  const raw = await req.text();
+  const ok  = await verifyFathom(raw, req.headers, process.env.FATHOM_WEBHOOK_SECRET);
+  if (!ok) return new Response(JSON.stringify({ error: "bad signature" }), { status: 401, headers: cors() });
+
   let body = {};
-  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
+  try { body = JSON.parse(raw); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return new Response(JSON.stringify({ error: "body must be a JSON object" }), { status: 400, headers: cors() });
   }
