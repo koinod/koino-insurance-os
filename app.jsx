@@ -203,6 +203,7 @@ function App() {
     if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { role });
+      case "recorder":    return F("PageRecorder", { role });
       case "floor":       return _floorEnabled
                                  ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
                                  : F("PageToday", { role });

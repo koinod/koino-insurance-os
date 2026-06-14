@@ -70,6 +70,7 @@ const NAV = {
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
+    { id: "recorder",    label: "Recorder",     icon: "Mic" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "book",        label: "Book",         icon: "Activity" },
@@ -80,6 +81,7 @@ const NAV = {
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
     { id: "floor",       label: "Floor",        icon: "Phone" },
+    { id: "recorder",    label: "Recorder",     icon: "Mic" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "attribution", label: "Lead Vendors", icon: "ArrowUpRight" },
