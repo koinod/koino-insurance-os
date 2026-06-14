@@ -170,3 +170,38 @@ Each ships independently (no big-bang). If a proof is blocked (Chrome MCP not co
 ---
 
 *End of Phase 0. Per the brief: committing this to `main`, then waiting for green-light or amendments before any code. The 14-day plan and §8 decisions are the fastest path from this doc to transform #1 live on https://repflow.koino.capital.*
+
+---
+
+## 9. Phase 0.1 — Ian's decisions, LOCKED 2026-06-14
+
+Ian green-lit with amendments. These override the proposals above where they conflict.
+
+### Reshaped Phase 1 order
+1. **Call recording — make it actually work, standalone.** "Record the audio at minimum," separate from the deactivated Floor, so any rep/manager can record a dialing session. This is now transform #1.
+2. **AI coaching review of recorded calls** — the agent reviews recordings and helps reps *actually learn to be better* (transform #2, unchanged but explicitly tied to #1's output).
+3. **Home screen = daily-goals logbook + motivation engine** (new, elevated). Reps/managers set daily goals (dials, etc.), log against them, hit goals → rewards. "Not a video game, but motivation" — simple, straight, the operator mindset: set goals → reach → hit → get rewarded ("some sort of game / vacation"). This replaces the generic Daily Brief framing for the rep home screen; the proactive cards become part of it.
+
+### Moat — re-pointed (overrides §4)
+Lead routing is **out** as the moat. The agent's job is to **help reps build their business**: log spend + new clients, help managers recruit, get the right quotes while listening to recorded calls. The real moat is the **culmination**:
+- **AI Quoter v1** (exists — `quote_agent.py` RBA) — gets the quotes.
+- **AI Application-filler v2** (the moat) — maps and fills out carrier applications with banking info, socials, etc. This is the deep, hard-to-copy asset. V2 builds toward it.
+
+### Other locked calls
+- **Out-of-app push channel: Email.**
+- **Demo data: Zay's book.**
+- Lead-routing autonomy question: **moot** (routing dropped from scope).
+
+### Root-cause finding that reshapes transform #1 (discovered 2026-06-14, verified in source)
+"Call recordings don't actually work" has a concrete cause: **two disconnected recording data models.**
+- `api/twilio-recording.js` + `PostCallTranscript` UI write/read **`vault_artifacts`** (kind=Recording).
+- The coaching engine — `api/cron/transcribe-call-recordings.js` + `api/cron/score-recent-calls.js` → `call_coaching_scores` — reads a **different table, `call_recordings`** (`audio_path` in the `call-recordings` storage bucket; schema in migration `0015`).
+
+Nothing in the app writes `call_recordings`, so the scoring cron starves and coaching never appears. **The fix is the standalone recorder writing `call_recordings` + uploading to the `call-recordings` bucket.** It's the exact missing link: the scoring cron already exists and is waiting for input. So transform #1 directly unblocks transform #2 with zero new backend scoring work.
+
+**Transform #1 build (locked):**
+- New standalone surface `page-recorder.jsx` + its own nav entry (rep + manager), NOT inside Floor. Big Record button → reuses `LiveTranscriber`'s mic+system/Twilio stream mixing → `MediaRecorder` accumulates the full blob → on Stop, uploads to the `call-recordings` bucket and inserts a `call_recordings` row (`source='recorder'`, `transcript_url` null, rep_id/agency_id from `me()`).
+- Recordings list on the same page: the rep's recent recordings + transcript (when the cron fills it) + coaching score (from `call_coaching_scores`) when ready.
+- Existing crons (`transcribe-call-recordings`, `score-recent-calls`) require no change — they already consume `call_recordings`.
+
+**Verification reality (named, not faked):** the upload→`call_recordings`→cron path is curl/SQL-verifiable with a synthetic blob. The *mic-capture* flow (getUserMedia + MediaRecorder) fundamentally needs a real browser with a mic-permission grant and a human gesture — it cannot be exercised headlessly. **Chrome MCP is not connected this session**, so the on-screen walkthrough proof from the brief is blocked. Final proof of the capture flow is either (a) Ian connecting the Chrome extension, or (b) Ian's ~60-second click-test (open Recorder → grant mic → record 10s → see the row + transcript). Everything up to the mic grant is verified deterministically.
