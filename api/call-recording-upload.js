@@ -64,7 +64,9 @@ export default async function handler(req) {
   const upR = await fetch(`${SUPA_URL}/storage/v1/object/${BUCKET}/${path}`, {
     method: "POST",
     headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": mime, "x-upsert": "true" },
-    body: file.stream ? file.stream() : await file.arrayBuffer(),
+    // Buffer rather than stream: a ReadableStream body needs `duplex: 'half'`
+    // and isn't reliable across edge/undici. 60MB cap keeps this memory-safe.
+    body: await file.arrayBuffer(),
   });
   if (!upR.ok) {
     const detail = await upR.text().catch(() => "");
