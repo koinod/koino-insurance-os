@@ -1123,3 +1123,73 @@ allocations; do not couple inserts.
 - Auto-suggest allocations: when logging a deposit for carrier X,
   surface the open expected commission rows ordered by age and let
   the rep one-click attach.
+
+---
+
+## 2026-06-14 — Deal write now materializes the client (Client Book was empty in prod)
+
+**Symptom (operator framing):** "PNL/Client Book isn't connected to deals —
+adding a deal should create the underlying client."
+
+**Root cause (verified by grep, not assumption):** nothing in the app OR the
+DB ever inserted a `public.clients` row. The *only* reference to the `clients`
+table in the entire codebase was the READ at `data.jsx:544`
+(`scope(sb.from("clients").select("*"))`). So `AppData.CLIENTS` was always
+`[]`, and `page-client-book.jsx::deriveClients()` (which iterates CLIENTS)
+rendered "book · empty" forever — even though deals existed.
+
+**The data model (recalibrate the mental model — there is NO `policies.client_id`):**
+`clients` and `policies` are **siblings**, both linked to the pipeline lead:
+```
+pipeline (lead)
+  ├── policies.lead_pipeline_id   → the deal
+  └── clients.lead_pipeline_id    → the client-book entry
+```
+The Client Book join is `clients.lead_pipeline_id === policies.lead_pipeline_id`.
+`clients` has **no `agency_id` column** (confirmed: not in
+`TABLES_WITH_AGENCY_ID`, and RLS `0042 "tenant rw clients"` authorizes via the
+linked `pipeline.agency_id`). So to create a client you set `lead_pipeline_id`
+ONLY — the linked lead's agency carries tenancy.
+
+**Fix (CODE, not schema — the FK + RLS already existed):**
+`AppData.mutate.ensureClientForLead({leadId,name,phone,email})` in `data.jsx`
+— idempotent (dedupes in-memory AND against the DB by `lead_pipeline_id`),
+best-effort (never blocks the deal write), guards out demo/`tmp-`/`local-`/
+non-string ids that have no real pipeline UUID, and `full_name` falls back to
+`—` (NOT NULL). `DealWriteForm.submit()` (`page-deal-write.jsx`, the single
+canonical deal surface — quick-log delegates to it) calls it after the policy
+insert and on edit (idempotent backfill for legacy deals). Lead-vendor linkage
+already worked (`policies.lead_source_id` + inline `agency_lead_sources`
+create); client linkage was the missing sibling.
+
+No migration: the `clients.lead_pipeline_id → pipeline` FK and the RLS policy
+were already there. Cache-busters: `data.js` 97→98, `page-deal-write.js`
+103→104 (index / login-mirror / mobile). Commit `c87fb8d`.
+
+**Verification reality (honest):** no Supabase MCP, `.env.local` keys are
+empty (Vercel-only), no connected browser this session — so NO live DB
+before/after row-count was possible. Proven instead: (1) deploy live by
+CONTENT (`curl | grep ensureClientForLead` → 2 hits in both live bundles, not
+just HTTP 200); (2) the **real shipped `dist/data.js`** loaded in a Node shim
+and `ensureClientForLead` exercised through 9 scenarios — all PASS (correct
+insert shape with no `agency_id`, field mapping, in-mem + cross-tab
+idempotency, FK-guard skips, NOT-NULL fallback, demo branch). The one missing
+proof is the live end-to-end UI write.
+
+**TODO (next session with DB/browser access):** confirm live — write a deal for
+a brand-new lead in a real agency, then in the Supabase SQL editor:
+```sql
+-- before/after: clients in an agency's book (tenancy via pipeline)
+select count(*) from public.clients c
+  join public.pipeline p on p.id = c.lead_pipeline_id
+ where p.agency_id = '<agency-uuid>';
+-- orphan deals that SHOULD now self-heal on next write/edit:
+select count(*) from public.policies po
+ where po.agency_id = '<agency-uuid>' and po.lead_pipeline_id is not null
+   and not exists (select 1 from public.clients c where c.lead_pipeline_id = po.lead_pipeline_id);
+```
+**Stronger future fix (deferred — needs MCP to apply):** a `BEFORE INSERT`
+trigger on `policies` that ensures a `clients` row (same "last line of defense"
+pattern as `tg_agency_members_ensure_rep`, 0057) would cover ALL write paths +
+backfill history in one migration. Not shippable this session: no Supabase MCP,
+and the CI migration-gate fails any push that adds an unapplied migration file.
