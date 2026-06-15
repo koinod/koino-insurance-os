@@ -127,6 +127,7 @@ window.AppData = {
   REPS: [], PIPELINE: [], QUEUE: [], COURSES: [], RECORDINGS: [],
   CONNECTIONS: [], HARDWARE: [], AGENTS: [], WORKFLOWS: [],
   SEQUENCES: [], SEQUENCE_ENROLLMENTS: [],
+  AGENCY_LEAD_SOURCES: [],
   ORG_SETTINGS: {},
   TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
   SEGMENTS: [],
@@ -495,7 +496,7 @@ window.hydrateFromSupabase = async function () {
       const [
         carriersR, productsR, apptsR, agencyApptsR,
         policiesR, commissionsR, payoutsR, clawbacksR,
-        leadSourcesR, attributionsR, touchpointsR,
+        leadSourcesR, agencyLeadSourcesR, attributionsR, touchpointsR,
         nigoReasonsR, nigosR,
         forecastRunsR, forecastOverridesR,
         coachingSessionsR, coachingNotesR,
@@ -529,6 +530,7 @@ window.hydrateFromSupabase = async function () {
         // Reference:
         sb.from("lead_sources").select("*"),
         // Tenant-specific:
+        scope(sb.from("agency_lead_sources").select("*").order("name")),
         scope(sb.from("attributions").select("*")),
         scope(sb.from("touchpoints").select("*").order("occurred_at", { ascending: false }).limit(500)),
         // Reference:
@@ -648,6 +650,12 @@ window.hydrateFromSupabase = async function () {
       }));
       window.AppData.LEAD_SOURCES = mapRows(leadSourcesR, s => ({
         id: s.id, name: s.name, kind: s.kind, vendor: s.vendor,
+        active: s.active !== false,
+        costPerLead: s.cost_per_lead_cents ? cents(s.cost_per_lead_cents) : 0
+      }));
+      window.AppData.AGENCY_LEAD_SOURCES = mapRows(agencyLeadSourcesR, s => ({
+        id: s.id, name: s.name, kind: s.kind || "vendor", vendor: s.vendor,
+        active: s.active !== false,
         costPerLead: s.cost_per_lead_cents ? cents(s.cost_per_lead_cents) : 0
       }));
       window.AppData.ATTRIBUTIONS = mapRows(attributionsR, a => ({
@@ -1074,7 +1082,7 @@ window.subscribeRealtime = function () {
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
   const toJs = (table, r) => {
-    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, owner: r.owner_rep_id, consent: r.consent, heat: r.heat, phone: r.phone || null, email: r.email || null };
+    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, leadSourceId: r.lead_source_id || null, owner: r.owner_rep_id, consent: r.consent, heat: r.heat, phone: r.phone || null, email: r.email || null };
     if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score, phone: r.phone || null, email: r.email || null, assignedRepId: r.assigned_rep_id || null };
     if (table === "reps")       return { id: r.id, name: r.name, handle: r.handle, tier: r.tier, mtd: Math.round(r.mtd_cents/100), today: Math.round(r.today_cents/100), streak: r.streak_days, dials: r.dials, presence: r.presence, appts: r.appts, color: r.color };
     if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
@@ -1317,6 +1325,109 @@ window.AppData.mutate = {
       const sb = window.getSupabase(); if (!sb) return;
       const { error } = await sb.from("pipeline").update({ owner_rep_id: ownerRepId }).eq("id", id);
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+  },
+
+  async pipelineUpdate(id, patch = {}) {
+    const keys = Object.keys(patch || {});
+    if (keys.length === 1 && keys[0] === "stage") return this.pipelineStage(id, patch.stage);
+    if (keys.length === 1 && keys[0] === "owner") return this.pipelineOwner(id, patch.owner);
+
+    const row = window.AppData.PIPELINE.find(p => p.id === id);
+    if (row) {
+      if (Object.prototype.hasOwnProperty.call(patch, "stage")) row.stage = patch.stage;
+      if (Object.prototype.hasOwnProperty.call(patch, "owner")) row.owner = patch.owner;
+      if (Object.prototype.hasOwnProperty.call(patch, "source")) row.source = patch.source;
+      if (Object.prototype.hasOwnProperty.call(patch, "leadSourceId")) row.leadSourceId = patch.leadSourceId || null;
+      row.last = "Just now";
+    }
+    _emitMutation("pipeline", "update", id);
+
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const dbPatch = { updated_at: new Date().toISOString() };
+      if (Object.prototype.hasOwnProperty.call(patch, "stage")) dbPatch.stage = patch.stage;
+      if (Object.prototype.hasOwnProperty.call(patch, "owner")) dbPatch.owner_rep_id = patch.owner;
+      if (Object.prototype.hasOwnProperty.call(patch, "source")) dbPatch.source = patch.source || null;
+      if (Object.prototype.hasOwnProperty.call(patch, "leadSourceId")) dbPatch.lead_source_id = patch.leadSourceId || null;
+      const { error } = await sb.from("pipeline").update(dbPatch).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+  },
+
+  async policyPersistencyEvent(policyId, patch = {}) {
+    const normalizeStatus = (s) => {
+      const v = String(s || "").toLowerCase();
+      if (v === "submitted") return "pending";
+      return v === "canceled" ? "cancelled" : v;
+    };
+    const terminal = new Set(["lapsed", "cancelled", "rescinded"]);
+    const status = normalizeStatus(patch.status);
+    if (!["pending", "app_in", "issued", "active", "lapsed", "cancelled", "rescinded"].includes(status)) {
+      throw new Error("Unsupported policy status");
+    }
+
+    const policies = (window.AppData.POLICIES = window.AppData.POLICIES || []);
+    const policy = policies.find(p => p.id === policyId);
+    const previous = policy ? { ...policy } : null;
+    const persistency = terminal.has(status) ? "lapsed" : "on_book";
+    const amountCents = Math.max(0, Math.round(Number(patch.clawbackCents) || 0));
+    const fallbackCents = policy ? Math.max(0, Math.round((policy.expectedCommission || 0) * 100)) : 0;
+    const clawbackCents = terminal.has(status) ? (amountCents || fallbackCents) : 0;
+
+    if (policy) {
+      policy.status = status;
+      policy.persistency = persistency;
+    }
+    _emitMutation("policies", "update", policyId);
+
+    if (terminal.has(status) && policy && clawbackCents > 0) {
+      const clawbacks = (window.AppData.CLAWBACKS = window.AppData.CLAWBACKS || []);
+      let debt = clawbacks.find(c => c.policyId === policyId && c.repId === policy.owner && ["recorded", "disputing"].includes(c.status || "recorded"));
+      if (!debt) {
+        debt = {
+          id: "local-clawback-" + Date.now(),
+          policyId,
+          repId: policy.owner,
+          amount: Math.round(clawbackCents / 100),
+          reason: patch.reason || `Policy ${status}`,
+          recordedAt: new Date().toISOString(),
+          status: "recorded",
+        };
+        clawbacks.unshift(debt);
+      } else {
+        debt.amount = Math.round(clawbackCents / 100);
+        debt.reason = patch.reason || debt.reason;
+        debt.recordedAt = new Date().toISOString();
+      }
+      _emitMutation("clawbacks", "upsert", debt.id);
+    }
+
+    if (window.AppData.LIVE && typeof policyId === "string" && !String(policyId).startsWith("local-")) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { data, error } = await sb.rpc("policy_mark_persistency_event", {
+        p_policy_id: policyId,
+        p_status: status,
+        p_reason: patch.reason || null,
+        p_clawback_cents: terminal.has(status) ? clawbackCents : null,
+      });
+      if (error) {
+        if (policy && previous) Object.assign(policy, previous);
+        _emitMutation("policies", "update", policyId);
+        window.toast && window.toast(`Policy update failed: ${error.message}`, "error");
+        throw error;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.clawback_id && terminal.has(status)) {
+        const clawbacks = (window.AppData.CLAWBACKS = window.AppData.CLAWBACKS || []);
+        const debt = clawbacks.find(c => c.policyId === policyId && c.repId === policy?.owner);
+        if (debt) {
+          debt.id = row.clawback_id;
+          debt.amount = Math.round((row.clawback_cents || clawbackCents) / 100);
+          debt.status = "recorded";
+        }
+        _emitMutation("clawbacks", "upsert", row.clawback_id);
+      }
     }
   },
 

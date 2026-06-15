@@ -31,9 +31,19 @@
 
   const fmt$ = (n) => "$" + Math.round(n || 0).toLocaleString();
   const STATUS_LABEL = {
-    pending: "Pending", app_in: "App In", issued: "Issued",
+    pending: "Pending", submitted: "Submitted", app_in: "App In", issued: "Issued",
     active: "Active", lapsed: "Lapsed", cancelled: "Cancelled", rescinded: "Rescinded",
   };
+  const POLICY_STATUS_OPTIONS = [
+    { v: "submitted", l: "Submitted" },
+    { v: "pending", l: "Pending" },
+    { v: "app_in", l: "App In" },
+    { v: "active", l: "Active" },
+    { v: "issued", l: "Issued" },
+    { v: "lapsed", l: "Lapsed" },
+    { v: "cancelled", l: "Cancelled" },
+    { v: "rescinded", l: "Rescinded" },
+  ];
   const STATUS_TONE = {
     issued: "var(--accent-money)", active: "var(--accent-money)",
     app_in: "var(--accent-status)", pending: "var(--text-tertiary)",
@@ -331,38 +341,92 @@
             <div className="field-l">Policies</div>
             <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
               {policies.length === 0 && <span className="koino-empty">no policies bound</span>}
-              {policies.map(p => {
-                const paidForPolicy = commissions
-                  .filter(c => c.policyId === p.id)
-                  .reduce((a, c) => a + (c.amount || 0), 0);
-                const projected = p.expectedCommission || (p.ap && p.compRatePct ? Math.round((p.ap * p.compRatePct) / 100) : 0);
-                return (
-                  <div key={p.id} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <strong style={{ fontSize: 12.5 }}>{p.product || "—"}</strong>
-                      <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{p.status}</span>
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-tertiary)" }}>
-                      AP <span className="tabular" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>${(p.ap || 0).toLocaleString()}</span>
-                      {p.compRatePct ? <> · {p.compRatePct}% comp</> : null}
-                      {p.issuedAt ? <> · issued {p.issuedAt}</> : null}
-                    </div>
-                    <div style={{ marginTop: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
-                      <div>
-                        <span style={{ color: "var(--text-tertiary)" }}>Projected</span><br/>
-                        <span className="tabular" style={{ color: "var(--accent-money)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>${Math.round(projected).toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span style={{ color: "var(--text-tertiary)" }}>Paid</span><br/>
-                        <span className="tabular" style={{ fontFamily: "var(--font-mono)" }}>${Math.round(paidForPolicy).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {policies.map(p => <PolicyCard key={p.id} policy={p} commissions={commissions}/>)}
             </div>
           </div>
         </aside>
+      </div>
+    );
+  }
+
+  function PolicyCard({ policy: p, commissions }) {
+    const me = (window.me && window.me()) || {};
+    const canManage = ["manager", "owner", "admin", "imo_owner", "super_admin"].includes(me.role);
+    const paidForPolicy = commissions
+      .filter(c => c.policyId === p.id)
+      .reduce((a, c) => a + (c.amount || 0), 0);
+    const projected = p.expectedCommission || (p.ap && p.compRatePct ? Math.round((p.ap * p.compRatePct) / 100) : 0);
+    const terminal = ["lapsed", "cancelled", "rescinded"].includes(p.status);
+    const [draftStatus, setDraftStatus] = useState(p.status || "active");
+    const [reason, setReason] = useState("");
+    const [debt, setDebt] = useState(String(Math.max(0, projected || paidForPolicy || 0)));
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+      setDraftStatus(p.status || "active");
+      setDebt(String(Math.max(0, projected || paidForPolicy || 0)));
+    }, [p.status, projected, paidForPolicy]);
+
+    const save = async () => {
+      const amount = Math.max(0, Math.round((Number(debt) || 0) * 100));
+      setSaving(true);
+      try {
+        await window.AppData?.mutate?.policyPersistencyEvent?.(p.id, {
+          status: draftStatus,
+          reason,
+          clawbackCents: ["lapsed", "cancelled", "rescinded"].includes(draftStatus) ? amount : null,
+        });
+        window.toast && window.toast(`Policy marked ${STATUS_LABEL[draftStatus] || draftStatus}`, "success");
+        setReason("");
+      } catch (e) {
+        window.toast && window.toast(`Policy update failed: ${e?.message || e}`, "error");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+          <strong style={{ fontSize: 12.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.product || "—"}</strong>
+          <span style={{
+            fontSize: 10,
+            color: terminal ? "var(--state-danger)" : "var(--text-tertiary)",
+            fontFamily: "var(--font-mono)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}>{STATUS_LABEL[p.status] || p.status}</span>
+        </div>
+        <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-tertiary)" }}>
+          AP <span className="tabular" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>${(p.ap || 0).toLocaleString()}</span>
+          {p.compRatePct ? <> · {p.compRatePct}% comp</> : null}
+          {p.issuedAt ? <> · issued {p.issuedAt}</> : null}
+        </div>
+        <div style={{ marginTop: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
+          <div>
+            <span style={{ color: "var(--text-tertiary)" }}>Projected</span><br/>
+            <span className="tabular" style={{ color: "var(--accent-money)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>${Math.round(projected).toLocaleString()}</span>
+          </div>
+          <div>
+            <span style={{ color: "var(--text-tertiary)" }}>{terminal ? "Debt" : "Paid"}</span><br/>
+            <span className="tabular" style={{ fontFamily: "var(--font-mono)", color: terminal ? "var(--state-danger)" : undefined }}>
+              ${Math.round(terminal ? Math.max(projected, paidForPolicy) : paidForPolicy).toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {canManage && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-subtle)", display: "grid", gridTemplateColumns: "1fr 82px", gap: 6 }}>
+            <select className="text-input" value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)} disabled={saving} style={{ fontSize: 11.5, padding: "5px 8px" }}>
+              {POLICY_STATUS_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+            <input className="text-input" type="number" min="0" step="1" value={debt} onChange={(e) => setDebt(e.target.value)} disabled={saving || !["lapsed", "cancelled", "rescinded"].includes(draftStatus)} style={{ fontSize: 11.5, padding: "5px 8px", textAlign: "right" }}/>
+            <input className="text-input" value={reason} onChange={(e) => setReason(e.target.value)} disabled={saving} placeholder="Carrier notice / reason" style={{ gridColumn: "1 / -1", fontSize: 11.5, padding: "5px 8px" }}/>
+            <button className="btn btn-primary" disabled={saving || draftStatus === p.status} onClick={save} style={{ gridColumn: "1 / -1", justifyContent: "center", fontSize: 11.5 }}>
+              {saving ? "Saving..." : <><Icons.Check size={12}/> Save policy status</>}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
