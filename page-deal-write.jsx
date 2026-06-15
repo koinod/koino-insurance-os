@@ -371,6 +371,18 @@
           const { agency_id, ...patch } = row;
           const { data, error } = await sb.from("policies").update(patch).eq("id", policyId).select().single();
           if (error) throw error;
+          // Backfill the client link for legacy deals edited after this fix
+          // shipped (idempotent — no-op when a client already exists).
+          if (row.lead_pipeline_id) {
+            try {
+              await AppData.mutate.ensureClientForLead({
+                leadId: row.lead_pipeline_id,
+                name:   lead ? lead.lead : null,
+                phone:  lead ? lead.phone : null,
+                email:  lead ? lead.email : null,
+              });
+            } catch (_e) { /* book linkage is best-effort */ }
+          }
           window.toast && window.toast(`Deal updated · ${product?.name || "policy"}`, "success");
           window.dispatchEvent(new CustomEvent("data:hydrated"));
           onWritten && onWritten();
@@ -405,6 +417,19 @@
             { id: data.id, leadId: row.lead_pipeline_id, carrierId, productId, policyNumber: row.policy_number, product: row.product_text, ap: dollars(row.ap_cents), issuedAt: row.submission_date, status, owner: row.owner_rep_id, state: row.state, leadSourceId: row.lead_source_id },
             ...(AppData.POLICIES || []),
           ];
+          // Connect the deal to the client book: ensure a clients row exists
+          // for this lead (clients ↔ policies are siblings on lead_pipeline_id).
+          // Idempotent + best-effort — a failure here never blocks the write.
+          if (row.lead_pipeline_id) {
+            try {
+              await AppData.mutate.ensureClientForLead({
+                leadId: row.lead_pipeline_id,
+                name:   lead ? lead.lead : null,
+                phone:  lead ? lead.phone : null,
+                email:  lead ? lead.email : null,
+              });
+            } catch (_e) { /* book linkage is best-effort */ }
+          }
           window.dispatchEvent(new CustomEvent("data:hydrated"));
         } else {
           // No Supabase yet — push into local state for demo continuity

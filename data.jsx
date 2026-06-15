@@ -1391,6 +1391,71 @@ window.AppData.mutate = {
     _emitMutation("pipeline", "insert", row.id);
   },
 
+  // Idempotently materialize a public.clients row for a pipeline lead so the
+  // Client Book reflects every deal written. The book (page-client-book.jsx)
+  // iterates AppData.CLIENTS and matches policies via
+  //   clients.lead_pipeline_id === policies.lead_pipeline_id
+  // i.e. clients and policies are SIBLINGS, both pointing at the pipeline
+  // lead — there is no policies.client_id. Before this helper nothing in the
+  // app ever inserted a client, so the book was permanently empty in prod
+  // (only consumer was the read at data.jsx ~544). clients has NO agency_id
+  // column — RLS ("tenant rw clients", migration 0042) authorizes the insert
+  // via the linked pipeline row's agency_id, so we set lead_pipeline_id only.
+  // Returns the client (existing or new), or null when there's no real lead
+  // to link to (demo/local/temp ids, or Supabase offline DB path).
+  async ensureClientForLead({ leadId, name, phone, email } = {}) {
+    if (!leadId || typeof leadId !== "string") return null;
+    if (leadId.startsWith("tmp-") || leadId.startsWith("local-") || leadId.startsWith("demo-")) return null;
+    // Already linked in memory → nothing to do.
+    const inMem = (window.AppData.CLIENTS || []).find(c => c.leadId === leadId);
+    if (inMem) return inMem;
+
+    const fullName = (name && String(name).trim()) || "—"; // clients.full_name is NOT NULL
+
+    // Demo / offline (no live Supabase) — keep the book coherent locally so
+    // the just-written deal shows a client without a round-trip.
+    if (!window.AppData.LIVE) {
+      const local = { id: "client-local-" + (window.AppData.CLIENTS?.length || 0) + "-" + leadId.slice(0, 8),
+                      householdId: null, name: fullName, phone: phone || null, email: email || null,
+                      leadId, relationship: "primary" };
+      window.AppData.CLIENTS = [local, ...(window.AppData.CLIENTS || [])];
+      _emitMutation("clients", "insert", local.id);
+      return local;
+    }
+
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return null;
+    try {
+      // Guard against a concurrent surface having already created one (the
+      // in-memory check above only covers THIS tab's hydrated set).
+      const { data: found } = await sb.from("clients")
+        .select("id, household_id, full_name, contact_phone, contact_email, lead_pipeline_id, relationship")
+        .eq("lead_pipeline_id", leadId).limit(1);
+      let rowData = found && found[0];
+      if (!rowData) {
+        const { data, error } = await sb.from("clients")
+          .insert({ full_name: fullName, contact_phone: phone || null,
+                    contact_email: email || null, lead_pipeline_id: leadId, relationship: "primary" })
+          .select("id, household_id, full_name, contact_phone, contact_email, lead_pipeline_id, relationship")
+          .single();
+        if (error) throw error;
+        rowData = data;
+      }
+      const mapped = { id: rowData.id, householdId: rowData.household_id || null,
+                       name: rowData.full_name, phone: rowData.contact_phone,
+                       email: rowData.contact_email, leadId: rowData.lead_pipeline_id,
+                       relationship: rowData.relationship };
+      if (!(window.AppData.CLIENTS || []).some(c => c.id === mapped.id)) {
+        window.AppData.CLIENTS = [mapped, ...(window.AppData.CLIENTS || [])];
+        _emitMutation("clients", "insert", mapped.id);
+      }
+      return mapped;
+    } catch (e) {
+      console.warn("[ensureClientForLead] failed", e?.message || e);
+      return null; // best-effort: never block the deal write on book linkage
+    }
+  },
+
   async pipelineContact(id, patch) {
     // Patch phone / email (and any other future contact fields) on a pipeline row.
     const row = window.AppData.PIPELINE.find(p => p.id === id);
