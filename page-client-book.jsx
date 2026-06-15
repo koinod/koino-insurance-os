@@ -197,7 +197,7 @@
     const sortArrow = (key) => sort.key !== key ? "" : (sort.dir === "desc" ? " ↓" : " ↑");
 
     return (
-      <div className="page-pad">
+      <div className="page-pad book-clients">
         <div className="page-h">
           <div>
             <div className="page-title">Client Book</div>
@@ -225,8 +225,12 @@
           </div>
         </div>
 
-        <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <Shared.KpiCard hero label="Projected commission" prefix="$"
+        {/* Compact KPI strip — overrides default `.kpi` padding/font sizes
+            via the scoped `.book-clients` parent class. Three equal tiles,
+            no hero (the projected comp number is already large enough at
+            the tightened size). */}
+        <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+          <Shared.KpiCard label="Projected commission" prefix="$"
             value={totalProjection > 0 ? Math.round(totalProjection).toLocaleString() : ""}
             sub={totalProjection > 0 ? "on policies not yet cleared" : <span className="koino-empty">no projection data</span>}/>
           <Shared.KpiCard label="In-force premium" prefix="$"
@@ -236,14 +240,14 @@
             sub={scopedClients.length > 0 && scopedClients.length !== filtered.length ? `filtered from ${scopedClients.length}` : "in scope"}/>
         </div>
 
-        {/* Filter row */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "10px 0", flexWrap: "wrap" }}>
+        {/* Filter row — single-line, tight. Selects auto-size to longest
+            option via `width: auto`; search shrinks to remaining space. */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "6px 0 8px" }}>
           <input
-            className="text-input"
+            className="text-input filter-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search client name or product…"
-            style={{ width: 240, fontSize: 12 }}
           />
           <Shared.Select value={filterRep} onChange={setFilterRep}
             options={[{ v: "all", l: "Any rep" }, ...repsInScope.map(r => ({ v: r.id, l: r.name }))]}/>
@@ -361,11 +365,18 @@
     const [reason, setReason] = useState("");
     const [debt, setDebt] = useState(String(Math.max(0, projected || paidForPolicy || 0)));
     const [saving, setSaving] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [draftAp, setDraftAp] = useState(String(p.ap ?? ""));
+    const [draftRate, setDraftRate] = useState(p.compRatePct != null ? String(p.compRatePct) : "");
+    const [draftProduct, setDraftProduct] = useState(p.product || "");
 
     useEffect(() => {
       setDraftStatus(p.status || "active");
       setDebt(String(Math.max(0, projected || paidForPolicy || 0)));
-    }, [p.status, projected, paidForPolicy]);
+      setDraftAp(String(p.ap ?? ""));
+      setDraftRate(p.compRatePct != null ? String(p.compRatePct) : "");
+      setDraftProduct(p.product || "");
+    }, [p.status, p.ap, p.compRatePct, p.product, projected, paidForPolicy]);
 
     const save = async () => {
       const amount = Math.max(0, Math.round((Number(debt) || 0) * 100));
@@ -381,6 +392,39 @@
       } catch (e) {
         window.toast && window.toast(`Policy update failed: ${e?.message || e}`, "error");
       } finally {
+        setSaving(false);
+      }
+    };
+
+    const saveDetails = async () => {
+      const apNum = Number(draftAp);
+      const rateNum = draftRate === "" ? null : Number(draftRate);
+      if (!Number.isFinite(apNum) || apNum < 0) { window.toast && window.toast("AP must be a non-negative number", "error"); return; }
+      if (rateNum != null && (!Number.isFinite(rateNum) || rateNum < 0 || rateNum > 1000)) { window.toast && window.toast("Comp rate must be 0–1000%", "error"); return; }
+      setSaving(true);
+      try {
+        await window.AppData?.mutate?.policyPatch?.(p.id, {
+          ap: apNum,
+          compRatePct: rateNum,
+          product: draftProduct.trim() || null,
+        });
+        window.toast && window.toast("Policy details updated", "success");
+        setEditing(false);
+      } catch (e) {
+        window.toast && window.toast(`Update failed: ${e?.message || e}`, "error");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const remove = async () => {
+      if (!window.confirm(`Remove this policy?\n\n${p.product || "(no product)"} · $${(p.ap || 0).toLocaleString()} AP\n\nThis deletes the policy row and any linked commissions/clawbacks. Not recoverable from the UI.`)) return;
+      setSaving(true);
+      try {
+        await window.AppData?.mutate?.policyRemove?.(p.id);
+        window.toast && window.toast("Policy removed", "success");
+      } catch (e) {
+        window.toast && window.toast(`Remove failed: ${e?.message || e}`, "error");
         setSaving(false);
       }
     };
@@ -425,6 +469,33 @@
             <button className="btn btn-primary" disabled={saving || draftStatus === p.status} onClick={save} style={{ gridColumn: "1 / -1", justifyContent: "center", fontSize: 11.5 }}>
               {saving ? "Saving..." : <><Icons.Check size={12}/> Save policy status</>}
             </button>
+
+            {/* Edit details (AP / comp rate / product text). Collapsed by
+                default — the persistency editor above is the hot path.
+                Inline panel keeps everything in the same slideout so the
+                manager doesn't have to navigate to Deal Write for a typo. */}
+            {!editing ? (
+              <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, marginTop: 4 }}>
+                <button className="btn btn-ghost" disabled={saving} onClick={() => setEditing(true)} style={{ flex: 1, justifyContent: "center", fontSize: 11.5, padding: "5px 8px" }}>
+                  <Icons.Edit size={11}/> Edit AP / rate / product
+                </button>
+                <button className="btn btn-ghost" disabled={saving} onClick={remove} style={{ flex: "0 0 auto", color: "var(--state-danger)", fontSize: 11.5, padding: "5px 10px" }}>
+                  <Icons.X size={11}/> Remove
+                </button>
+              </div>
+            ) : (
+              <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 90px", gap: 6, marginTop: 4 }}>
+                <input className="text-input" value={draftProduct} onChange={(e) => setDraftProduct(e.target.value)} disabled={saving} placeholder="Product text" style={{ gridColumn: "1 / -1", fontSize: 11.5, padding: "5px 8px" }}/>
+                <input className="text-input" type="number" min="0" step="1" value={draftAp} onChange={(e) => setDraftAp(e.target.value)} disabled={saving} placeholder="AP ($)" style={{ fontSize: 11.5, padding: "5px 8px", textAlign: "right" }}/>
+                <input className="text-input" type="number" min="0" step="0.01" value={draftRate} onChange={(e) => setDraftRate(e.target.value)} disabled={saving} placeholder="Comp %" style={{ fontSize: 11.5, padding: "5px 8px", textAlign: "right" }}/>
+                <button className="btn btn-primary" disabled={saving} onClick={saveDetails} style={{ justifyContent: "center", fontSize: 11.5 }}>
+                  {saving ? "Saving..." : <><Icons.Check size={12}/> Save details</>}
+                </button>
+                <button className="btn btn-ghost" disabled={saving} onClick={() => setEditing(false)} style={{ justifyContent: "center", fontSize: 11.5 }}>
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1431,6 +1431,74 @@ window.AppData.mutate = {
     }
   },
 
+  // Inline edit for policy detail fields (AP / comp rate / product text).
+  // The Client Book slideout calls this so a manager can fix a typo
+  // without bouncing to Deal Write. Persistency / status changes go
+  // through policyPersistencyEvent (which also books clawbacks);
+  // this path is for the boring numeric/text fields only.
+  async policyPatch(policyId, patch = {}) {
+    const policies = (window.AppData.POLICIES = window.AppData.POLICIES || []);
+    const policy = policies.find(p => p.id === policyId);
+    const previous = policy ? { ...policy } : null;
+
+    const hasAp      = Object.prototype.hasOwnProperty.call(patch, "ap");
+    const hasRate    = Object.prototype.hasOwnProperty.call(patch, "compRatePct");
+    const hasProduct = Object.prototype.hasOwnProperty.call(patch, "product");
+
+    if (policy) {
+      if (hasAp)      policy.ap = Math.max(0, Math.round(Number(patch.ap) || 0));
+      if (hasRate)    policy.compRatePct = patch.compRatePct == null ? null : Number(patch.compRatePct);
+      if (hasProduct) policy.product = patch.product || null;
+      // Recompute expectedCommission optimistically — the DB trigger will
+      // do the same on the server side, but the UI shouldn't wait.
+      if ((hasAp || hasRate) && policy.ap != null && policy.compRatePct != null) {
+        policy.expectedCommission = Math.round((policy.ap * policy.compRatePct) / 100);
+      }
+    }
+    _emitMutation("policies", "update", policyId);
+
+    if (window.AppData.LIVE && typeof policyId === "string" && !String(policyId).startsWith("local-")) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const dbPatch = {};
+      if (hasAp)      dbPatch.ap_cents = Math.max(0, Math.round((Number(patch.ap) || 0) * 100));
+      if (hasRate)    dbPatch.comp_rate_pct = patch.compRatePct == null ? null : Number(patch.compRatePct);
+      if (hasProduct) dbPatch.product_text = patch.product || null;
+      if (Object.keys(dbPatch).length === 0) return;
+      const { error } = await sb.from("policies").update(dbPatch).eq("id", policyId);
+      if (error) {
+        if (policy && previous) Object.assign(policy, previous);
+        _emitMutation("policies", "update", policyId);
+        window.toast && window.toast(`Policy update failed: ${error.message}`, "error");
+        throw error;
+      }
+    }
+  },
+
+  // Hard-delete a policy. RLS ("policies delete manager+") restricts this
+  // to manager/owner/super_admin within the policy's agency. FKs on
+  // child tables resolve cleanly (verified 2026-06-15):
+  //   commissions / book_entries / nigos          → ON DELETE CASCADE
+  //   clawbacks / tasks / vault_files / deposit_allocations → ON DELETE SET NULL
+  //   (clawbacks keep their debt record even after the policy is gone.)
+  async policyRemove(policyId) {
+    const policies = (window.AppData.POLICIES = window.AppData.POLICIES || []);
+    const idx = policies.findIndex(p => p.id === policyId);
+    const removed = idx >= 0 ? policies[idx] : null;
+    if (idx >= 0) policies.splice(idx, 1);
+    _emitMutation("policies", "delete", policyId);
+
+    if (window.AppData.LIVE && typeof policyId === "string" && !String(policyId).startsWith("local-")) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("policies").delete().eq("id", policyId);
+      if (error) {
+        if (removed) policies.splice(idx, 0, removed);
+        _emitMutation("policies", "insert", policyId);
+        window.toast && window.toast(`Remove failed: ${error.message}`, "error");
+        throw error;
+      }
+    }
+  },
+
   async pipelineInsert(row) {
     if (window.AppData.LIVE) {
       const sb = window.getSupabase();
