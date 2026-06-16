@@ -1193,3 +1193,87 @@ trigger on `policies` that ensures a `clients` row (same "last line of defense"
 pattern as `tg_agency_members_ensure_rep`, 0057) would cover ALL write paths +
 backfill history in one migration. Not shippable this session: no Supabase MCP,
 and the CI migration-gate fails any push that adds an unapplied migration file.
+
+## 2026-06-16 — Today Hero (gamified commit / log / hype band)
+
+PR #32, squashed as `3e624ad`. New top-of-page hero row on `/today` for both
+rep and manager. Lives ABOVE the existing sub-tabs — does not replace
+`TodayRep` / `TodayManager` content (tier proximity, today's commission, dial
+heat, predictive cards are real signal and stay).
+
+**Shape (file: `page-today-hero.jsx`, ~360 lines, `window.TodayHero({role})`):**
+
+- **COMMIT band** — rep types today's number (Dials / Contacts / Sets / AP $)
+  and locks it in. Manager view = read-only aggregate of downline commitments.
+- **LOG band** — rep one-taps Dial / Contact / Set / Sale with running
+  counters (right-click subtracts). Manager view = derived team activity feed
+  from `AppData.REPS` (today/dials/appts), sorted by money-then-set-then-dial.
+- **HYPE band** — rep: 🔥 streak (from `myRow.streak`), per-metric % to
+  commitment, top-3 leaderboard slice with self-rank when outside top 3.
+  Manager: team booked-today, top closer callout, longest streak callout,
+  sum-of-streaks tile.
+
+**Injection pattern** (`page-today.jsx`):
+```jsx
+// After rep page-h close (~line 506):
+{window.TodayHero && <window.TodayHero role="rep"/>}
+
+// After manager page-h close (~line 939):
+{window.TodayHero && <window.TodayHero role="manager"/>}
+```
+Mirrors `page-recruiting.jsx:165`'s `<window.InviteTeamPanel/>` pattern. The
+`window.X &&` guard means a load-order regression no-ops instead of crashing.
+
+**Storage (v0 — intentional shortcut):**
+- `localStorage["commit:<YYYY-MM-DD>:<rep_id>"]` → `{dials, contacts, sets, premium, _locked}`
+- `localStorage["taps:<YYYY-MM-DD>:<rep_id>"]`   → `{dial, contact, set, sale}`
+
+**v1 TODO — `daily_commitments` table.** v0 localStorage has two known
+limitations both surfaced in the PR body:
+1. Commitments don't sync across devices (rep sets number on desktop → can't
+   see it on mobile).
+2. Manager `teamCommit` aggregate only reads keys written by the manager's
+   OWN browser → shows "0 locked" for any rep who set their number elsewhere.
+
+**Acceptance criteria for the v1 migration:**
+- New table `public.daily_commitments(agency_id, rep_id, commit_date, dials_target int, contacts_target int, sets_target int, premium_target_cents bigint, locked_at timestamptz, locked_by_user_id uuid, created_at, updated_at)`.
+- PK `(rep_id, commit_date)`.
+- RLS scoped by `agency_id` via `public.me()` (same pattern as all other RLS).
+- INSERT/UPDATE policy: rep can write their own row only; manager+ can read
+  their downline via `public.downline_of(rep_id)`.
+- Replace localStorage reads in `page-today-hero.jsx::_loadCommit` /
+  `_saveCommit` with a one-row Supabase upsert (no realtime sub needed for v1
+  — re-pull on `me:loaded` + `data:mutated` is enough).
+- Manager `teamCommit` derived from a single `select * from daily_commitments
+  where rep_id = any($1) and commit_date = current_date` keyed off
+  `scopeRepIds()` (same shape `TodayManager` already uses).
+- Migration carries the standard `RAISE EXCEPTION` verify block + a unit
+  test in `tests/smoke.mjs` that hits `/today` for rep + manager roles.
+
+**Activity feed v1 — separate but related:** the manager LOG band currently
+derives from `AppData.REPS` rollups (today/dials/appts), not a real event
+stream. v1 wires off the same channel `page-floor.jsx` already subscribes to
+(`presence:agency_<id>`), surfacing `dial_started` / `contact_made` /
+`appointment_set` / `policy_submitted` events as they happen.
+
+**Build / cache-buster discipline applied:**
+- `index.html`: new `<script src="dist/page-today-hero.js?v=1">` BEFORE
+  `page-today.js` (load order matters — `window.TodayHero` must exist when
+  `page-today.js` renders); `page-today.js` bumped `?v=92` → `?v=93`;
+  `styles.css` bumped `?v=90` → `?v=91`.
+- Sibling HTMLs `quoter.html` + `licensing.html` synced to `styles.css?v=91`
+  to avoid stale-cache poisoning across surfaces (per CLAUDE.md
+  cache-buster trap).
+
+**Static-guard catch worth remembering:** `scripts/build-jsx.mjs` failed the
+first build with `Icons.Target — page-today-hero.jsx:67`. There is no
+`Target` in `icons.jsx`; swapped to `Icons.Trophy` (which exists and reads
+the same intent — "today's number to hit"). Lesson: when picking an icon
+name, `grep -E "^  [A-Z]" icons.jsx | grep -oE "^  [A-Z][a-zA-Z]+" | sort -u`
+is the canonical roster — assuming a lucide-style icon exists will get
+caught at build, but a grep up front saves the rebuild round-trip.
+
+**Lane note:** this is OMNI / Insurance OS's lane per the operator's global
+`~/CLAUDE.md`. OCI shipped under direct authorization for this one feature.
+Not a standing precedent — future OCI sessions should still flag and ask
+before touching the insurance lane.
