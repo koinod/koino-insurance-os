@@ -1228,8 +1228,8 @@ Mirrors `page-recruiting.jsx:165`'s `<window.InviteTeamPanel/>` pattern. The
 - `localStorage["commit:<YYYY-MM-DD>:<rep_id>"]` → `{dials, contacts, sets, premium, _locked}`
 - `localStorage["taps:<YYYY-MM-DD>:<rep_id>"]`   → `{dial, contact, set, sale}`
 
-**v1 TODO — `daily_commitments` table.** v0 localStorage has two known
-limitations both surfaced in the PR body:
+**v1 TODO — `daily_commitments` table.** Tracked in issue #33. v0
+localStorage has two known limitations both surfaced in the PR body:
 1. Commitments don't sync across devices (rep sets number on desktop → can't
    see it on mobile).
 2. Manager `teamCommit` aggregate only reads keys written by the manager's
