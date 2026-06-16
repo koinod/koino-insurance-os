@@ -1272,8 +1272,3 @@ the same intent — "today's number to hit"). Lesson: when picking an icon
 name, `grep -E "^  [A-Z]" icons.jsx | grep -oE "^  [A-Z][a-zA-Z]+" | sort -u`
 is the canonical roster — assuming a lucide-style icon exists will get
 caught at build, but a grep up front saves the rebuild round-trip.
-
-**Lane note:** this is OMNI / Insurance OS's lane per the operator's global
-`~/CLAUDE.md`. OCI shipped under direct authorization for this one feature.
-Not a standing precedent — future OCI sessions should still flag and ask
-before touching the insurance lane.
