@@ -504,6 +504,8 @@ function TodayRep() {
         </div>
       </div>
 
+      {window.TodayHero && <window.TodayHero role="rep"/>}
+
       {dayIsBlank && (
         <div style={{
           display: "flex", alignItems: "center", gap: 14,
@@ -936,6 +938,8 @@ function TodayManager() {
           ><Icons.Phone size={13}/> Power Hour · all hands</button>
         </div>
       </div>
+
+      {window.TodayHero && <window.TodayHero role="manager"/>}
 
       {/* Floor live strip — compact presence-pill row showing which downline
           reps are dialing right now. Sits ABOVE the spend strip so the
