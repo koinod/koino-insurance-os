@@ -730,7 +730,15 @@ window.hydrateFromSupabase = async function () {
       window.AppData.RECRUITING_APPLICANTS = mapRows(recruitingApplicantsR, a => ({
         id: a.id, campaignId: a.campaign_id, name: a.name, handle: a.handle,
         state: a.state, status: a.status, enrolledAt: a.enrolled_at,
-        recruiterId: a.recruiter_id
+        recruiterId: a.recruiter_id,
+        email: a.email || null,
+        phone: a.phone || null,
+        source: a.source || null,
+        leadScore: a.lead_score == null ? null : a.lead_score,
+        payload: a.payload || null,
+        notes:   a.notes   || null,
+        notesAt: a.notes_at || null,
+        notesBy: a.notes_by || null,
       }));
       window.AppData.RECRUITING_MESSAGES = mapRows(recruitingMessagesR, m => ({
         id: m.id, applicantId: m.applicant_id, direction: m.direction,
@@ -1944,6 +1952,32 @@ window.AppData.mutate = {
     };
     (window.AppData.RECRUITING_APPLICANTS = window.AppData.RECRUITING_APPLICANTS || []).unshift(local);
     _emitMutation("recruiting_applicants", "insert", applicant.id);
+  },
+
+  async recruitingApplicantSaveNotes(id, notes) {
+    const a = (window.AppData.RECRUITING_APPLICANTS || []).find(x => x.id === id);
+    const me = window.me && window.me();
+    const stamp = new Date().toISOString();
+    if (a) { a.notes = notes; a.notesAt = stamp; a.notesBy = me?.rep_id || null; }
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("recruiting_applicants")
+        .update({ notes, notes_at: stamp, notes_by: me?.rep_id || null })
+        .eq("id", id);
+      if (error) { window.toast && window.toast(`Notes save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("recruiting_applicants", "update", id);
+  },
+
+  async recruitingApplicantSetRecruiter(id, recruiterId) {
+    const a = (window.AppData.RECRUITING_APPLICANTS || []).find(x => x.id === id);
+    if (a) a.recruiterId = recruiterId || null;
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase(); if (!sb) return;
+      const { error } = await sb.from("recruiting_applicants").update({ recruiter_id: recruiterId || null }).eq("id", id);
+      if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
+    }
+    _emitMutation("recruiting_applicants", "update", id);
   },
 
   async recruitingApplicantSetStatus(id, status) {

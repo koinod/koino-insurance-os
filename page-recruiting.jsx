@@ -496,6 +496,7 @@
   function ConversationDetail({ applicant, thread, campaigns }) {
     const [draft, setDraft] = useState("");
     const [sending, setSending] = useState(false);
+    const [showProfile, setShowProfile] = useState(false);
     const textareaRef = React.useRef(null);
     const cmp = campaigns.find(c => c.id === applicant.campaignId);
     const recruiter = repById(applicant.recruiterId);
@@ -602,11 +603,21 @@
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>{applicant.name}</span>
+              <button onClick={() => setShowProfile(true)} title="Open profile + notes"
+                style={{ background: "transparent", border: "none", padding: 0, color: "var(--text-primary)", fontWeight: 500, fontSize: 13, cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--text-quaternary)", textUnderlineOffset: 3 }}>
+                {applicant.name}
+              </button>
               {applicant.handle && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, fontSize: 11 }}>· {applicant.handle}</span>}
               {applicant.leadScore != null && (
                 <span className="chip" style={{ fontSize: 9.5, color: applicant.leadScore >= 50 ? "var(--accent-money)" : "var(--text-tertiary)" }}>
                   score {applicant.leadScore}
+                </span>
+              )}
+              {applicant.notes && (
+                <span className="chip" title={applicant.notes.slice(0, 200)}
+                  style={{ fontSize: 9.5, color: "var(--accent-status)", cursor: "pointer" }}
+                  onClick={() => setShowProfile(true)}>
+                  <Icons.FileText size={10}/> notes
                 </span>
               )}
             </div>
@@ -712,7 +723,173 @@
             </button>
           </div>
         </div>
+
+        {showProfile && (
+          <ApplicantProfileDrawer applicant={applicant} onClose={() => setShowProfile(false)}/>
+        )}
       </>
+    );
+  }
+
+  /* ─── Applicant profile drawer — contact, source, notes, payload ────── */
+  function ApplicantProfileDrawer({ applicant, onClose }) {
+    const [notes, setNotes] = useState(applicant.notes || "");
+    const [saving, setSaving] = useState(false);
+    const [dirty, setDirty] = useState(false);
+    const reps = (window.AppData && window.AppData.REPS) || [];
+    React.useEffect(() => { setNotes(applicant.notes || ""); setDirty(false); }, [applicant.id]);
+
+    const saveNotes = async () => {
+      if (!dirty) return;
+      setSaving(true);
+      try {
+        await window.AppData.mutate.recruitingApplicantSaveNotes(applicant.id, notes);
+        setDirty(false);
+        window.toast?.("Notes saved", "success");
+      } catch (e) { window.toast?.(`Save failed: ${e?.message || e}`, "error"); }
+      finally { setSaving(false); }
+    };
+
+    const setStatus = async (s) => {
+      try { await window.AppData.mutate.recruitingApplicantSetStatus(applicant.id, s); window.toast?.(`Stage → ${s}`, "info"); }
+      catch (e) { window.toast?.(`Stage update failed: ${e?.message || e}`, "error"); }
+    };
+    const setRecruiter = async (rid) => {
+      try { await window.AppData.mutate.recruitingApplicantSetRecruiter(applicant.id, rid || null); }
+      catch (e) { window.toast?.(`Recruiter update failed: ${e?.message || e}`, "error"); }
+    };
+
+    const payloadPretty = applicant.payload
+      ? JSON.stringify(applicant.payload, null, 2)
+      : null;
+
+    return (
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.42)",
+        display: "flex", justifyContent: "flex-end", zIndex: 9998,
+      }}>
+        <div onClick={(e) => e.stopPropagation()} style={{
+          width: 460, maxWidth: "95vw", background: "var(--bg-elevated)",
+          borderLeft: "1px solid var(--border-default)", display: "flex",
+          flexDirection: "column", overflow: "hidden",
+        }}>
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{applicant.name}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+                {applicant.status}
+                {applicant.state    && ` · ${applicant.state}`}
+                {applicant.source   && ` · ${applicant.source}`}
+                {applicant.leadScore != null && ` · score ${applicant.leadScore}`}
+              </div>
+            </div>
+            <button className="icon-btn" onClick={onClose} title="Close"><Icons.X size={12}/></button>
+          </div>
+
+          <div style={{ overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Contact */}
+            <div>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".12em", color: "var(--text-quaternary)", marginBottom: 6 }}>Contact</div>
+              <div style={{ display: "grid", gridTemplateColumns: "60px 1fr", rowGap: 6, columnGap: 10, fontSize: 12 }}>
+                <span style={{ color: "var(--text-tertiary)" }}>Email</span>
+                <span>
+                  {applicant.email
+                    ? <a href={`mailto:${applicant.email}`} style={{ color: "var(--text-primary)" }}>{applicant.email}</a>
+                    : <span style={{ color: "var(--text-quaternary)" }}>—</span>}
+                </span>
+                <span style={{ color: "var(--text-tertiary)" }}>Phone</span>
+                <span>
+                  {applicant.phone
+                    ? <a href={`tel:${applicant.phone}`} style={{ color: "var(--text-primary)" }}>{applicant.phone}</a>
+                    : <span style={{ color: "var(--text-quaternary)" }}>—</span>}
+                </span>
+                {applicant.handle && (<>
+                  <span style={{ color: "var(--text-tertiary)" }}>Handle</span>
+                  <span>{applicant.handle}</span>
+                </>)}
+                <span style={{ color: "var(--text-tertiary)" }}>Applied</span>
+                <span>{applicant.enrolledAt ? new Date(applicant.enrolledAt).toLocaleString() : "—"}</span>
+              </div>
+            </div>
+
+            {/* Stage + recruiter */}
+            <div>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".12em", color: "var(--text-quaternary)", marginBottom: 6 }}>Stage</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {STAGES.map(s => (
+                  <button key={s.id} onClick={() => setStatus(s.id)}
+                    style={{
+                      padding: "3px 9px", borderRadius: 999,
+                      border: s.id === applicant.status ? "1px solid var(--accent-action)" : "1px solid var(--border-subtle)",
+                      background: s.id === applicant.status ? "color-mix(in srgb, var(--accent-action) 12%, transparent)" : "transparent",
+                      color: s.id === applicant.status ? "var(--text-primary)" : "var(--text-tertiary)",
+                      fontSize: 11, cursor: "pointer",
+                    }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <Shared.Field label="Assigned recruiter">
+                <Shared.Select
+                  value={applicant.recruiterId || ""}
+                  onChange={(v) => setRecruiter(v || null)}
+                  options={[{ v: "", l: "— Unassigned —" }, ...reps.map(r => ({ v: r.id, l: r.name || r.id }))]}
+                />
+              </Shared.Field>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".12em", color: "var(--text-quaternary)", marginBottom: 6, display: "flex", alignItems: "center" }}>
+                <span>Notes</span>
+                {applicant.notesAt && (
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0 }}>
+                    last edit {ago(applicant.notesAt)}{applicant.notesBy ? ` · ${applicant.notesBy}` : ""}
+                  </span>
+                )}
+              </div>
+              <textarea
+                value={notes}
+                onChange={(e) => { setNotes(e.target.value); setDirty(true); }}
+                onBlur={saveNotes}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveNotes(); }
+                }}
+                placeholder="Add context: where they came from, what makes them a fit, follow-up plan, license status, anything you'd forget by Tuesday…"
+                rows={8}
+                style={{
+                  width: "100%", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.5,
+                  background: "var(--bg-raised)", border: "1px solid var(--border-subtle)",
+                  borderRadius: 6, color: "var(--text-primary)", resize: "vertical",
+                  fontFamily: "inherit", boxSizing: "border-box", minHeight: 130,
+                }}
+              />
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <button className="btn btn-primary" onClick={saveNotes} disabled={!dirty || saving}>
+                  <Icons.Check size={11}/> {saving ? "Saving…" : (dirty ? "Save notes" : "Saved")}
+                </button>
+                <span style={{ fontSize: 10.5, color: "var(--text-quaternary)" }}>
+                  Auto-saves on blur. Cmd/Ctrl+S works too if you want.
+                </span>
+              </div>
+            </div>
+
+            {/* Application payload (collapsed) */}
+            {payloadPretty && (
+              <details>
+                <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--text-tertiary)" }}>
+                  Application payload (raw)
+                </summary>
+                <pre className="mono" style={{
+                  marginTop: 6, padding: 10, background: "var(--bg-raised)",
+                  borderRadius: 4, fontSize: 10.5, lineHeight: 1.45,
+                  maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap",
+                }}>{payloadPretty}</pre>
+              </details>
+            )}
+          </div>
+        </div>
+      </div>
     );
   }
 
