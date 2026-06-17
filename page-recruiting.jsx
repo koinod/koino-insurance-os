@@ -380,13 +380,44 @@
       : (inbox[0] && inbox[0].a) || null;
     const thread = active ? messages.filter(m => m.applicantId === active.id).sort((x, y) => (x.sentAt || "") > (y.sentAt || "") ? 1 : -1) : [];
 
+    // Inbox search — surfaces every applicant (with or without messages) so
+    // the operator can pick anyone to start a new conversation, not just
+    // applicants who already replied.
+    const [q, setQ] = useState("");
+    const ql = q.trim().toLowerCase();
+    const visibleInbox = ql
+      ? inbox.filter(({ a }) =>
+          (a.name || "").toLowerCase().includes(ql) ||
+          (a.email || "").toLowerCase().includes(ql) ||
+          (a.phone || "").includes(ql) ||
+          (a.state || "").toLowerCase().includes(ql) ||
+          (a.handle || "").toLowerCase().includes(ql) ||
+          (a.source || "").toLowerCase().includes(ql))
+      : inbox;
+
     return (
       <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 10, height: "calc(100vh - 280px)", minHeight: 400 }}>
-        <div className="panel" style={{ padding: 0, overflowY: "auto" }}>
-          {inbox.length === 0 && (
-            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>No conversations yet.</div>
+        <div className="panel" style={{ padding: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-elevated)", display: "flex", gap: 6 }}>
+            <input
+              className="text-input"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search · start new conversation…"
+              style={{ flex: 1, fontSize: 12 }}
+            />
+            {q && (
+              <button className="btn btn-ghost" onClick={() => setQ("")} style={{ padding: "0 8px", fontSize: 11 }}>
+                <Icons.X size={11}/>
+              </button>
+            )}
+          </div>
+          {visibleInbox.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: "var(--text-tertiary)" }}>
+              {ql ? `No applicant matches "${q}".` : "No applicants yet."}
+            </div>
           )}
-          {inbox.map(({ a, last }) => {
+          {visibleInbox.map(({ a, last }) => {
             const cmp = campaigns.find(c => c.id === a.campaignId);
             return (
               <button key={a.id} onClick={() => setActive(a)}
@@ -420,28 +451,138 @@
     );
   }
 
+  // Channel availability probe — checks rba_installs heartbeat (for agent-
+  // mediated IG/LinkedIn/WhatsApp) + connections table (Twilio for SMS) so
+  // the composer can show what actually works right now vs. what'll log-only.
+  function useChannelHealth() {
+    const [state, setState] = useState({ loading: true, agentLive: false, twilio: false, mailgun: false });
+    useEffect(() => {
+      let dead = false;
+      (async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          const me = window.me && window.me();
+          if (!sb || !me?.agency_id) { if (!dead) setState({ loading: false, agentLive: false, twilio: false, mailgun: false }); return; }
+          const [installsR, connsR] = await Promise.all([
+            sb.from("rba_installs")
+              .select("device_id, last_seen_at, status")
+              .eq("agency_id", me.agency_id)
+              .order("last_seen_at", { ascending: false })
+              .limit(5),
+            sb.from("connections")
+              .select("id, status")
+              .eq("agency_id", me.agency_id),
+          ]);
+          const installs = Array.isArray(installsR?.data) ? installsR.data : [];
+          const conns    = Array.isArray(connsR?.data)    ? connsR.data    : [];
+          const fresh = (iso) => iso && (Date.now() - new Date(iso).getTime()) < 5 * 60 * 1000;
+          const agentLive = installs.some(i => fresh(i.last_seen_at) && i.status !== "degraded");
+          const hasConn = (id) => conns.some(c => (c.id || "").toLowerCase() === id && c.status !== "broken");
+          if (!dead) setState({
+            loading: false,
+            agentLive,
+            twilio:  hasConn("twilio") || hasConn("sendblue"),
+            mailgun: hasConn("mailgun"),
+          });
+        } catch (e) {
+          if (!dead) setState({ loading: false, agentLive: false, twilio: false, mailgun: false });
+        }
+      })();
+      return () => { dead = true; };
+    }, []);
+    return state;
+  }
+
   function ConversationDetail({ applicant, thread, campaigns }) {
     const [draft, setDraft] = useState("");
     const [sending, setSending] = useState(false);
+    const textareaRef = React.useRef(null);
     const cmp = campaigns.find(c => c.id === applicant.campaignId);
     const recruiter = repById(applicant.recruiterId);
-    // Channel selection (was hardcoded "instagram"): prefer the channel of
-    // the latest inbound from the applicant, else the campaign source, else
-    // instagram as a final fallback.
+    const health = useChannelHealth();
+
     const lastInbound = [...thread].reverse().find(m => m.direction === "in");
     const defaultChannel = lastInbound?.channel || cmp?.source || "instagram";
     const [channel, setChannel] = useState(defaultChannel);
     React.useEffect(() => { setChannel(defaultChannel); }, [applicant.id, defaultChannel]);
+
+    // Per-applicant draft persistence so switching threads doesn't lose work.
+    const draftKey = `recruiting.draft.${applicant.id}.${channel}`;
+    React.useEffect(() => {
+      try { setDraft(sessionStorage.getItem(draftKey) || ""); }
+      catch { setDraft(""); }
+      // Autofocus on switch so the operator can just start typing.
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }, [applicant.id, channel]);
+    React.useEffect(() => {
+      try { if (draft) sessionStorage.setItem(draftKey, draft); else sessionStorage.removeItem(draftKey); } catch {}
+    }, [draft, draftKey]);
+
+    // ── Channel matrix ───────────────────────────────────────────────────
+    // Each channel: requires-X to actually transmit, vs. log-only. v1 sends
+    // SMS for real via the existing /api/twilio-sms edge fn; the others log
+    // to recruiting_messages until the local-agent dispatch lands.
+    const CHANNELS = [
+      { id: "instagram", label: "IG",       reqAgent: true,                              actsLocal: true  },
+      { id: "linkedin",  label: "LinkedIn", reqAgent: true,                              actsLocal: true  },
+      { id: "sms",       label: "SMS",      reqProvider: "twilio", needsField: "phone",  actsLocal: false },
+      { id: "email",     label: "Email",    needsField: "email",                         actsLocal: true  /* mailto handoff */ },
+      { id: "phone",     label: "Phone",    needsField: "phone",                         actsLocal: true  /* logs only */ },
+    ];
+    const channelStatus = (c) => {
+      if (c.needsField === "phone" && !applicant.phone) return { live: false, why: "no phone on file" };
+      if (c.needsField === "email" && !applicant.email) return { live: false, why: "no email on file" };
+      if (c.reqAgent && !health.agentLive)              return { live: false, why: "local agent offline — will log only" };
+      if (c.reqProvider === "twilio" && !health.twilio) return { live: false, why: "Twilio not connected — will log only" };
+      return { live: true };
+    };
+    const activeChannelDef = CHANNELS.find(c => c.id === channel) || CHANNELS[0];
+    const activeStatus     = channelStatus(activeChannelDef);
 
     const send = async () => {
       const body = draft.trim();
       if (!body) return;
       setSending(true);
       try {
+        // Always log to recruiting_messages so the thread is the canonical
+        // source of truth, regardless of which provider actually carries it.
         await window.AppData.mutate.recruitingMessageSend(applicant.id, body, channel, false);
+
+        // For SMS with a real phone + Twilio connected, fire the actual
+        // outbound. /api/twilio-sms handles two-tier delivery (Twilio →
+        // sms_outbox fallback). Errors there are non-fatal — message is
+        // already logged.
+        if (channel === "sms" && applicant.phone && health.twilio) {
+          try {
+            const r = await fetch("/api/twilio-sms", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ to: applicant.phone, body, source: "recruiting" }),
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              window.toast?.(`SMS provider returned ${r.status}${j.error ? ": " + j.error : ""} — logged but not sent`, "warn");
+            } else {
+              window.toast?.("SMS sent", "success");
+            }
+          } catch (e) {
+            window.toast?.(`SMS network error — logged but not sent`, "warn");
+          }
+        } else if (channel === "email" && applicant.email) {
+          // Mailto handoff for email — opens the operator's default client
+          // pre-filled. No SMTP wiring yet.
+          const subject = encodeURIComponent(`Following up`);
+          const mailBody = encodeURIComponent(body);
+          try { window.open(`mailto:${applicant.email}?subject=${subject}&body=${mailBody}`, "_blank"); } catch {}
+          window.toast?.("Email handoff opened in your default mail client", "info");
+        } else if (!activeStatus.live) {
+          window.toast?.(`Logged in thread (${activeStatus.why})`, "info");
+        } else {
+          window.toast?.("Logged in thread", "success");
+        }
         setDraft("");
       } catch (e) {
-        window.toast && window.toast(`Send failed: ${e?.message || e}`, "error");
+        window.toast?.(`Send failed: ${e?.message || e}`, "error");
       } finally { setSending(false); }
     };
 
@@ -459,10 +600,24 @@
     return (
       <>
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{applicant.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400, fontSize: 11 }}>· {applicant.handle}</span></div>
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-              {applicant.status} · {applicant.state} {cmp ? "· " + cmp.name : ""} {recruiter ? "· recruiter " + recruiter.name : ""}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>{applicant.name}</span>
+              {applicant.handle && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, fontSize: 11 }}>· {applicant.handle}</span>}
+              {applicant.leadScore != null && (
+                <span className="chip" style={{ fontSize: 9.5, color: applicant.leadScore >= 50 ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                  score {applicant.leadScore}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <span>{applicant.status}</span>
+              {applicant.state  && <span>· {applicant.state}</span>}
+              {applicant.email  && <a href={`mailto:${applicant.email}`} style={{ color: "var(--text-tertiary)" }}>· {applicant.email}</a>}
+              {applicant.phone  && <a href={`tel:${applicant.phone}`}    style={{ color: "var(--text-tertiary)" }}>· {applicant.phone}</a>}
+              {applicant.source && <span>· {applicant.source}</span>}
+              {cmp && <span>· {cmp.name}</span>}
+              {recruiter && <span>· recruiter {recruiter.name}</span>}
             </div>
           </div>
           <button className="btn btn-ghost" onClick={advance}>
@@ -471,7 +626,17 @@
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          {thread.length === 0 && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>No messages yet — send the first one below.</div>}
+          {thread.length === 0 && (
+            <div style={{ padding: 18, fontSize: 12, color: "var(--text-tertiary)", textAlign: "center", margin: "auto", maxWidth: 380 }}>
+              <div style={{ marginBottom: 6, color: "var(--text-secondary)", fontWeight: 500 }}>No messages yet</div>
+              <div>
+                Pick a channel below and send the first message. Channels marked
+                <span style={{ color: "var(--accent-money)" }}> live</span> transmit
+                through the real provider; greyed channels log to the thread but
+                won't actually send until the agent or provider is connected.
+              </div>
+            </div>
+          )}
           {thread.map(m => {
             const out = m.direction === "out";
             const I = Icons[CHANNEL_ICON[m.channel] || "MessageSquare"];
@@ -483,7 +648,7 @@
                 border: out ? "1px solid color-mix(in srgb, var(--accent-money) 30%, transparent)" : "1px solid var(--border-subtle)",
                 padding: "7px 10px", borderRadius: "var(--radius-md)",
               }}>
-                <div style={{ fontSize: 12.5, lineHeight: 1.4 }}>{m.body}</div>
+                <div style={{ fontSize: 12.5, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{m.body}</div>
                 <div style={{ fontSize: 10, color: "var(--text-quaternary)", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
                   {I && <I size={10}/>}
                   {ago(m.sentAt)}
@@ -494,30 +659,58 @@
           })}
         </div>
 
-        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: 8, display: "flex", gap: 6, alignItems: "center" }}>
-          <Shared.Select
-            value={channel}
-            onChange={setChannel}
-            options={[
-              { v: "instagram", l: "IG" },
-              { v: "linkedin",  l: "LI" },
-              { v: "sms",       l: "SMS" },
-              { v: "email",     l: "Email" },
-              { v: "phone",     l: "Phone log" },
-            ]}
-          />
-          <input
-            className="text-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={`Type a message via ${channel}…`}
-            disabled={sending}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
-            style={{ flex: 1 }}
-          />
-          <button className="btn btn-primary" onClick={send} disabled={!draft.trim() || sending}>
-            <Icons.Send size={12}/> {sending ? "Sending…" : "Send"}
-          </button>
+        {/* Composer — stacked layout: channel chips, then textarea+send.
+            The previous flex row collapsed the input to zero width because
+            Shared.Select greedily filled the row. */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "8px 10px 10px", background: "var(--bg-elevated)" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+            {CHANNELS.map(c => {
+              const st     = channelStatus(c);
+              const sel    = c.id === channel;
+              const tone   = st.live ? "var(--accent-money)" : "var(--text-quaternary)";
+              return (
+                <button key={c.id} onClick={() => setChannel(c.id)}
+                  title={st.live ? `${c.label} — live` : `${c.label} — ${st.why}`}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "4px 10px", border: sel ? "1px solid var(--accent-action)" : "1px solid var(--border-subtle)",
+                    borderRadius: 999, background: sel ? "color-mix(in srgb, var(--accent-action) 12%, transparent)" : "transparent",
+                    color: sel ? "var(--text-primary)" : "var(--text-tertiary)",
+                    fontSize: 11.5, cursor: "pointer",
+                  }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone, display: "inline-block" }}/>
+                  {c.label}
+                </button>
+              );
+            })}
+            <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-quaternary)" }}>
+              {activeStatus.live
+                ? (channel === "sms" ? "real SMS via Twilio" :
+                   channel === "email" ? "mailto handoff" :
+                   channel === "phone" ? "logs only" :
+                   "via local agent")
+                : activeStatus.why}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
+              ref={textareaRef}
+              className="text-input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={`Message ${applicant.name.split(" ")[0]} via ${activeChannelDef.label}…  (⌘⏎ to send)`}
+              disabled={sending}
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+              }}
+              style={{ flex: 1, minHeight: 44, maxHeight: 160, resize: "vertical", fontFamily: "inherit", fontSize: 13, lineHeight: 1.4, padding: "8px 10px" }}
+            />
+            <button className="btn btn-primary" onClick={send} disabled={!draft.trim() || sending}
+              style={{ whiteSpace: "nowrap", padding: "8px 14px", height: 40 }}>
+              <Icons.Send size={12}/> {sending ? "Sending…" : "Send"}
+            </button>
+          </div>
         </div>
       </>
     );
