@@ -886,7 +886,9 @@ window.hydrateFromSupabase = async function () {
         segmentId: r.segment_id || null,
         targetRoles: r.target_roles || ["owner","manager","rep"],
         isStarter: !!r.is_starter,
-        createdBy: r.created_by, updatedAt: r.updated_at, createdAt: r.created_at,
+        createdBy: r.created_by,
+        creatorRole: r.creator_role || null,
+        updatedAt: r.updated_at, createdAt: r.created_at,
       }));
       window.AppData.VIDEOS = mapRowsR(videosR, r => ({
         id: r.id, title: r.title, cat: r.cat, src: r.src,
@@ -919,6 +921,41 @@ window.hydrateFromSupabase = async function () {
     } catch (resErr) {
       // Migration 0010 may not be applied yet — components fall back to seed.
       console.warn("[supabase] resources hydrate skipped:", resErr?.message ?? resErr);
+    }
+
+    // Agency-hosted sites (migration 0096) — Recruiting Settings + the
+    // careers / quiz / landing pages an agency deploys to Vercel that share
+    // this Supabase. Skipped silently on pre-0096 projects.
+    try {
+      const [sitesR, siteFormsR] = await Promise.all([
+        Promise.resolve(scope(sb.from("agency_sites").select("*").order("created_at", { ascending: false }))).catch(() => ({ data: [] })),
+        Promise.resolve(scope(sb.from("agency_site_forms").select("*").order("created_at", { ascending: false }))).catch(() => ({ data: [] })),
+      ]);
+      const mapRowsS = (res, fn) => Array.isArray(res?.data) ? res.data.map(fn) : [];
+      window.AppData.AGENCY_SITES = mapRowsS(sitesR, r => ({
+        id: r.id, agencyId: r.agency_id, slug: r.slug, kind: r.kind,
+        displayName: r.display_name || null,
+        vercelProjectId: r.vercel_project_id || null,
+        vercelTeamId: r.vercel_team_id || null,
+        primaryDomain: r.primary_domain || null,
+        deploymentUrl: r.deployment_url || null,
+        status: r.status,
+        theme: r.theme || {},
+        notes: r.notes || null,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      }));
+      window.AppData.AGENCY_SITE_FORMS = mapRowsS(siteFormsR, r => ({
+        id: r.id, agencyId: r.agency_id, siteId: r.site_id,
+        slug: r.slug, name: r.name,
+        fields: Array.isArray(r.fields) ? r.fields : [],
+        targetTable: r.target_table,
+        routing: r.routing || {},
+        webhookToken: r.webhook_token,
+        status: r.status,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      }));
+    } catch (sitesErr) {
+      console.warn("[supabase] agency_sites hydrate skipped:", sitesErr?.message ?? sitesErr);
     }
 
     // Training hydration (migration 0019)
@@ -2431,6 +2468,112 @@ window.AppData.mutate = {
     );
   },
   docDelete: (id) => window.AppData.mutate._resourceDelete("agency_docs", "DOCS", id),
+
+  /* ── Agency hosted sites (migration 0096) — Recruiting Settings binds here.
+       Sites are Vercel-hosted micro-sites that share THIS Supabase so forms
+       can write directly into agency-scoped tables (recruiting_applicants,
+       pipeline, …). agency_site_forms is one row per form on a site. ─── */
+  async siteUpsert(s) {
+    const sb = window.getSupabase && window.getSupabase();
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    if (!sb || !agencyId) throw new Error("supabase or agency not ready");
+    const payload = {
+      agency_id: agencyId,
+      slug: (s.slug || "").trim().toLowerCase(),
+      kind: s.kind || "careers",
+      display_name: s.displayName || null,
+      vercel_project_id: s.vercelProjectId || null,
+      vercel_team_id: s.vercelTeamId || null,
+      primary_domain: s.primaryDomain || null,
+      deployment_url: s.deploymentUrl || null,
+      status: s.status || "draft",
+      theme: s.theme || {},
+      notes: s.notes || null,
+    };
+    let res;
+    if (s.id) {
+      res = await sb.from("agency_sites").update(payload).eq("id", s.id).select().single();
+    } else {
+      res = await sb.from("agency_sites").insert(payload).select().single();
+    }
+    if (res.error) { window.toast && window.toast(`Site save failed: ${res.error.message}`, "error"); throw res.error; }
+    const r = res.data;
+    const local = {
+      id: r.id, agencyId: r.agency_id, slug: r.slug, kind: r.kind,
+      displayName: r.display_name || null,
+      vercelProjectId: r.vercel_project_id || null,
+      vercelTeamId: r.vercel_team_id || null,
+      primaryDomain: r.primary_domain || null,
+      deploymentUrl: r.deployment_url || null,
+      status: r.status,
+      theme: r.theme || {},
+      notes: r.notes || null,
+      createdAt: r.created_at, updatedAt: r.updated_at,
+    };
+    const list = (window.AppData.AGENCY_SITES = window.AppData.AGENCY_SITES || []);
+    const idx = list.findIndex(x => x.id === local.id);
+    if (idx >= 0) list[idx] = local; else list.unshift(local);
+    _emitMutation("agency_sites", s.id ? "update" : "insert", local.id);
+    return local;
+  },
+  async siteDelete(id) {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("agency_sites").delete().eq("id", id);
+    if (error) { window.toast && window.toast(`Site delete failed: ${error.message}`, "error"); throw error; }
+    window.AppData.AGENCY_SITES = (window.AppData.AGENCY_SITES || []).filter(s => s.id !== id);
+    window.AppData.AGENCY_SITE_FORMS = (window.AppData.AGENCY_SITE_FORMS || []).filter(f => f.siteId !== id);
+    _emitMutation("agency_sites", "delete", id);
+  },
+  async siteFormUpsert(f) {
+    const sb = window.getSupabase && window.getSupabase();
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    if (!sb || !agencyId) throw new Error("supabase or agency not ready");
+    if (!f.siteId) throw new Error("siteId required");
+    const payload = {
+      agency_id: agencyId,
+      site_id: f.siteId,
+      slug: (f.slug || "").trim().toLowerCase(),
+      name: f.name || "Untitled form",
+      fields: Array.isArray(f.fields) ? f.fields : [],
+      target_table: f.targetTable || "recruiting_applicants",
+      routing: f.routing || {},
+      status: f.status || "active",
+    };
+    let res;
+    if (f.id) {
+      res = await sb.from("agency_site_forms").update(payload).eq("id", f.id).select().single();
+    } else {
+      res = await sb.from("agency_site_forms").insert(payload).select().single();
+    }
+    if (res.error) { window.toast && window.toast(`Form save failed: ${res.error.message}`, "error"); throw res.error; }
+    const r = res.data;
+    const local = {
+      id: r.id, agencyId: r.agency_id, siteId: r.site_id,
+      slug: r.slug, name: r.name,
+      fields: Array.isArray(r.fields) ? r.fields : [],
+      targetTable: r.target_table,
+      routing: r.routing || {},
+      webhookToken: r.webhook_token,
+      status: r.status,
+      createdAt: r.created_at, updatedAt: r.updated_at,
+    };
+    const list = (window.AppData.AGENCY_SITE_FORMS = window.AppData.AGENCY_SITE_FORMS || []);
+    const idx = list.findIndex(x => x.id === local.id);
+    if (idx >= 0) list[idx] = local; else list.unshift(local);
+    _emitMutation("agency_site_forms", f.id ? "update" : "insert", local.id);
+    return local;
+  },
+  async siteFormDelete(id) {
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from("agency_site_forms").delete().eq("id", id);
+    if (error) { window.toast && window.toast(`Form delete failed: ${error.message}`, "error"); throw error; }
+    window.AppData.AGENCY_SITE_FORMS = (window.AppData.AGENCY_SITE_FORMS || []).filter(f => f.id !== id);
+    _emitMutation("agency_site_forms", "delete", id);
+  },
 
   /* ── Storage uploader (Supabase Storage `vault` bucket, migration 0039) ────
      uploads a File to vault/{agency_id}/{kind}/{rand}-{name}, returns

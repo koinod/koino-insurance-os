@@ -34,10 +34,62 @@ Build for those four leverage points. Everything else is wallpaper.
 
 ## Phase 0 — already done
 
-- ✓ `page-recruiting.jsx` exists at its own sidebar entry (manager / owner / imo_owner / super_admin). Three tabs: Funnel · Conversations · Programs.
+- ✓ `page-recruiting.jsx` exists at its own sidebar entry (manager / owner / imo_owner / super_admin). Tabs: Invite team · Funnel · Conversations · Programs · Settings.
 - ✓ Stages: `applied → in_review → contracted → first_app → producing` (+ `dropped`). Stored as `recruiting_applicants.status`.
 - ✓ Tables: `recruiting_campaigns`, `recruiting_applicants`, `recruiting_messages`. Realtime subscribed in `data.jsx`.
 - ✓ As of 2026-06-17, the Recruiting tab in CRM was removed — Recruiting is its own page only.
+
+## Phase 0.5 — Settings tab + hosted sites schema (2026-06-17, shipped)
+
+Three panels on Recruiting → Settings, owner/manager-only:
+
+### Local agent (level-1 fallback)
+
+- Probes `rba_installs` for this agency. "Live" = heartbeat within last 5 min.
+- **No agent detected** → status pill shows `not installed`, panel renders the
+  "Level 1" mode banner: manual quick-link buttons for each platform, an
+  AI-editable job-description template, copyable careers-page URL. Automation
+  (auto-posting, DM sending, inbox polling) is gated behind a live agent.
+- Install links: `/agent/install.sh` (macOS / Linux), `/agent/install.ps1`
+  (Windows) — the same daemon as the Auto-Quoter.
+
+### Hosted sites — Vercel deployments tied to this Supabase
+
+Migration `0096_agency_sites_and_forms` shipped:
+
+- `agency_sites` — one row per Vercel deployment for an agency. Columns:
+  `slug`, `kind` (`careers` / `quiz` / `landing` / `other`), `vercel_project_id`,
+  `vercel_team_id`, `primary_domain`, `deployment_url`, `status`,
+  `theme jsonb`, `notes`. Unique on `(agency_id, lower(slug))` and
+  `lower(primary_domain)`.
+- `agency_site_forms` — JSON-schema forms hosted on those sites. Each row has
+  `fields jsonb`, `target_table` (default `recruiting_applicants`),
+  `routing jsonb` (lead-score weights, default owner_rep_id), `webhook_token`,
+  `status`. Unique on `(site_id, lower(slug))`.
+- `agency_site_submissions` — server-only insert (service-role key). Append-only
+  audit of every form submit + the routing decision. Reads are agency-scoped.
+
+This is the data backbone for "spin up a Vercel-hosted micro-site per
+client, share the same Supabase, drop submissions straight into the agency's
+funnel." Operator UX is in the Hosted Sites panel: Link site → set
+deployment URL + slug + kind, then add forms → JSON schema editor +
+target_table picker. Anti-clutter: this is one canonical table set per
+function, not a separate per-platform form schema for each integration.
+
+### Platform credentials
+
+Reuses the existing `connections` table + the existing `/connections` page.
+The Recruiting Settings panel just surfaces a recruiting-focused subset
+(instagram, linkedin, indeed, ziprecruiter, facebook, glassdoor, x, telegram)
+with status pills, and deep-links to Connections for actual editing. No
+schema duplication.
+
+### Pending follow-up — Auman ↔ UEP wiring
+
+Need to insert an `agency_sites` row for Auman's agency pointing at the UEP
+deployment, then create a `recruiting_applicants` form on it. Action item is
+tracked outside this plan (executed in the same session); marking here for
+posterity.
 
 ---
 
@@ -237,6 +289,25 @@ After BYOK:
 - Optional auto-reply mode: for warm/lukewarm applicants only, auto-reply on the first acknowledgment ("Got it, scheduling a call this week — what time works?") with a strict tone-locked template.
 
 ---
+
+## Phase 4.5 — GHL bridge for landing-quiz funnel leads (deferred)
+
+When an agency runs a consumer quiz funnel (the `kind='quiz'` entries in
+`agency_sites`) and they ALSO operate a GoHighLevel pipeline, we should
+mirror form submissions into their GHL on top of writing to `pipeline` /
+`leads` in this Supabase. Two paths:
+
+1. **GHL inbound webhook** — agency pastes their GHL webhook URL into
+   `agency_sites.theme.ghl_webhook` or as a row in `connections`; the
+   `/api/site-forms/submit` edge fn forwards a normalized payload after
+   it routes locally. Best for agencies that want GHL as the source of
+   truth.
+2. **GHL OAuth + Custom Objects API** — full bidirectional sync. Reserves
+   `connections.id = 'ghl'` with refresh tokens. Significantly more wiring;
+   defer until at least one agency asks for it.
+
+Not on the critical path for the producer funnel. Documented here so a
+future session has the design without having to rediscover it.
 
 ## Phase 5 — Outside-the-box sourcing (the real moat) (parallelizable, 1–2 weeks)
 

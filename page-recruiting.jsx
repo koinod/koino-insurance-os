@@ -141,6 +141,9 @@
             { id: "funnel",        label: "Funnel",        icon: "Pipeline" },
             { id: "conversations", label: "Conversations", icon: "MessageSquare" },
             { id: "programs",      label: "Programs",      icon: "Sparkles" },
+            ...(scope.isOwner || isManager
+              ? [{ id: "settings", label: "Settings", icon: "Settings" }]
+              : []),
           ].map(t => {
             const I = Icons[t.icon] || Icons.Circle;
             return (
@@ -190,6 +193,9 @@
             isManager={isManager}
             myRepIds={scope.repIds}
           />
+        )}
+        {tab === "settings" && (scope.isOwner || isManager) && (
+          <SettingsTab role={role} me={me}/>
         )}
       </div>
     );
@@ -784,6 +790,411 @@
           )}
         </form>
       </Shared.Modal>
+    );
+  }
+
+  /* ─── Settings tab — Local Agent · Hosted sites · Platform creds ─────── */
+  function SettingsTab({ role, me }) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <LocalAgentPanel/>
+        <HostedSitesPanel agencyId={me?.agency_id} role={role}/>
+        <PlatformCredsPanel/>
+      </div>
+    );
+  }
+
+  /* ── Local Agent probe — level-1 fallback when none detected ────────── */
+  function LocalAgentPanel() {
+    const [state, setState] = useState({ loading: true, installs: [], err: null });
+    useEffect(() => {
+      let dead = false;
+      (async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          if (!sb) throw new Error("Supabase not ready");
+          const me = window.me && window.me();
+          if (!me?.agency_id) throw new Error("No agency context");
+          // rba_installs is the heartbeat table; agent posts every ~60s.
+          const { data, error } = await sb
+            .from("rba_installs")
+            .select("device_id, role, version, status, last_seen_at")
+            .eq("agency_id", me.agency_id)
+            .order("last_seen_at", { ascending: false })
+            .limit(20);
+          if (error) throw error;
+          if (!dead) setState({ loading: false, installs: data || [], err: null });
+        } catch (e) {
+          if (!dead) setState({ loading: false, installs: [], err: e.message || String(e) });
+        }
+      })();
+      return () => { dead = true; };
+    }, []);
+
+    const isFresh = (iso) => iso && (Date.now() - new Date(iso).getTime()) < 5 * 60 * 1000;
+    const live = state.installs.filter(i => isFresh(i.last_seen_at));
+    const stale = state.installs.filter(i => !isFresh(i.last_seen_at));
+
+    return (
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Sparkles size={13}/><h3>Local RepFlow agent</h3>
+          {!state.loading && (
+            <span className="chip" style={{
+              marginLeft: "auto", fontSize: 10,
+              color: live.length ? "var(--accent-money)" : "var(--state-warning)"
+            }}>
+              {live.length
+                ? `${live.length} live`
+                : stale.length
+                  ? "stale heartbeat"
+                  : "not installed"}
+            </span>
+          )}
+        </div>
+        <div style={{ padding: 14, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+          {state.loading
+            ? "Probing…"
+            : live.length > 0
+              ? (
+                <>
+                  <div style={{ marginBottom: 8 }}>
+                    Detected <strong>{live.length}</strong> live agent install(s). Job posting, IG / LinkedIn DMs,
+                    and the inbox poller can run autonomously through your machine.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 80px", gap: 8, fontSize: 11, color: "var(--text-tertiary)", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)" }}>
+                    <div>Device</div><div>Role</div><div>Last heartbeat</div><div>Version</div>
+                  </div>
+                  {live.concat(stale).map(i => (
+                    <div key={i.device_id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 80px", gap: 8, fontSize: 11.5, padding: "6px 0", borderBottom: "1px solid var(--border-subtle)" }}>
+                      <div className="mono" style={{ fontSize: 10.5 }}>{i.device_id}</div>
+                      <div>{i.role}</div>
+                      <div style={{ color: isFresh(i.last_seen_at) ? "var(--accent-money)" : "var(--state-warning)" }}>{ago(i.last_seen_at)}</div>
+                      <div>{i.version || "—"}</div>
+                    </div>
+                  ))}
+                </>
+              )
+              : (
+                <>
+                  <div style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, marginBottom: 10 }}>
+                    <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 6 }}>
+                      No agent detected — running in <em>Level 1</em>.
+                    </div>
+                    Without a local RepFlow agent, Recruiting falls back to manual outbound:
+                    quick-link buttons to compose DMs on each platform, an AI-editable
+                    job-description template, and a copyable careers-page URL. Outbound
+                    automation (auto-posting, DM sending, inbox polling) unlocks once the
+                    agent installs and heartbeats.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <a className="btn btn-primary" href="/agent/install.sh" target="_blank" rel="noreferrer">
+                      <Icons.ArrowDown size={11}/> Install (macOS / Linux)
+                    </a>
+                    <a className="btn btn-ghost" href="/agent/install.ps1" target="_blank" rel="noreferrer">
+                      <Icons.ArrowDown size={11}/> Install (Windows)
+                    </a>
+                  </div>
+                </>
+              )
+          }
+          {state.err && (
+            <div style={{ marginTop: 10, color: "var(--state-warning)", fontSize: 11 }}>
+              Probe error: {state.err}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Hosted sites panel — Vercel deployments tied to this Supabase ──── */
+  function HostedSitesPanel({ agencyId, role }) {
+    const sites = (window.AppData && window.AppData.AGENCY_SITES) || [];
+    const forms = (window.AppData && window.AppData.AGENCY_SITE_FORMS) || [];
+    const [editing, setEditing] = useState(null); // site draft for modal
+    const [formsFor, setFormsFor] = useState(null); // site id for forms drawer
+
+    const startNew = () => setEditing({
+      id: null, slug: "", kind: "careers", displayName: "", deploymentUrl: "",
+      primaryDomain: "", vercelProjectId: "", status: "draft", notes: ""
+    });
+    const startEdit = (s) => setEditing({ ...s });
+    const remove = async (id) => {
+      if (!confirm("Unlink this site? Submissions stay in the audit log; the URL just stops appearing here.")) return;
+      try { await window.AppData.mutate.siteDelete(id); window.toast?.("Site unlinked", "info"); }
+      catch (e) { window.toast?.(`Delete failed: ${e?.message || e}`, "error"); }
+    };
+    const save = async () => {
+      if (!editing.slug.trim()) { window.toast?.("Slug required (used in the public URL)", "error"); return; }
+      try {
+        await window.AppData.mutate.siteUpsert(editing);
+        window.toast?.(editing.id ? "Site updated" : "Site linked", "success");
+        setEditing(null);
+      } catch (e) { /* toast already fired */ }
+    };
+
+    return (
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.ArrowUpRight size={13}/><h3>Hosted sites</h3>
+          <span className="meta">{sites.length}</span>
+          <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={startNew}>
+            <Icons.Plus size={11}/> Link site
+          </button>
+        </div>
+        <div style={{ padding: 14, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.55 }}>
+          {sites.length === 0 ? (
+            <div style={{ padding: 18, textAlign: "center" }}>
+              No sites linked. Link any Vercel deployment that should write into this
+              agency's Supabase — careers pages, applicant quizzes, consumer landing
+              funnels. Forms on the site post into <code>recruiting_applicants</code>,
+              <code> pipeline</code>, or any other tenant-scoped table you point them at.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {sites.map(s => {
+                const siteForms = forms.filter(f => f.siteId === s.id);
+                const open = formsFor === s.id;
+                return (
+                  <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+                      <span className="chip" style={{ fontSize: 9.5 }}>{s.kind}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)" }}>
+                          {s.displayName || s.slug}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginTop: 2 }}>
+                          {s.deploymentUrl || s.primaryDomain || "no url set"} · {siteForms.length} form{siteForms.length === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                      <span className="chip" style={{ fontSize: 9.5, color: s.status === "live" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{s.status}</span>
+                      {s.deploymentUrl && (
+                        <a href={s.deploymentUrl} target="_blank" rel="noreferrer" className="icon-btn" title="Open">
+                          <Icons.ArrowUpRight size={11}/>
+                        </a>
+                      )}
+                      <button className="icon-btn" title="Forms" onClick={() => setFormsFor(open ? null : s.id)}>
+                        <Icons.FileText size={11}/>
+                      </button>
+                      <button className="icon-btn" title="Edit" onClick={() => startEdit(s)}>
+                        <Icons.Edit size={11}/>
+                      </button>
+                      <button className="icon-btn" title="Unlink" style={{ color: "var(--state-danger)" }} onClick={() => remove(s.id)}>
+                        <Icons.X size={11}/>
+                      </button>
+                    </div>
+                    {open && <SiteFormsDrawer site={s} forms={siteForms}/>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {editing && (
+          <Shared.Modal title={editing.id ? "Edit site" : "Link a hosted site"} width={520} onClose={() => setEditing(null)} actions={
+            <>
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={!editing.slug.trim()}>
+                <Icons.Check size={11}/> {editing.id ? "Save" : "Link"}
+              </button>
+            </>
+          }>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Shared.Field label="Slug (used in public URLs)">
+                <input className="text-input" value={editing.slug} onChange={e => setEditing({ ...editing, slug: e.target.value })} placeholder="careers"/>
+              </Shared.Field>
+              <Shared.Field label="Kind">
+                <Shared.Select value={editing.kind} onChange={v => setEditing({ ...editing, kind: v })}
+                  options={[
+                    { v: "careers", l: "Careers page" },
+                    { v: "quiz",    l: "Quiz funnel" },
+                    { v: "landing", l: "Landing page" },
+                    { v: "other",   l: "Other" },
+                  ]}/>
+              </Shared.Field>
+            </div>
+            <Shared.Field label="Display name">
+              <input className="text-input" value={editing.displayName} onChange={e => setEditing({ ...editing, displayName: e.target.value })} placeholder="UEP — apply"/>
+            </Shared.Field>
+            <Shared.Field label="Deployment URL">
+              <input className="text-input" value={editing.deploymentUrl} onChange={e => setEditing({ ...editing, deploymentUrl: e.target.value })} placeholder="https://uep.vercel.app"/>
+            </Shared.Field>
+            <Shared.Field label="Primary domain (optional)">
+              <input className="text-input" value={editing.primaryDomain} onChange={e => setEditing({ ...editing, primaryDomain: e.target.value })} placeholder="apply.umbrellaep.com"/>
+            </Shared.Field>
+            <Shared.Field label="Vercel project ID (optional)">
+              <input className="text-input" value={editing.vercelProjectId} onChange={e => setEditing({ ...editing, vercelProjectId: e.target.value })} placeholder="prj_..."/>
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select value={editing.status} onChange={v => setEditing({ ...editing, status: v })}
+                options={[
+                  { v: "draft",    l: "Draft" },
+                  { v: "live",     l: "Live" },
+                  { v: "paused",   l: "Paused" },
+                  { v: "archived", l: "Archived" },
+                ]}/>
+            </Shared.Field>
+          </Shared.Modal>
+        )}
+      </div>
+    );
+  }
+
+  /* ── Site forms drawer — list forms + show the webhook bind info ────── */
+  function SiteFormsDrawer({ site, forms }) {
+    const [editing, setEditing] = useState(null);
+    const startNew = () => setEditing({
+      id: null, siteId: site.id, slug: "", name: "",
+      targetTable: "recruiting_applicants", status: "active",
+      fields: [
+        { key: "name",  label: "Full name", type: "text",  required: true },
+        { key: "email", label: "Email",     type: "email", required: true },
+        { key: "phone", label: "Phone",     type: "tel",   required: false },
+      ],
+      routing: {},
+    });
+    const save = async () => {
+      if (!editing.slug.trim() || !editing.name.trim()) {
+        window.toast?.("Slug + name required", "error"); return;
+      }
+      try {
+        await window.AppData.mutate.siteFormUpsert(editing);
+        setEditing(null);
+        window.toast?.(editing.id ? "Form updated" : "Form created", "success");
+      } catch (e) { /* toast handled */ }
+    };
+    const remove = async (id) => {
+      if (!confirm("Delete this form? Submissions already received stay in the audit log.")) return;
+      try { await window.AppData.mutate.siteFormDelete(id); }
+      catch (e) { window.toast?.(`Delete failed: ${e?.message || e}`, "error"); }
+    };
+    return (
+      <div style={{ padding: "0 10px 12px 10px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-elevated)" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "8px 0", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Forms on this site</span>
+          <button className="btn btn-ghost" style={{ marginLeft: "auto", fontSize: 11 }} onClick={startNew}>
+            <Icons.Plus size={10}/> New form
+          </button>
+        </div>
+        {forms.length === 0 && (
+          <div style={{ padding: 12, fontSize: 11, color: "var(--text-quaternary)" }}>
+            No forms yet. Add one to route submissions into a tenant-scoped table.
+          </div>
+        )}
+        {forms.map(f => (
+          <div key={f.id} style={{ display: "grid", gridTemplateColumns: "1fr 160px 90px 80px 40px", gap: 8, alignItems: "center", padding: "6px 0", fontSize: 11.5, borderBottom: "1px solid var(--border-subtle)" }}>
+            <div>
+              <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>{f.name}</div>
+              <div style={{ fontSize: 10, color: "var(--text-quaternary)" }} className="mono">/{f.slug} · token {f.webhookToken?.slice(0,8)}…</div>
+            </div>
+            <div style={{ color: "var(--text-tertiary)" }} className="mono">{f.targetTable}</div>
+            <div>{(f.fields || []).length} fields</div>
+            <div style={{ color: f.status === "active" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{f.status}</div>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button className="icon-btn" onClick={() => setEditing({ ...f })} title="Edit"><Icons.Edit size={10}/></button>
+              <button className="icon-btn" style={{ color: "var(--state-danger)" }} onClick={() => remove(f.id)} title="Delete"><Icons.X size={10}/></button>
+            </div>
+          </div>
+        ))}
+        {editing && (
+          <Shared.Modal title={editing.id ? "Edit form" : "New form"} width={560} onClose={() => setEditing(null)} actions={
+            <>
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save}><Icons.Check size={11}/> Save</button>
+            </>
+          }>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Shared.Field label="Slug">
+                <input className="text-input" value={editing.slug} onChange={e => setEditing({ ...editing, slug: e.target.value })} placeholder="apply"/>
+              </Shared.Field>
+              <Shared.Field label="Name">
+                <input className="text-input" value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="Producer application"/>
+              </Shared.Field>
+            </div>
+            <Shared.Field label="Target table">
+              <Shared.Select value={editing.targetTable} onChange={v => setEditing({ ...editing, targetTable: v })}
+                options={[
+                  { v: "recruiting_applicants", l: "recruiting_applicants — producer funnel" },
+                  { v: "pipeline",              l: "pipeline — consumer leads" },
+                  { v: "leads",                 l: "leads — raw inbound" },
+                ]}/>
+            </Shared.Field>
+            <Shared.Field label="Status">
+              <Shared.Select value={editing.status} onChange={v => setEditing({ ...editing, status: v })}
+                options={[
+                  { v: "draft",    l: "Draft" },
+                  { v: "active",   l: "Active" },
+                  { v: "paused",   l: "Paused" },
+                  { v: "archived", l: "Archived" },
+                ]}/>
+            </Shared.Field>
+            <Shared.Field label="Fields JSON (array of {key,label,type,required,options?})">
+              <textarea className="text-input" rows={8}
+                value={JSON.stringify(editing.fields || [], null, 2)}
+                onChange={e => {
+                  try { setEditing({ ...editing, fields: JSON.parse(e.target.value) }); }
+                  catch (_) { /* keep last good while user is typing */ }
+                }}
+                style={{ width: "100%", fontFamily: "var(--font-mono, monospace)", fontSize: 11.5 }}/>
+            </Shared.Field>
+            <Shared.Field label="Routing JSON (lead_score weights, default owner_rep_id, etc.)">
+              <textarea className="text-input" rows={4}
+                value={JSON.stringify(editing.routing || {}, null, 2)}
+                onChange={e => {
+                  try { setEditing({ ...editing, routing: JSON.parse(e.target.value) }); }
+                  catch (_) {}
+                }}
+                style={{ width: "100%", fontFamily: "var(--font-mono, monospace)", fontSize: 11.5 }}/>
+            </Shared.Field>
+            <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", marginTop: 6 }}>
+              Forms POST to <code className="mono">/api/site-forms/submit</code> with
+              <code className="mono"> form_id</code> + the form's <code className="mono">webhook_token</code>.
+              Until that endpoint ships, raw submissions land in
+              <code className="mono"> agency_site_submissions</code> for review.
+            </div>
+          </Shared.Modal>
+        )}
+      </div>
+    );
+  }
+
+  /* ── Platform credentials — recruiting-relevant subset of Connections ─ */
+  function PlatformCredsPanel() {
+    const conns = (window.AppData && window.AppData.CONNECTIONS) || [];
+    const want = ["instagram","linkedin","indeed","ziprecruiter","facebook","glassdoor","x","telegram"];
+    const have = new Set(conns.map(c => (c.id || "").toLowerCase()));
+    return (
+      <div className="panel">
+        <div className="panel-h">
+          <Icons.Plug size={13}/><h3>Platform credentials</h3>
+          <a className="btn btn-ghost" style={{ marginLeft: "auto" }}
+             href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "connections" } })); }}>
+            Open Connections →
+          </a>
+        </div>
+        <div style={{ padding: 14, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+          <div style={{ marginBottom: 10, color: "var(--text-tertiary)", fontSize: 11.5 }}>
+            Logins for the platforms the agent uses to post jobs, send DMs, and poll
+            inbound. Manage them on the Connections page; this panel just tells you
+            which platforms aren't wired up yet for recruiting.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+            {want.map(id => {
+              const ok = have.has(id);
+              return (
+                <div key={id} style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className={`dot dot-${ok ? "live" : "warn"}`}></span>
+                  <div style={{ flex: 1, fontSize: 12, textTransform: "capitalize" }}>{id}</div>
+                  <span className="chip" style={{ fontSize: 9.5, color: ok ? "var(--accent-money)" : "var(--text-tertiary)" }}>
+                    {ok ? "linked" : "missing"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     );
   }
 
