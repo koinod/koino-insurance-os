@@ -249,23 +249,17 @@ function PageCrm({ role = "owner" }) {
     window.toast && window.toast(`Exported ${filteredLeads.length} leads`, "success");
   };
 
-  // Recruiting tab folds in the PageRecruiting workspace (was a separate
-  // sidebar item). Restructure 2026-05-12: keep CRM as the single lifecycle
-  // hub for "people we're trying to onboard" — leads (consumers) + recruits
-  // (producers). Badge count = active recruiting applicants when loaded.
-  const recruitingApplicants = (window.AppData && window.AppData.RECRUITING_APPLICANTS) || [];
-  const activeApplicants = recruitingApplicants.filter(a => a.status !== "dropped" && a.status !== "producing").length;
-
   // CRM tab order — daily-work tabs first, configuration tabs last.
   // Leads     → fresh inbound, stage = New / lead, scoped to team.
   // Pipeline  → kanban for the whole team funnel (Contacted → Issued).
-  // Recruiting → producer applicants (separate funnel, same shape).
   // Sources / Lifecycle → configuration + reporting at the back.
+  // Recruiting lives at its own top-level sidebar entry (page-recruiting.jsx)
+  // as of 2026-06-17 — the producer funnel is a separate motion from the
+  // consumer-lead lifecycle and was confusing operators when co-tabbed here.
   const newLeadsCount = pipeline.filter(p => p.stage === "New" || p.stage === "lead").length;
   const TABS = [
     { k: "leads",       l: "Leads",       icon: "Bell",         badge: newLeadsCount },
     { k: "pipeline",    l: "Pipeline",    icon: "Pipeline",     badge: pipeline.length },
-    { k: "recruiting",  l: "Recruiting",  icon: "ArrowUpRight", badge: activeApplicants },
     { k: "sources",     l: "Sources",     icon: "Plug",         badge: sources.length },
     { k: "lifecycle",   l: "Lifecycle",   icon: "Activity" },
   ];
@@ -275,7 +269,7 @@ function PageCrm({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">CRM</div>
-          <div className="page-sub">Leads · pipeline · sources · recruiting · lifecycle — one screen for everyone you're trying to onboard</div>
+          <div className="page-sub">Leads · pipeline · sources · lifecycle — one screen for your consumer-lead funnel</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           {!realDataAvailable && <span className="chip" style={{ fontSize: 10.5, color: "var(--state-warning)" }}>sample mode</span>}
@@ -320,15 +314,6 @@ function PageCrm({ role = "owner" }) {
       })()}
       {tab === "sources"    && <SourcesSection {...{ sources, setConnectOpen }}/>}
       {tab === "pipeline"   && <PipelineSection {...{ leads: pipeline, reps, setStageOf, setActiveLead }}/>}
-      {tab === "recruiting" && (() => {
-        // Embed PageRecruiting here. The component takes a role prop and
-        // self-scopes via window.scopeRepIds() so the manager view is already
-        // downline-restricted. Render in a "nested" mode by suppressing its
-        // own page-h via a wrapper class.
-        const PR = window.PageRecruiting;
-        if (!PR) return <div className="panel" style={{ padding: 22, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>Recruiting workspace not loaded — refresh the page.</div>;
-        return <div className="crm-nested-recruiting"><PR role={role}/></div>;
-      })()}
       {tab === "lifecycle"  && <LifecycleSection {...{ totalLeads, totalContacted, totalIssued, totalSpend, totalAp, blendedRoas, sources }}/>}
 
       {connectOpen   && <ConnectModal onClose={() => setConnectOpen(false)}/>}

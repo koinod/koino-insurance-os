@@ -108,11 +108,10 @@ function PageVault({ role = "owner" }) {
   const fLinks    = data.links.filter(l => match(l.label) || match(l.cat));
   const fCarriers = data.carriers.filter(c => match(c.name) || match(c.category || ""));
   const fCourses  = visCourses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
-  const fSegments = data.segments.filter(s => match(s.name) || match(s.description || ""));
 
   const totalSearch =
     fScripts.length + fVideos.length + fDocs.length +
-    fLinks.length + fCarriers.length + fCourses.length + fSegments.length;
+    fLinks.length + fCarriers.length + fCourses.length;
 
   const counts = {
     all: totalSearch,
@@ -121,7 +120,6 @@ function PageVault({ role = "owner" }) {
     scripts:   fScripts.length,
     videos:    fVideos.length,
     docs:      fDocs.length,
-    segments:  fSegments.length,
     carriers:  fCarriers.length,
     links:     fLinks.length,
   };
@@ -133,7 +131,6 @@ function PageVault({ role = "owner" }) {
     { k: "scripts",   l: "Scripts",    icon: "FileText"  },
     { k: "videos",    l: "Videos",     icon: "Video"     },
     { k: "docs",      l: "Documents",  icon: "Folder"    },
-    { k: "segments",  l: "Segments",   icon: "Bookmark"  },
     { k: "carriers",  l: "Carriers",   icon: "Shield"    },
     { k: "links",     l: "Quick links",icon: "ArrowUpRight" },
   ];
@@ -147,7 +144,7 @@ function PageVault({ role = "owner" }) {
       <div className="page-h">
         <div>
           <div className="page-title">Vault</div>
-          <div className="page-sub">Coaching · courses · scripts · videos · documents · segments · carriers · quick links</div>
+          <div className="page-sub">Coaching · courses · scripts · videos · documents · carriers · quick links</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <input className="text-input" style={{ width: 260 }}
@@ -179,7 +176,6 @@ function PageVault({ role = "owner" }) {
           {fCourses.length  > 0 && <VaultCoursesBlock  courses={fCourses}  role={role}/>}
           {fVideos.length   > 0 && <VaultVideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
           {fDocs.length     > 0 && <VaultDocsBlock     docs={fDocs}/>}
-          {fSegments.length > 0 && <VaultSegmentsListBlock segments={fSegments} onOpen={() => setTab("segments")}/>}
           {fCarriers.length > 0 && <VaultCarriersBlock carriers={fCarriers}/>}
           {fLinks.length    > 0 && <VaultLinksBlock    links={fLinks}/>}
         </div>
@@ -190,7 +186,6 @@ function PageVault({ role = "owner" }) {
       {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} canEdit={canEdit} role={role}/>}
       {tab === "videos"   && <VaultVideosPane   videos={fVideos}   onOpen={setOpenVideo} canEdit={canEdit}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
-      {tab === "segments" && <VaultSegmentsPane canEdit={canEdit}/>}
       {tab === "carriers" && <VaultCarriersPane carriers={fCarriers} canEdit={canEdit}/>}
       {tab === "links"    && <VaultLinksPane    links={fLinks}    canEdit={canEdit}/>}
 
