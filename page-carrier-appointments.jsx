@@ -96,15 +96,25 @@
       const sb = window.getSupabase && window.getSupabase();
       if (!sb) { setAppts([]); return; }
       const agencyId = window.getActiveAgencyId && window.getActiveAgencyId();
-      let q = sb.from("agency_carrier_appointments")
-        .select("id, agency_id, carrier_id, carrier_name, status, bridge_under_npn, bridge_under_name, contracted_at, transferred_at, notes, appointed_states, npn, updated_at, created_at");
-      if (agencyId) q = q.eq("agency_id", agencyId);
-      q.then(({ data, error }) => {
-        if (error) { console.warn("[appts]", error); setAppts([]); return; }
-        setAppts(Array.isArray(data) ? data : []);
-      }).catch(() => setAppts([]));
+      // Refuse to fetch unscoped: super_admin RLS would return every agency's
+      // rows, causing N-agency × M-carrier ghost duplicates in the UI. me() may
+      // still be loading on first mount — the me:loaded listener below retries.
+      if (!agencyId) { setAppts([]); return; }
+      sb.from("agency_carrier_appointments")
+        .select("id, agency_id, carrier_id, carrier_name, status, bridge_under_npn, bridge_under_name, contracted_at, transferred_at, notes, appointed_states, npn, updated_at, created_at")
+        .eq("agency_id", agencyId)
+        .then(({ data, error }) => {
+          if (error) { console.warn("[appts]", error); setAppts([]); return; }
+          setAppts(Array.isArray(data) ? data : []);
+        })
+        .catch(() => setAppts([]));
     }, []);
-    useEffect(() => { reload(); }, [reload]);
+    useEffect(() => {
+      reload();
+      const onMeLoaded = () => reload();
+      window.addEventListener("me:loaded", onMeLoaded);
+      return () => window.removeEventListener("me:loaded", onMeLoaded);
+    }, [reload]);
     return [appts, reload];
   }
 
