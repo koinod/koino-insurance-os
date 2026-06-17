@@ -183,7 +183,7 @@ function PageVault({ role = "owner" }) {
 
       {tab === "coaching" && <VaultCoachingPane role={role}/>}
       {tab === "courses"  && <ProductTrainingEmbedded role={role}/>}
-      {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} canEdit={canEdit} role={role}/>}
+      {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} role={role}/>}
       {tab === "videos"   && <VaultVideosPane   videos={fVideos}   onOpen={setOpenVideo} canEdit={canEdit}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
       {tab === "carriers" && <VaultCarriersPane carriers={fCarriers} canEdit={canEdit}/>}
@@ -293,14 +293,36 @@ function VaultScriptsBlock({ scripts, openId, setOpenId, subCtx }) {
 /* ── Vault: Scripts pane — block + create modal (Scripts tab) ─────────── */
 const SCRIPT_CATEGORIES = ["Cold","Warm","Voicemail","Objection","Close","Open","Discovery","Cross-sell","Compliance"];
 
-function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role }) {
+function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
   const [addOpen, setAddOpen] = React.useState(false);
   const [draft, setDraft]     = React.useState(emptyScriptDraft());
   const segments = (window.AppData && window.AppData.SEGMENTS) || [];
 
+  // Hierarchy (matches RLS in migration 0095):
+  //   canCreate: any signed-in agency member, including reps.
+  //   canModify(s): manager+ on anything, or rep on a rep-created row they own.
+  // Computed per-row because rep ownership depends on createdBy / creatorRole.
+  const me        = (typeof window !== "undefined" && window.me && window.me()) || null;
+  const myRole    = me?.role || role || "rep";
+  const myRepId   = me?.rep_id || null;
+  const isManager = myRole === "owner" || myRole === "manager"
+                 || myRole === "imo_owner" || myRole === "admin"
+                 || myRole === "super_admin";
+  const canCreate = !!me;
+  const canModify = (s) => {
+    if (isManager) return true;
+    if (myRole === "rep") {
+      return s.creatorRole === "rep" && s.createdBy && s.createdBy === myRepId;
+    }
+    return false;
+  };
+
   function emptyScriptDraft() {
+    // Reps default to a rep-only visibility so a new personal script doesn't
+    // land in the manager / owner Vault. Manager+ defaults to fleet-wide.
+    const defaultRoles = isManager ? ["owner","manager","rep"] : ["rep"];
     return { id: null, title: "", cat: "Cold", body: "", description: "",
-             segmentId: null, targetRoles: ["owner","manager","rep"] };
+             segmentId: null, targetRoles: defaultRoles };
   }
 
   const openCreate = () => { setDraft(emptyScriptDraft()); setAddOpen(true); };
@@ -354,7 +376,7 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
     <div className="panel">
       <div className="panel-h">
         <Icons.FileText size={13}/><h3>Scripts</h3><span className="meta">{scripts.length}</span>
-        {canEdit && (
+        {canCreate && (
           <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
             <Icons.Plus size={12}/> New script
           </button>
@@ -364,27 +386,40 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
       {scripts.length === 0 ? (
         <div style={{ padding: 36, textAlign: "center" }}>
           <code className="mono koino-empty" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>no-scripts</code>
-          {canEdit && (
+          {canCreate && (
             <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)" }}>
               Click <strong style={{ color: "var(--text-secondary)" }}>New script</strong> to create one.
+              {!isManager && (
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-quaternary)" }}>
+                  Your scripts are private to you. Manager-created scripts also live here.
+                </div>
+              )}
             </div>
           )}
         </div>
       ) : (
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
           {scripts.map(s => {
-            const open = openId === s.id;
-            const Chev = open ? Icons.ChevronDown : Icons.ChevronRight;
+            const open    = openId === s.id;
+            const Chev    = open ? Icons.ChevronDown : Icons.ChevronRight;
+            const canMod  = canModify(s);
+            const isMine  = s.creatorRole === "rep" && s.createdBy && s.createdBy === myRepId;
+            const ownerChip = isMine
+              ? { label: "yours",   tone: "var(--accent-money)" }
+              : s.creatorRole && s.creatorRole !== "rep"
+                ? { label: s.creatorRole, tone: "var(--text-tertiary)" }
+                : null;
             return (
               <div key={s.id} style={{ background: "var(--bg-raised)", borderRadius: 5, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer" }} onClick={() => setOpenId(open ? null : s.id)}>
                   <Chev size={11} style={{ color: "var(--text-tertiary)" }}/>
                   <span style={{ flex: 1, fontWeight: 500, fontSize: 12 }} className="cell-truncate">{s.title}</span>
+                  {ownerChip && <span className="chip" style={{ fontSize: 9.5, color: ownerChip.tone }}>{ownerChip.label}</span>}
                   {s.isStarter && <span className="chip" style={{ fontSize: 9.5, color: "var(--text-tertiary)" }}>starter</span>}
                   {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
                   {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
                   <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
-                  {canEdit && (
+                  {canMod && (
                     <>
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); openEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); removeScript(s.id); }} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
@@ -447,7 +482,14 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, canEdit, role })
             <Shared.Select value={draft.segmentId || ""} onChange={v => setDraft({ ...draft, segmentId: v || null })}
               options={[{ v: "", l: "— No segment —" }, ...segments.map(s => ({ v: s.id, l: s.name }))]}/>
           </Shared.Field>
-          <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
+          {isManager
+            ? <RoleVisibilityField value={draft.targetRoles} onChange={v => setDraft({ ...draft, targetRoles: v })}/>
+            : (
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                This script is private to you. Managers can publish scripts to the whole team.
+              </div>
+            )
+          }
         </Shared.Modal>
       )}
     </div>
@@ -3657,7 +3699,7 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
       )}
 
       {tab === "videos"  && <VideoLibrary canEdit={role !== "rep"}/>}
-      {tab === "scripts" && <ScriptsLibrary/>}
+      {tab === "scripts" && <ScriptsLibrary canEdit={role !== "rep"}/>}
 
       {openCourse && <CourseViewerModal course={openCourse} repId={meId} store={store} onClose={() => setOpenCourse(null)}/>}
     </>
