@@ -62,12 +62,28 @@
 
     const recRef = useRef(null), ctxRef = useRef(null), streamsRef = useRef([]), chunksRef = useRef([]), mimeRef = useRef(""), timerRef = useRef(null), startedRef = useRef(0);
 
+    useEffect(() => {
+      try {
+        const raw = sessionStorage.getItem("repflow.recorder.prefill");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.leadName) setLeadName(parsed.leadName);
+          sessionStorage.removeItem("repflow.recorder.prefill");
+        }
+      } catch {}
+      try {
+        if (sessionStorage.getItem("repflow.recorder.mode") === "roleplay") {
+          setNote("Roleplay mode: record the practice call, then upload it for transcript + coaching.");
+        }
+      } catch {}
+    }, []);
+
     // ── Load this rep's recent recordings + their coaching scores ──────────
     const loadRecordings = useCallback(async () => {
       const sb = window.getSupabase?.(); const me = window.me?.();
       if (!sb || !me?.rep_id) return;
       const { data: recs } = await sb.from("call_recordings")
-        .select("id, lead_name, duration_sec, started_at, audio_path, transcript_url, transcript_text, source")
+        .select("*, pipeline(lead_name)")
         .eq("rep_id", me.rep_id).order("started_at", { ascending: false }).limit(25);
       if (!recs) return;
       const ids = recs.map(r => r.id);
@@ -229,7 +245,7 @@
               <button onClick={() => setExpanded(open ? null : r.id)}
                 style={{ width: "100%", textAlign: "left", padding: "12px 14px", background: "transparent", border: "none", cursor: "pointer", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{r.lead_name || "Untitled call"}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{r.lead_name || r.pipeline?.lead_name || "Untitled call"}</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
                     {new Date(r.started_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {fmtDur(r.duration_sec)}
                     {transcript ? " · transcribed" : " · transcribing…"}

@@ -14,11 +14,17 @@ export default async function handler(req) {
   const jwt = readUserJwt(req);
   if (!jwt) return json(401, { error: "not_authenticated" });
   const caller = await loadCallerFromJwt(jwt);
-  if (!caller?.agency_id || !caller?.rep_id) return json(403, { error: "no_rep_context" });
 
   let body;
   try { body = await req.json(); } catch { body = {}; }
-  body = { ...body, agencyId: caller.agency_id, repId: caller.rep_id };
+  const requestedAgencyId = body.agencyId || body.agency_id || null;
+  let agencyId = caller?.agency_id || null;
+  if (requestedAgencyId && requestedAgencyId !== agencyId) {
+    if (!caller?.is_super_admin) return json(403, { error: "cross_agency_start_requires_super_admin" });
+    agencyId = requestedAgencyId;
+  }
+  if (!agencyId || !caller?.rep_id) return json(403, { error: "no_rep_context" });
+  body = { ...body, agencyId, repId: caller.rep_id };
 
   const workerUrl = process.env.POWER_DIALER_URL;
   if (!workerUrl) return json(503, { error: "power_dialer_unconfigured", message: "Set POWER_DIALER_URL in Vercel env" });

@@ -320,7 +320,7 @@ window.hydrateFromSupabase = async function () {
       "tiering_overrides", "workflow_assignments",
       "agency_scripts", "agency_videos", "agency_docs", "agency_quick_links",
       "agency_lead_sources", "agency_expenses", "expense_allocations",
-      "lead_quotes", "sms_outbox", "agency_notifications",
+      "lead_quotes", "sms_outbox", "agency_notifications", "call_recordings",
       "lead_vendor_webhooks", "drip_log",
     ]);
     const scope = (q) => {
@@ -334,7 +334,7 @@ window.hydrateFromSupabase = async function () {
     };
     /* (Older variant of this function below uses unscoped queries; the next
        awaited block applies scope() to every Promise.all entry below.) */
-    const [reps, pipeline, queue, courses, recordings, connections, hardware, agents, workflows, orgSettings, agencies] = await Promise.all([
+    const [reps, pipeline, queue, courses, recordings, callRecordings, connections, hardware, agents, workflows, orgSettings, agencies] = await Promise.all([
       scope(sb.from("reps").select("*").order("mtd_cents", { ascending: false })),
       // Order by created_at desc so freshly-imported leads land at the top.
       // (Was order("days_in_stage") which buried new leads under stale ones.)
@@ -342,6 +342,7 @@ window.hydrateFromSupabase = async function () {
       scope(sb.from("queue").select("*").order("score", { ascending: false })),
       scope(sb.from("courses").select("*")),
       scope(sb.from("recordings").select("*").order("recorded_at", { ascending: false })),
+      scope(sb.from("call_recordings").select("*, pipeline(lead_name)").order("started_at", { ascending: false }).limit(200)),
       scope(sb.from("connections").select("*")),
       scope(sb.from("hardware").select("*")),
       scope(sb.from("ai_agents").select("*")),
@@ -434,6 +435,7 @@ window.hydrateFromSupabase = async function () {
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
+        agencyId: p.agency_id || null,
         leadSourceId: p.lead_source_id || null,
         owner: p.owner_rep_id, consent: p.consent, heat: p.heat,
         phone: p.phone || null, email: p.email || null,
@@ -443,6 +445,7 @@ window.hydrateFromSupabase = async function () {
       window.AppData.QUEUE = queue.data.map(q => ({
         id: q.id, lead: q.lead_name, age: q.age, state: q.state, source: q.source,
         product: q.product, elapsed: q.elapsed_seconds, score: q.score,
+        agencyId: q.agency_id || null,
         phone: q.phone || null, email: q.email || null,
         assignedRepId: q.assigned_rep_id || null,
       }));
@@ -452,14 +455,34 @@ window.hydrateFromSupabase = async function () {
         id: c.id, title: c.title, track: c.track, durMin: c.duration_min, status: c.status
       }));
     }
-    if (canWrite(recordings)) {
-      window.AppData.RECORDINGS = recordings.data.map(r => ({
+    if (canWrite(recordings) || canWrite(callRecordings)) {
+      const legacy = canWrite(recordings) ? recordings.data.map(r => ({
         id: r.id, lead: r.lead_name, repId: r.rep_id,
+        agencyId: r.agency_id || null,
         recordedAt: r.recorded_at,
         date: new Date(r.recorded_at).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
         durSec: r.duration_sec, talkRatio: r.talk_ratio_pct, openQ: r.open_questions,
-        ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score
-      }));
+        ai: r.ai_summary, flags: { tpmo: r.tpmo_flag, soa: r.soa_flag }, score: r.score,
+        source: r.source || "recordings",
+      })) : [];
+      const uploaded = canWrite(callRecordings) ? callRecordings.data.map(r => {
+        const ts = r.ended_at || r.started_at || r.created_at || new Date().toISOString();
+        return {
+        id: r.id, lead: r.lead_name || r.pipeline?.lead_name || "Uploaded call", repId: r.rep_id,
+          agencyId: r.agency_id || null,
+          recordedAt: ts,
+          date: new Date(ts).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
+          durSec: r.duration_sec || 0, talkRatio: null, openQ: null,
+          ai: r.transcript_url ? "Transcript ready." : null,
+          flags: { tpmo: null, soa: null }, score: null,
+          audioPath: r.audio_path || null, transcriptUrl: r.transcript_url || null,
+          source: r.source || "call_recordings",
+        };
+      }) : [];
+      const seen = new Set();
+      window.AppData.RECORDINGS = [...uploaded, ...legacy]
+        .filter(r => r?.id && !seen.has(r.id) && seen.add(r.id))
+        .sort((a, b) => new Date(b.recordedAt || 0) - new Date(a.recordedAt || 0));
     }
     if (canWrite(connections)) {
       window.AppData.CONNECTIONS = connections.data.map(c => ({
@@ -1091,6 +1114,7 @@ window.subscribeRealtime = function () {
   const TABLE_TO_KEY = {
     pipeline:    "PIPELINE",
     queue:       "QUEUE",
+    call_recordings: "RECORDINGS",
     reps:        "REPS",
     hardware:    "HARDWARE",
     ai_agents:   "AGENTS",
@@ -1127,8 +1151,12 @@ window.subscribeRealtime = function () {
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
   const toJs = (table, r) => {
-    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, leadSourceId: r.lead_source_id || null, owner: r.owner_rep_id, consent: r.consent, heat: r.heat, phone: r.phone || null, email: r.email || null };
-    if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score, phone: r.phone || null, email: r.email || null, assignedRepId: r.assigned_rep_id || null };
+    if (table === "pipeline")   return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, stage: r.stage, product: r.product, ap: Math.round(r.ap_cents/100), days: r.days_in_stage, last: r.last_activity_text, next: r.next_action, source: r.source, agencyId: r.agency_id || null, leadSourceId: r.lead_source_id || null, owner: r.owner_rep_id, consent: r.consent, heat: r.heat, phone: r.phone || null, email: r.email || null };
+    if (table === "queue")      return { id: r.id, lead: r.lead_name, age: r.age, state: r.state, source: r.source, product: r.product, elapsed: r.elapsed_seconds, score: r.score, agencyId: r.agency_id || null, phone: r.phone || null, email: r.email || null, assignedRepId: r.assigned_rep_id || null };
+    if (table === "call_recordings") {
+      const ts = r.ended_at || r.started_at || r.created_at || new Date().toISOString();
+      return { id: r.id, lead: r.lead_name || "Uploaded call", repId: r.rep_id, agencyId: r.agency_id || null, recordedAt: ts, date: new Date(ts).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }), durSec: r.duration_sec || 0, talkRatio: null, openQ: null, ai: r.transcript_url ? "Transcript ready." : null, flags: { tpmo: null, soa: null }, score: null, audioPath: r.audio_path || null, transcriptUrl: r.transcript_url || null, source: r.source || "call_recordings" };
+    }
     if (table === "reps")       return { id: r.id, name: r.name, handle: r.handle, tier: r.tier, mtd: Math.round(r.mtd_cents/100), today: Math.round(r.today_cents/100), streak: r.streak_days, dials: r.dials, presence: r.presence, appts: r.appts, color: r.color };
     if (table === "hardware")   return { id: r.id, name: r.name, kind: r.kind, status: r.status, uptime: r.uptime_text, load: r.load_pct, agents: r.agent_count, last: "live" };
     if (table === "ai_agents")  return { id: r.id, name: r.name, host: r.host_id, reqs: r.reqs_per_day, success: parseFloat(r.success_rate), last: "live", desc: r.description };

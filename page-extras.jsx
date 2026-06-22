@@ -3127,7 +3127,10 @@ function CallLibraryPane({ role }) {
         <div className="panel-h">
           <h3>Recordings</h3>
           <span className="meta">{filtered.length}</span>
-          <input className="text-input" style={{ width: 140, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
+          <button className="btn btn-ghost" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => openRecorder("mic")}>
+            <Icons.Mic size={11}/> Record
+          </button>
+          <input className="text-input" style={{ width: 120, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
         </div>
         <div style={{ padding: 8, borderBottom: "1px solid var(--border-subtle)" }}>
           <div
@@ -3135,34 +3138,23 @@ function CallLibraryPane({ role }) {
             onDragLeave={() => setDragActive(false)}
             onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}
             style={{
-              padding: 10,
+              padding: "6px 10px",
               border: `1px dashed ${dragActive ? "var(--accent-money)" : "var(--border-subtle)"}`,
-              borderRadius: 8,
+              borderRadius: 6,
               background: dragActive ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "var(--bg-raised)",
-              display: "grid",
+              display: "flex",
+              alignItems: "center",
               gap: 8,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <Icons.ArrowUp size={14} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>Upload call audio</div>
-                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>mp3, wav, m4a, webm, ogg · 60MB max</div>
-              </div>
-              <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} disabled={uploading} onClick={() => fileRef.current?.click()}>
-                {uploading ? "Uploading…" : "Choose"}
-              </button>
-              <input ref={fileRef} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg" style={{ display: "none" }} onChange={(e) => uploadFiles(e.target.files)}/>
+            <Icons.ArrowUp size={12} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
+            <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--text-secondary)" }}>
+              <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>Quick drop audio</span>
             </div>
-            <input className="text-input" style={{ fontSize: 11.5 }} value={uploadLead} onChange={(e) => setUploadLead(e.target.value)} placeholder="Lead name (optional)"/>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} onClick={() => openRecorder("roleplay")}>
-              <Icons.Mic size={11}/> Record roleplay
+            <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 6px", minHeight: 22 }} disabled={uploading} onClick={() => fileRef.current?.click()}>
+              {uploading ? "Uploading…" : "Choose"}
             </button>
-            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} onClick={() => openRecorder("mic")}>
-              <Icons.Headset size={11}/> Open recorder
-            </button>
+            <input ref={fileRef} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg" style={{ display: "none" }} onChange={(e) => uploadFiles(e.target.files)}/>
           </div>
         </div>
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto" }}>
@@ -3806,18 +3798,19 @@ function StatusChip({ status }) {
 /* ─── Reusable course list with real progress bars ────────────────────── */
 function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
   return (
-    <div className="list">
-      <div className="list-h" style={{ gridTemplateColumns: "minmax(120px, 1.6fr) minmax(70px, 100px) minmax(50px, 90px) minmax(100px, 1fr) minmax(80px, 110px) minmax(80px, 110px)" }}>
-        <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Progress</div><div>Status</div><div></div>
-      </div>
-      {courses.map(c => {
-        const status = ProductTraining.statusFor(repId, c, store.progress, store.assignments);
-        const pct    = ProductTraining.percentFor(repId, c, store.progress);
-        const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
-        return (
-          <div key={c.id} className="row" style={{ gridTemplateColumns: "minmax(120px, 1.6fr) minmax(70px, 100px) minmax(50px, 90px) minmax(100px, 1fr) minmax(80px, 110px) minmax(80px, 110px)" }}>
-            <div>
-              <div style={{ fontWeight: 500 }}>{c.title}</div>
+    <div style={{ overflowX: "auto", margin: "0 -12px", padding: "0 12px" }}>
+      <div className="list" style={{ minWidth: 680 }}>
+        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 80px 1fr 100px 90px" }}>
+          <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Progress</div><div>Status</div><div></div>
+        </div>
+        {courses.map(c => {
+          const status = ProductTraining.statusFor(repId, c, store.progress, store.assignments);
+          const pct    = ProductTraining.percentFor(repId, c, store.progress);
+          const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
+          return (
+            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 80px 1fr 100px 90px" }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{c.title}</div>
               {showRequiredFlag && c.required && <div style={{ fontSize: 10.5, color: "var(--accent-status)", marginTop: 2 }}>required</div>}
             </div>
             <div><span className="chip">{c.track}</span></div>
@@ -3836,6 +3829,7 @@ function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
       {courses.length === 0 && (
         <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No courses here.</div>
       )}
+    </div>
     </div>
   );
 }

@@ -78,6 +78,10 @@
         // up and opens it. No need to re-implement.
         return <CustomizeLanding/>;
       }
+      if (tab === "hq") {
+        const P = window.PagePlatformAdmin;
+        return P ? <P subpage="platform" embedded/> : <HQFallback onJump={setTab}/>;
+      }
       if (PLATFORM_SUBPAGES[tab]) {
         const P = window.PagePlatformAdmin;
         if (!P) return <Stub label="Platform admin"/>;
@@ -136,6 +140,65 @@
         <button className="btn btn-primary" onClick={openComposer}>
           <Icons.Edit size={12}/> Open sidebar composer
         </button>
+      </div>
+    );
+  }
+
+  function HQFallback({ onJump }) {
+    const agencies = (window.AppData && window.AppData.AGENCIES) || [];
+    const reps = (window.AppData && window.AppData.REPS) || [];
+    const conns = (window.AppData && window.AppData.CONNECTIONS) || [];
+    const hardware = (window.AppData && window.AppData.HARDWARE) || [];
+    const liveConns = conns.filter(c => c.status === "ok").length;
+    const warnConns = conns.filter(c => c.status === "warn").length;
+    const downConns = conns.filter(c => c.status === "down" || c.status === "error").length;
+    const liveHw = hardware.filter(h => h.status === "ok").length;
+    const topAgencies = [...agencies].slice(0, 5);
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          {[
+            { l: "Agencies", v: agencies.length, s: "live tenant rows" },
+            { l: "Reps", v: reps.length, s: "active user rows" },
+            { l: "Connections", v: `${liveConns}/${conns.length}`, s: `${warnConns} warn · ${downConns} down` },
+            { l: "Hardware", v: `${liveHw}/${hardware.length}`, s: "fleet health snapshot" },
+          ].map(t => (
+            <div key={t.l} className="panel" style={{ padding: 16 }}>
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t.l}</div>
+              <div style={{ marginTop: 6, fontSize: 26, fontWeight: 700, color: "var(--text-primary)" }}>{t.v}</div>
+              <div style={{ marginTop: 2, fontSize: 11.5, color: "var(--text-tertiary)" }}>{t.s}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel">
+          <div className="panel-h">
+            <Icons.Building size={12}/>
+            <h3>Top agencies</h3>
+            <span className="meta">{topAgencies.length}</span>
+          </div>
+          {topAgencies.length === 0 ? (
+            <div style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 12.5 }}>No agency rows are loaded yet.</div>
+          ) : topAgencies.map((a, idx) => (
+            <div key={a.id || idx} className="row" style={{ gridTemplateColumns: "1.6fr 90px 1fr 88px" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 500 }}>{a.name || "Untitled agency"}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }} className="cell-truncate">{a.slug || a.id || "—"}</div>
+              </div>
+              <div><span className="chip">{a.plan || "trial"}</span></div>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{a.state || "—"}</div>
+              <div style={{ textAlign: "right" }}>
+                <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "4px 8px" }} onClick={() => onJump && onJump("agencies")}>Open</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel" style={{ padding: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn btn-primary" onClick={() => onJump && onJump("flags")}><Icons.Sparkles size={11}/> Open Flags</button>
+          <button className="btn btn-ghost" onClick={() => onJump && onJump("system")}><Icons.Cpu size={11}/> Open System</button>
+          <button className="btn btn-ghost" onClick={() => onJump && onJump("customize")}><Icons.Edit size={11}/> Customize sidebar</button>
+        </div>
       </div>
     );
   }

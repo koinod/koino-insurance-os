@@ -110,6 +110,7 @@ async function dispatch(args) {
     headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
     body: JSON.stringify({
       lead_id:     args.lead_id || null,
+      agency_id:   args.agency_id || args.agencyId || null,
       to_number:   args.to_number || null,
       provider:    args.provider || null,
       dial_count:  args.dial_count || undefined,
@@ -196,6 +197,7 @@ function installHijack() {
     const s = window.repflowDialSettings || {};
     return window.repflowDialViaAgent({
       lead_id:   (opts && opts.lead_id)   || null,
+      agency_id: (opts && (opts.agency_id || opts.agencyId)) || null,
       lead_name: leadName,
       to_number: phone,
       provider:  (opts && opts.provider)  || null,

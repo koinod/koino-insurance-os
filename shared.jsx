@@ -206,7 +206,10 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
     if (!isDynamic) { setCustomLayout(null); return; }
     let cancelled = false;
     window.loadSidebarLayout?.(role).then(l => { if (!cancelled) setCustomLayout(l || []); });
-    const onUpdate = (e) => setCustomLayout(e.detail?.layout || []);
+    const onUpdate = (e) => {
+      if (e.detail?.role && e.detail.role !== role) return;
+      setCustomLayout(e.detail?.layout || []);
+    };
     window.addEventListener("sidebar:updated", onUpdate);
     return () => { cancelled = true; window.removeEventListener("sidebar:updated", onUpdate); };
   }, [role, isDynamic]);

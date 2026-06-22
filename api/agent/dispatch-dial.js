@@ -5,11 +5,12 @@
 // then runs the right tool based on the user's agent_settings.default_dial_provider.
 //
 // Request body:
-//   { lead_id, to_number?, provider? }
+//   { lead_id, to_number?, provider?, agency_id? }
 //   • lead_id required when called from a lead surface (we re-look up to_number
 //     server-side so the caller can't dial an arbitrary number under a lead)
 //   • to_number optional override (autodialer use case, no lead context yet)
 //   • provider optional override; otherwise reads agent_settings.default_dial_provider
+//   • agency_id optional active agency override, honored for super admins only
 //
 // Response 200: { command_id, device_id, kind, provider, to_number, lead_id }
 // Response 4xx/5xx: { error, code, fix?: <human-readable next step> }
@@ -18,7 +19,7 @@
 // developer error checking — every "this isn't going to work" condition is
 // surfaced before the agent gets a doomed command.
 
-import { SUPA_URL, SERVICE, cors, readUserJwt, rpc } from "./_lib.js";
+import { SUPA_URL, SERVICE, cors, readUserJwt, decodeJwtPayload, viewerIsSuperAdmin } from "./_lib.js";
 
 export const config = { runtime: "edge" };
 
@@ -61,9 +62,18 @@ export default async function handler(req) {
   if (!meR.ok) return err(401, "auth_resolve_failed", "couldn't resolve user");
   const meRows = await meR.json();
   const me = Array.isArray(meRows) ? meRows[0] : meRows;
-  const userId = me?.user_id || me?.id;
-  const agencyId = me?.agency_id;
-  if (!userId || !agencyId) {
+  const isSuperAdmin = await viewerIsSuperAdmin(jwt, me);
+  const claims = !me && isSuperAdmin ? decodeJwtPayload(jwt) : {};
+  const userId = me?.user_id || me?.id || claims.sub || null;
+  const requestedAgencyId = body.agency_id || body.agencyId || null;
+  let agencyId = me?.agency_id || null;
+  if (requestedAgencyId && requestedAgencyId !== agencyId) {
+    if (!isSuperAdmin) {
+      return err(403, "agency_mismatch", "agency override requires super admin");
+    }
+    agencyId = requestedAgencyId;
+  }
+  if (!userId || (!agencyId && !isSuperAdmin)) {
     return err(403, "no_membership", "no active agency membership", "Have an admin add you to an agency.");
   }
 
@@ -108,10 +118,14 @@ export default async function handler(req) {
     const lRows = lR.ok ? await lR.json() : [];
     lead = lRows[0];
     if (!lead) return err(404, "lead_not_found", `lead ${leadId} not found`);
+    if (isSuperAdmin && !requestedAgencyId && lead.agency_id) agencyId = lead.agency_id;
     if (lead.agency_id !== agencyId) {
       return err(403, "lead_other_tenant", "lead belongs to another agency");
     }
     if (!toNumber) toNumber = lead.phone;
+  }
+  if (!agencyId) {
+    return err(403, "no_membership", "no active agency selected", "Select an agency before dialing.");
   }
   if (!toNumber) {
     return err(400, "no_phone", "no phone number to dial",

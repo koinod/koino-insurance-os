@@ -1330,34 +1330,34 @@ function CoachingManager({ embedded = false } = {}) {
         <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-tertiary)" }}>{subline}</div>
       )}
 
-      <div className="cards-2col" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+      <div className="cards-2col coaching-shell-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.35fr) minmax(300px, 0.85fr)", gap: 14 }}>
         <div className="panel">
           <div className="panel-h">
             <Icons.Activity size={13}/>
             <h3>This week's coaching cards</h3>
             {sessions.length === 0 && <span className="meta" title="No live coaching_sessions for this scope yet — these are derived from rep signals">derived</span>}
           </div>
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="coaching-card-grid">
             {cards.length === 0 && (
               <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12.5, textAlign: "center" }}>
                 No producers in scope. Coaching cards appear once you have downline reps.
               </div>
             )}
             {cards.map((c) => (
-              <div key={c.id} style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div key={c.id} className="coaching-card">
+                <div className="coaching-card-head">
                   <Shared.Avatar rep={c.rep} size={26}/>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{c.rep.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}><Shared.TierChip tier={c.rep.tier} compact/> · {c.rep.handle}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="coaching-card-name">{c.rep.name}</div>
+                    <div className="coaching-card-meta"><Shared.TierChip tier={c.rep.tier} compact/> · {c.rep.handle}</div>
                   </div>
-                  <button className="btn btn-ghost" onClick={() => setReplay(c)}><Icons.Play size={11}/> Replay moment</button>
+                  <button className="btn btn-ghost coaching-card-btn" onClick={() => setReplay(c)}><Icons.Play size={11}/> Replay</button>
                 </div>
-                <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
-                <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
-                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Impact projection: <span style={{ color: "var(--accent-money)" }}>{c.impact}</span></span>
-                  <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => setNoteFor(c.rep)}><Icons.MessageSquare size={11}/> Add note</button>
+                <div className="coaching-card-focus">{c.focus}</div>
+                <div className="coaching-card-evidence">{c.evidence}</div>
+                <div className="coaching-card-actions">
+                  <span className="coaching-card-impact">Impact: <span>{c.impact}</span></span>
+                  <button className="btn btn-ghost coaching-card-btn" onClick={() => setNoteFor(c.rep)}><Icons.MessageSquare size={11}/> Note</button>
                 </div>
               </div>
             ))}
@@ -1499,7 +1499,7 @@ function CoachingScoresPanel({ repId, label = "My recent calls" }) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) { setScores([]); return; }
     let q = sb.from("call_coaching_scores")
-      .select("id,call_recording_id,rep_id,score,summary,talk_ratio_pct,filler_count,objections,action_items,coaching_points,sentiment_arc,model_used,scored_at,call_recordings(id,lead_name,duration_sec,ended_at)")
+      .select("id,call_recording_id,rep_id,score,summary,talk_ratio_pct,filler_count,objections,action_items,coaching_points,sentiment_arc,model_used,scored_at,call_recordings(*,pipeline(lead_name))")
       .order("scored_at", { ascending: false })
       .limit(20);
     if (repId) q = q.eq("rep_id", repId);
@@ -1546,7 +1546,7 @@ function CoachingScoresPanel({ repId, label = "My recent calls" }) {
             const dur  = rec?.duration_sec ? `${Math.floor(rec.duration_sec / 60)}:${String(rec.duration_sec % 60).padStart(2, "0")}` : "—";
             return (
               <div key={s.id} className="row" style={{ gridTemplateColumns: "1fr 80px 80px 90px 80px", cursor: "pointer" }} onClick={() => setSel(s.id)}>
-                <div style={{ fontWeight: 500, fontSize: 12.5 }}>{rec?.lead_name || "—"}</div>
+                <div style={{ fontWeight: 500, fontSize: 12.5 }}>{rec?.lead_name || rec?.pipeline?.lead_name || "—"}</div>
                 <div>
                   {s.score != null
                     ? <span className={`chip ${s.score >= 80 ? "chip-money" : s.score >= 60 ? "chip-status" : ""}`}>{s.score}</span>
@@ -1572,7 +1572,7 @@ function CoachingScoresPanel({ repId, label = "My recent calls" }) {
               {detail.score ?? "—"}
             </span>
             <div>
-              <div style={{ fontWeight: 500, fontSize: 13 }}>{detail.call_recordings?.lead_name || "Call"}</div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{detail.call_recordings?.lead_name || detail.call_recordings?.pipeline?.lead_name || "Call"}</div>
               <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
                 Talk ratio: {detail.talk_ratio_pct != null ? `${Math.round(detail.talk_ratio_pct)}% rep` : "—"} ·
                 Fillers: {detail.filler_count ?? "—"} ·
@@ -1676,7 +1676,7 @@ function CoachingRep() {
         </div>
       </div>
 
-      <div className="kpi-row">
+      <div className="kpi-row coaching-kpi-row">
         <Shared.KpiCard label="Open cards" value={String(openCards.length || cards.length)} sub={`${dueToday} due today`}/>
         <Shared.KpiCard label="Drills this week" value={String(drillsThisWeek)} sub={drillsThisWeek > 0 ? "logged" : "log your first"} trend={drillsThisWeek > 0 ? "up" : undefined}/>
         <Shared.KpiCard label="Notes received" value={String(myNotes.length)} sub={myNotes.length > 0 ? "from manager" : "none yet"} trend={myNotes.length > 0 ? "up" : undefined}/>
@@ -1692,15 +1692,15 @@ function CoachingRep() {
 
       <div className="panel" style={{ marginTop: 12 }}>
         <div className="panel-h"><Icons.Activity size={13}/><h3>My coaching cards</h3>{openCards.length === 0 && <span className="meta">demo</span>}</div>
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="coaching-card-grid">
           {cards.map((c) => (
-            <div key={c.id} style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--accent-status)" }}>{c.focus}</div>
-              <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>{c.evidence}</div>
-              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }}))}><Icons.Play size={11}/> Replay moment</button>
-                <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Run me through the ${c.drill} drill — give me 3 prompts I can practice on my next call`, context: "Coaching · " + c.drill }}))}><Icons.Sparkles size={11}/> {c.drill}</button>
-                <span className="chip chip-money" style={{ alignSelf: "center" }}>Impact: {c.impact}</span>
+            <div key={c.id} className="coaching-card">
+              <div className="coaching-card-focus">{c.focus}</div>
+              <div className="coaching-card-evidence">{c.evidence}</div>
+              <div className="coaching-card-actions">
+                <button className="btn btn-primary coaching-card-btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }}))}><Icons.Play size={11}/> Replay</button>
+                <button className="btn coaching-card-btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Run me through the ${c.drill} drill — give me 3 prompts I can practice on my next call`, context: "Coaching · " + c.drill }}))}><Icons.Sparkles size={11}/> Drill</button>
+                <span className="chip chip-money coaching-impact-chip">Impact: {c.impact}</span>
               </div>
             </div>
           ))}

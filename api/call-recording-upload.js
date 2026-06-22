@@ -26,6 +26,18 @@ export const config = { runtime: "edge" };
 
 const BUCKET = "call-recordings";
 const MAX_BYTES = 60 * 1024 * 1024; // 60MB hard cap — a 30-min opus call is ~15MB
+const SAFE_EXTS = new Set(["webm", "ogg", "mp3", "wav", "m4a", "mp4"]);
+
+function recordingExt(file, mime) {
+  const name = typeof file?.name === "string" ? file.name : "";
+  const fromName = name.includes(".") ? name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  if (SAFE_EXTS.has(fromName)) return fromName;
+  if (/ogg|opus/i.test(mime)) return "ogg";
+  if (/mpeg|mp3/i.test(mime)) return "mp3";
+  if (/wav/i.test(mime)) return "wav";
+  if (/mp4|m4a|aac/i.test(mime)) return "m4a";
+  return "webm";
+}
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
@@ -50,7 +62,7 @@ export default async function handler(req) {
   if (bytes > MAX_BYTES) return new Response(JSON.stringify({ error: "file too large", max_bytes: MAX_BYTES }), { status: 413, headers: cors() });
 
   const mime = String(form.get("mime") || file.type || "audio/webm");
-  const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
+  const ext = recordingExt(file, mime);
   const durationSec = parseInt(form.get("duration_sec") || "0", 10) || null;
   const channels = String(form.get("channels") || "mic");
   const leadName = (form.get("lead_name") ? String(form.get("lead_name")) : null);
@@ -77,25 +89,40 @@ export default async function handler(req) {
   //    transcribe cron picks it up; score-recent-calls then coaches it.
   const nowIso = new Date().toISOString();
   const startedAt = durationSec ? new Date(Date.now() - durationSec * 1000).toISOString() : nowIso;
-  const insR = await fetch(`${SUPA_URL}/rest/v1/call_recordings?select=id`, {
+  const payload = {
+    id,
+    rep_id: me.rep_id,
+    agency_id: me.agency_id,
+    lead_id: leadId,
+    lead_name: leadName,
+    started_at: startedAt,
+    ended_at: nowIso,
+    duration_sec: durationSec,
+    audio_path: path,
+    audio_bytes: bytes,
+    audio_mime: mime,
+    source: "recorder",
+    channels,
+  };
+
+  let insR = await fetch(`${SUPA_URL}/rest/v1/call_recordings?select=id`, {
     method: "POST",
     headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json", prefer: "return=representation" },
-    body: JSON.stringify({
-      id,
-      rep_id: me.rep_id,
-      agency_id: me.agency_id,
-      lead_id: leadId,
-      lead_name: leadName,
-      started_at: startedAt,
-      ended_at: nowIso,
-      duration_sec: durationSec,
-      audio_path: path,
-      audio_bytes: bytes,
-      audio_mime: mime,
-      source: "recorder",
-      channels,
-    }),
+    body: JSON.stringify(payload),
   });
+  if (!insR.ok && leadName) {
+    const detail = await insR.text().catch(() => "");
+    if (/lead_name|42703/i.test(detail)) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.lead_name;
+      if (!fallbackPayload.notes) fallbackPayload.notes = `Lead name: ${leadName}`;
+      insR = await fetch(`${SUPA_URL}/rest/v1/call_recordings?select=id`, {
+        method: "POST",
+        headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json", prefer: "return=representation" },
+        body: JSON.stringify(fallbackPayload),
+      });
+    }
+  }
   if (!insR.ok) {
     const detail = await insR.text().catch(() => "");
     // Best-effort cleanup so we don't orphan a blob with no row.

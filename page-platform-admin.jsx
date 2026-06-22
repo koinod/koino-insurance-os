@@ -63,7 +63,7 @@
   letter-spacing: -0.005em;
 }
 
-/* Card primitive. The Repflow `.panel` class still applies; we extend it
+/* Card primitive. The Repflow .panel class still applies; we extend it
    inside the scope with rounded corners + soft hover. */
 .koino-platform .panel {
   background: var(--bg-raised);
@@ -438,7 +438,7 @@ function ForbiddenCard({ error }) {
         <div style={{ marginTop: 8, fontSize: 12.5, color: "#b4b4b4", lineHeight: 1.6 }}>
           The cross-tenant RPC returned an error. You're either not on the
           <code className="mono" style={{ marginLeft: 4, background: "#0d0d0d", padding: "1px 6px", borderRadius: 4, fontSize: 11 }}>koino_super_admins</code> allowlist,
-          or migration <code className="mono" style={{ fontSize: 11 }}>0019_super_admin_platform.sql</code> hasn't been applied.
+          or migrations <code className="mono" style={{ fontSize: 11 }}>0063/0064_super_admin_platform</code> haven't been applied.
         </div>
         <pre style={{ marginTop: 10, padding: 10, background: "#050505", borderRadius: 8, fontSize: 11, color: "#888", whiteSpace: "pre-wrap", overflowX: "auto", border: "1px solid #1a1a1a" }}>
 {String(error || "")}
@@ -1595,7 +1595,7 @@ function SubpageSystem() {
             <Row k="supabase" v={url}/>
             <Row k="ref" v={projectRef}/>
             <Row k="build" v="v=78"/>
-            <Row k="migration" v="0019_super_admin_platform"/>
+            <Row k="migration" v="0063 + 0064 super_admin_platform"/>
             <Row k="you" v={meIdent?.full_name || "—"}/>
             <Row k="role" v={<span style={{ color: meIdent?.is_super_admin ? "#00d4aa" : "#e8e8e8" }}>{meIdent?.is_super_admin ? "super_admin" : (meIdent?.role || "—")}</span>}/>
             <Row k="act-as" v={window.superAdminActingAs && window.superAdminActingAs() ? <span style={{ color: "#f59e0b" }}>{window.superAdminActingAs()}</span> : "—"}/>

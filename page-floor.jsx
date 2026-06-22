@@ -184,6 +184,19 @@
         || null;
   }
 
+  function floorActiveAgencyId() {
+    try {
+      const active = window.getActiveAgencyId && window.getActiveAgencyId();
+      if (active) return active;
+    } catch {}
+    const ident = (typeof window !== "undefined" && window.me && window.me()) || null;
+    return ident?.agency_id || null;
+  }
+
+  function floorRowAgencyId(row) {
+    return row?.agencyId || row?.agency_id || null;
+  }
+
   function heatScore(h) {
     return h === "hot" ? 40 : h === "fresh" ? 32 : h === "warm" ? 22 : 8;
   }
@@ -195,6 +208,7 @@
   function buildFloorDialerLeads(role, filters) {
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const myRepId = meIdent?.rep_id || resolveFloorRep()?.id || null;
+    const activeAgencyId = floorActiveAgencyId();
     const f = filters || {};
     const matchesFilter = (p) => {
       if (f.source && (p.source || "") !== f.source) return false;
@@ -208,6 +222,8 @@
     const rows = [];
     const push = (p, sourceRank) => {
       if (!p || !p.phone || !p.id || seen.has(p.id)) return;
+      const rowAgencyId = floorRowAgencyId(p);
+      if (activeAgencyId && rowAgencyId && rowAgencyId !== activeAgencyId) return;
       if (p.stage === "Issued" || p.stage === "Lost") return;
       if (!isManagerRole(role) && myRepId && p.owner && p.owner !== myRepId) return;
       if (!matchesFilter(p)) return;
@@ -236,6 +252,7 @@
         last: q.elapsed ? `${q.elapsed}s` : "",
         next: "First dial",
         source: q.source || "inbound",
+        agencyId: q.agencyId || q.agency_id || null,
         owner: q.assignedRepId || myRepId,
         consent: "verified",
         heat: q.elapsed < 30 ? "hot" : "fresh",
@@ -262,6 +279,7 @@
         name: l.lead || l.name || "Lead",
         product: l.product || null,
         source: l.source || null,
+        agency_id: l.agencyId || l.agency_id || null,
       };
     }).filter(l => l.phone && l.phone.replace(/\D/g, "").length >= 10);
   }
@@ -981,9 +999,12 @@
   function buildFloorFilterOptions(role) {
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
     const myRepId = meIdent?.rep_id || resolveFloorRep()?.id || null;
+    const activeAgencyId = floorActiveAgencyId();
     const sources = new Set(), states = new Set(), products = new Set(), stages = new Set();
     const consider = (p) => {
       if (!p || !p.phone) return;
+      const rowAgencyId = floorRowAgencyId(p);
+      if (activeAgencyId && rowAgencyId && rowAgencyId !== activeAgencyId) return;
       if (p.stage === "Issued" || p.stage === "Lost") return;
       if (!isManagerRole(role) && myRepId && p.owner && p.owner !== myRepId) return;
       if (p.source) sources.add(p.source);
@@ -1213,7 +1234,9 @@
         if (typeof window.repflowCall === "function") {
           await window.repflowCall(current.phone, current.lead, {
             lead_id: current.id,
+            agency_id: current.agencyId || current.agency_id || floorActiveAgencyId(),
             source: "solo_floor",
+            provider,
             provider_hint: provider,
           });
         } else {
@@ -1385,7 +1408,7 @@
 
     const meIdent = (typeof window !== "undefined" && window.me && window.me()) || {};
     const repId = meIdent.rep_id || meIdent.id || resolveFloorRep()?.id || "";
-    const agencyId = meIdent.agency_id || "";
+    const agencyId = floorActiveAgencyId() || "";
     const isDemo = !!(window.isDemoAgency && window.isDemoAgency());
     const [filters, setFilters] = useState(() => {
       try { return { source: "", state: "", product: "", stage: "", heat: "", ...(JSON.parse(localStorage.getItem("repflow.floor.filters") || "{}")) }; }

@@ -144,7 +144,6 @@ window.SidebarStatTiles = {
 
 const CATEGORIES = [
   { key: "nav",     label: "Nav Links" },
-  { key: "stats",   label: "Mini-Stats" },
   { key: "actions", label: "Quick Actions" },
 ];
 
@@ -283,7 +282,7 @@ function SidebarComposer({ onClose, role }) {
 
   async function handleSave() {
     setSaving(true);
-    await window.saveSidebarLayout(layout);
+    await window.saveSidebarLayout(layout, role);
     setSaving(false);
     setDirty(false);
     onClose();
@@ -291,7 +290,7 @@ function SidebarComposer({ onClose, role }) {
 
   async function handleReset() {
     setSaving(true);
-    const defaultLayout = await window.resetSidebarLayout();
+    const defaultLayout = await window.resetSidebarLayout(role);
     setLayout(defaultLayout || []);
     setSaving(false);
     setDirty(false);

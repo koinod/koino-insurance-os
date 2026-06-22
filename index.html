@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=91"/>
+<link rel="stylesheet" href="styles.css?v=93"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
 <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
@@ -47,17 +47,17 @@
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.7.2/dist/livekit-client.umd.min.js"></script>
 
 <script src="lib/supabase-config.js?v=75"></script>
-<script src="lib/me.js?v=76"></script>
+<script src="lib/me.js?v=77"></script>
 <script src="lib/agency-config.js?v=74"></script>
 <script src="lib/dial-rules.js?v=75"></script>
 <script src="lib/rate-engine.js?v=98"></script>
 <script src="lib/call-recorder.js?v=95"></script>
-<script src="lib/sidebar-widgets.js?v=6"></script>
-<script src="dist/tweaks-panel.js?v=74"></script>
-<script src="dist/data.js?v=102"></script>
+<script src="lib/sidebar-widgets.js?v=7"></script>
+<script src="dist/tweaks-panel.js?v=75"></script>
+<script src="dist/data.js?v=103"></script>
 <script src="dist/icons.js?v=93"></script>
-<script src="dist/shared.js?v=111"></script>
-<script src="dist/sidebar-composer.js?v=3"></script>
+<script src="dist/shared.js?v=112"></script>
+<script src="dist/sidebar-composer.js?v=5"></script>
 <script src="dist/ai-sidebar.js?v=84"></script>
 <script src="dist/page-today-hero.js?v=1"></script>
 <script src="dist/page-today.js?v=93"></script>
@@ -66,10 +66,10 @@
 <script src="dist/page-pipeline.js?v=83"></script>
 <script src="dist/page-queue.js?v=96"></script>
 <!-- page-manager.jsx deleted 2026-05-13: manager routes to same pages as owner via unified NAV -->
-<script src="dist/page-owner.js?v=82"></script>
+<script src="dist/page-owner.js?v=83"></script>
 <script src="dist/page-leaddrip.js?v=99"></script>
 <script src="dist/page-ops.js?v=76"></script>
-<script src="dist/page-extras.js?v=108"></script>
+<script src="dist/page-extras.js?v=109"></script>
 <script src="dist/page-expenses.js?v=76"></script>
 <script src="dist/page-invite-team.js?v=84"></script>
 <script src="dist/page-recruiting.js?v=78"></script>
@@ -95,12 +95,12 @@
      wins. app.js sets repflowCall globally; loading rba-dial.js before it
      gets the hijack overwritten. -->
 <!-- Moved below app.js script tag — see further down. -->
-<script src="dist/page-platform-admin.js?v=3"></script>
-<script src="dist/page-admin-hub.js?v=1"></script>
+<script src="dist/page-platform-admin.js?v=5"></script>
+<script src="dist/page-admin-hub.js?v=2"></script>
 <script src="dist/page-billing.js?v=76"></script>
 <script src="dist/page-autodialer.js?v=79"></script>
 <script src="dist/page-deal-write.js?v=104"></script>
-<script src="dist/page-floor.js?v=112"></script>
+<script src="dist/page-floor.js?v=113"></script>
 <script src="dist/page-floor-actions.js?v=78"></script>
 <script src="dist/page-redial-queue.js?v=74"></script>
 <script src="dist/page-power-dialer.js?v=4"></script>
@@ -119,9 +119,9 @@
      PageDeposits, PageVault, PageOrgTree) and BEFORE app.js which routes to them. -->
 <script src="dist/page-book-host.js?v=4"></script>
 <script src="dist/page-vault-host.js?v=1"></script>
-<script src="dist/app.js?v=109"></script>
+<script src="dist/app.js?v=111"></script>
 <!-- rba-dial.js loads LAST so its hijack of window.repflowCall wins
      against any earlier definitions in app.js / page-*.js. -->
-<script src="dist/rba-dial.js?v=6"></script>
+<script src="dist/rba-dial.js?v=7"></script>
 </body>
 </html>

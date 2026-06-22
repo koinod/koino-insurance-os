@@ -36,7 +36,7 @@ export default async function handler(req) {
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const recR  = await fetch(
     `${SUPA_URL}/rest/v1/call_recordings` +
-    `?select=id,rep_id,agency_id,lead_name,duration_sec,transcript_url,transcript_text` +
+    `?select=*,pipeline(lead_name)` +
     `&ended_at=gte.${encodeURIComponent(since)}` +
     `&order=ended_at.desc&limit=${MAX_PER_RUN}`,
     { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
@@ -91,7 +91,7 @@ async function scoreRecording(rec, { ANTHROPIC_KEY, OPENAI_KEY }) {
     || (rec.transcript_url ? await fetchTranscript(rec.transcript_url) : null)
     || null;
 
-  const leadName = rec.lead_name || "the lead";
+  const leadName = rec.lead_name || rec.pipeline?.lead_name || "the lead";
   const durMin   = rec.duration_sec ? `${Math.round(rec.duration_sec / 60)} minutes` : "unknown duration";
 
   const systemPrompt = `You are an expert insurance sales coach. Analyze the following sales call transcript and return a JSON object with EXACTLY this structure:

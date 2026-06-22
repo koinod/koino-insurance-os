@@ -52,19 +52,52 @@ export function readUserJwt(req) {
   return a.replace(/^Bearer\s+/i, "") || null;
 }
 
+export function decodeJwtPayload(jwt) {
+  try {
+    const payload = String(jwt || "").split(".")[1];
+    if (!payload) return {};
+    const padded = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const json = typeof atob === "function"
+      ? atob(padded)
+      : Buffer.from(padded, "base64").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    return {};
+  }
+}
+
+function rpcBool(data, key) {
+  if (typeof data === "boolean") return data;
+  if (Array.isArray(data)) return data.some((row) => row === true || row?.[key] === true || row?.is_super_admin === true);
+  return !!(data && (data[key] === true || data.is_super_admin === true));
+}
+
+export async function viewerIsSuperAdmin(jwt, meRow = null) {
+  if (meRow?.is_super_admin === true || meRow?.role === "super_admin") return true;
+  if (!jwt) return false;
+  const r = await rpc("viewer_is_super_admin", {}, jwt);
+  if (!r.ok) return false;
+  return rpcBool(r.data, "viewer_is_super_admin");
+}
+
 // Resolve the calling user's identity by calling public.me() with their JWT.
 // Returns { user_id, agency_id, role, rep_id, full_name } or null on failure.
 export async function loadCallerFromJwt(jwt) {
   if (!jwt) return null;
   const r = await rpc("me", null, jwt);
-  if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) return null;
-  const row = r.data[0];
+  if (!r.ok || !Array.isArray(r.data)) return null;
+  const row = r.data[0] || null;
+  const isSuper = await viewerIsSuperAdmin(jwt, row);
+  if (!row && !isSuper) return null;
+  const claims = row ? {} : decodeJwtPayload(jwt);
   return {
-    user_id:  row.user_id,
-    agency_id: row.agency_id,
-    role:     row.role,
-    rep_id:   row.rep_id,
-    full_name: row.full_name,
+    user_id:  row?.user_id || claims.sub || null,
+    agency_id: row?.agency_id || null,
+    role:     isSuper ? "super_admin" : row?.role,
+    agency_role: row?.role || null,
+    rep_id:   row?.rep_id || null,
+    full_name: row?.full_name || claims.email || null,
+    is_super_admin: isSuper,
   };
 }
 

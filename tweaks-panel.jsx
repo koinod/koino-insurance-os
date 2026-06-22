@@ -134,19 +134,56 @@ const __TWEAKS_STYLE = `
 `;
 
 // ── useTweaks ───────────────────────────────────────────────────────────────
-// Single source of truth for tweak values. setTweak persists via the host
-// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
-function useTweaks(defaults) {
-  const [values, setValues] = React.useState(defaults);
+// Single source of truth for tweak values. In edit-mode hosts, setTweak still
+// posts edits so the host can rewrite the EDITMODE block on disk. In the live
+// app there is no host, so we also keep a localStorage copy for normal browser
+// sessions.
+const TWEAKS_STORAGE_PREFIX = "repflow.tweaks.v1";
+
+function tweakStorageKey(defaults, explicitKey) {
+  if (explicitKey) return explicitKey;
+  const path = (typeof location !== "undefined" && location.pathname) || "/";
+  const keys = Object.keys(defaults || {}).sort().join(",");
+  return `${TWEAKS_STORAGE_PREFIX}:${path}:${keys}`;
+}
+
+function readStoredTweaks(defaults, key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return defaults;
+    const stored = JSON.parse(raw);
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return defaults;
+    const allowed = new Set(Object.keys(defaults || {}));
+    const merged = { ...defaults };
+    for (const [k, v] of Object.entries(stored)) {
+      if (allowed.has(k)) merged[k] = v;
+    }
+    return merged;
+  } catch {
+    return defaults;
+  }
+}
+
+function writeStoredTweaks(key, values) {
+  try { localStorage.setItem(key, JSON.stringify(values)); } catch {}
+}
+
+function useTweaks(defaults, options = {}) {
+  const storageKey = React.useMemo(() => tweakStorageKey(defaults, options.storageKey), [defaults, options.storageKey]);
+  const [values, setValues] = React.useState(() => readStoredTweaks(defaults, storageKey));
   // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
   // useState-style call doesn't write a "[object Object]" key into the persisted
   // JSON block.
   const setTweak = React.useCallback((keyOrEdits, val) => {
     const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
       ? keyOrEdits : { [keyOrEdits]: val };
-    setValues((prev) => ({ ...prev, ...edits }));
+    setValues((prev) => {
+      const next = { ...prev, ...edits };
+      writeStoredTweaks(storageKey, next);
+      return next;
+    });
     window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
-  }, []);
+  }, [storageKey]);
   return [values, setTweak];
 }
 

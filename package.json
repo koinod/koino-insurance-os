@@ -6,7 +6,7 @@
     "vercel-build": "node scripts/build-jsx.mjs",
     "smoke": "node tests/smoke.mjs",
     "test:vault": "node tests/vault-flows.mjs",
-    "test:nav":   "node tests/nav-trap.mjs",
+    "test:nav": "node tests/nav-trap.mjs",
     "test:rba-e2e": "node scripts/rba_e2e.mjs",
     "flows": "node tests/flows.mjs",
     "smoke:interactions": "node tests/interactions.mjs"
@@ -14,5 +14,8 @@
   "devDependencies": {
     "esbuild": "0.25.0",
     "playwright": "^1.49.1"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.8.69"
   }
 }
