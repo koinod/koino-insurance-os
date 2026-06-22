@@ -1499,7 +1499,7 @@ function CoachingScoresPanel({ repId, label = "My recent calls" }) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb) { setScores([]); return; }
     let q = sb.from("call_coaching_scores")
-      .select("id,call_recording_id,rep_id,score,summary,talk_ratio_pct,filler_count,objections,action_items,coaching_points,sentiment_arc,model_used,scored_at,call_recordings(*,pipeline(lead_name))")
+      .select("id,call_recording_id,rep_id,score,summary,talk_ratio_pct,filler_count,objections,action_items,coaching_points,sentiment_arc,model_used,scored_at,call_recordings(*)")
       .order("scored_at", { ascending: false })
       .limit(20);
     if (repId) q = q.eq("rep_id", repId);
@@ -1662,10 +1662,10 @@ function CoachingRep() {
         drill: "Run 5-question rephrase drill",
         impact: s.outcome || "track this week",
       }))
-    : (_isDemoCoach ? [
+    : [
         { id: "seed-1", focus: "Ask 3 more open-ended questions per hour", evidence: "Default focus until your manager assigns one.", drill: "Run 5-question rephrase drill", impact: "+12% close rate (cohort)" },
         { id: "seed-2", focus: "Cut talk-listen from 52% → 45%",            evidence: "Default focus until your manager assigns one.",  drill: "30-sec silence drill x10",       impact: "Persistency +6pts" },
-      ] : []);
+      ];
 
   return (
     <div className="page-pad">
