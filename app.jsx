@@ -77,7 +77,8 @@ function App() {
   useEffect(() => {
     const navForRole = Shared.NAV[role] || Shared.NAV.owner;
     const validPages = [...navForRole.map(i => i.id), ...Shared.NAV.ops.map(i => i.id), "settings"];
-    if (role === "super_admin") {
+    const canUseAdminRoutes = role === "super_admin" || !!(window.isSuperAdmin && window.isSuperAdmin());
+    if (canUseAdminRoutes) {
       validPages.push(
         "admin", "admin-billing", "admin-members", "admin-invites",
         "admin-carriers", "admin-security", "admin-audit",
@@ -112,6 +113,11 @@ function App() {
       try {
         const { data: { session } } = await sb.auth.getSession();
         if (!session) return;
+        let isPlatformSuper = false;
+        try {
+          const r = await sb.rpc("viewer_is_super_admin");
+          isPlatformSuper = r?.data === true;
+        } catch (_e) {}
         const { data: meRow } = await sb.from("agency_members")
           .select("role, agency_id, rep_id")
           .eq("user_id", session.user.id)
@@ -119,11 +125,12 @@ function App() {
           .order("joined_at", { ascending: false })
           .limit(1).single();
         if (cancelled) return;
-        if (meRow?.role) {
+        if (isPlatformSuper || meRow?.role) {
           // "owner" and legacy roles collapse to manager. super_admin keeps its
           // own role so it gets the admin tab in its NAV.
           const RETIRED = new Set(["admin", "imo_owner", "owner"]);
-          const effective = RETIRED.has(meRow.role) ? "manager" : meRow.role;
+          const rawRole = isPlatformSuper ? "super_admin" : meRow.role;
+          const effective = RETIRED.has(rawRole) ? "manager" : rawRole;
           window.__authRole = effective;
           if (effective !== role) setTweak("role", effective);
         }
@@ -197,6 +204,7 @@ function App() {
     // Non-super_admin: route falls through to Today (desktop) / MobileRep
     // (mobile). Sidebar entry is also hidden in shared.jsx Sidebar.
     const _floorEnabled = !!(window.isSuperAdmin && window.isSuperAdmin());
+    const canUseAdminRoutes = role === "super_admin" || !!(window.isSuperAdmin && window.isSuperAdmin());
     if (mobile && role === "rep") return _floorEnabled
       ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
       : F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
@@ -256,22 +264,22 @@ function App() {
       // PagePlatformAdmin owns cross-tenant operator views (HQ, Flags,
       // System); PageAdmin owns tenant-mgmt CRUD (Clients, Subscriptions,
       // Users, Onboarding, Carriers, Security, Audit + niche surfaces).
-      case "admin-hq":         return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-hq"       subpage="platform"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-flags":      return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-flags"    subpage="flags"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-system":     return role === "super_admin" ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-system"   subpage="system"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin":            return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-agencies"  initialTab="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-billing":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-billing"   initialTab="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-members":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-members"   initialTab="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-invites":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-invites"   initialTab="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-carriers":   return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-carriers"  initialTab="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-security":   return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-security"  initialTab="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-audit":      return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-audit"     initialTab="audit"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-hierarchy":  return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-hierarchy" initialTab="hierarchy"/>: <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-scrape":     return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-scrape"    initialTab="scrape"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
-      case "admin-devices":    return role === "super_admin" ? (() => { const A = window.PageAdmin; return A ? <A key="adm-devices"   initialTab="devices"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-hq":         return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-hq" subpage="platform"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-flags":      return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-flags"    subpage="flags"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-system":     return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-system"   subpage="system"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin":            return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-agencies"  initialTab="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-billing":    return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-billing"   initialTab="billing"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-members":    return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-members"   initialTab="members"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-invites":    return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-invites"   initialTab="invites"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-carriers":   return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-carriers"  initialTab="carriers"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-security":   return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-security"  initialTab="security"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-audit":      return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-audit"     initialTab="audit"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-hierarchy":  return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-hierarchy" initialTab="hierarchy"/>: <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-scrape":     return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-scrape"    initialTab="scrape"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      case "admin-devices":    return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-devices"   initialTab="devices"/>  : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       // Customize → open the sidebar composer directly (the dispatch is
       // idempotent; listener in shared.jsx handles double-fires).
-      case "admin-customize":  return role === "super_admin" ? (() => {
+      case "admin-customize":  return canUseAdminRoutes ? (() => {
         try { window.dispatchEvent(new CustomEvent("sidebar:composer:open")); } catch {}
         return <div className="page-pad"><div className="panel" style={{ padding: 20, fontSize: 13, color: "var(--text-secondary)" }}>Sidebar composer opening… <button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => window.dispatchEvent(new CustomEvent("sidebar:composer:open"))}>Reopen</button></div></div>;
       })() : F("PageToday", { role });
@@ -294,7 +302,7 @@ function App() {
       case "pay":         return F("PageCommissions", { role });
       case "expenses":    return F("PageExpenses",    { role });
       case "invite-team": return F("PageInviteTeamRoute");
-      case "lab":         return role === "super_admin"
+      case "lab":         return canUseAdminRoutes
                                 ? F("PageLab")
                                 : F("PageToday", { role });
 

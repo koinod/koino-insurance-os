@@ -3005,15 +3005,121 @@ function CoachingPane({ role }) {
 }
 
 function CallLibraryPane({ role }) {
-  const { RECORDINGS, REPS } = AppData;
+  const [, force] = React.useState(0);
+  const fileRef = React.useRef(null);
+  const [selId, setSelId] = React.useState(null);
+  const [q, setQ] = React.useState("");
+  const [uploadLead, setUploadLead] = React.useState("");
+  const [uploading, setUploading] = React.useState(false);
+  const [dragActive, setDragActive] = React.useState(false);
+
+  React.useEffect(() => {
+    const h = () => force(n => n + 1);
+    window.addEventListener("data:hydrated", h);
+    window.addEventListener("data:mutated", h);
+    window.addEventListener("data:realtime", h);
+    return () => {
+      window.removeEventListener("data:hydrated", h);
+      window.removeEventListener("data:mutated", h);
+      window.removeEventListener("data:realtime", h);
+    };
+  }, []);
+
+  const { RECORDINGS = [], REPS = [] } = AppData;
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const meId = meIdent?.rep_id || (window.isDemoAgency && window.isDemoAgency() ? REPS[0]?.id : null);
   const visible = role === "rep" ? RECORDINGS.filter(r => !r.repId || r.repId === meId) : RECORDINGS;
 
-  const [selId, setSelId] = React.useState(visible[0]?.id);
-  const [q, setQ]         = React.useState("");
-  const filtered = visible.filter(r => !q || r.lead.toLowerCase().includes(q.toLowerCase()));
+  const filtered = visible.filter(r => !q || String(r.lead || "").toLowerCase().includes(q.toLowerCase()));
   const sel = filtered.find(r => r.id === selId) || filtered[0];
+  const fmtDur = (sec) => {
+    const n = Math.max(0, Number(sec || 0));
+    return `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, "0")}`;
+  };
+  const scoreColor = (score) => score == null ? "var(--text-quaternary)" : score >= 80 ? "var(--accent-money)" : score >= 60 ? "var(--state-warning)" : "var(--state-danger)";
+
+  const openRecorder = (mode = "roleplay") => {
+    try {
+      sessionStorage.setItem("repflow.recorder.mode", mode);
+      sessionStorage.setItem("repflow.recorder.prefill", JSON.stringify({
+        leadName: mode === "roleplay" ? "Roleplay session" : "",
+      }));
+    } catch {}
+    window.gotoPage?.("recorder");
+  };
+
+  async function readMediaDuration(file) {
+    return new Promise(resolve => {
+      const el = document.createElement((file.type || "").startsWith("video/") ? "video" : "audio");
+      const url = URL.createObjectURL(file);
+      const done = (value) => { URL.revokeObjectURL(url); resolve(value); };
+      const t = setTimeout(() => done(null), 2500);
+      el.preload = "metadata";
+      el.onloadedmetadata = () => {
+        clearTimeout(t);
+        done(Number.isFinite(el.duration) ? Math.max(1, Math.round(el.duration)) : null);
+      };
+      el.onerror = () => { clearTimeout(t); done(null); };
+      el.src = url;
+    });
+  }
+
+  async function uploadFiles(files) {
+    const file = Array.from(files || [])[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const sb = window.getSupabase?.();
+      const { data } = await (sb?.auth.getSession?.() || Promise.resolve({ data: {} }));
+      const jwt = data?.session?.access_token;
+      const duration = await readMediaDuration(file);
+      const leadName = uploadLead.trim() || file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+      const fd = new FormData();
+      fd.append("file", file, file.name || "call.webm");
+      fd.append("mime", file.type || "audio/webm");
+      fd.append("channels", "uploaded");
+      if (duration) fd.append("duration_sec", String(duration));
+      if (leadName) fd.append("lead_name", leadName);
+      const r = await fetch("/api/call-recording-upload", {
+        method: "POST",
+        headers: jwt ? { "x-supabase-auth": `Bearer ${jwt}` } : {},
+        body: fd,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `upload failed (${r.status})`);
+
+      const now = new Date();
+      const optimistic = {
+        id: j.id,
+        lead: leadName || "Uploaded call",
+        repId: meId,
+        agencyId: meIdent?.agency_id || null,
+        recordedAt: now.toISOString(),
+        date: now.toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }),
+        durSec: duration || 0,
+        talkRatio: null,
+        openQ: null,
+        ai: null,
+        flags: { tpmo: null, soa: null },
+        score: null,
+        audioPath: j.audio_path || null,
+        source: "upload",
+      };
+      AppData.RECORDINGS = [optimistic, ...(AppData.RECORDINGS || []).filter(r => r.id !== optimistic.id)];
+      setSelId(optimistic.id);
+      setUploadLead("");
+      force(n => n + 1);
+      window.dispatchEvent(new CustomEvent("data:hydrated"));
+      window.toast?.("Call uploaded — transcription and coaching will run automatically.", "success");
+      setTimeout(() => window.hydrateFromSupabase?.(), 1500);
+    } catch (e) {
+      window.toast?.(`Call upload failed: ${e.message || e}`, "error");
+    } finally {
+      setUploading(false);
+      setDragActive(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
 
   return (
     <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
@@ -3023,16 +3129,52 @@ function CallLibraryPane({ role }) {
           <span className="meta">{filtered.length}</span>
           <input className="text-input" style={{ width: 140, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
         </div>
+        <div style={{ padding: 8, borderBottom: "1px solid var(--border-subtle)" }}>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}
+            style={{
+              padding: 10,
+              border: `1px dashed ${dragActive ? "var(--accent-money)" : "var(--border-subtle)"}`,
+              borderRadius: 8,
+              background: dragActive ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "var(--bg-raised)",
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <Icons.ArrowUp size={14} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>Upload call audio</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>mp3, wav, m4a, webm, ogg · 60MB max</div>
+              </div>
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} disabled={uploading} onClick={() => fileRef.current?.click()}>
+                {uploading ? "Uploading…" : "Choose"}
+              </button>
+              <input ref={fileRef} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg" style={{ display: "none" }} onChange={(e) => uploadFiles(e.target.files)}/>
+            </div>
+            <input className="text-input" style={{ fontSize: 11.5 }} value={uploadLead} onChange={(e) => setUploadLead(e.target.value)} placeholder="Lead name (optional)"/>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} onClick={() => openRecorder("roleplay")}>
+              <Icons.Mic size={11}/> Record roleplay
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: "5px 8px" }} onClick={() => openRecorder("mic")}>
+              <Icons.Headset size={11}/> Open recorder
+            </button>
+          </div>
+        </div>
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto" }}>
           {filtered.map(r => (
             <button key={r.id} onClick={() => setSelId(r.id)} className="btn btn-ghost" style={{ justifyContent: "flex-start", padding: 10, background: sel?.id === r.id ? "var(--bg-overlay)" : "var(--bg-raised)", border: "1px solid var(--border-subtle)", flexDirection: "column", alignItems: "stretch", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                <strong style={{ fontSize: 12.5 }}>{r.lead}</strong>
-                <span className="tabular" style={{ color: r.score >= 80 ? "var(--accent-money)" : r.score >= 60 ? "var(--state-warning)" : "var(--state-danger)", fontSize: 11.5 }}>{r.score}</span>
+                <strong style={{ fontSize: 12.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lead || "Uploaded call"}</strong>
+                <span className="tabular" style={{ color: scoreColor(r.score), fontSize: 11.5 }}>{r.score ?? "—"}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-tertiary)", fontSize: 11 }}>
                 <span>{r.date}</span>
-                <span className="mono">{Math.floor(r.durSec / 60)}:{String(r.durSec % 60).padStart(2, "0")}</span>
+                <span className="mono">{fmtDur(r.durSec)}</span>
               </div>
             </button>
           ))}
@@ -3044,9 +3186,10 @@ function CallLibraryPane({ role }) {
         <div className="panel">
           <div className="panel-h">
             <Icons.Headset size={13}/>
-            <h3>{sel.lead} · score {sel.score}</h3>
+            <h3>{sel.lead || "Uploaded call"} · score {sel.score ?? "—"}</h3>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Summarize the call with ${sel.lead} and grade my open-ended question rate`, context: "Call · " + sel.lead }}))}><Icons.Sparkles size={11}/> Analyze</button>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Summarize the call with ${sel.lead || "this uploaded call"} and grade my open-ended question rate`, context: "Call · " + (sel.lead || "Uploaded call") }}))}><Icons.Sparkles size={11}/> Analyze</button>
+              <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Fix this call: identify the top 3 issues, rewrite the opener, and give me a clean next-call version for ${sel.lead || "this uploaded call"}.`, context: "Call · " + (sel.lead || "Uploaded call") }}))}><Icons.WandSparkles size={11}/> Fix</button>
             </div>
           </div>
           <div style={{ padding: 14 }}>
@@ -3060,16 +3203,30 @@ function CallLibraryPane({ role }) {
                   })}
                 </svg>
               </div>
-              <span className="mono">{Math.floor(sel.durSec / 60)}:{String(sel.durSec % 60).padStart(2, "0")}</span>
+              <span className="mono">{fmtDur(sel.durSec)}</span>
             </div>
             <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <span className={`chip ${sel.talkRatio < 50 ? "chip-money" : "chip-status"}`}>Talk: {sel.talkRatio}%</span>
-              <span className="chip">Open Q: {sel.openQ}</span>
-              <span className={`chip ${sel.flags?.tpmo === "ok" ? "chip-money" : "chip-status"}`}>TPMO {sel.flags?.tpmo === "ok" ? "✓" : "?"}</span>
-              <span className={`chip ${sel.flags?.soa === "captured" || sel.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel.flags?.soa}</span>
+              <span className={`chip ${sel.talkRatio == null ? "" : sel.talkRatio < 50 ? "chip-money" : "chip-status"}`}>Talk: {sel.talkRatio == null ? "—" : `${sel.talkRatio}%`}</span>
+              <span className="chip">Open Q: {sel.openQ ?? "—"}</span>
+              <span className={`chip ${sel.flags?.tpmo === "ok" ? "chip-money" : sel.flags?.tpmo ? "chip-status" : ""}`}>TPMO {sel.flags?.tpmo === "ok" ? "✓" : sel.flags?.tpmo || "—"}</span>
+              <span className={`chip ${sel.flags?.soa === "captured" || sel.flags?.soa === "scheduled" ? "chip-money" : ""}`}>SOA {sel.flags?.soa || "—"}</span>
             </div>
             <div style={{ marginTop: 14, padding: 12, background: "var(--bg-raised)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
-              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel.ai}
+              <strong style={{ color: "var(--text-primary)" }}>AI summary —</strong> {sel.ai || <span style={{ color: "var(--text-tertiary)" }}>processing…</span>}
+            </div>
+            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+              <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase" }}>Upload</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>Blob lands in `call-recordings` and creates a `call_recordings` row.</div>
+              </div>
+              <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase" }}>Transcript</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>Cron turns it into text, then the transcript appears here.</div>
+              </div>
+              <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", textTransform: "uppercase" }}>Coach</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>Scoring attaches after transcription, and the AI panel updates automatically.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -3117,15 +3274,6 @@ const DEFAULT_VIDEOS = [
   { id: "v-iul",   title: "IUL — target premium vs annual premium",    cat: "Life",          durMin: 22, src: "", thumb: "" },
   { id: "v-tpmo",  title: "TPMO disclosure — verbatim walkthrough",    cat: "Compliance",    durMin: 6,  src: "", thumb: "" },
   { id: "v-cross", title: "Cross-sell — Med Supp → FE in one call",    cat: "Med Supp",      durMin: 14, src: "", thumb: "" },
-];
-
-const DEFAULT_SCRIPTS = [
-  { id: "s-medg",   title: "Med Supp — Plan G open",       cat: "Open",       version: "v3.1", updated: "2d ago", body: `Hi {{lead_name}}, this is {{rep_first}} with Atlas. The reason for my call is to make sure your Medicare Supplement gives you the same Plan G coverage at a lower rate. Quick question — when you turn the page on next year's premium, are you most concerned about the monthly cost or the network freedom?` },
-  { id: "s-fe",     title: "Final Expense — empathy",       cat: "Open",       version: "v2.4", updated: "1w ago", body: `Most of my clients tell me the hardest part isn't paying for a policy, it's the thought of leaving the people they love with a bill on top of grief. Can I ask — if something happened tomorrow, who would you not want to leave that burden on?` },
-  { id: "s-tpmo",   title: "TPMO disclosure (verbatim)",   cat: "Compliance", version: "v1.0", updated: "3w ago", body: `We do not offer every plan available in your area. Currently we represent {{n_orgs}} organizations which offer {{n_plans}} products in your area. Please contact Medicare.gov or 1-800-MEDICARE to get information on all of your options.` },
-  { id: "s-annuity",title: "Annuity — fact-find",           cat: "Discovery",  version: "v1.7", updated: "5d ago", body: `Before I quote anything, I need to understand your timeline. The money you're considering — is this for income within the next 5 years, or is it cushion for ten-plus years out?` },
-  { id: "s-xsell",  title: "Cross-sell — FE → Med Supp",   cat: "Cross-sell", version: "v2.0", updated: "1d ago", body: `Now that we've taken care of the final expense piece, the other coverage gap I usually see is on the medical side. With Plan G, your Medicare-approved costs after deductible would be zero. Want me to pull a quick rate?` },
-  { id: "s-aep",    title: "AEP — switch reasons",          cat: "Open",       version: "v4.2", updated: "Today",   body: `Three reasons people switch during AEP: (1) the drug list changed, (2) their doctor dropped, (3) the premium jumped. Which of those is hitting you hardest this year?` },
 ];
 
 const VIDEO_CATS  = ["All", "Med Supp", "Final Expense", "AEP", "Life", "Compliance"];
@@ -3315,8 +3463,7 @@ function VideoLibrary({ canEdit = true }) {
 }
 
 function ScriptsLibrary({ canEdit = true }) {
-  // Agency-shared via AppData.SCRIPTS_LIB (migration 0010); seed fallback for
-  // empty agencies so the page renders content immediately.
+  // Agency-shared via AppData.SCRIPTS_LIB (migration 0010); demo fallback only.
   const [, force] = React.useState(0);
   React.useEffect(() => {
     const fn = () => force(n => n + 1);
@@ -3329,19 +3476,37 @@ function ScriptsLibrary({ canEdit = true }) {
       window.removeEventListener("data:realtime", fn);
     };
   }, []);
-  const live    = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
-  const scripts = live.length > 0 ? live : (window.isDemoAgency && window.isDemoAgency() ? DEFAULT_SCRIPTS : []);
+  const scripts = (window.AppData && window.AppData.SCRIPTS_LIB) || [];
   const [cat, setCat]             = React.useState("All");
   const [q, setQ]                 = React.useState("");
   const [openId, setOpenId]       = React.useState(null);
   const [editing, setEditing]     = React.useState(null);   // {id?, title, cat, body}
   const [copyToast, setCopyToast] = React.useState(null);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [importMode, setImportMode] = React.useState("text");
+  const [importBusy, setImportBusy] = React.useState(false);
+  const [importDraft, setImportDraft] = React.useState({
+    title: "",
+    cat: "Open",
+    body: "",
+    gdocUrl: "",
+    pdfFile: null,
+  });
 
   const filtered = scripts.filter(s =>
     (cat === "All" || s.cat === cat) &&
     (!q || s.title.toLowerCase().includes(q.toLowerCase()) || s.body.toLowerCase().includes(q.toLowerCase()))
   );
   const open = openId ? scripts.find(s => s.id === openId) : null;
+
+  const inferTitle = (text, fallback = "Imported script") => {
+    const firstLine = String(text || "")
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .find(Boolean);
+    if (!firstLine) return fallback;
+    return firstLine.length > 72 ? `${firstLine.slice(0, 69).trim()}…` : firstLine;
+  };
 
   const startNew  = () => setEditing({ id: null, title: "", cat: "Open", body: "" });
   const startEdit = (s) => setEditing({ id: s.id, title: s.title, cat: s.cat, body: s.body });
@@ -3372,6 +3537,70 @@ function ScriptsLibrary({ canEdit = true }) {
       window.toast && window.toast("Copy blocked by browser", "warn");
     }
   };
+  const openImport = (mode = "text") => {
+    setImportMode(mode);
+    setImportDraft({ title: "", cat: "Open", body: "", gdocUrl: "", pdfFile: null });
+    setImportOpen(true);
+  };
+  const persistImported = async ({ title, cat, body, description }) => {
+    const row = await window.AppData.mutate.scriptUpsert({
+      title,
+      cat,
+      body,
+      description,
+    });
+    setOpenId(row?.id || null);
+    return row;
+  };
+  const runImport = async () => {
+    if (!canEdit || importBusy) return;
+    const cat = importDraft.cat || "Open";
+    try {
+      setImportBusy(true);
+      if (importMode === "text") {
+        const body = importDraft.body.trim();
+        if (!body) return;
+        const title = (importDraft.title || "").trim() || inferTitle(body);
+        await persistImported({ title, cat, body, description: "Imported from pasted text" });
+        window.toast && window.toast("Script imported", "success");
+      } else if (importMode === "gdoc") {
+        const url = importDraft.gdocUrl.trim();
+        if (!url) return;
+        const r = await fetch("/api/import-gdoc", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.error || `Import failed (${r.status})`);
+        const body = String(data.text || "").trim();
+        if (!body) throw new Error("Imported document had no text");
+        const title = (importDraft.title || "").trim() || data.title || inferTitle(body, "Imported Google Doc");
+        await persistImported({ title, cat, body, description: "Imported from Google Docs" });
+        window.toast && window.toast(`Imported "${title}"`, "success");
+      } else if (importMode === "pdf") {
+        const file = importDraft.pdfFile;
+        if (!file) return;
+        const fd = new FormData();
+        fd.append("file", file);
+        const r = await fetch("/api/import-pdf", { method: "POST", body: fd });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.error || `Import failed (${r.status})`);
+        const body = String(data.text || "").trim();
+        if (!body) throw new Error("PDF had no extractable text");
+        const title = (importDraft.title || "").trim() || data.title || inferTitle(body, file.name.replace(/\.pdf$/i, "") || "Imported PDF");
+        await persistImported({ title, cat, body, description: `Imported from PDF${file.name ? `: ${file.name}` : ""}` });
+        window.toast && window.toast(`Imported "${title}"`, "success");
+      }
+      setImportOpen(false);
+      setImportDraft({ title: "", cat: "Open", body: "", gdocUrl: "", pdfFile: null });
+    } catch (e) {
+      window.toast?.(e?.message || "Import failed", "error");
+      console.error("[scripts.import]", e);
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   return (
     <div className="panel">
@@ -3380,6 +3609,7 @@ function ScriptsLibrary({ canEdit = true }) {
         <h3>Scripts library</h3>
         <span className="meta">{filtered.length} of {scripts.length}</span>
         <input className="text-input" style={{ width: 200, marginLeft: "auto" }} placeholder="Search title or body…" value={q} onChange={(e) => setQ(e.target.value)}/>
+        {canEdit && <button className="btn btn-ghost" onClick={() => openImport("text")}><Icons.ArrowUpRight size={12}/> Import</button>}
         {canEdit && <button className="btn btn-primary" onClick={startNew}><Icons.Plus size={12}/> New</button>}
       </div>
       <div style={{ padding: "10px 14px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -3474,6 +3704,89 @@ function ScriptsLibrary({ canEdit = true }) {
           </div>
         </Shared.Modal>
       )}
+
+      {importOpen && (
+        <Shared.Modal title="Import script" width={720} onClose={() => !importBusy && setImportOpen(false)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => !importBusy && setImportOpen(false)} disabled={importBusy}>Cancel</button>
+            <button className="btn btn-primary" onClick={runImport} disabled={importBusy}>
+              {importBusy ? "Importing…" : <><Icons.Check size={11}/> Import</>}
+            </button>
+          </>
+        }>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[
+              { k: "text", l: "Paste text" },
+              { k: "gdoc", l: "Google Doc" },
+              { k: "pdf", l: "PDF" },
+            ].map(t => (
+              <button
+                key={t.k}
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setImportMode(t.k)}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: 11.5,
+                  background: importMode === t.k ? "var(--bg-raised)" : "transparent",
+                  color: importMode === t.k ? "var(--text-primary)" : "var(--text-tertiary)",
+                }}
+              >
+                {t.l}
+              </button>
+            ))}
+          </div>
+
+          <Shared.Field label="Title (optional)">
+            <input
+              className="text-input"
+              value={importDraft.title}
+              onChange={(e) => setImportDraft({ ...importDraft, title: e.target.value })}
+              placeholder="Leave blank to infer from the source"
+            />
+          </Shared.Field>
+          <Shared.Field label="Category">
+            <Shared.Select value={importDraft.cat} onChange={(v) => setImportDraft({ ...importDraft, cat: v })} options={SCRIPT_CATS.filter(c => c !== "All").map(c => ({ v: c, l: c }))}/>
+          </Shared.Field>
+
+          {importMode === "text" && (
+            <Shared.Field label="Paste script text">
+              <textarea
+                className="text-input"
+                rows={11}
+                value={importDraft.body}
+                onChange={(e) => setImportDraft({ ...importDraft, body: e.target.value })}
+                placeholder="Paste the script here. The first non-empty line will be used as the title if you leave the title blank."
+                style={{ width: "100%", lineHeight: 1.6, fontFamily: "var(--font-ui)" }}
+              />
+            </Shared.Field>
+          )}
+
+          {importMode === "gdoc" && (
+            <Shared.Field label="Google Docs / Sheets / Slides URL">
+              <input
+                className="text-input"
+                value={importDraft.gdocUrl}
+                onChange={(e) => setImportDraft({ ...importDraft, gdocUrl: e.target.value })}
+                placeholder="https://docs.google.com/document/d/..."
+              />
+            </Shared.Field>
+          )}
+
+          {importMode === "pdf" && (
+            <Shared.Field label="PDF file">
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(e) => setImportDraft({ ...importDraft, pdfFile: e.target.files?.[0] || null })}
+              />
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
+                {importDraft.pdfFile ? importDraft.pdfFile.name : "Upload a PDF and the text will be extracted into a new script."}
+              </div>
+            </Shared.Field>
+          )}
+        </Shared.Modal>
+      )}
     </div>
   );
 }
@@ -3494,7 +3807,7 @@ function StatusChip({ status }) {
 function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
   return (
     <div className="list">
-      <div className="list-h" style={{ gridTemplateColumns: "1.6fr 100px 90px 1fr 110px 110px" }}>
+      <div className="list-h" style={{ gridTemplateColumns: "minmax(120px, 1.6fr) minmax(70px, 100px) minmax(50px, 90px) minmax(100px, 1fr) minmax(80px, 110px) minmax(80px, 110px)" }}>
         <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Progress</div><div>Status</div><div></div>
       </div>
       {courses.map(c => {
@@ -3502,7 +3815,7 @@ function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
         const pct    = ProductTraining.percentFor(repId, c, store.progress);
         const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
         return (
-          <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 100px 90px 1fr 110px 110px" }}>
+          <div key={c.id} className="row" style={{ gridTemplateColumns: "minmax(120px, 1.6fr) minmax(70px, 100px) minmax(50px, 90px) minmax(100px, 1fr) minmax(80px, 110px) minmax(80px, 110px)" }}>
             <div>
               <div style={{ fontWeight: 500 }}>{c.title}</div>
               {showRequiredFlag && c.required && <div style={{ fontSize: 10.5, color: "var(--accent-status)", marginTop: 2 }}>required</div>}
