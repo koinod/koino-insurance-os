@@ -917,10 +917,10 @@ const AIRail = ({ context }) => {
       // Pass last 3 turns so the copilot has short-term memory for vague
       // follow-ups like "what do you need?" / "??". Each turn = {q, a}.
       const recent = [];
-      for (let i = hist.length - 1; i >= 0 && recent.length < 3; i--) {
-        const m = hist[i];
-        if (m.role === "assistant" && i > 0 && hist[i-1]?.role === "user") {
-          recent.unshift({ q: hist[i-1].text || "", a: m.text || "" });
+      for (let i = history.length - 1; i >= 0 && recent.length < 3; i--) {
+        const m = history[i];
+        if (m.role === "assistant" && i > 0 && history[i-1]?.role === "user") {
+          recent.unshift({ q: history[i-1].text || "", a: m.text || "" });
         }
       }
       const resp = await fetch("/api/copilot", {

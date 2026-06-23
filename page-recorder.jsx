@@ -59,6 +59,8 @@
     const [note, setNote]       = useState(null);
     const [recordings, setRecordings] = useState([]);
     const [expanded, setExpanded] = useState(null);
+    const [returnPage, setReturnPage] = useState("training");
+    const [returnTab, setReturnTab] = useState("library");
 
     const recRef = useRef(null), ctxRef = useRef(null), streamsRef = useRef([]), chunksRef = useRef([]), mimeRef = useRef(""), timerRef = useRef(null), startedRef = useRef(0);
 
@@ -76,7 +78,24 @@
           setNote("Roleplay mode: record the practice call, then upload it for transcript + coaching.");
         }
       } catch {}
+      try {
+        const page = sessionStorage.getItem("repflow.recorder.returnPage");
+        const tab = sessionStorage.getItem("repflow.recorder.returnTab");
+        if (page) setReturnPage(page);
+        if (tab) setReturnTab(tab);
+      } catch {}
     }, []);
+
+    const goBack = useCallback(() => {
+      try {
+        if (returnPage === "training" && returnTab) {
+          sessionStorage.setItem("repflow.training.tab", returnTab);
+        }
+        sessionStorage.removeItem("repflow.recorder.returnPage");
+        sessionStorage.removeItem("repflow.recorder.returnTab");
+      } catch {}
+      if (window.gotoPage) window.gotoPage(returnPage || "training");
+    }, [returnPage, returnTab]);
 
     // ── Load this rep's recent recordings + their coaching scores ──────────
     const loadRecordings = useCallback(async () => {
@@ -184,6 +203,12 @@
 
     return (
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "8px 4px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+          <button className="btn btn-ghost" style={{ padding: "4px 8px", fontSize: 11 }} onClick={goBack}>
+            <Icons.ChevronRight size={11} style={{ transform: "rotate(180deg)" }}/> Back to {returnTab === "coaching" ? "Coaching" : "Training"}
+          </button>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{source === "mic+system" ? "mic + system" : "mic only"}</div>
+        </div>
         <div style={{ marginBottom: 4, fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>Call Recorder</div>
         <div style={{ marginBottom: 18, fontSize: 13, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
           Record a dialing session. Every recording is transcribed and coached automatically — review it below.

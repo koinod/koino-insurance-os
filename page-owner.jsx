@@ -1235,57 +1235,83 @@ function PageCoaching({ role = "manager" }) {
 
 function deriveCoachingCards() {
   const reps = scopedReps();
-  const sessions = (AppData.COACHING_SESSIONS || []).filter(s => reps.find(r => r.id === s.repId));
+  const sessions = (AppData.COACHING_SESSIONS || []).filter(s => reps.some(r => r.id === s.repId));
+  const recordings = (AppData.RECORDINGS || [])
+    .filter(r => reps.length === 0 || reps.some(rep => rep.id === r.repId || rep.id === r.rep_id))
+    .slice()
+    .sort((a, b) => new Date(b.started_at || b.recordedAt || b.createdAt || 0) - new Date(a.started_at || a.recordedAt || a.createdAt || 0));
+  const fallbackRep = reps[0] || { id: "test-rep", name: "Test rep", handle: "test", tier: "rep" };
 
-  if (sessions.length > 0) {
-    return sessions.slice(0, 6).map(s => {
-      const rep = reps.find(r => r.id === s.repId) || reps[0];
-      return {
-        id: s.id,
-        rep,
-        focus: s.focusArea || "Open coaching focus",
-        evidence: s.notes || "Recorded in last session — review the call to see the moment.",
-        impact: s.outcome === "improvement" ? "+ improvement logged"
-              : s.outcome === "no_change"   ? "no measured lift yet"
-              : "tracking",
-        recordingId: s.recordingId,
-        sessionId: s.id,
-      };
-    });
+  const cards = [];
+  const seenRepIds = new Set();
+  const push = (card, repId) => {
+    if (!card || !card.rep) return;
+    const key = repId || card.rep.id || card.id;
+    if (key && seenRepIds.has(key)) return;
+    if (key) seenRepIds.add(key);
+    cards.push(card);
+  };
+
+  const formatMetric = (recording, rep) => {
+    const score = recording.score ?? recording._score?.score ?? null;
+    const talk = recording.talkRatio ?? recording._score?.talk_ratio_pct ?? null;
+    const openQ = recording.openQ ?? null;
+    const lead = recording.lead || recording.lead_name || recording.pipeline?.lead_name || "latest call";
+    const duration = recording.durSec || recording.duration_sec || 0;
+    const mins = Math.floor(duration / 60);
+    const secs = String(Math.max(0, Math.floor(duration % 60))).padStart(2, "0");
+    const focus = talk != null && talk > 55
+      ? "Cut talk-listen below 50%"
+      : (openQ != null && openQ < 3)
+        ? "Ask 3 more open-ended questions"
+        : score != null && score < 70
+          ? "Tighten objection handling"
+          : recording.flags?.tpmo === "ok"
+            ? "Repeat the compliant opener"
+            : "Keep the opener and repeat the structure";
+    const evidence = `${lead} · ${duration ? `${mins}:${secs}` : "live"}${talk != null ? ` · ${talk}% talk` : ""}${openQ != null ? ` · ${openQ} open Qs` : ""}`;
+    const impact = score != null ? `Score ${score}` : "Live call";
+    return {
+      id: `rec-${recording.id}`,
+      rep: rep || fallbackRep,
+      focus,
+      evidence,
+      impact,
+      recordingId: recording.id,
+      sessionId: null,
+    };
+  };
+
+  for (const s of sessions) {
+    const rep = reps.find(r => r.id === s.repId) || fallbackRep;
+    push({
+      id: s.id,
+      rep,
+      focus: s.focusArea || "Open coaching focus",
+      evidence: s.notes || "Recorded in a live coaching session.",
+      impact: s.outcome === "improvement" ? "+ improvement logged"
+            : s.outcome === "no_change"   ? "no measured lift yet"
+            : "tracking",
+      recordingId: s.recordingId,
+      sessionId: s.id,
+    }, rep.id);
   }
 
-  return reps.slice(0, 3).map((rep, i) => {
-    const risk = mgrRiskScore(rep);
-    if (risk >= 50) {
-      return {
-        id: `seed-${rep.id}`,
-        rep,
-        focus: rep.streak === 0 ? "Get back on a streak — one issue today" : "Hit your daily dial floor",
-        evidence: rep.streak === 0
-          ? `Streak broken. Reset starts with one dial → one quote → one app.`
-          : `Only ${rep.dials || 0} dials today vs floor of 60. Talk-time is the leading indicator.`,
-        impact: "+ persistency + streak recovery",
-      };
-    }
-    if (mgrBreakoutScore(rep) >= 50) {
-      return {
-        id: `seed-${rep.id}`,
-        rep,
-        focus: "Lock the breakout in — preserve what's working",
-        evidence: `MTD ${(rep.mtd || 0).toLocaleString()} on a ${rep.streak || 0}-day streak. Keep the script tight.`,
-        impact: "+ tier promotion likely this month",
-      };
-    }
-    return {
-      id: `seed-${rep.id}`,
-      rep,
-      focus: ["Ask 3 more open-ended questions per hour",
-              "Cut talk-listen ratio to 45%",
-              "Use the Plan G price-anchor sequence"][i % 3],
-      evidence: "Pulled from last 7 days of recordings. Replay the moment to confirm.",
-      impact: "+ close rate (cohort)",
-    };
-  });
+  for (const r of recordings) {
+    if (cards.length >= 5) break;
+    const rep = reps.find(rr => rr.id === r.repId || rr.id === r.rep_id) || fallbackRep;
+    push(formatMetric(r, rep), rep.id);
+  }
+
+  if (cards.length > 0) return cards.slice(0, 5);
+  if (reps.length === 0) return [];
+  return [{
+    id: "test-coaching-card",
+    rep: fallbackRep,
+    focus: "Test card: waiting on live coaching data",
+    evidence: "This placeholder only appears when there are no live sessions or recent calls yet.",
+    impact: "replace with live data",
+  }];
 }
 
 function CoachingManager({ embedded = false } = {}) {
@@ -1315,6 +1341,8 @@ function CoachingManager({ embedded = false } = {}) {
   const subline = sessions.length > 0
     ? `${sessions.length} active session${sessions.length === 1 ? "" : "s"} · ${completedSessions} completed · one-thing-at-a-time per rep`
     : "Virtual ridealong feed · one-thing-at-a-time per rep";
+  const hasTestCard = cards.length === 1 && String(cards[0]?.id || "").startsWith("test-");
+  const headerMeta = hasTestCard ? "test" : (sessions.length === 0 && cards.length > 0 ? "live" : null);
 
   return (
     <div className={embedded ? "" : "page-pad"}>
@@ -1335,7 +1363,7 @@ function CoachingManager({ embedded = false } = {}) {
           <div className="panel-h">
             <Icons.Activity size={13}/>
             <h3>This week's coaching cards</h3>
-            {sessions.length === 0 && <span className="meta" title="No live coaching_sessions for this scope yet — these are derived from rep signals">derived</span>}
+            {headerMeta && <span className="meta" title={headerMeta === "live" ? "Cards are coming from live recordings in scope" : undefined}>{headerMeta}</span>}
           </div>
           <div className="coaching-card-grid">
             {cards.length === 0 && (
@@ -1565,7 +1593,7 @@ function CoachingScoresPanel({ repId, label = "My recent calls" }) {
       {detail && (
         <div>
           <button className="btn btn-ghost" style={{ fontSize: 11, marginBottom: 10 }} onClick={() => setSel(null)}>
-            <Icons.ArrowLeft size={11}/> Back to list
+            <Icons.ChevronRight size={11} style={{ transform: "rotate(180deg)" }}/> Back to list
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
             <span style={{ fontSize: 20, fontWeight: 700, color: detail.score >= 80 ? "var(--accent-money)" : detail.score >= 60 ? "var(--state-warning)" : "var(--state-danger)" }}>
@@ -1638,6 +1666,10 @@ function CoachingRep() {
 
   const mySessions  = (AppData.COACHING_SESSIONS || []).filter(s => s.repId === myRepId);
   const myNotes     = (AppData.COACHING_NOTES    || []).filter(n => n.repId === myRepId);
+  const myRecordings = (AppData.RECORDINGS || [])
+    .filter(r => !myRepId || r.repId === myRepId || r.rep_id === myRepId)
+    .slice()
+    .sort((a, b) => new Date(b.started_at || b.recordedAt || b.createdAt || 0) - new Date(a.started_at || a.recordedAt || a.createdAt || 0));
   const openCards   = mySessions.filter(s => !s.completedAt);
   const dueToday    = openCards.filter(s => {
     if (!s.scheduledAt) return false;
@@ -1651,21 +1683,37 @@ function CoachingRep() {
     return diffDays <= 7;
   }).length;
 
-  // Seed cards previously shown the fake "+12% close rate (cohort)" / "Persistency +6pts"
-  // numbers to every agency on first paint. Gate to demo so real tenants see an empty state.
-  const _isDemoCoach = (window.Shared && window.Shared.isDemoAgency && window.Shared.isDemoAgency()) || (window.isDemoAgency && window.isDemoAgency()) || false;
-  const cards = openCards.length > 0
-    ? openCards.slice(0, 5).map(s => ({
-        id: s.id,
-        focus: s.focusArea || "Open coaching focus",
-        evidence: s.notes || "Replay your last call to find the moment.",
-        drill: "Run 5-question rephrase drill",
-        impact: s.outcome || "track this week",
-      }))
-    : [
-        { id: "seed-1", focus: "Ask 3 more open-ended questions per hour", evidence: "Default focus until your manager assigns one.", drill: "Run 5-question rephrase drill", impact: "+12% close rate (cohort)" },
-        { id: "seed-2", focus: "Cut talk-listen from 52% → 45%",            evidence: "Default focus until your manager assigns one.",  drill: "30-sec silence drill x10",       impact: "Persistency +6pts" },
-      ];
+  const liveOpenCards = openCards.map(s => ({
+    id: s.id,
+    focus: s.focusArea || "Open coaching focus",
+    evidence: s.notes || "Replay your last call to find the moment.",
+    drill: "Run 5-question rephrase drill",
+    impact: s.outcome || "track this week",
+  }));
+  const recentRecordingCards = myRecordings.slice(0, 3).map(r => ({
+    id: `rec-${r.id}`,
+    focus: (r.talkRatio != null && r.talkRatio > 55)
+      ? "Cut talk-listen below 50%"
+      : (r.openQ != null && r.openQ < 3)
+        ? "Ask 3 more open-ended questions"
+        : r.score != null && r.score < 70
+          ? "Tighten objection handling"
+          : "Repeat the winning opener",
+    evidence: `${r.lead || r.lead_name || r.pipeline?.lead_name || "Latest call"} · ${r.score != null ? `score ${r.score}` : "live"}${r.talkRatio != null ? ` · ${r.talkRatio}% talk` : ""}`,
+    drill: "Run 5-question rephrase drill",
+    impact: r.score != null ? `Score ${r.score}` : "live call",
+  }));
+  const cards = liveOpenCards.length > 0
+    ? liveOpenCards.slice(0, 5)
+    : recentRecordingCards.length > 0
+      ? recentRecordingCards
+      : [{
+          id: "test-coaching-card",
+          focus: "Test card: waiting on live coaching data",
+          evidence: "This placeholder only appears when there are no live sessions or recent calls yet.",
+          drill: "Run 5-question rephrase drill",
+          impact: "replace with live data",
+        }];
 
   return (
     <div className="page-pad">
@@ -1691,7 +1739,7 @@ function CoachingRep() {
       </div>
 
       <div className="panel" style={{ marginTop: 12 }}>
-        <div className="panel-h"><Icons.Activity size={13}/><h3>My coaching cards</h3>{openCards.length === 0 && <span className="meta">demo</span>}</div>
+        <div className="panel-h"><Icons.Activity size={13}/><h3>My coaching cards</h3>{liveOpenCards.length === 0 && recentRecordingCards.length === 0 && <span className="meta">test</span>}</div>
         <div className="coaching-card-grid">
           {cards.map((c) => (
             <div key={c.id} className="coaching-card">

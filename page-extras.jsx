@@ -2927,7 +2927,13 @@ const COURSE_TRACKS = ["Onboarding", "FE", "Med Supp", "AEP", "Life", "Annuity",
    The legacy /coaching route in index.html now lands here with defaultTab="coaching".
    ───────────────────────────────────────────────────────────────────────── */
 function PageTraining({ role = "rep", defaultTab = "coaching" }) {
-  const [tab, setTab] = React.useState(defaultTab);
+  const [tab, setTab] = React.useState(() => {
+    try {
+      const saved = sessionStorage.getItem("repflow.training.tab");
+      if (saved) return saved;
+    } catch {}
+    return defaultTab;
+  });
   // BUG FIX (2026-05-16): sub-tab state was bleeding across outer routes.
   // App.jsx routes both /training and /coaching to <PageTraining/>, with
   // different defaultTab props. React reused the same fiber, so useState
@@ -2935,7 +2941,17 @@ function PageTraining({ role = "rep", defaultTab = "coaching" }) {
   // the sidebar after touring /training landed you on the WRONG tab AND
   // left you trapped because CoachingPane previously suppressed the
   // Team Board return SectionPill via .training-embed. Reset on prop change.
-  React.useEffect(() => { setTab(defaultTab); }, [defaultTab]);
+  React.useEffect(() => {
+    let next = defaultTab;
+    try {
+      const saved = sessionStorage.getItem("repflow.training.tab");
+      if (saved) {
+        next = saved;
+        sessionStorage.removeItem("repflow.training.tab");
+      }
+    } catch {}
+    setTab(next);
+  }, [defaultTab]);
   const store = ProductTraining.useStore();
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   // Real rep id when signed in. In demo-agency mode fall back to the first
@@ -3038,9 +3054,11 @@ function CallLibraryPane({ role }) {
   };
   const scoreColor = (score) => score == null ? "var(--text-quaternary)" : score >= 80 ? "var(--accent-money)" : score >= 60 ? "var(--state-warning)" : "var(--state-danger)";
 
-  const openRecorder = (mode = "roleplay") => {
+  const openRecorder = (mode = "roleplay", returnTab = mode === "mic" ? "library" : "coaching") => {
     try {
       sessionStorage.setItem("repflow.recorder.mode", mode);
+      sessionStorage.setItem("repflow.recorder.returnPage", "training");
+      sessionStorage.setItem("repflow.recorder.returnTab", returnTab);
       sessionStorage.setItem("repflow.recorder.prefill", JSON.stringify({
         leadName: mode === "roleplay" ? "Roleplay session" : "",
       }));
@@ -3127,7 +3145,7 @@ function CallLibraryPane({ role }) {
         <div className="panel-h">
           <h3>Recordings</h3>
           <span className="meta">{filtered.length}</span>
-          <button className="btn btn-ghost" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => openRecorder("mic")}>
+          <button className="btn btn-ghost" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => openRecorder("mic", "library")}>
             <Icons.Mic size={11}/> Record
           </button>
           <input className="text-input" style={{ width: 120, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
