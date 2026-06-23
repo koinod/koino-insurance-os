@@ -916,11 +916,12 @@ const AIRail = ({ context }) => {
       if (jwt) headers["x-supabase-auth"] = `Bearer ${jwt}`;
       // Pass last 3 turns so the copilot has short-term memory for vague
       // follow-ups like "what do you need?" / "??". Each turn = {q, a}.
+      const turns = Array.isArray(history) ? history : [];
       const recent = [];
-      for (let i = history.length - 1; i >= 0 && recent.length < 3; i--) {
-        const m = history[i];
+      for (let i = turns.length - 1; i >= 0 && recent.length < 3; i--) {
+        const m = turns[i];
         if (m.role === "assistant" && i > 0 && history[i-1]?.role === "user") {
-          recent.unshift({ q: history[i-1].text || "", a: m.text || "" });
+          recent.unshift({ q: turns[i-1].text || "", a: m.text || "" });
         }
       }
       const resp = await fetch("/api/copilot", {

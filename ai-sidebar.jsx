@@ -249,11 +249,11 @@ const ChatTab = ({ awareness }) => {
       const headers = { "content-type": "application/json" };
       if (jwt) headers["x-supabase-auth"] = `Bearer ${jwt}`;
       // Last N turns as {q,a} so the copilot has short-term memory.
+      const turns = Array.isArray(history) ? history : [];
       const recent = [];
-      const h = history;
-      for (let i = h.length - 1; i >= 0 && recent.length < CHAT_HISTORY_TURNS; i--) {
-        if (h[i].role === "assistant" && i > 0 && h[i-1]?.role === "user") {
-          recent.unshift({ q: h[i-1].text || "", a: h[i].text || "" });
+      for (let i = turns.length - 1; i >= 0 && recent.length < CHAT_HISTORY_TURNS; i--) {
+        if (turns[i].role === "assistant" && i > 0 && turns[i-1]?.role === "user") {
+          recent.unshift({ q: turns[i-1].text || "", a: turns[i].text || "" });
         }
       }
       const context = awareness?.route || "";
