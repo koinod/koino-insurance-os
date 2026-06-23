@@ -1,144 +1,12 @@
-/* sidebar-composer.jsx — Customizable sidebar composer modal + stat tiles.
+/* sidebar-composer.jsx — Customizable sidebar composer modal.
  *
  * Exposes on window:
  *   SidebarComposer   — the full-screen composer modal (props: onClose, role)
- *   SidebarStatTiles  — object of live stat tile components
  *
  * Drag-and-drop: HTML5 native API on desktop. Touch devices get
  * explicit "+ Add" / "Remove" buttons (detected via ontouchstart).
  */
 const { useState, useEffect, useRef, useCallback } = React;
-
-/* ─────────────────────────────── Stat Tiles ──────────────────────────────── */
-
-// Shared hook: run an async query on mount + every 60 s.
-function useAutoRefresh(fn, deps = []) {
-  const [val, setVal] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const run = useCallback(async () => {
-    setLoading(true);
-    try { setVal(await fn()); } catch (e) { console.warn("[stat-tile]", e); }
-    setLoading(false);
-  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    run();
-    const t = setInterval(run, 60_000);
-    return () => clearInterval(t);
-  }, [run]);
-  return { val, loading };
-}
-
-function fmtMoney(cents) {
-  if (cents == null) return "—";
-  const abs = Math.abs(cents);
-  const s = abs >= 100_000 ? `${(abs / 100).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}` : `${(abs / 100).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
-  return `${cents < 0 ? "-" : ""}$${s}`;
-}
-
-function StatChip({ label, value, color, loading }) {
-  return (
-    <div className="sb-stat-tile" title={label}>
-      <span className="sb-stat-val tabular" style={{ color: color || "var(--accent-money)" }}>
-        {loading ? "…" : (value ?? "—")}
-      </span>
-      <span className="sb-stat-lbl">{label}</span>
-    </div>
-  );
-}
-
-function NetMTDTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const me = window.me?.();
-    if (!sb || !me?.agency_id) return null;
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const [cRes, eRes] = await Promise.all([
-      sb.from("commissions").select("amount_cents").eq("agency_id", me.agency_id).gte("earned_at", monthStart),
-      sb.from("agency_expenses").select("amount_cents").eq("agency_id", me.agency_id).gte("paid_at", monthStart),
-    ]);
-    const comms = (cRes.data || []).reduce((s, r) => s + (r.amount_cents || 0), 0);
-    const exps  = (eRes.data || []).reduce((s, r) => s + (r.amount_cents || 0), 0);
-    return comms - exps;
-  }, []);
-  return <StatChip label="Net MTD" value={fmtMoney(val)} color={val != null && val < 0 ? "var(--state-danger)" : "var(--accent-money)"} loading={loading}/>;
-}
-
-function TopRepTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const me = window.me?.();
-    if (!sb || !me?.agency_id) return null;
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const { data } = await sb.from("commissions").select("rep_id, amount_cents, reps(name)").eq("agency_id", me.agency_id).gte("earned_at", monthStart);
-    if (!data?.length) return null;
-    const by = {};
-    for (const r of data) {
-      by[r.rep_id] = by[r.rep_id] || { name: r.reps?.name || "Rep", total: 0 };
-      by[r.rep_id].total += r.amount_cents || 0;
-    }
-    const top = Object.values(by).sort((a, b) => b.total - a.total)[0];
-    return top ? `${top.name.split(" ")[0]} ${fmtMoney(top.total)}` : null;
-  }, []);
-  return <StatChip label="Top Rep" value={val} loading={loading}/>;
-}
-
-function PendingApprovalsTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const { data: { user } } = await (sb?.auth.getUser() || Promise.resolve({ data: {} }));
-    if (!sb || !user) return null;
-    const { count } = await sb.from("rba_action_confirmations")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .is("resolution", null);
-    return count ?? 0;
-  }, []);
-  return <StatChip label="Pending" value={val} color={val > 0 ? "var(--state-warn)" : undefined} loading={loading}/>;
-}
-
-function OpenDealsTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const me = window.me?.();
-    if (!sb || !me?.agency_id) return null;
-    const { count } = await sb.from("pipeline")
-      .select("id", { count: "exact", head: true })
-      .eq("agency_id", me.agency_id)
-      .in("stage", ["contacted","quoted","app"]);
-    return count ?? 0;
-  }, []);
-  return <StatChip label="Open Deals" value={val} loading={loading}/>;
-}
-
-function NigoQueueTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const me = window.me?.();
-    if (!sb || !me?.agency_id) return null;
-    const { count } = await sb.from("nigos")
-      .select("id", { count: "exact", head: true })
-      .eq("agency_id", me.agency_id)
-      .in("status", ["open","in_review"]);
-    return count ?? 0;
-  }, []);
-  return <StatChip label="NIGOs" value={val} color={val > 0 ? "var(--state-danger)" : undefined} loading={loading}/>;
-}
-
-function ExpenseMTDTile() {
-  const { val, loading } = useAutoRefresh(async () => {
-    const sb = window.getSupabase?.();
-    const me = window.me?.();
-    if (!sb || !me?.agency_id) return null;
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const { data } = await sb.from("agency_expenses").select("amount_cents").eq("agency_id", me.agency_id).gte("paid_at", monthStart);
-    return (data || []).reduce((s, r) => s + (r.amount_cents || 0), 0);
-  }, []);
-  return <StatChip label="Exp MTD" value={fmtMoney(val)} color="var(--state-warn)" loading={loading}/>;
-}
-
-window.SidebarStatTiles = {
-  NetMTDTile, TopRepTile, PendingApprovalsTile, OpenDealsTile, NigoQueueTile, ExpenseMTDTile,
-};
 
 /* ─────────────────────────── Composer Modal ──────────────────────────────── */
 
@@ -150,10 +18,6 @@ const CATEGORIES = [
 const isTouch = () => "ontouchstart" in window;
 
 function WidgetPreview({ item }) {
-  if (item.kind === "stat") {
-    const Tile = window.SidebarStatTiles?.[item.widget];
-    return Tile ? <Tile/> : <span className="sw-preview-label">{item.label}</span>;
-  }
   const Ico = (Icons && Icons[item.icon]) ? Icons[item.icon] : null;
   return (
     <span className="sw-preview-label">
@@ -178,7 +42,7 @@ function SidebarComposer({ onClose, role }) {
   // previewing as "manager" sees the manager default, not their saved admin
   // layout.
   useEffect(() => {
-    window.loadSidebarLayout(role).then(l => setLayout(l || []));
+    window.loadSidebarLayout(role).then(l => setLayout((l || []).filter(item => item.kind !== "stat")));
     // Focus search on open (keyboard a11y)
     setTimeout(() => searchRef.current?.focus(), 80);
   }, [role]);
@@ -282,7 +146,7 @@ function SidebarComposer({ onClose, role }) {
 
   async function handleSave() {
     setSaving(true);
-    await window.saveSidebarLayout(layout, role);
+    await window.saveSidebarLayout(layout.filter(item => item.kind !== "stat"), role);
     setSaving(false);
     setDirty(false);
     onClose();
@@ -656,22 +520,6 @@ window.SidebarComposer = SidebarComposer;
     }
     .sw-preview-label {
       display: flex; align-items: center; font-size: 12.5px;
-    }
-    /* Stat tile chips in sidebar */
-    .sb-stat-tile {
-      display: flex; align-items: center; gap: 8px;
-      padding: 5px 12px 5px 14px; font-size: 11.5px;
-      border-radius: 5px; margin-bottom: 1px;
-      background: color-mix(in oklch, var(--accent-money, #00d4aa) 6%, transparent);
-      border-left: 2px solid var(--accent-money, #00d4aa);
-    }
-    .sb-stat-val {
-      font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600;
-      white-space: nowrap;
-    }
-    .sb-stat-lbl {
-      font-size: 10px; color: var(--text-tertiary, #6b7280); text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
     @media (max-width: 600px) {
       .sw-modal { width: 100%; max-height: 100vh; border-radius: 0; }

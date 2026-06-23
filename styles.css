@@ -324,25 +324,6 @@ html[data-sidebar-collapsed="1"] .app[data-mobile="on"]{ grid-template-columns: 
 /* Role-switch hides in collapsed mode (it's a power-user preview tool,
    not worth the vertical real estate). */
 .sidebar[data-collapsed="1"] .role-switch { display: none; }
-/* Stat tiles: show only the value, hide the label, center it. */
-.sidebar[data-collapsed="1"] .sb-stat-tile {
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 4px;
-  margin: 0 4px 2px;
-  border-left: none;
-  border-top: 2px solid var(--accent-money, #00d4aa);
-  border-radius: 4px;
-}
-.sidebar[data-collapsed="1"] .sb-stat-tile .sb-stat-lbl { display: none; }
-.sidebar[data-collapsed="1"] .sb-stat-tile .sb-stat-val {
-  font-size: 10px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* "Customize…" entry: icon only, italic span hides. */
 .sidebar[data-collapsed="1"] .sb-item-composer > span { display: none; }
 /* Bottom user row: avatar only, hide name + role + settings cog. */

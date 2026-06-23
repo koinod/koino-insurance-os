@@ -255,11 +255,6 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
         </button>
       );
     }
-    if (kind === "stat") {
-      const Tile = window.SidebarStatTiles?.[item.widget];
-      if (!Tile) return <div key={item.id} className="sb-stat-tile"><span className="sb-stat-lbl">{item.label}</span></div>;
-      return <Tile key={item.id}/>;
-    }
     if (kind === "action") {
       const Ico = Icons[item.icon] || Icons.Circle;
       return (

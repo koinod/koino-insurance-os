@@ -6,7 +6,7 @@
 --
 -- layout shape: array of widget descriptors, order = render order:
 --   { "id":"nav.today", "kind":"nav", "label":"Today", "icon":"Home", "pageId":"today" }
---   { "id":"stat.net-mtd", "kind":"stat", "label":"Net MTD", "widget":"NetMTDTile" }
+--   example legacy widget rows may have included non-nav items
 --   { "id":"act.log-deal", "kind":"action", "label":"Log Deal", "icon":"Plus", "action":"openQuickLogDeal" }
 --
 -- Empty row is never written — DELETE = revert to role default (handled client-side).
