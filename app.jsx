@@ -255,16 +255,10 @@ function App() {
       case "carrier-appointments":
                           return F("PageCarrierAppointments", { role });
       case "settings":    return F("PageSettings",   { role });
-      // admin-*: super_admin sidebar fans these out as 1 entry per surface
-      // (restored 2026-06-06). Each route renders the underlying component
-      // directly — no PageAdminHub wrapper. `key` forces a remount so the
-      // target's useState picks up the new initialTab/subpage. Everyone
-      // else falls through to Today so old deep links don't 404.
-      //
-      // PagePlatformAdmin owns cross-tenant operator views (HQ, Flags,
-      // System); PageAdmin owns tenant-mgmt CRUD (Clients, Subscriptions,
-      // Users, Onboarding, Carriers, Security, Audit + niche surfaces).
-      case "admin-hq":         return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-hq" subpage="platform"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
+      // admin-*: super_admin sidebar fans these out as 1 entry per surface.
+      // HQ should land on the Mission Control shell so the horizontal admin
+      // bar stays visible and the core platform overview is front-and-center.
+      case "admin-hq":         return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="pa-hq" initialTab="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       case "admin-flags":      return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-flags"    subpage="flags"/>    : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       case "admin-system":     return canUseAdminRoutes ? (() => { const P = window.PagePlatformAdmin; return P ? <P key="pa-system"   subpage="system"/>   : <PageStub title="HQ"/>; })() : F("PageToday", { role });
       case "admin":            return canUseAdminRoutes ? (() => { const A = window.PageAdmin; return A ? <A key="adm-agencies"  initialTab="agencies"/> : <PageStub title="HQ"/>; })() : F("PageToday", { role });

@@ -205,13 +205,20 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   useEffect(() => {
     if (!isDynamic) { setCustomLayout(null); return; }
     let cancelled = false;
-    window.loadSidebarLayout?.(role).then(l => { if (!cancelled) setCustomLayout(l || []); });
+    const refresh = () => window.loadSidebarLayout?.(role).then(l => { if (!cancelled) setCustomLayout(l || []); });
+    refresh();
     const onUpdate = (e) => {
       if (e.detail?.role && e.detail.role !== role) return;
       setCustomLayout(e.detail?.layout || []);
     };
+    const onIdentity = () => refresh();
     window.addEventListener("sidebar:updated", onUpdate);
-    return () => { cancelled = true; window.removeEventListener("sidebar:updated", onUpdate); };
+    window.addEventListener("me:loaded", onIdentity);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("sidebar:updated", onUpdate);
+      window.removeEventListener("me:loaded", onIdentity);
+    };
   }, [role, isDynamic]);
 
   // PageAdminHub's "Customize" tab fires this event so the existing composer

@@ -41,9 +41,19 @@ function SidebarComposer({ onClose, role }) {
   // previewing as "manager" sees the manager default, not their saved admin
   // layout.
   useEffect(() => {
-    window.loadSidebarLayout(role).then(l => setLayout((l || []).filter(item => item.kind !== "stat")));
+    let cancelled = false;
+    const refresh = () => window.loadSidebarLayout(role).then(l => {
+      if (!cancelled) setLayout((l || []).filter(item => item.kind !== "stat"));
+    });
+    refresh();
     // Focus search on open (keyboard a11y)
     setTimeout(() => searchRef.current?.focus(), 80);
+    const onIdentity = () => refresh();
+    window.addEventListener("me:loaded", onIdentity);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("me:loaded", onIdentity);
+    };
   }, [role]);
 
   // Escape key → close (with dirty guard).
