@@ -12,7 +12,6 @@ const { useState, useEffect, useRef, useCallback } = React;
 
 const CATEGORIES = [
   { key: "nav",     label: "Nav Links" },
-  { key: "actions", label: "Quick Actions" },
 ];
 
 const isTouch = () => "ontouchstart" in window;
