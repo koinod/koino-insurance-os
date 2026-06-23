@@ -19,6 +19,9 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const rep_phone = url.searchParams.get("rep_phone") || "";
   const caller_id = url.searchParams.get("caller_id") || process.env.TWILIO_CALLER_ID || "";
+  const agency_id = url.searchParams.get("agency_id") || "";
+  const rep_id    = url.searchParams.get("rep_id") || "";
+  const lead_id   = url.searchParams.get("lead_id") || "";
 
   const proto   = req.headers.get("x-forwarded-proto") || "https";
   const host    = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
@@ -37,11 +40,24 @@ export default async function handler(req) {
 
   const record        = (process.env.TWILIO_RECORD || "true") === "true";
   const hasDeepgram   = !!process.env.DEEPGRAM_API_KEY;
-  const streamUrl     = `wss://${host}/api/twilio/media-stream`;
+
+  let streamUrl = `wss://${host}/api/twilio/media-stream`;
+  if (agency_id) {
+    streamUrl += `?agency_id=${encodeURIComponent(agency_id)}`;
+  }
+
+  let callbackUrl = `${baseUrl}/api/twilio-recording`;
+  const params = [];
+  if (agency_id) params.push(`agency_id=${encodeURIComponent(agency_id)}`);
+  if (rep_id) params.push(`rep_id=${encodeURIComponent(rep_id)}`);
+  if (lead_id) params.push(`lead_id=${encodeURIComponent(lead_id)}`);
+  if (params.length > 0) {
+    callbackUrl += `?${params.join("&")}`;
+  }
 
   // Build TwiML. Stream block first (fires immediately on answer), then Dial.
   const recordAttrs = record
-    ? ` record="record-from-answer-dual" recordingStatusCallback="${escapeXml(baseUrl)}/api/twilio-recording"`
+    ? ` record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callbackUrl)}"`
     : "";
 
   let twiml;

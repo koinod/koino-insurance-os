@@ -1,0 +1,46 @@
+{
+  "base": "http://127.0.0.1:4177",
+  "ts": "2026-05-28T23:54:50.446Z",
+  "failures": [
+    {
+      "name": "crm_kanban_drag",
+      "error": "could not locate 'New' kanban column",
+      "console": [
+        "[pageerror] \"\n.koino-platform {\n  /* Override Repflow tokens within this scope. Mint-green replaces amber. */\n  --accent-money:      #00d4aa;\n  --accent-money-glow: rgba(0,212,170,0.18);\n  --accent-money-dim:  rgba(0,212,170,0.08);\n  --accent-status:     #7c3aed;\n  --accent-status-glow:rgba(124,58,237,0.18);\n  --accent-heat:       #f59e0b;\n  --bg-base:           #050505;\n  --bg-raised:         #0d0d0d;\n  --bg-elevated:       #151515;\n  --bg-overlay:        #1a1a1a;\n  --border-subtle:     #1a1a1a;\n  --border-strong:     #2a2a2a;\n  --text-primary:      #e8e8e8;\n  --text-secondary:    #b4b4b4;\n  --text-tertiary:     #888888;\n  --text-quaternary:   #555555;\n  --state-warning:     #f59e0b;\n  --state-danger:      #f87171;\n  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;\n  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;\n\n  background: var(--bg-base);\n  color: var(--text-primary);\n  font-family: var(--font-stack);\n  letter-spacing: -0.005em;\n}\n\n/* Card primitive. The Repflow \".panel is not a function"
+      ],
+      "screenshot": "crm_kanban_drag_1780012470771.png"
+    },
+    {
+      "name": "autodial_pin_from_pipeline",
+      "error": "Floor 'Start' button count = 0, expected ≥ 1",
+      "console": [
+        "[pageerror] \"\n.koino-platform {\n  /* Override Repflow tokens within this scope. Mint-green replaces amber. */\n  --accent-money:      #00d4aa;\n  --accent-money-glow: rgba(0,212,170,0.18);\n  --accent-money-dim:  rgba(0,212,170,0.08);\n  --accent-status:     #7c3aed;\n  --accent-status-glow:rgba(124,58,237,0.18);\n  --accent-heat:       #f59e0b;\n  --bg-base:           #050505;\n  --bg-raised:         #0d0d0d;\n  --bg-elevated:       #151515;\n  --bg-overlay:        #1a1a1a;\n  --border-subtle:     #1a1a1a;\n  --border-strong:     #2a2a2a;\n  --text-primary:      #e8e8e8;\n  --text-secondary:    #b4b4b4;\n  --text-tertiary:     #888888;\n  --text-quaternary:   #555555;\n  --state-warning:     #f59e0b;\n  --state-danger:      #f87171;\n  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;\n  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;\n\n  background: var(--bg-base);\n  color: var(--text-primary);\n  font-family: var(--font-stack);\n  letter-spacing: -0.005em;\n}\n\n/* Card primitive. The Repflow \".panel is not a function"
+      ],
+      "screenshot": "autodial_pin_from_pipeline_1780012476794.png"
+    },
+    {
+      "name": "vault_course_create",
+      "error": "no 'New course' button visible",
+      "console": [
+        "[pageerror] \"\n.koino-platform {\n  /* Override Repflow tokens within this scope. Mint-green replaces amber. */\n  --accent-money:      #00d4aa;\n  --accent-money-glow: rgba(0,212,170,0.18);\n  --accent-money-dim:  rgba(0,212,170,0.08);\n  --accent-status:     #7c3aed;\n  --accent-status-glow:rgba(124,58,237,0.18);\n  --accent-heat:       #f59e0b;\n  --bg-base:           #050505;\n  --bg-raised:         #0d0d0d;\n  --bg-elevated:       #151515;\n  --bg-overlay:        #1a1a1a;\n  --border-subtle:     #1a1a1a;\n  --border-strong:     #2a2a2a;\n  --text-primary:      #e8e8e8;\n  --text-secondary:    #b4b4b4;\n  --text-tertiary:     #888888;\n  --text-quaternary:   #555555;\n  --state-warning:     #f59e0b;\n  --state-danger:      #f87171;\n  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;\n  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;\n\n  background: var(--bg-base);\n  color: var(--text-primary);\n  font-family: var(--font-stack);\n  letter-spacing: -0.005em;\n}\n\n/* Card primitive. The Repflow \".panel is not a function"
+      ],
+      "screenshot": "vault_course_create_1780012481019.png"
+    },
+    {
+      "name": "vault_doc_upload_url",
+      "error": "no URL input in doc modal",
+      "console": [
+        "[pageerror] \"\n.koino-platform {\n  /* Override Repflow tokens within this scope. Mint-green replaces amber. */\n  --accent-money:      #00d4aa;\n  --accent-money-glow: rgba(0,212,170,0.18);\n  --accent-money-dim:  rgba(0,212,170,0.08);\n  --accent-status:     #7c3aed;\n  --accent-status-glow:rgba(124,58,237,0.18);\n  --accent-heat:       #f59e0b;\n  --bg-base:           #050505;\n  --bg-raised:         #0d0d0d;\n  --bg-elevated:       #151515;\n  --bg-overlay:        #1a1a1a;\n  --border-subtle:     #1a1a1a;\n  --border-strong:     #2a2a2a;\n  --text-primary:      #e8e8e8;\n  --text-secondary:    #b4b4b4;\n  --text-tertiary:     #888888;\n  --text-quaternary:   #555555;\n  --state-warning:     #f59e0b;\n  --state-danger:      #f87171;\n  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;\n  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;\n\n  background: var(--bg-base);\n  color: var(--text-primary);\n  font-family: var(--font-stack);\n  letter-spacing: -0.005em;\n}\n\n/* Card primitive. The Repflow \".panel is not a function"
+      ],
+      "screenshot": "vault_doc_upload_url_1780012485721.png"
+    },
+    {
+      "name": "vault_carrier_deeplink_admin",
+      "error": "no 'Manage in Admin' deeplink on Vault carriers",
+      "console": [
+        "[pageerror] \"\n.koino-platform {\n  /* Override Repflow tokens within this scope. Mint-green replaces amber. */\n  --accent-money:      #00d4aa;\n  --accent-money-glow: rgba(0,212,170,0.18);\n  --accent-money-dim:  rgba(0,212,170,0.08);\n  --accent-status:     #7c3aed;\n  --accent-status-glow:rgba(124,58,237,0.18);\n  --accent-heat:       #f59e0b;\n  --bg-base:           #050505;\n  --bg-raised:         #0d0d0d;\n  --bg-elevated:       #151515;\n  --bg-overlay:        #1a1a1a;\n  --border-subtle:     #1a1a1a;\n  --border-strong:     #2a2a2a;\n  --text-primary:      #e8e8e8;\n  --text-secondary:    #b4b4b4;\n  --text-tertiary:     #888888;\n  --text-quaternary:   #555555;\n  --state-warning:     #f59e0b;\n  --state-danger:      #f87171;\n  --font-stack:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;\n  --font-mono:         'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;\n\n  background: var(--bg-base);\n  color: var(--text-primary);\n  font-family: var(--font-stack);\n  letter-spacing: -0.005em;\n}\n\n/* Card primitive. The Repflow \".panel is not a function"
+      ],
+      "screenshot": "vault_carrier_deeplink_admin_1780012490054.png"
+    }
+  ]
+}

@@ -34,6 +34,9 @@ export default async function handler(req, res) {
     return;
   }
 
+  const urlObj = new URL(req.url, "http://localhost");
+  const agencyId = urlObj.searchParams.get("agency_id") || null;
+
   // Verify this is a WebSocket upgrade request
   if (req.headers.upgrade !== "websocket") {
     res.status(400).json({
@@ -103,6 +106,7 @@ export default async function handler(req, res) {
           text:        alt.transcript.trim(),
           is_final:    msg.is_final || false,
           ts_offset_ms: words[0]?.start != null ? Math.round(words[0].start * 1000) : null,
+          agency_id:   agencyId,
         }),
       }).catch((e) => console.warn("[media-stream] segment insert failed:", e.message));
     }

@@ -418,8 +418,17 @@ export default async function handler(req) {
             rep_phone: agentPhone,
             caller_id: callerId,
             lead_id:   String(inserted.id),
+            ...(agencyId ? { agency_id: agencyId } : {}),
           });
           const bridgeUrl = `${baseUrl}/api/twilio/twiml-bridge?${bridgeParams}`;
+
+          let recordingCallbackUrl = `${baseUrl}/api/twilio-recording`;
+          const recParams = [];
+          if (agencyId) recParams.push(`agency_id=${encodeURIComponent(agencyId)}`);
+          if (inserted.id) recParams.push(`lead_id=${encodeURIComponent(inserted.id)}`);
+          if (recParams.length > 0) {
+            recordingCallbackUrl += `?${recParams.join("&")}`;
+          }
 
           const twilioParams = new URLSearchParams({
             To:   lead.phone,
@@ -431,7 +440,7 @@ export default async function handler(req) {
           });
           if ((process.env.TWILIO_RECORD || "true") === "true") {
             twilioParams.set("Record", "true");
-            twilioParams.set("RecordingStatusCallback", `${baseUrl}/api/twilio-recording`);
+            twilioParams.set("RecordingStatusCallback", recordingCallbackUrl);
           }
 
           const basic = "Basic " + btoa(`${authUser}:${authPass}`);

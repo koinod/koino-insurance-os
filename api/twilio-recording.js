@@ -18,21 +18,32 @@ export default async function handler(req) {
   const duration_sec  = parseInt(p.get("RecordingDuration") || "0", 10);
   const to            = p.get("To") || "";
 
-  // Best-effort write to vault. Uses anon key under RLS — in single-tenant
-  // production the operator's service role key would land here via env.
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+  // Extract query parameters forwarded from Twilio TwiML bridge
+  const urlObj = new URL(req.url, "http://localhost");
+  const agency_id = urlObj.searchParams.get("agency_id") || null;
+  const rep_id = urlObj.searchParams.get("rep_id") || null;
+  const lead_id = urlObj.searchParams.get("lead_id") || null;
+
+  // Use service role key to bypass RLS
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr";
+  
   let artifactId = null;
+  const metadata = { recording_sid, call_sid, duration_sec, transcribe_status: "pending" };
+
   try {
     const r = await fetch(`${SUPA_URL}/rest/v1/vault_artifacts?select=id`, {
       method: "POST",
-      headers: { "apikey": anon, "authorization": `Bearer ${anon}`, "content-type": "application/json", "prefer": "return=representation" },
+      headers: { "apikey": serviceKey, "authorization": `Bearer ${serviceKey}`, "content-type": "application/json", "prefer": "return=representation" },
       body: JSON.stringify({
         kind: "Recording",
         lead_name: `[Twilio call ${to}]`,
         retention: "10y",
         status: "complete",
         artifact_url: recording_url,
-        metadata: { recording_sid, call_sid, duration_sec, transcribe_status: "pending" }
+        metadata,
+        ...(agency_id ? { agency_id } : {}),
+        ...(rep_id ? { rep_id } : {}),
+        ...(lead_id ? { pipeline_id: lead_id } : {}),
       })
     });
     const rows = await r.json().catch(() => []);
@@ -45,7 +56,7 @@ export default async function handler(req) {
     // Edge runtime requires absolute URLs for fetch — derive from the inbound
     // request URL so the transcribe call works on prod, preview, AND localhost.
     const origin = (() => { try { return new URL(req.url).origin; } catch { return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""; } })();
-    const job = transcribeAndPersist({ recording_url, artifactId, anon, origin });
+    const job = transcribeAndPersist({ recording_url, artifactId, serviceKey, origin, metadata });
     if (typeof req.waitUntil === "function") req.waitUntil(job);
     // else: detached promise — Vercel edge will let it run for a few seconds
   }
@@ -53,7 +64,7 @@ export default async function handler(req) {
   return new Response("ok", { status: 200 });
 }
 
-async function transcribeAndPersist({ recording_url, artifactId, anon, origin }) {
+async function transcribeAndPersist({ recording_url, artifactId, serviceKey, origin, metadata }) {
   try {
     // Twilio recording URLs need basic auth — pass account SID + auth token
     const sid = process.env.TWILIO_ACCOUNT_SID || "";
@@ -71,11 +82,17 @@ async function transcribeAndPersist({ recording_url, artifactId, anon, origin })
     if (!r.ok) return;
     const j = await r.json();
     if (artifactId) {
+      const mergedMetadata = {
+        ...metadata,
+        transcribe_status: "complete",
+        transcript: j.text,
+        segments: j.segments
+      };
       await fetch(`${SUPA_URL}/rest/v1/vault_artifacts?id=eq.${artifactId}`, {
         method: "PATCH",
-        headers: { "apikey": anon, "authorization": `Bearer ${anon}`, "content-type": "application/json", "prefer": "return=minimal" },
+        headers: { "apikey": serviceKey, "authorization": `Bearer ${serviceKey}`, "content-type": "application/json", "prefer": "return=minimal" },
         body: JSON.stringify({
-          metadata: { transcribe_status: "complete", transcript: j.text, segments: j.segments },
+          metadata: mergedMetadata,
         }),
       });
     }

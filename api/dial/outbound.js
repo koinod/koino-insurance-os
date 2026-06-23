@@ -87,7 +87,37 @@ export default async function handler(req) {
     }), { status: 422, headers: cors() });
   }
 
-  // ── 3. Build TwiML bridge URL
+  // ── 3. Resolve caller's agency_id and rep_id (best-effort)
+  let agency_id = null;
+  if (lead_id && SERVICE) {
+    const lR = await fetch(
+      `${SUPA_URL}/rest/v1/pipeline?id=eq.${encodeURIComponent(lead_id)}&select=agency_id&limit=1`,
+      { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
+    );
+    if (lR.ok) {
+      const lRows = await lR.json();
+      agency_id = lRows?.[0]?.agency_id || null;
+    }
+  }
+
+  let rep_id = null;
+  try {
+    const meR = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE, authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    if (meR.ok) {
+      const rows = await meR.json();
+      rep_id = (Array.isArray(rows) ? rows[0]?.rep_id : rows?.rep_id) || null;
+      if (!agency_id) agency_id = (Array.isArray(rows) ? rows[0]?.agency_id : rows?.agency_id) || null;
+    }
+  } catch { /* keep rep_id null */ }
+
+  // ── 4. Build TwiML bridge URL
   const proto   = req.headers.get("x-forwarded-proto") || "https";
   const host    = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const baseUrl = `${proto}://${host}`;
@@ -96,10 +126,21 @@ export default async function handler(req) {
     rep_phone,
     caller_id,
     ...(lead_id ? { lead_id } : {}),
+    ...(agency_id ? { agency_id } : {}),
+    ...(rep_id ? { rep_id } : {}),
   });
   const bridgeUrl = `${baseUrl}/api/twilio/twiml-bridge?${bridgeParams}`;
 
-  // ── 4. POST to Twilio REST API
+  // ── 5. POST to Twilio REST API
+  let recordingCallbackUrl = `${baseUrl}/api/twilio-recording`;
+  const recParams = [];
+  if (agency_id) recParams.push(`agency_id=${encodeURIComponent(agency_id)}`);
+  if (rep_id) recParams.push(`rep_id=${encodeURIComponent(rep_id)}`);
+  if (lead_id) recParams.push(`lead_id=${encodeURIComponent(lead_id)}`);
+  if (recParams.length > 0) {
+    recordingCallbackUrl += `?${recParams.join("&")}`;
+  }
+
   const twilioParams = new URLSearchParams({
     To:   phone,
     From: caller_id,
@@ -112,7 +153,7 @@ export default async function handler(req) {
   const record = (process.env.TWILIO_RECORD || "true") === "true";
   if (record) {
     twilioParams.set("Record", "true");
-    twilioParams.set("RecordingStatusCallback", `${baseUrl}/api/twilio-recording`);
+    twilioParams.set("RecordingStatusCallback", recordingCallbackUrl);
   }
 
   const twilioResp = await fetch(
@@ -139,39 +180,6 @@ export default async function handler(req) {
   }
 
   const call_sid = twilioJson.sid;
-
-  // ── 5. Look up lead agency_id for call_events row (best-effort)
-  let agency_id = null;
-  if (lead_id && SERVICE) {
-    const lR = await fetch(
-      `${SUPA_URL}/rest/v1/pipeline?id=eq.${encodeURIComponent(lead_id)}&select=agency_id&limit=1`,
-      { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
-    );
-    if (lR.ok) {
-      const lRows = await lR.json();
-      agency_id = lRows?.[0]?.agency_id || null;
-    }
-  }
-
-  // ── 5b. Resolve caller's rep_id via me() so call_events attributes the dial.
-  // Best-effort: if me() fails (e.g. user just signed in, no reps row yet),
-  // skip rep_id rather than 500 the dial.
-  let rep_id = null;
-  try {
-    const meR = await fetch(`${SUPA_URL}/rest/v1/rpc/me`, {
-      method: "POST",
-      headers: {
-        apikey: SERVICE, authorization: `Bearer ${jwt}`,
-        "content-type": "application/json",
-      },
-      body: "{}",
-    });
-    if (meR.ok) {
-      const rows = await meR.json();
-      rep_id = (Array.isArray(rows) ? rows[0]?.rep_id : rows?.rep_id) || null;
-      if (!agency_id) agency_id = (Array.isArray(rows) ? rows[0]?.agency_id : rows?.agency_id) || null;
-    }
-  } catch { /* keep rep_id null */ }
 
   // ── 6. Write initial call_events row (best-effort; does not block response)
   if (SERVICE) {

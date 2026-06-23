@@ -209,6 +209,18 @@ function parseJsonFromText(text) {
 }
 
 async function fetchTranscript(url) {
+  if (url.startsWith("data:")) {
+    try {
+      const parts = url.split(",");
+      if (parts.length > 1) {
+        const base64Data = parts[1];
+        return atob(base64Data);
+      }
+    } catch (e) {
+      console.error("[fetchTranscript] failed to parse data URI:", e.message);
+      return null;
+    }
+  }
   try {
     const r = await fetch(url);
     return r.ok ? await r.text() : null;
