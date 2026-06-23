@@ -1316,7 +1316,7 @@ function TodayManagerPulse({ REPS, live, idle, scopeIds, setSubTab }) {
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.focusArea || s.notes || "Open focus"}</div>
                   </div>
                   <button className="btn btn-ghost" style={{ padding: "2px 6px" }} title={`Coach ${rep?.name || ""}`}
-                    onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${rep?.name || "this rep"} on: ${s.focusArea || s.notes || "current focus"}`, context: "Coaching · " + (rep?.name || "") } }))}>
+                    onClick={() => { window.openAISidebar?.(); window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${rep?.name || "this rep"} on: ${s.focusArea || s.notes || "current focus"}`, context: "Coaching · " + (rep?.name || "") } })); }}>
                     <Icons.Play size={10}/>
                   </button>
                 </div>

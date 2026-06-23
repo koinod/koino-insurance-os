@@ -4,13 +4,12 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "role": "manager",
   "page": "today",
   "density": "comfortable",
-  "aiRail": false,
   "mobile": false
 }/*EDITMODE-END*/;
 
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const { role, page, density, aiRail, mobile } = tweaks;
+  const { role, page, density, mobile } = tweaks;
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [callLead, setCallLead] = useState(null);
@@ -182,11 +181,11 @@ function App() {
   React.useEffect(() => {
     window.gotoPage = goto;
     const onNav = (e) => goto(e.detail?.page || e.detail);
-    const onAsk = () => { if (!aiRail) setTweak("aiRail", true); };  // auto-open rail when an Ask the Book fires
+    const onAsk = () => { window.openAISidebar?.(); };
     window.addEventListener("nav:goto", onNav);
     window.addEventListener("ai:ask", onAsk);
     return () => { window.removeEventListener("nav:goto", onNav); window.removeEventListener("ai:ask", onAsk); };
-  }, [aiRail]);
+  }, []);
 
   const pageEl = useMemo(() => {
     // GAP-M1: mobile reps land on Floor (the actual workspace) instead of
@@ -323,7 +322,7 @@ function App() {
   }, [role, page]);
 
   return (
-    <div className="app" data-rail={aiRail && !mobile ? "on" : "off"} data-mobile={mobile ? "on" : "off"} data-density={density}>
+    <div className="app" data-mobile={mobile ? "on" : "off"} data-density={density}>
       {!mobile && (
         <Shared.Sidebar
           role={role}
@@ -339,8 +338,7 @@ function App() {
           <Shared.Topbar
             crumbs={crumbs}
             openCmdK={() => setCmdkOpen(true)}
-            toggleRail={() => setTweak("aiRail", !aiRail)}
-            railOn={aiRail}
+            toggleRail={() => window.toggleAISidebar?.()}
             openMobile={() => setTweak("mobile", true)}
             openNotifications={() => setNotifOpen(true)}
             openSettings={() => goto("settings")}
@@ -349,7 +347,6 @@ function App() {
         )}
         <div className="page">{pageEl}</div>
       </main>
-      {!mobile && aiRail && <Shared.AIRail context={crumbs[crumbs.length - 1]}/>}
 
       <Shared.CmdK open={cmdkOpen} onClose={() => setCmdkOpen(false)} goto={goto}/>
       {(() => { const T = window.ToastHost; return T ? <T/> : null; })()}
@@ -374,7 +371,6 @@ function App() {
         <TweakToggle label="Mobile rep view" value={mobile} onChange={(v) => setTweak("mobile", v)}/>
         <TweakSection label="Density & UI"/>
         <TweakRadio label="Density" value={density} options={[{value:"comfortable",label:"Comfy"},{value:"compact",label:"Compact"}]} onChange={(v) => setTweak("density", v)}/>
-        <TweakToggle label="AI co-pilot rail" value={aiRail} onChange={(v) => setTweak("aiRail", v)}/>
         <TweakSection label="Try"/>
         <TweakButton label="Open command palette (⌘K)" onClick={() => setCmdkOpen(true)}/>
         <TweakButton label="Open in-call overlay" onClick={() => setCallOpen(true)}/>

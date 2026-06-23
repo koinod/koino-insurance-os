@@ -570,7 +570,7 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
     </button>
     <button
       className="icon-btn"
-      onClick={() => { if (window.toggleAISidebar) window.toggleAISidebar(); else if (toggleRail) toggleRail(); }}
+      onClick={() => { if (window.toggleAISidebar) window.toggleAISidebar(); else if (window.openAISidebar) window.openAISidebar(); }}
       title="AI Copilot (⌘J)"
     >
       <Icons.Sparkles size={15} style={{ color: "var(--accent-money)" }}/>

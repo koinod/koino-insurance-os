@@ -623,7 +623,14 @@ const AICopilotMount = () => {
     window.toggleAISidebar = () => setOpen(o => !o);
     window.openAISidebar   = () => setOpen(true);
     window.closeAISidebar  = () => setOpen(false);
-    return () => { delete window.toggleAISidebar; delete window.openAISidebar; delete window.closeAISidebar; };
+    const onAsk = () => setOpen(true);
+    window.addEventListener("ai:ask", onAsk);
+    return () => {
+      window.removeEventListener("ai:ask", onAsk);
+      delete window.toggleAISidebar;
+      delete window.openAISidebar;
+      delete window.closeAISidebar;
+    };
   }, []);
 
   // Hotkey: Cmd/Ctrl + J

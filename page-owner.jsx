@@ -1746,8 +1746,8 @@ function CoachingRep() {
               <div className="coaching-card-focus">{c.focus}</div>
               <div className="coaching-card-evidence">{c.evidence}</div>
               <div className="coaching-card-actions">
-                <button className="btn btn-primary coaching-card-btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }}))}><Icons.Play size={11}/> Replay</button>
-                <button className="btn coaching-card-btn" onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Run me through the ${c.drill} drill — give me 3 prompts I can practice on my next call`, context: "Coaching · " + c.drill }}))}><Icons.Sparkles size={11}/> Drill</button>
+                <button className="btn btn-primary coaching-card-btn" onClick={() => { window.openAISidebar?.(); window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Walk me through my coaching focus '${c.focus}' — give me 3 lines I can use on my next call`, context: "Coaching · " + c.focus }})); }}><Icons.Play size={11}/> Replay</button>
+                <button className="btn coaching-card-btn" onClick={() => { window.openAISidebar?.(); window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Run me through the ${c.drill} drill — give me 3 prompts I can practice on my next call`, context: "Coaching · " + c.drill }})); }}><Icons.Sparkles size={11}/> Drill</button>
                 <span className="chip chip-money coaching-impact-chip">Impact: {c.impact}</span>
               </div>
             </div>
