@@ -20,26 +20,62 @@
  */
 
 (function () {
-  const { useState, useEffect, useMemo } = React;
+  const { useState, useEffect } = React;
 
-  // Carrier list — drives credential form rows + carrier-enabled toggles.
-  // Keep id in sync with scrapers/<id>.py.
-  const SUPPORTED_CARRIERS = [
-    { id: "uhc",              name: "UnitedHealthcare AARP", products: ["medsupp"],            requiresLogin: false, note: "Public quoter — no login required" },
-    { id: "humana",           name: "Humana",                products: ["medsupp", "mapd"],    requiresLogin: true,  note: "Producer · humana.com/agent" },
-    { id: "aetna",            name: "Aetna SRC",             products: ["medsupp"],            requiresLogin: true,  note: "Producer · aetnaseniorsupplemental.com" },
-    { id: "cigna",            name: "Cigna (ARLIC)",         products: ["medsupp"],            requiresLogin: true,  note: "Producer · cignaforhcp.com" },
-    { id: "moo",              name: "Mutual of Omaha",       products: ["medsupp", "fe"],      requiresLogin: true,  note: "Producer · mutualofomaha.com/agent" },
-    { id: "lumico",           name: "Lumico",                products: ["fe"],                  requiresLogin: true,  note: "Producer · lumico.com" },
-    { id: "aig",              name: "Corebridge (AIG)",      products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Producer · corebridgefinancial.com" },
-    { id: "fg",               name: "F&G",                   products: ["annuity", "iul"],      requiresLogin: true,  note: "Producer · saleslink.fglife.com" },
-    { id: "transamerica",     name: "Transamerica",          products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Producer · transamerica.com/agent" },
-    { id: "ethos",            name: "Ethos",                 products: ["term"],                requiresLogin: true,  note: "Producer · agents.ethoslife.com" },
-    { id: "americanamicable", name: "American Amicable",     products: ["fe", "term"],          requiresLogin: true,  note: "Producer · aalife.com" },
-    { id: "instabrain",       name: "Instabrain (multi)",    products: ["fe", "term", "iul"],  requiresLogin: true,  note: "Aggregator · instabrain.ai" },
-    { id: "foresters",        name: "Foresters",             products: ["term", "iul"],         requiresLogin: true,  note: "Producer · foresters.com/agents" },
-    { id: "sbli",             name: "SBLI",                  products: ["term"],                requiresLogin: true,  note: "Producer · sbli.com/agent" },
+  // Base carrier metadata. Product eligibility is derived from the live
+  // Supabase catalog when available so the auto-quoter picks up whole-life
+  // offerings without hardcoding them here.
+  const STATIC_CARRIER_META = [
+    { id: "uhc",              name: "UnitedHealthcare AARP", requiresLogin: false, note: "Public quoter — no login required" },
+    { id: "humana",           name: "Humana",                requiresLogin: true,  note: "Producer · humana.com/agent" },
+    { id: "aetna",            name: "Aetna SRC",             requiresLogin: true,  note: "Producer · aetnaseniorsupplemental.com" },
+    { id: "cigna",            name: "Cigna (ARLIC)",         requiresLogin: true,  note: "Producer · cignaforhcp.com" },
+    { id: "moo",              name: "Mutual of Omaha",       requiresLogin: true,  note: "Producer · mutualofomaha.com/agent" },
+    { id: "lumico",           name: "Lumico",                requiresLogin: true,  note: "Producer · lumico.com" },
+    { id: "aig",              name: "Corebridge (AIG)",      requiresLogin: true,  note: "Producer · corebridgefinancial.com" },
+    { id: "fg",               name: "F&G",                   requiresLogin: true,  note: "Producer · saleslink.fglife.com" },
+    { id: "transamerica",     name: "Transamerica",          requiresLogin: true,  note: "Producer · transamerica.com/agent" },
+    { id: "ethos",            name: "Ethos",                 requiresLogin: true,  note: "Producer · agents.ethoslife.com" },
+    { id: "americanamicable", name: "American Amicable",     requiresLogin: true,  note: "Producer · aalife.com" },
+    { id: "instabrain",       name: "Instabrain (multi)",    requiresLogin: true,  note: "Aggregator · instabrain.ai" },
+    { id: "foresters",        name: "Foresters",             requiresLogin: true,  note: "Producer · foresters.com/agents" },
+    { id: "sbli",             name: "SBLI",                  requiresLogin: true,  note: "Producer · sbli.com/agent" },
   ];
+
+  const LEGACY_CARRIER_PRODUCTS = {
+    uhc: ["medsupp"],
+    humana: ["medsupp", "mapd"],
+    aetna: ["medsupp"],
+    cigna: ["medsupp"],
+    moo: ["medsupp", "fe"],
+    lumico: ["fe"],
+    aig: ["fe", "term", "iul"],
+    fg: ["annuity", "iul"],
+    transamerica: ["fe", "term", "iul"],
+    ethos: ["term"],
+    americanamicable: ["fe", "term"],
+    instabrain: ["fe", "term", "iul"],
+    foresters: ["term", "iul"],
+    sbli: ["term"],
+  };
+
+  const PRODUCT_OPTIONS = [
+    { v: "medsupp", l: "Med Supp" },
+    { v: "mapd",    l: "Medicare Advantage" },
+    { v: "fe",      l: "Final Expense / Whole Life" },
+    { v: "term",    l: "Term Life" },
+    { v: "iul",     l: "IUL" },
+    { v: "annuity", l: "Annuity" },
+  ];
+
+  const PRODUCT_LABELS = {
+    medsupp: "Med Supp",
+    mapd: "Medicare Advantage",
+    fe: "Final Expense / Whole Life",
+    term: "Term Life",
+    iul: "IUL",
+    annuity: "Annuity",
+  };
 
   // Local persistence (until the agent <-> supabase wire is fully live)
   const LS_CREDS = "repflow:auto-quoter:creds";
@@ -62,7 +98,78 @@
     return `${Math.floor(ms / 86_400_000)}d ago`;
   }
 
+  function inferEngineProductsFromDb(carrierId) {
+    const products = (window.AppData && window.AppData.PRODUCTS) || [];
+    const lifeFeatures = (window.AppData && window.AppData.PRODUCT_FEATURES_LIFE) || [];
+    const productRows = products.filter(p => p.carrierId === carrierId);
+    const supported = new Set();
+    let wholeLife = false;
+
+    const inferFromText = (text) => {
+      const t = String(text || "").toLowerCase();
+      if (/med\s*supp|medigap|part\s*d/.test(t)) return "medsupp";
+      if (/advantage|part\s*c|mapd/.test(t)) return "mapd";
+      if (/final\s*expense|whole\s*life|burial/.test(t)) return "fe";
+      if (/\bannuity\b|myga|fia|spia/.test(t)) return "annuity";
+      if (/\bterm\b/.test(t)) return "term";
+      if (/\biul\b|indexed universal life/.test(t)) return "iul";
+      return null;
+    };
+
+    for (const p of productRows) {
+      const textKey = inferFromText(`${p.name || ""} ${p.category || ""}`);
+      const cat = String(p.category || "").toLowerCase();
+      if (cat === "med_supp") supported.add("medsupp");
+      else if (cat === "medicare_advantage") supported.add("mapd");
+      else if (cat === "annuity") supported.add("annuity");
+      else if (cat === "life") {
+        const feat = lifeFeatures.find(f => f.productId === p.id) || null;
+        const subtype = String(feat?.productSubtype || "").toLowerCase();
+        if (subtype === "whole" || subtype === "final_expense") {
+          supported.add("fe");
+          wholeLife = true;
+        } else if (subtype === "term") {
+          supported.add("term");
+        } else if (subtype === "iul" || subtype === "gul" || subtype === "vul") {
+          supported.add("iul");
+        } else if (textKey) {
+          supported.add(textKey);
+          if (textKey === "fe") wholeLife = true;
+        }
+      } else if (textKey) {
+        supported.add(textKey);
+        if (textKey === "fe") wholeLife = true;
+      }
+    }
+
+    return { products: [...supported], wholeLife };
+  }
+
+  function buildSupportedCarriers() {
+    const carriers = (window.AppData && window.AppData.CARRIERS) || [];
+    const baseById = new Map(STATIC_CARRIER_META.map(c => [c.id, c]));
+    const derived = carriers.map(c => {
+      const base = baseById.get(c.id) || { id: c.id, name: c.name, requiresLogin: true, note: c.notes || "DB carrier" };
+      const inferred = inferEngineProductsFromDb(c.id);
+      const products = inferred.products.length > 0
+        ? inferred.products
+        : (Array.isArray(c.productLines) ? c.productLines.flatMap((line) => inferEngineProductsFromDb(String(line)).products) : []);
+      return {
+        ...base,
+        id: c.id,
+        name: c.name || base.name,
+        note: c.notes || base.note,
+        products: products.length > 0 ? [...new Set(products)] : [],
+        wholeLife: inferred.wholeLife,
+      };
+    }).filter(c => c.products.length > 0);
+
+    if (derived.length > 0) return derived;
+    return STATIC_CARRIER_META.map(c => ({ ...c, products: LEGACY_CARRIER_PRODUCTS[c.id] || [] }));
+  }
+
   function PageAutoQuoter({ role = "owner" }) {
+    const [, force] = useState(0);
     const [credentials, setCredentials] = useState(() => loadJSON(LS_CREDS, {}));
     const [settings, setSettings]       = useState(() => loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: ["uhc"] }));
     const [requests, setRequests]       = useState(() => loadJSON(LS_REQUESTS, []));
@@ -73,6 +180,20 @@
     const [tab, setTab] = useState("quote");  // quote | setup | credentials
     const [expandedCarrier, setExpandedCarrier] = useState(null);
     const [credFilter, setCredFilter] = useState("");          // search input — Credentials tab
+
+    useEffect(() => {
+      const h = () => force(n => n + 1);
+      window.addEventListener("data:hydrated", h);
+      window.addEventListener("data:mutated", h);
+      window.addEventListener("data:realtime", h);
+      return () => {
+        window.removeEventListener("data:hydrated", h);
+        window.removeEventListener("data:mutated", h);
+        window.removeEventListener("data:realtime", h);
+      };
+    }, []);
+
+    const supportedCarriers = buildSupportedCarriers();
 
     // Profile form state — same shape as page-quote.jsx for shareability
     const [profile, setProfile] = useState({
@@ -336,7 +457,7 @@
     const runQuote = async () => {
       const reqId = "req-" + Date.now();
       const enabled = settings.enabledCarriers.filter(cid =>
-        SUPPORTED_CARRIERS.find(c => c.id === cid && c.products.includes(profile.product))
+        supportedCarriers.find(c => c.id === cid && c.products.includes(profile.product))
       );
 
       if (enabled.length === 0) {
@@ -427,7 +548,7 @@
     };
 
     // ── Helpers ────────────────────────────────────────────────────────────
-    const enabledForProduct = SUPPORTED_CARRIERS
+    const enabledForProduct = supportedCarriers
       .filter(c => c.products.includes(profile.product))
       .filter(c => settings.enabledCarriers.includes(c.id));
     const credsForProduct = enabledForProduct.filter(c =>
@@ -555,7 +676,7 @@
                     <Shared.Select value={profile.product} onChange={(v) => setProfile(p => ({ ...p, product: v }))} options={[
                       { v: "medsupp", l: "Medicare Supplement" },
                       { v: "mapd",    l: "Medicare Advantage" },
-                      { v: "fe",      l: "Final Expense" },
+                    { v: "fe",      l: "Final Expense / Whole Life" },
                       { v: "term",    l: "Term Life" },
                       { v: "iul",     l: "IUL" },
                       { v: "annuity", l: "Annuity (MYGA)" },
@@ -674,7 +795,7 @@
                   {activeRequest.carriers
                     .filter(cid => !activeRequest.results.find(r => r.carrier_id === cid))
                     .map(cid => {
-                      const c = SUPPORTED_CARRIERS.find(x => x.id === cid);
+                      const c = supportedCarriers.find(x => x.id === cid);
                       return (
                         <div key={cid} style={{
                           display: "grid", gridTemplateColumns: "1fr 90px",
@@ -693,7 +814,7 @@
                       return (a.premium || 0) - (b.premium || 0);
                     })
                     .map((r, i) => {
-                      const c = SUPPORTED_CARRIERS.find(x => x.id === r.carrier_id);
+                      const c = supportedCarriers.find(x => x.id === r.carrier_id);
                       const ok = r.status === "ok";
                       return (
                         <div key={r.carrier_id} style={{
@@ -811,10 +932,10 @@
 
             <div className="panel" style={{ gridColumn: "1 / -1" }}>
               <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Enabled carriers</h3>
-                <span className="meta" style={{ marginLeft: "auto" }}>{settings.enabledCarriers.length} of {SUPPORTED_CARRIERS.length}</span>
+                <span className="meta" style={{ marginLeft: "auto" }}>{settings.enabledCarriers.length} of {supportedCarriers.length}</span>
               </div>
               <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 }}>
-                {SUPPORTED_CARRIERS.map(c => {
+                {supportedCarriers.map(c => {
                   const enabled = settings.enabledCarriers.includes(c.id);
                   const sess = sessions[c.id];
                   const sessionFresh = sess?.freshness === "fresh";
@@ -844,7 +965,8 @@
                           <div style={{ fontWeight: 600, fontSize: 12.5 }}>{c.name}</div>
                           <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.note}</div>
                           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                            {c.products.map(p => <span key={p} className="chip" style={{ fontSize: 9.5 }}>{p}</span>)}
+                            {c.products.map(p => <span key={p} className="chip" style={{ fontSize: 9.5 }}>{PRODUCT_LABELS[p] || p}</span>)}
+                            {c.wholeLife && <span className="chip" style={{ fontSize: 9.5, color: "var(--accent-money)" }}>whole life</span>}
                             <span className="chip" style={{ fontSize: 9.5, color: sessionChipColor }}>{sessionChipText}</span>
                           </div>
                           {sess?.lastFailure && (
@@ -884,7 +1006,7 @@
             </div>
 
             {/* ─── Rate-path map (record + replay) ──────────────────────────── */}
-            <RatePathMapEditor carriers={SUPPORTED_CARRIERS}/>
+            <RatePathMapEditor carriers={supportedCarriers}/>
           </div>
         )}
 
@@ -897,14 +1019,14 @@
         {/*  · per-row Clear button — wipes localStorage + connector_vault row */}
         {tab === "credentials" && (() => {
           const filterLower = credFilter.trim().toLowerCase();
-          const credCarriers = SUPPORTED_CARRIERS
+          const credCarriers = supportedCarriers
             .filter(c => c.requiresLogin)
             .filter(c => !filterLower || c.name.toLowerCase().includes(filterLower) || c.id.includes(filterLower));
           return (
             <div className="panel">
               <div className="panel-h">
                 <Icons.Shield size={13}/><h3>Carrier producer credentials</h3>
-                <span className="meta" style={{ marginLeft: "auto" }}>{credCarriers.length} of {SUPPORTED_CARRIERS.filter(c => c.requiresLogin).length} · saved server-side, encrypted</span>
+                <span className="meta" style={{ marginLeft: "auto" }}>{credCarriers.length} of {supportedCarriers.filter(c => c.requiresLogin).length} · saved server-side, encrypted</span>
                 <button className="btn" onClick={downloadCredsJson} style={{ marginLeft: 8 }} title="Download credentials.json for the local agent">
                   <Icons.ArrowUpRight size={11}/> Download .json
                 </button>
@@ -1042,7 +1164,7 @@
                     <div style={{ fontSize: 12 }}>
                       {cheapest ? <>
                         <span style={{ color: "var(--accent-money)", fontWeight: 600 }}>${cheapest.premium}/mo</span>
-                        <span style={{ marginLeft: 6, color: "var(--text-tertiary)" }}>{SUPPORTED_CARRIERS.find(x => x.id === cheapest.carrier_id)?.name}</span>
+                        <span style={{ marginLeft: 6, color: "var(--text-tertiary)" }}>{supportedCarriers.find(x => x.id === cheapest.carrier_id)?.name}</span>
                       </> : <span style={{ color: "var(--text-tertiary)" }}>{(r.results || []).length === 0 ? "pending" : "all declined"}</span>}
                     </div>
                     <div className="tabular" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{(r.results || []).length}/{r.carriers.length}</div>

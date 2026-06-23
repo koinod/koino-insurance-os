@@ -517,7 +517,7 @@ window.hydrateFromSupabase = async function () {
     // ────────────────────────────────────────────────────────────────────────
     try {
       const [
-        carriersR, productsR, apptsR, agencyApptsR,
+        carriersR, productsR, productFeaturesLifeR, productFeaturesAnnuityR, apptsR, agencyApptsR,
         policiesR, commissionsR, payoutsR, clawbacksR,
         leadSourcesR, agencyLeadSourcesR, attributionsR, touchpointsR,
         nigoReasonsR, nigosR,
@@ -543,6 +543,8 @@ window.hydrateFromSupabase = async function () {
         // Reference tables (global) — NOT agency-scoped:
         sb.from("carriers").select("*").order("name"),
         sb.from("products").select("*"),
+        sb.from("product_features_life").select("*"),
+        sb.from("product_features_annuity").select("*"),
         sb.from("carrier_appointments").select("*"),
         scope(sb.from("agency_carrier_appointments").select("*")),
         // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
@@ -619,6 +621,37 @@ window.hydrateFromSupabase = async function () {
         compPct: p.comp_pct ? parseFloat(p.comp_pct) : null,
         compPerApp: p.comp_per_app_cents ? cents(p.comp_per_app_cents) : null,
         active: p.is_active
+      }));
+      window.AppData.PRODUCT_FEATURES_LIFE = mapRows(productFeaturesLifeR, p => ({
+        productId: p.product_id,
+        productSubtype: p.product_subtype,
+        termLengths: Array.isArray(p.term_lengths) ? p.term_lengths : [],
+        convertible: p.convertible,
+        conversionWindowYears: p.conversion_window_years,
+        minFaceCents: p.min_face_cents != null ? Number(p.min_face_cents) : null,
+        maxFaceCents: p.max_face_cents != null ? Number(p.max_face_cents) : null,
+        acceleratedUwMaxFaceCents: p.accelerated_uw_max_face_cents != null ? Number(p.accelerated_uw_max_face_cents) : null,
+        examRequiredAboveCents: p.exam_required_above_cents != null ? Number(p.exam_required_above_cents) : null,
+        livingBenefits: Array.isArray(p.living_benefits) ? p.living_benefits : [],
+        returnOfPremium: p.return_of_premium,
+      }));
+      window.AppData.PRODUCT_FEATURES_ANNUITY = mapRows(productFeaturesAnnuityR, p => ({
+        productId: p.product_id,
+        productSubtype: p.product_subtype,
+        minPremiumCents: p.min_premium_cents != null ? Number(p.min_premium_cents) : null,
+        maxPremiumCents: p.max_premium_cents != null ? Number(p.max_premium_cents) : null,
+        maxIssueAge: p.max_issue_age,
+        surrenderScheduleYears: p.surrender_schedule_years,
+        mva: p.mva,
+        freeWithdrawalPct: p.free_withdrawal_pct != null ? Number(p.free_withdrawal_pct) : null,
+        incomeRiderAvailable: p.income_rider_available,
+        incomeRiderFeeBps: p.income_rider_fee_bps,
+        capRateBps: p.cap_rate_bps,
+        participationRateBps: p.participation_rate_bps,
+        spreadBps: p.spread_bps,
+        bonusPct: p.bonus_pct != null ? Number(p.bonus_pct) : null,
+        qualifiedFundsOk: p.qualified_funds_ok,
+        nonqualifiedFundsOk: p.nonqualified_funds_ok,
       }));
       window.AppData.APPOINTMENTS = mapRows(apptsR, a => ({
         id: a.id, carrierId: a.carrier_id, repId: a.rep_id, state: a.state,

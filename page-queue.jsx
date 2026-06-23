@@ -1105,7 +1105,7 @@ const CARRIER_NICHES = [
 const PRODUCT_OPTIONS = [
   { v: "medsupp", l: "Med Supp" },
   { v: "mapd",    l: "Medicare Advantage" },
-  { v: "fe",      l: "Final Expense" },
+  { v: "fe",      l: "Final Expense / Whole Life" },
   { v: "term",    l: "Term Life" },
   { v: "iul",     l: "IUL" },
   { v: "annuity", l: "Annuity" },
