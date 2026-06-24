@@ -49,12 +49,22 @@
     bridge:       { label: "Bridge",          tone: "warn",   hint: "Writing under another producer's appointment" },
     pending:      { label: "Pending",         tone: "info",   hint: "Contract submitted, awaiting carrier" },
     not_pursuing: { label: "Not pursuing",    tone: "muted",  hint: "Explicitly skipped" },
+    unassigned:   { label: "Unassigned",      tone: "muted",  hint: "No appointment row yet" },
     active:       { label: "Self · direct",   tone: "money",  hint: "Legacy active appointment" },
     paused:       { label: "Paused",          tone: "muted",  hint: "Legacy paused" },
     terminated:   { label: "Terminated",      tone: "muted",  hint: "Legacy terminated" },
   };
 
-  const STATUS_OPTIONS = ["self", "bridge", "pending", "not_pursuing"];
+  const STATUS_OPTIONS = ["unassigned", "self", "bridge", "pending", "not_pursuing"];
+
+  function carrierLoginProvider(carrier) {
+    const base = String(carrier?.carrier_id || carrier?.id || carrier?.name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    return `carrier_${base}`;
+  }
 
   function statusPillStyle(tone) {
     const palette = {
@@ -217,9 +227,10 @@
   }
 
   /* ───── per-row component ────────────────────────────────────────────── */
-  function CarrierRow({ carrier, appt, canEdit, agencyId, onMutate }) {
-    const status = appt?.status || "pending";
+  function CarrierRow({ carrier, appt, canEdit, agencyId, onMutate, loginVault = {}, onEditLogin }) {
+    const status = appt?.status || "unassigned";
     const meta = STATUS_META[status] || STATUS_META.pending;
+    const login = loginVault[carrierLoginProvider(carrier)] || null;
 
     const [editingBridge, setEditingBridge] = useState(false);
     const [bridgeNpn, setBridgeNpn] = useState(appt?.bridge_under_npn || "");
@@ -244,6 +255,7 @@
     const isSelf    = status === "self" || status === "active";
 
     const saveStatus = async (newStatus) => {
+      if (newStatus === "unassigned") return;
       if (newStatus === status) return;
       // bridge → self transition: prompt for transferred_at if there was a
       // bridge appointment previously (so we capture when the book rolled).
@@ -325,7 +337,7 @@
           <div>
             {canEdit ? (
               <select
-                value={STATUS_OPTIONS.includes(status) ? status : "pending"}
+                value={STATUS_OPTIONS.includes(status) ? status : "unassigned"}
                 onChange={e => saveStatus(e.target.value)}
                 disabled={savingField === "status"}
                 title={meta.hint}
@@ -444,15 +456,25 @@
 
           {/* Action: Mark transferred */}
           <div style={{ textAlign: "right" }}>
-            {canEdit && isBridge && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, alignItems: "center" }}>
               <button
-                className="btn btn-ghost"
-                onClick={() => setTransferPrompt(true)}
-                title="Bridge complete: book transferred to your own appointment"
-                style={{ fontSize: 11, padding: "4px 8px" }}>
-                → self
+                className="icon-btn"
+                title={login ? `Edit login — saved ${login._saved_at ? new Date(login._saved_at).toLocaleDateString() : ""}` : "Add producer-portal login"}
+                onClick={() => onEditLogin?.(carrier)}
+                style={{ color: login ? "var(--accent-money)" : "var(--text-tertiary)" }}
+              >
+                <Icons.Lock size={11}/>
               </button>
-            )}
+              {canEdit && isBridge && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setTransferPrompt(true)}
+                  title="Bridge complete: book transferred to your own appointment"
+                  style={{ fontSize: 11, padding: "4px 8px" }}>
+                  → self
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -645,6 +667,37 @@
     const [search, setSearch] = useState("");
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requests, reloadRequests] = useCarrierRequests(agencyId);
+    const [loginVault, setLoginVault] = useState({});
+    const [loginEditing, setLoginEditing] = useState(null);
+    const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+    const [loginSaving, setLoginSaving] = useState(false);
+
+    const reloadVault = useCallback(async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session) return;
+        const r = await fetch("/api/agent/connector-list", {
+          headers: { authorization: `Bearer ${session.access_token}` },
+        });
+        if (!r.ok) return;
+        const { connectors = [] } = await r.json();
+        const next = {};
+        for (const c of connectors) {
+          if (!c.provider || !c.provider.startsWith("carrier_")) continue;
+          const slug = c.provider.slice("carrier_".length);
+          next[slug] = {
+            username: c.account_metadata?.username || "",
+            _has_password: true,
+            _saved_at: c.connected_at,
+          };
+        }
+        setLoginVault(next);
+      } catch {}
+    }, []);
+
+    useEffect(() => { reloadVault(); }, [reloadVault]);
 
     // Map carrier_id → appt for fast lookup.
     const apptByCarrier = useMemo(() => {
@@ -657,8 +710,10 @@
     const counts = useMemo(() => {
       const out = { all: (carriers || []).length, self: 0, bridge: 0, pending: 0, not_pursuing: 0 };
       (carriers || []).forEach(c => {
-        const s = apptByCarrier[c.id]?.status || "pending";
-        const k = s === "active" ? "self" : (out[s] != null ? s : "pending");
+        const s = apptByCarrier[c.id]?.status;
+        if (!s) return;
+        const k = s === "active" ? "self" : (out[s] != null ? s : null);
+        if (!k) return;
         out[k] = (out[k] || 0) + 1;
       });
       return out;
@@ -670,11 +725,98 @@
       return list.filter(c => {
         if (q && !(c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))) return false;
         if (filter === "all") return true;
-        const s = apptByCarrier[c.id]?.status || "pending";
+        const s = apptByCarrier[c.id]?.status;
+        if (!s) return false;
         const norm = s === "active" ? "self" : s;
         return norm === filter;
       });
     }, [carriers, apptByCarrier, search, filter]);
+
+    const openLoginEditor = (carrier) => {
+      const slug = carrierLoginProvider(carrier);
+      const existing = loginVault[slug] || {};
+      setLoginForm({ username: existing.username || "", password: "" });
+      setLoginEditing(carrier.id);
+    };
+    const closeLoginEditor = () => {
+      setLoginEditing(null);
+      setLoginForm({ username: "", password: "" });
+    };
+    const saveLogin = async (carrier) => {
+      const slug = carrierLoginProvider(carrier);
+      if (!loginForm.username.trim()) {
+        window.toast && window.toast("Enter a username", "warn");
+        return;
+      }
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      setLoginSaving(true);
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session) { window.toast && window.toast("Sign in to save logins", "error"); return; }
+        const existing = loginVault[slug] || {};
+        const username = loginForm.username.trim();
+        const password = loginForm.password.trim();
+        if (!password && !existing._has_password) {
+          window.toast && window.toast("Enter a password (or leave blank only if one is already saved)", "warn");
+          return;
+        }
+        if (!password && existing._has_password) {
+          if ((existing.username || "") !== username) {
+            window.toast && window.toast("Enter the password to update the saved username", "warn");
+            return;
+          }
+          window.toast && window.toast(`${carrier.name} login unchanged`, "success");
+          closeLoginEditor();
+          return;
+        }
+        if (password) {
+          const r = await fetch("/api/agent/connector-upsert", {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${session.access_token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              provider: `carrier_${slug}`,
+              account_label: `Carrier portal · ${carrier.name}`,
+              api_key: JSON.stringify({
+                username,
+                password,
+                extra: {},
+              }),
+              metadata: { username },
+            }),
+          });
+          if (!r.ok) throw new Error(await r.text().catch(() => "") || `HTTP ${r.status}`);
+        }
+        window.toast && window.toast(`${carrier.name} login saved`, "success");
+        await reloadVault();
+        closeLoginEditor();
+      } catch (e) {
+        window.toast && window.toast(`Save failed: ${e.message || e}`, "error");
+      } finally {
+        setLoginSaving(false);
+      }
+    };
+    const clearLogin = async (carrier) => {
+      const slug = carrierLoginProvider(carrier);
+      if (!confirm(`Clear saved login for ${carrier.name}? Deletes the server-side credential row too.`)) return;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      setLoginSaving(true);
+      try {
+        const { error } = await sb.from("connector_vault").delete().eq("provider", `carrier_${slug}`);
+        if (error) throw error;
+        window.toast && window.toast(`${carrier.name} login cleared`, "success");
+        await reloadVault();
+        closeLoginEditor();
+      } catch (e) {
+        window.toast && window.toast(`Clear failed: ${e.message || e}`, "error");
+      } finally {
+        setLoginSaving(false);
+      }
+    };
 
     if (!carriers || !appts) {
       return (
@@ -774,13 +916,75 @@
             </div>
           ) : (
             rows.map(c => (
-              <CarrierRow
-                key={c.id}
-                carrier={c}
-                appt={apptByCarrier[c.id]}
-                canEdit={canEdit}
-                agencyId={agencyId}
-                onMutate={reload}/>
+              <React.Fragment key={c.id}>
+                <CarrierRow
+                  carrier={c}
+                  appt={apptByCarrier[c.id]}
+                  canEdit={canEdit}
+                  agencyId={agencyId}
+                  onMutate={reload}
+                  loginVault={loginVault}
+                  onEditLogin={openLoginEditor}/>
+                {loginEditing === c.id && (
+                  <div style={{
+                    margin: "0 4px 8px",
+                    padding: "12px 14px",
+                    background: "color-mix(in oklch, var(--accent-money) 5%, var(--bg-raised))",
+                    border: "1px solid color-mix(in oklch, var(--accent-money) 25%, transparent)",
+                    borderRadius: 6,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icons.Lock size={12} style={{ color: "var(--accent-money)" }}/>
+                      <strong style={{ fontSize: 12.5 }}>Carrier portal login</strong>
+                      <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                        stored encrypted · per-user · used by live quote runs
+                      </span>
+                      <button className="icon-btn" style={{ marginLeft: "auto" }} title="Close" onClick={closeLoginEditor}>
+                        <Icons.X size={11}/>
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
+                      <Shared.Field label="Username">
+                        <input
+                          className="text-input"
+                          value={loginForm.username}
+                          onChange={(e) => setLoginForm(f => ({ ...f, username: e.target.value }))}
+                          placeholder="producer.email@agency.com"
+                          autoComplete="off"
+                          autoFocus
+                        />
+                      </Shared.Field>
+                      <Shared.Field label="Password">
+                        <input
+                          className="text-input"
+                          type="password"
+                          value={loginForm.password}
+                          onChange={(e) => setLoginForm(f => ({ ...f, password: e.target.value }))}
+                          placeholder={(loginVault[carrierLoginProvider(c)]?._has_password) ? "•••••••• (saved · type to replace)" : "password"}
+                          autoComplete="new-password"
+                          onKeyDown={(e) => { if (e.key === "Enter") saveLogin(c); if (e.key === "Escape") closeLoginEditor(); }}
+                        />
+                      </Shared.Field>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button className="btn btn-primary" onClick={() => saveLogin(c)} disabled={loginSaving || !loginForm.username.trim()}>
+                          <Icons.Check size={11}/> {loginSaving ? "Saving…" : "Save login"}
+                        </button>
+                        {loginVault[carrierLoginProvider(c)] && (
+                          <button className="btn btn-ghost" onClick={() => clearLogin(c)} disabled={loginSaving} title="Delete saved login for this carrier">
+                            <Icons.X size={10}/> Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                      Saved as <code style={{ fontSize: 10 }}>connector_vault.provider="carrier_{carrierLoginProvider(c).replace(/^carrier_/, "")}"</code>.
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
             ))
           )}
         </div>

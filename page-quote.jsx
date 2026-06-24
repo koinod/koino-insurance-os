@@ -160,7 +160,7 @@
     }, []);
 
     // Per-rep carrier-visibility prefs (reps.carrier_prefs.quotes) can change
-    // from Settings → Carriers; bump a version so the appointedIds memo
+    // from Settings → Carriers; bump a version so the live-carrier memo
     // re-filters immediately.
     const [prefsVersion, setPrefsVersion] = useState(0);
     useEffect(() => {
@@ -173,8 +173,49 @@
       };
     }, []);
 
-    // Carrier selection — null means "all appointed carriers for this product"
+    useEffect(() => {
+      let cancelled = false;
+      const reloadLogins = async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          if (!sb) return;
+          const { data: { session } } = await sb.auth.getSession();
+          if (!session) {
+            if (!cancelled) setCarrierLogins({});
+            return;
+          }
+          const r = await fetch("/api/agent/connector-list", {
+            headers: { authorization: `Bearer ${session.access_token}` },
+          });
+          if (!r.ok) return;
+          const { connectors = [] } = await r.json();
+          if (cancelled) return;
+          const next = {};
+          for (const c of connectors) {
+            if (!c.provider || !c.provider.startsWith("carrier_")) continue;
+            const slug = c.provider.slice("carrier_".length);
+            next[slug] = {
+              username: c.account_metadata?.username || "",
+              _has_password: true,
+              _saved_at: c.connected_at,
+            };
+          }
+          setCarrierLogins(next);
+        } catch {}
+      };
+      reloadLogins();
+      window.addEventListener("me:loaded", reloadLogins);
+      window.addEventListener("data:hydrated", reloadLogins);
+      return () => {
+        cancelled = true;
+        window.removeEventListener("me:loaded", reloadLogins);
+        window.removeEventListener("data:hydrated", reloadLogins);
+      };
+    }, []);
+
+    // Carrier selection — null means "all carriers for this product"
     const [selectedCarrierIds, setSelectedCarrierIds] = useState(null);
+    const [carrierLogins, setCarrierLogins] = useState({});
     // Agent request tracking
     const [agentReqId, setAgentReqId]     = useState(null);
     const [agentResults, setAgentResults] = useState({});
@@ -214,7 +255,7 @@
 
     const niches = window.CARRIER_NICHES || [];
 
-    // Filter to agency-appointed carriers.
+    // Live-run carrier gating comes from appointment status + saved login.
     //
     // The gate is now `agency_carrier_appointments.status IN (self|bridge|active)`,
     // surfaced via window.AppData.AGENCY_APPOINTMENTS (loaded by data.jsx,
@@ -234,38 +275,45 @@
       return LONG_TO_SHORT[id] || id;
     };
 
-    const appointedIds = useMemo(() => {
+    const productCarriers = useMemo(
+      () => niches.filter(c => c.products.includes(profile.product)),
+      [profile.product, niches.length]
+    );
+
+    const appointmentIds = useMemo(() => {
       const appts = window.AppData?.AGENCY_APPOINTMENTS || [];
       // No data hydrated yet → return null = "filter not ready, show all"
       // (avoids a flash of empty state on initial paint).
       if (!Array.isArray(appts)) return null;
-      // 'pending' counts as writable too — migration 0069e backfills every
-      // (agency × catalog carrier) row as 'pending' by default so all
-      // agencies see the full catalog out of the box. Managers explicitly
-      // mark rows 'not_pursuing' to hide. 'self' / 'bridge' / 'active' carry
-      // appointment semantics, but for *visibility* the only excluded state
-      // is 'not_pursuing'.
       // Per-rep visibility: a rep can hide carriers from THEIR quote tool via
       // Settings → Carriers (reps.carrier_prefs.quotes). Only an explicit
       // `false` hides; missing = visible.
       const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs("quotes")) || {};
       const writable = appts.filter(a => {
         const status = String(a.status || "").toLowerCase();
-        if (!["self", "bridge", "active", "pending"].includes(status)) return false;
+        if (!["self", "bridge", "active"].includes(status)) return false;
         if (prefs[a.carrierId] === false) return false; // rep hid this carrier
         return true;
       });
-      // Hydrated but empty → return empty Set so the empty-state CTA
-      // renders. Distinct from "not ready yet" above.
       const ids = new Set(writable.map(a => normalizeNicheId(a.carrierId)));
       return ids;
-    }, [window.AppData?.AGENCY_APPOINTMENTS?.length, prefsVersion]);
+    }, [prefsVersion]);
 
-    // Carriers eligible for this product after appointment filter — drives checkboxes
+    const liveCarrierIds = useMemo(() => {
+      if (appointmentIds === null) return null;
+      const ids = new Set();
+      productCarriers.forEach(c => {
+        const login = carrierLogins[c.id];
+        const loginReady = !c.requiresLogin || !!(login?.username && login?._has_password);
+        if (appointmentIds.has(c.id) && loginReady) ids.add(c.id);
+      });
+      return ids;
+    }, [appointmentIds, carrierLogins, productCarriers]);
+
+    // Carriers eligible for this product — drives checkboxes
     const eligibleForProduct = useMemo(() => {
-      const eligible = niches.filter(c => c.products.includes(profile.product));
-      return appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
-    }, [profile.product, niches.length, appointedIds]);
+      return productCarriers;
+    }, [productCarriers]);
 
     const toggleCarrierSelection = (carrierId) => {
       setSelectedCarrierIds(prev => {
@@ -277,9 +325,11 @@
     };
 
     const runQuoteAgent = async () => {
-      const toRun = quoteResults.quoted.map(r => r.carrier.id);
+      const toRun = quoteResults.quoted
+        .filter(r => liveCarrierIds?.has(r.carrier.id))
+        .map(r => r.carrier.id);
       if (toRun.length === 0) {
-        window.toast && window.toast("No quoted carriers to run agent against", "warn");
+        window.toast && window.toast("No live carriers selected — mark carriers Self/Bridge and save a login in Carriers", "warn");
         return;
       }
       const sb = window.getSupabase && window.getSupabase();
@@ -344,7 +394,7 @@
       return () => window.removeEventListener("carrier-uw:loaded", fn);
     }, []);
 
-    // Run rate engine across appointed + user-selected carriers for this product.
+    // Run rate engine across user-selected carriers for this product.
     //
     // RANKING MODEL (reworked 2026-05-24):
     // Sort by FIT QUALITY, not by $/mo. The engine's $/mo number is only
@@ -357,11 +407,10 @@
       if (!window.RateEngine) return { quoted: [], borderline: [], ineligible: [], all: [] };
       const productKey = profile.product;
       const eligible = niches.filter(c => c.products.includes(productKey));
-      const appointed = appointedIds === null ? eligible : eligible.filter(c => appointedIds.has(c.id));
-      // User-narrowed selection — null means all appointed
+      // User-narrowed selection — null means all visible carriers
       const filtered = selectedCarrierIds === null
-        ? appointed
-        : appointed.filter(c => selectedCarrierIds.has(c.id));
+        ? eligible
+        : eligible.filter(c => selectedCarrierIds.has(c.id));
 
       const results = filtered.map(carrier => {
         // Run fit verdict (eligibility + sweet-spot + tier scoring).
@@ -452,7 +501,7 @@
       const borderline = results.filter(r => r.verdict.eligibility === "borderline").sort(sortByFit);
       const ineligible = results.filter(r => r.verdict.eligibility === "ineligible");
       return { quoted, borderline, ineligible, all: results };
-    }, [JSON.stringify(profileForEngine), niches.length, appointedIds, groundingTick,
+    }, [JSON.stringify(profileForEngine), niches.length, groundingTick,
         selectedCarrierIds === null ? "" : [...selectedCarrierIds].sort().join(",")]);
 
     // Best pick: top of the fit-ranked list. For DOLLAR display we only call
@@ -654,8 +703,8 @@
       : Math.round((quotes.filter(q => q.status === "converted").length / quotes.length) * 100);
 
     const heightDisplay = `${profile.heightFeet}'${profile.heightInches}"`;
-    const totalAppointed = niches.filter(c => c.products.includes(profile.product))
-      .filter(c => appointedIds === null || appointedIds.has(c.id))?.length;
+    const totalVisible = productCarriers.length;
+    const liveVisible = liveCarrierIds ? [...liveCarrierIds].length : 0;
 
     // (groundingTick state + listener declared earlier — above quoteResults
     // useMemo — so the dep array can reference it without hitting TDZ.)
@@ -709,8 +758,10 @@
           <div>
             <div className="page-title">Quote Tool</div>
             <div className="page-sub">
-              Real-rate engine · {totalAppointed} appointed carrier{totalAppointed === 1 ? "" : "s"} for {PRODUCT_LABELS[profile.product]} ·
-              {appointedIds === null ? " (demo: all carriers shown)" : ` filtered to your appointments`}
+              Real-rate engine · {totalVisible} carrier{totalVisible === 1 ? "" : "s"} for {PRODUCT_LABELS[profile.product]} ·
+              {liveCarrierIds === null
+                ? " live gating loading…"
+                : ` ${liveVisible} live-ready`}
             </div>
             <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               {grounding.status === "ready" && (
@@ -1027,12 +1078,8 @@
               </span>
             </div>
 
-            {/* Empty-state CTA — agency has zero appointments OR none cover
-                this product. Hydration-tristate: appointedIds === null means
-                "not loaded yet" (don't render); empty Set means "loaded, no
-                writable carriers" (show CTA). Without this, the quoter went
-                silently blank with no explanation. */}
-            {appointedIds !== null && eligibleForProduct.length === 0 && (
+            {/* Empty-state CTA — only when the product has no catalog carriers. */}
+            {eligibleForProduct.length === 0 && (
               <div style={{
                 padding: "14px 16px", margin: "10px",
                 background: "color-mix(in oklch, var(--state-warning) 8%, transparent)",
@@ -1043,12 +1090,8 @@
                   No carriers available for {PRODUCT_LABELS[profile.product]}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
-                  {appointedIds.size === 0
-                    ? "Your agency has no carrier appointments set up yet."
-                    : `You have ${appointedIds.size} carrier${appointedIds.size === 1 ? "" : "s"} appointed, but none of them sell ${PRODUCT_LABELS[profile.product]}.`}
-                  {" "}Set status to <em>Self</em> (you're contracted directly) or
-                  <em> Bridge</em> (you're writing under another producer's NPN)
-                  on the carriers you can quote.
+                  The catalog doesn't currently include any carriers for this product.
+                  If you expect one here, add or update the carrier catalog first.
                 </div>
                 <button className="btn btn-primary"
                   onClick={() => window.gotoPage && window.gotoPage("carrier-appointments")}
@@ -1068,6 +1111,7 @@
                 <span style={{ fontSize: 10, color: "var(--text-quaternary)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 2 }}>Quote:</span>
                 {eligibleForProduct.map(c => {
                   const sel = selectedCarrierIds === null || selectedCarrierIds.has(c.id);
+                  const liveReady = liveCarrierIds?.has(c.id);
                   return (
                     <button key={c.id} onClick={() => toggleCarrierSelection(c.id)}
                       style={{
@@ -1080,6 +1124,15 @@
                       }}>
                       {sel && <span style={{ fontSize: 9 }}>✓</span>}
                       {c.name}
+                      <span className="chip" style={{
+                        marginLeft: 4,
+                        padding: "0 5px",
+                        fontSize: 9,
+                        color: liveReady ? "var(--accent-money)" : "var(--text-tertiary)",
+                        background: liveReady ? "color-mix(in oklch, var(--accent-money) 10%, transparent)" : "var(--bg-elevated)",
+                      }}>
+                        {liveReady ? "live" : "catalog"}
+                      </span>
                     </button>
                   );
                 })}
@@ -1087,6 +1140,23 @@
                   <button className="btn btn-ghost" style={{ fontSize: 10, padding: "2px 6px" }}
                     onClick={() => setSelectedCarrierIds(null)}>All</button>
                 )}
+              </div>
+            )}
+
+            {eligibleForProduct.length > 0 && liveCarrierIds && liveCarrierIds.size === 0 && (
+              <div style={{
+                margin: "8px 10px 0",
+                padding: "10px 12px",
+                background: "color-mix(in oklch, var(--state-warning) 8%, transparent)",
+                border: "1px solid color-mix(in oklch, var(--state-warning) 24%, transparent)",
+                borderRadius: 6,
+                fontSize: 11.5,
+                color: "var(--text-secondary)",
+                lineHeight: 1.5,
+              }}>
+                Quote list shows every carrier, but live rates only run through carriers marked
+                <strong> Self</strong> or <strong>Bridge</strong> in <a href="#" onClick={(e) => { e.preventDefault(); window.gotoPage && window.gotoPage("carrier-appointments"); }} style={{ color: "var(--accent-money)" }}>Carrier Appointments</a>
+                and carrying a saved login.
               </div>
             )}
 
@@ -1177,7 +1247,7 @@
 
             {quoteResults.quoted.length === 0 && quoteResults.borderline.length === 0 && quoteResults.ineligible.length === 0 ? (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>
-                No appointed carriers offer {PRODUCT_LABELS[profile.product]}. Add appointments in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" } })); }} style={{ color: "var(--accent-money)" }}>Resources → Carriers</a>.
+                No carriers in the catalog offer {PRODUCT_LABELS[profile.product]}. Update the carrier catalog in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "resources" } })); }} style={{ color: "var(--accent-money)" }}>Resources → Carriers</a>.
               </div>
             ) : (
               <div style={{ padding: 10 }}>
@@ -1211,6 +1281,7 @@
                 {quoteResults.quoted.map((r, i) => {
                   const c = r.carrier;
                   const v = r.verdict || {};
+                  const liveReady = liveCarrierIds?.has(c.id);
                   // Prefer the DB-sourced guide for the displayed UW metadata;
                   // fall back to the inline CARRIER_NICHES roster fields only
                   // when the carrier has no DB grounding (badge will warn).
@@ -1296,6 +1367,15 @@
                                     border: "1px solid color-mix(in oklch, var(--state-warning) 30%, transparent)",
                                   }}>no DB rules</span>
                           )}
+                          {liveReady ? (
+                            <span className="chip chip-money" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px" }}>
+                              live-ready
+                            </span>
+                          ) : (
+                            <span className="chip" style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", color: "var(--text-tertiary)" }}>
+                              catalog only
+                            </span>
+                          )}
                           {/* DB state-rate badge removed 2026-05-26: those numbers
                               were state averages, not binding quotes, and reading
                               them as the latter mislead reps. Only live RBA
@@ -1379,6 +1459,7 @@
                     {quoteResults.borderline.map(r => {
                       const c = r.carrier;
                       const v = r.verdict || {};
+                      const liveReady = liveCarrierIds?.has(c.id);
                       return (
                         <div key={c.id} className="quote-row" style={{ opacity: 0.85 }}>
                           <div>
@@ -1393,6 +1474,9 @@
                               }}>borderline ⚠</span>
                             </div>
                             <div className="qr-meta">{v.borderlineReason || "Within carrier limits, but at an edge"}</div>
+                            <div className="qr-meta" style={{ marginTop: 4 }}>
+                              {liveReady ? <span style={{ color: "var(--accent-money)" }}>live-ready</span> : <span>catalog only</span>}
+                            </div>
                           </div>
                           <div className="qr-reason" title={(r.methodology || []).join("\n")}>
                             {r.reasons?.[0]?.text || (r.methodology || []).slice(-2).join(" · ") || "—"}
@@ -1445,7 +1529,7 @@
                   <button
                     className="btn btn-primary"
                     onClick={runQuoteAgent}
-                    disabled={quoteResults.quoted.length === 0 || agentRunStatus === "queued" || agentRunStatus === "running"}
+                    disabled={quoteResults.quoted.filter(r => liveCarrierIds?.has(r.carrier.id)).length === 0 || agentRunStatus === "queued" || agentRunStatus === "running"}
                     style={{ padding: "8px 14px", fontSize: 12.5 }}
                   >
                     <Icons.Sparkles size={13}/>
@@ -1468,7 +1552,7 @@
 
                   {agentRunStatus === "idle" && (
                     <span style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.45 }}>
-                      Pulls binding quotes from each carrier's portal — the only source of a real $/mo in this tool (~60-90s per carrier). Requires the local RBA agent + carrier credentials set up in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "auto-quoter" } })); }} style={{ color: "var(--accent-money)" }}>Admin → Auto-Quoter</a>.
+                      Pulls binding quotes from each carrier's portal — the only source of a real $/mo in this tool (~60-90s per carrier). Requires the local RBA agent + carrier credentials saved in <a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("nav:goto", { detail: { page: "carrier-appointments" } })); }} style={{ color: "var(--accent-money)" }}>Carrier Appointments</a>.
                     </span>
                   )}
 
