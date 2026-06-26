@@ -2,25 +2,26 @@
 
    Top-level route /?page=licensing inside the SPA, or /licensing standalone.
 
-   Layout (2026-06-03 refactor):
+   Layout:
      Top picker: State + Exam variety (Life Only / Life & Annuities /
        Life & Health / etc. — states have different combos)
      Tabs: PRACTICE (default) · STUDY GUIDE · TUTOR · LOGISTICS
        * PRACTICE     — variety-scoped questions; domain weights honor
                         content outline %s; per-domain accuracy in
                         localStorage; "Drill weakest domain" CTA.
-       * STUDY GUIDE  — multi-section guide rendered like Ian's VA
-                        Series 1105 cheat sheet (heading / table /
-                        bullets / callouts / numeric drills). Sections
-                        come from /api/licensing-tutor mode=study_guide,
-                        one fetch per content-outline domain. Cached in
-                        sessionStorage so navigating away doesn't lose
-                        them.
-       * TUTOR        — chat Q&A scoped to (state, variety).
+                        NEW: "Create Exam" mode = adaptive N-question
+                        session that reweights toward weak domains in
+                        real time.
+       * STUDY GUIDE  — STATIC hardcoded sections. No LLM generation.
+                        Instant load; curated exam-grade content per
+                        domain. Export to Markdown or Print.
+       * TUTOR        — chat Q&A scoped to (state, variety) with
+                        starter question prompts.
        * LOGISTICS    — Requirements card + Approved courses card +
-                        step-by-step roadmap. The honest "research
-                        pending" cells live here, out of the way of the
-                        practice loop.
+                        step-by-step roadmap.
+
+   Study guide data lives in /lib/licensing-study-guides.js — an
+   inline IIFE exposes window.LicensingStudyGuides = { getStaticGuideSection, domainKey }.
 
    Data: GET /lib/licensing-data.json. exam_varieties[] under
    states[CODE] (top 15 markets) drives the variety picker. States with
@@ -28,9 +29,34 @@
    the UI still works everywhere. */
 
 (function () {
-  const { useState, useEffect, useMemo, useRef } = React;
+  const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
   const DATA_URL = "/lib/licensing-data.json?v=7";
+
+  /* ── Static study guide lookup (from lib/licensing-study-guides.js) ──
+     That file exposes window.LicensingStudyGuides when loaded as a script.
+     We inline a minimal fallback here so the page works even if the
+     external file fails to load. */
+  function domainKeyLocal(domain) {
+    return (domain || "").toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "");
+  }
+  function getStaticGuide(lineId, domainName) {
+    const guides = window.LicensingStudyGuides;
+    if (guides && guides.getStaticGuideSection) {
+      return guides.getStaticGuideSection(lineId, domainName);
+    }
+    // Inline fallback — minimal skeleton so the UI doesn't blank out
+    return {
+      title: (domainName || "Section").toUpperCase(),
+      subtitle: "Static guide — full content loads from lib/licensing-study-guides.js",
+      blocks: [
+        { type: "callout", kind: "info", text: "Study guide content is loading. If this persists, refresh the page." }
+      ]
+    };
+  }
 
   /* ───── Default-variety synthesis ─────
      For states that don't yet have curated exam_varieties[], we build a
@@ -277,36 +303,77 @@
   /* ───── Practice tab — weighted by content outline, per-domain stats ───── */
   const PRACTICE_LS_KEY = (state, varietyId) => `repflow.licensing.practice.${state}.${varietyId}`;
 
+  /* ── Exam session state machine ──
+     mode: "free" | "exam"
+     In exam mode, we track questions answered, score per domain, and
+     bias the next-question domain selection toward weak domains. */
   function PracticeTab({ stateCode, lineId, lineLabel, variety }) {
-    const [q, setQ]       = useState(null);
-    const [picked, setPicked] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [err, setErr]   = useState(null);
-    const [stats, setStats] = useState(() => loadStats(stateCode, variety.id));
-    const [drillDomain, setDrillDomain] = useState(null); // forced domain for next fetch
+    const [mode, setMode]           = useState("free"); // "free" | "exam"
+    const [q, setQ]                 = useState(null);
+    const [picked, setPicked]       = useState(null);
+    const [busy, setBusy]           = useState(false);
+    const [err, setErr]             = useState(null);
+    const [stats, setStats]         = useState(() => loadStats(stateCode, variety.id));
+    const [drillDomain, setDrillDomain] = useState(null);
+
+    // Exam session state
+    const [examTotal, setExamTotal]   = useState(20);
+    const [examIdx, setExamIdx]       = useState(0);   // 0-based question number
+    const [examResults, setExamResults] = useState([]); // [{domain, correct}]
+    const [examDone, setExamDone]     = useState(false);
 
     useEffect(() => {
       setQ(null); setPicked(null); setErr(null); setDrillDomain(null);
       setStats(loadStats(stateCode, variety.id));
+      setMode("free"); setExamIdx(0); setExamResults([]); setExamDone(false);
     }, [stateCode, variety.id]);
 
-    const pickWeightedDomain = () => {
-      if (drillDomain) return drillDomain;
-      const outline = Array.isArray(variety.content_outline) ? variety.content_outline : [];
+    const outline = useMemo(() =>
+      Array.isArray(variety.content_outline) ? variety.content_outline : [],
+    [variety]);
+
+    /* Weighted domain picker — in exam mode, double-weight weak domains */
+    const pickWeightedDomain = useCallback((forceWeak = false) => {
+      if (drillDomain && !forceWeak) return drillDomain;
       if (outline.length === 0) return null;
-      const total = outline.reduce((s, d) => s + (d.weight_pct || 0), 0) || outline.length;
+
+      // Build per-domain accuracy from exam results so far (exam mode)
+      // OR from lifetime stats (free mode)
+      const accuracy = {};
+      if (mode === "exam" && examResults.length > 0) {
+        examResults.forEach(({ domain, correct }) => {
+          if (!accuracy[domain]) accuracy[domain] = { total: 0, correct: 0 };
+          accuracy[domain].total++;
+          if (correct) accuracy[domain].correct++;
+        });
+      } else {
+        Object.entries(stats).forEach(([d, v]) => { accuracy[d] = v; });
+      }
+
+      // Assign weights: outline weight × boost factor for weak domains
+      const weighted = outline.map(d => {
+        const acc = accuracy[d.domain];
+        let boost = 1;
+        if (acc && acc.total >= 2) {
+          const pct = acc.correct / acc.total;
+          if (pct < 0.5) boost = 2.5;      // very weak → 2.5×
+          else if (pct < 0.7) boost = 1.7; // weak → 1.7×
+        }
+        return { domain: d.domain, weight: (d.weight_pct || 1) * boost };
+      });
+      const total = weighted.reduce((s, w) => s + w.weight, 0);
       const r = Math.random() * total;
       let cum = 0;
-      for (const d of outline) {
-        cum += (d.weight_pct || (total / outline.length));
-        if (r <= cum) return d.domain;
+      for (const w of weighted) {
+        cum += w.weight;
+        if (r <= cum) return w.domain;
       }
-      return outline[outline.length - 1].domain;
-    };
+      return weighted[weighted.length - 1].domain;
+    }, [drillDomain, outline, mode, examResults, stats]);
 
-    const fetchOne = async () => {
+    const fetchOne = useCallback(async (domainOverride) => {
       setBusy(true); setErr(null); setPicked(null); setQ(null);
-      const domain = pickWeightedDomain();
+      const domain = domainOverride || pickWeightedDomain();
       try {
         const resp = await fetch("/api/licensing-tutor", {
           method: "POST",
@@ -316,21 +383,49 @@
         const j = await resp.json();
         if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
         setQ(j);
-        setDrillDomain(null); // consume the one-shot drill
+        setDrillDomain(null);
       } catch (e) {
         setErr(e.message || String(e));
       } finally {
         setBusy(false);
       }
-    };
+    }, [stateCode, lineId, variety, pickWeightedDomain]);
 
     const onPick = (i) => {
       if (picked != null || !q) return;
       setPicked(i);
       const correct = i === q.correct_index;
-      const next = recordResult(stats, q.domain || "Unknown", correct);
+      const domain = q.domain || "Unknown";
+      // Update lifetime stats
+      const next = recordResult(stats, domain, correct);
       setStats(next);
       saveStats(stateCode, variety.id, next);
+      // Update exam results
+      if (mode === "exam") {
+        setExamResults(prev => [...prev, { domain, correct }]);
+      }
+    };
+
+    const onNextExam = () => {
+      const nextIdx = examIdx + 1;
+      if (nextIdx >= examTotal) {
+        setExamDone(true);
+      } else {
+        setExamIdx(nextIdx);
+        fetchOne(); // adaptive domain pick happens inside fetchOne
+      }
+    };
+
+    const startExam = (total = 20) => {
+      setExamTotal(total); setExamIdx(0);
+      setExamResults([]); setExamDone(false);
+      setMode("exam");
+      fetchOne();
+    };
+
+    const endExam = () => {
+      setMode("free"); setQ(null); setPicked(null);
+      setExamDone(false); setExamIdx(0); setExamResults([]);
     };
 
     const totalAnswered = Object.values(stats).reduce((s, d) => s + d.total, 0);
@@ -344,27 +439,104 @@
       return rows[0][0];
     }, [stats]);
 
+    // Exam session score summary
+    const examScore = useMemo(() => {
+      if (!examResults.length) return null;
+      const correct = examResults.filter(r => r.correct).length;
+      const pct = Math.round(100 * correct / examResults.length);
+      // Domain breakdown
+      const byDomain = {};
+      examResults.forEach(({ domain, correct: c }) => {
+        if (!byDomain[domain]) byDomain[domain] = { total: 0, correct: 0 };
+        byDomain[domain].total++;
+        if (c) byDomain[domain].correct++;
+      });
+      return { correct, total: examResults.length, pct, byDomain };
+    }, [examResults]);
+
+    // ── Exam done screen ──
+    if (examDone && examScore) {
+      const passPct = variety.passing_score_pct || 70;
+      const passed = examScore.pct >= passPct;
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12, alignItems: "start" }}>
+          <div className="panel">
+            <div className="panel-h">
+              <h3>Exam Complete</h3>
+              <span className={`chip ${passed ? "chip-money" : ""}`} style={{ background: passed ? undefined : "color-mix(in oklch, var(--state-danger) 18%, transparent)", color: passed ? undefined : "var(--state-danger)" }}>
+                {examScore.pct}% · {passed ? "PASS" : "Not yet"}
+              </span>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-secondary)" }}>
+                You answered <strong style={{ color: "var(--text-primary)" }}>{examScore.correct}/{examScore.total}</strong> correctly ({examScore.pct}%).
+                {passed
+                  ? " Great work — you're trending above the passing threshold."
+                  : ` Need ${passPct}% to pass. Focus on your weak domains below.`}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.entries(examScore.byDomain)
+                  .sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total))
+                  .map(([dom, d]) => {
+                    const pct = Math.round(100 * d.correct / d.total);
+                    return (
+                      <div key={dom} style={{ display: "grid", gridTemplateColumns: "1fr 70px 40px", gap: 8, alignItems: "center", fontSize: 11.5 }}>
+                        <div style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dom}</div>
+                        <div style={{ height: 5, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: pct >= 70 ? "var(--accent-money)" : pct >= 50 ? "var(--accent-status)" : "var(--state-danger)" }}/>
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", textAlign: "right" }}>{d.correct}/{d.total}</div>
+                      </div>
+                    );
+                  })}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button className="btn btn-primary" onClick={() => startExam(examTotal)}>Retry same length</button>
+                <button className="btn btn-ghost" onClick={() => startExam(Math.min(examTotal + 10, 100))}>Longer exam ({Math.min(examTotal + 10, 100)}q)</button>
+                <button className="btn btn-ghost" onClick={endExam}>Free practice</button>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <ExamProgressCard examIdx={examIdx} examTotal={examTotal} examScore={examScore} />
+            <ContentOutlineCard variety={variety}/>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12, alignItems: "start" }}>
         {/* Question card */}
         <div className="panel">
           <div className="panel-h">
             <h3>{variety.name}</h3>
-            {variety.question_count && <span className="meta">{variety.question_count} q · {variety.time_minutes} min · {variety.passing_score_pct || 70}% pass</span>}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {mode === "exam" && (
+                <span className="chip chip-status">Exam {examIdx + 1}/{examTotal}</span>
+              )}
+              {variety.question_count && <span className="meta">{variety.question_count} q · {variety.time_minutes} min · {variety.passing_score_pct || 70}% pass</span>}
+            </div>
           </div>
           <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12, minHeight: 360 }}>
-            {!q && !busy && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {!q && !busy && mode === "free" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                  Each question is randomly drawn from the official content outline below.
-                  Higher-weight domains show up more often. Per-domain accuracy is tracked
-                  locally so you can drill what's weak before exam day.
+                  Practice one question at a time, or launch a full practice exam. Questions are weighted by
+                  the official content outline — weak domains get extra reps automatically.
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button className="btn btn-primary" onClick={fetchOne}>Start a question</button>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button className="btn btn-primary" onClick={() => fetchOne()}>Start a question</button>
+                  <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", color: "var(--accent-money)" }}
+                    onClick={() => startExam(20)}>
+                    <Icons.Sparkles size={11}/> Create Exam (20q)
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => startExam(50)}>
+                    <Icons.Sparkles size={11}/> Create Exam (50q)
+                  </button>
                   {weakestDomain && (
-                    <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); }} title="Next question will be drawn from your weakest domain">
-                      <Icons.Sparkles size={11}/> Drill weakest: {weakestDomain}
+                    <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); fetchOne(weakestDomain); }} title="Next question will be drawn from your weakest domain">
+                      Drill weakest: {weakestDomain}
                     </button>
                   )}
                 </div>
@@ -375,14 +547,22 @@
                 )}
               </div>
             )}
-            {busy && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Writing a fresh question…</div>}
-            {err && <div style={{ fontSize: 12, color: "var(--state-danger)" }}>{err}</div>}
+            {busy && (
+              <div style={{ fontSize: 12, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid var(--border-subtle)", borderTopColor: "var(--accent-money)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+                {mode === "exam" ? `Generating question ${examIdx + 1} of ${examTotal}…` : "Writing a fresh question…"}
+              </div>
+            )}
+            {err && <div style={{ fontSize: 12, color: "var(--state-danger)" }}>{err}<button className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => fetchOne()}>Retry</button></div>}
             {q && (
               <>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   {q.domain && <span className="chip">{q.domain}</span>}
                   {q.difficulty && <span className="chip chip-status">{q.difficulty}</span>}
                   {q.source === "bank" && <span className="chip chip-money" title="From the pre-generated question bank">bank</span>}
+                  {mode === "exam" && examScore && (
+                    <span className="chip" style={{ marginLeft: "auto" }}>{examScore.correct}/{examResults.length} correct so far</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.55 }}>{q.stem}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -418,12 +598,25 @@
                     {q.explanation && <span style={{ color: "var(--text-secondary)" }}> {q.explanation}</span>}
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button className="btn btn-primary" onClick={fetchOne} disabled={busy}>Next question</button>
-                  {weakestDomain && picked != null && (
-                    <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); }}>
-                      <Icons.Sparkles size={11}/> Drill weakest: {weakestDomain}
-                    </button>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {mode === "exam" ? (
+                    picked != null ? (
+                      <button className="btn btn-primary" onClick={onNextExam} disabled={busy}>
+                        {examIdx + 1 >= examTotal ? "Finish exam" : `Next (${examIdx + 2}/${examTotal})`}
+                      </button>
+                    ) : null
+                  ) : (
+                    <>
+                      <button className="btn btn-primary" onClick={() => fetchOne()} disabled={busy}>Next question</button>
+                      {weakestDomain && picked != null && (
+                        <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); }}>
+                          Drill weakest: {weakestDomain}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {mode === "exam" && (
+                    <button className="btn btn-ghost" onClick={endExam} style={{ marginLeft: "auto" }}>Exit exam</button>
                   )}
                 </div>
               </>
@@ -433,20 +626,54 @@
 
         {/* Stats + content outline sidebar */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="panel">
-            <div className="panel-h">
-              <h3>Your accuracy</h3>
-              {overallPct != null && <span className="chip chip-money">{overallPct}% · {totalAnswered} q</span>}
+          {mode === "exam" && examScore ? (
+            <ExamProgressCard examIdx={examIdx} examTotal={examTotal} examScore={examScore} />
+          ) : (
+            <div className="panel">
+              <div className="panel-h">
+                <h3>Your accuracy</h3>
+                {overallPct != null && <span className="chip chip-money">{overallPct}% · {totalAnswered} q</span>}
+              </div>
+              <div style={{ padding: 12 }}>
+                {totalAnswered === 0 ? (
+                  <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Answer your first question to start tracking accuracy.</div>
+                ) : (
+                  <DomainBars stats={stats} outline={variety.content_outline || []}/>
+                )}
+              </div>
             </div>
-            <div style={{ padding: 12 }}>
-              {totalAnswered === 0 ? (
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Answer your first question to start tracking accuracy.</div>
-              ) : (
-                <DomainBars stats={stats} outline={variety.content_outline || []}/>
-              )}
+          )}
+          <ContentOutlineCard variety={variety}/>
+        </div>
+      </div>
+    );
+  }
+
+  function ExamProgressCard({ examIdx, examTotal, examScore }) {
+    const pct = examScore ? examScore.pct : 0;
+    return (
+      <div className="panel">
+        <div className="panel-h">
+          <h3>Exam progress</h3>
+          <span className="chip">{examIdx}/{examTotal} answered</span>
+        </div>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: pct >= 70 ? "var(--accent-money)" : pct >= 50 ? "var(--accent-status)" : "var(--state-danger)" }}>{pct}%</div>
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>current score</div>
+            </div>
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-secondary)" }}>{examScore?.correct || 0}/{examScore?.total || 0}</div>
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>correct</div>
             </div>
           </div>
-          <ContentOutlineCard variety={variety}/>
+          <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${Math.round(100 * (examIdx) / examTotal)}%`, height: "100%", background: "var(--accent-money)", transition: "width 0.3s" }}/>
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--text-quaternary)", textAlign: "center" }}>
+            Questions adapt toward your weakest domains in real time.
+          </div>
         </div>
       </div>
     );
@@ -513,7 +740,7 @@
     );
   }
 
-  /* ───── Study Guide tab — one section per outline domain, structured blocks ───── */
+  /* ───── Study Guide tab — STATIC hardcoded sections, instant load ───── */
   function StudyGuideTab({ stateCode, lineId, lineLabel, variety }) {
     const outline = Array.isArray(variety.content_outline) ? variety.content_outline : [];
     const sections = [
@@ -526,6 +753,50 @@
       { section_number: "M", domain: "Master Numbers Drill", weight_pct: null, topics: ["Every testable number — time periods, fees, percentages, claims windows"] },
     ];
     const [activeIdx, setActiveIdx] = useState(0);
+
+    const activeSection = sections[activeIdx];
+    const guideDoc = activeSection ? getStaticGuide(lineId, activeSection.domain) : null;
+
+    const handleExport = () => {
+      if (!guideDoc) return;
+      const lines = [];
+      lines.push(`# ${guideDoc.title}`);
+      if (guideDoc.subtitle) lines.push(`*${guideDoc.subtitle}*`);
+      lines.push("");
+      (guideDoc.blocks || []).forEach(b => {
+        if (!b) return;
+        if (b.type === "heading") { lines.push(`## ${b.text}`); lines.push(""); }
+        else if (b.type === "intro") { lines.push(b.text); lines.push(""); }
+        else if (b.type === "table") {
+          lines.push("| Term | Value | Description |");
+          lines.push("|---|---|---|");
+          (b.rows || []).forEach(r => {
+            if (r) lines.push(`| ${r.label || ""} | ${r.value || "—"} | ${r.description || ""} |`);
+          });
+          lines.push("");
+        } else if (b.type === "bullets") {
+          (b.items || []).forEach(it => {
+            if (!it) return;
+            const bold = it.bold ? `**${it.bold}** ` : "";
+            const text = it.text || (typeof it === "string" ? it : "");
+            lines.push(`- ${bold}${text}`);
+          });
+          lines.push("");
+        } else if (b.type === "callout") {
+          lines.push(`> **${b.kind === "test_trick" ? "Test Trick" : b.kind === "warning" ? "Warning" : "Info"}:** ${b.text}`);
+          lines.push("");
+        }
+      });
+      lines.push(`---`);
+      lines.push(`*Source: RepFlow Licensing Study Guide · ${stateCode} · ${lineLabel} · Verify state-specific details against the ${stateCode} DOI before exam day.*`);
+      const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${stateCode}-${lineId}-${(activeSection.domain || "guide").replace(/\s+/g, "-").toLowerCase()}.md`;
+      a.click(); URL.revokeObjectURL(url);
+    };
+
+    const handlePrint = () => { window.print(); };
 
     return (
       <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 12, alignItems: "start" }}>
@@ -552,139 +823,45 @@
           </div>
         </div>
 
-        <StudyGuideSection
-          key={`${stateCode}|${variety.id}|${activeIdx}`}
-          stateCode={stateCode}
-          lineId={lineId}
-          variety={variety}
-          section={sections[activeIdx]}
-        />
+        {/* Section content — static, instant */}
+        <div className="panel">
+          <div className="panel-h">
+            <h3>
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", marginRight: 8 }}>{activeSection?.section_number}</span>
+              {guideDoc?.title || (activeSection?.domain || "").toUpperCase()}
+            </h3>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {activeSection?.weight_pct != null && <span className="chip">{activeSection.weight_pct}% of exam</span>}
+              <span className="chip chip-money">instant</span>
+              <button className="btn btn-ghost" onClick={handleExport} title="Download as Markdown">
+                <Icons.FileText size={11}/> Export
+              </button>
+              <button className="btn btn-ghost" onClick={handlePrint} title="Print this section">
+                Print
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: 16 }}>
+            {guideDoc?.subtitle && (
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontStyle: "italic", marginBottom: 12 }}>{guideDoc.subtitle}</div>
+            )}
+            {guideDoc?.blocks ? (
+              <BlocksRenderer blocks={guideDoc.blocks}/>
+            ) : (
+              <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", padding: "12px 0" }}>
+                No static content available for this domain yet. Use the Tutor tab to ask about it.
+              </div>
+            )}
+            <div style={{ marginTop: 16, fontSize: 10.5, color: "var(--text-quaternary)", borderTop: "1px solid var(--border-subtle)", paddingTop: 12 }}>
+              Curated study guide · {stateCode} {lineLabel} · Verify state-specific numbers (CE hours, DOI fines, suitability training hours) against the {stateCode} DOI or candidate handbook before exam day.
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   function pad2(n) { return n < 10 ? "0" + n : String(n); }
-
-  const SG_CACHE_KEY = (state, varietyId, section_number) => `repflow.licensing.sg.${state}.${varietyId}.${section_number}`;
-
-  function StudyGuideSection({ stateCode, lineId, variety, section }) {
-    const [section_doc, setDoc] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [err, setErr]   = useState(null);
-
-    useEffect(() => {
-      let alive = true;
-      // Cache by (state, variety, section_number) so re-opening doesn't re-cost.
-      try {
-        const raw = sessionStorage.getItem(SG_CACHE_KEY(stateCode, variety.id, section.section_number));
-        if (raw) {
-          const cached = JSON.parse(raw);
-          if (cached && cached.blocks) { setDoc(cached); return; }
-        }
-      } catch {}
-      // Auto-fetch on mount.
-      (async () => {
-        setBusy(true); setErr(null);
-        try {
-          const resp = await fetch("/api/licensing-tutor", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              mode: "study_guide",
-              state: stateCode,
-              line: lineId,
-              variety_id: variety.id,
-              variety_name: variety.name,
-              domain: section.domain,
-              weight_pct: section.weight_pct,
-              topics: section.topics,
-              section_number: section.section_number,
-            })
-          });
-          const j = await resp.json();
-          if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
-          if (!alive) return;
-          setDoc(j);
-          try { sessionStorage.setItem(SG_CACHE_KEY(stateCode, variety.id, section.section_number), JSON.stringify(j)); } catch {}
-        } catch (e) {
-          if (alive) setErr(e.message || String(e));
-        } finally {
-          if (alive) setBusy(false);
-        }
-      })();
-      return () => { alive = false; };
-    }, [stateCode, variety.id, section.section_number]);
-
-    const regenerate = () => {
-      try { sessionStorage.removeItem(SG_CACHE_KEY(stateCode, variety.id, section.section_number)); } catch {}
-      setDoc(null);
-      setBusy(false);
-      // Force re-mount by toggling state — useEffect dep on doc won't fire, so just trigger directly.
-      // Simplest: set busy true and re-call. We mimic the effect body.
-      (async () => {
-        setBusy(true); setErr(null);
-        try {
-          const resp = await fetch("/api/licensing-tutor", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              mode: "study_guide",
-              state: stateCode,
-              line: lineId,
-              variety_id: variety.id,
-              variety_name: variety.name,
-              domain: section.domain,
-              weight_pct: section.weight_pct,
-              topics: section.topics,
-              section_number: section.section_number,
-            })
-          });
-          const j = await resp.json();
-          if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
-          setDoc(j);
-          try { sessionStorage.setItem(SG_CACHE_KEY(stateCode, variety.id, section.section_number), JSON.stringify(j)); } catch {}
-        } catch (e) { setErr(e.message || String(e)); }
-        finally { setBusy(false); }
-      })();
-    };
-
-    const sourceBank = section_doc?.source === "bank";
-    return (
-      <div className="panel">
-        <div className="panel-h">
-          <h3>
-            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", marginRight: 8 }}>{section.section_number}</span>
-            {section_doc?.title || section.domain.toUpperCase()}
-          </h3>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {section.weight_pct != null && <span className="chip">{section.weight_pct}% of exam</span>}
-            {section_doc && (
-              sourceBank
-                ? <span className="chip chip-money" title={section_doc.generated_at ? "Cached " + section_doc.generated_at : "Loaded from pre-generated bank"}>instant</span>
-                : <span className="chip chip-status" title={section_doc.model ? "Freshly generated by " + section_doc.model : "Freshly generated this session"}>live</span>
-            )}
-            <button className="btn btn-ghost" onClick={regenerate} disabled={busy} title="Regenerate this section">
-              <Icons.Sparkles size={11}/> Regen
-            </button>
-          </div>
-        </div>
-        <div style={{ padding: 16 }}>
-          {section_doc?.subtitle && (
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontStyle: "italic", marginBottom: 12 }}>{section_doc.subtitle}</div>
-          )}
-          {busy && !section_doc && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Generating section… this takes ~5-10 seconds.</div>}
-          {err && <div style={{ fontSize: 12, color: "var(--state-danger)" }}>{err}</div>}
-          {section_doc?.blocks && <BlocksRenderer blocks={section_doc.blocks}/>}
-          {section_doc && (
-            <div style={{ marginTop: 16, fontSize: 10.5, color: "var(--text-quaternary)" }}>
-              AI-generated from the {variety.synthesized ? "generic Life outline" : `${variety.exam_vendor || "exam vendor"} candidate handbook`}.
-              Verify state-specific numbers against the {stateCode} DOI before exam day.
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   /* ───── Block renderer — the heart of "looks like the VA guide" ───── */
   function BlocksRenderer({ blocks }) {
@@ -773,22 +950,60 @@
     );
   }
 
-  /* ───── Tutor tab (chat) ───── */
+  /* ───── Tutor tab (chat) — with starter prompts ───── */
+  const TUTOR_STARTERS = {
+    life: [
+      "Explain the difference between whole life and universal life like I'm brand new.",
+      "What's the difference between twisting and churning? Give me an example of each.",
+      "Walk me through the 7-pay test and when a policy becomes a MEC.",
+      "What are the nonforfeiture options and when would a client use each one?",
+      "Explain the difference between a revocable and irrevocable beneficiary designation.",
+      "How does the incontestability clause protect the insured?",
+    ],
+    health: [
+      "What's the difference between an HMO, PPO, and POS plan?",
+      "Explain COBRA — who qualifies and how long can they stay on it?",
+      "Walk me through Medicare Parts A, B, C, and D in simple terms.",
+      "What is a Medigap plan and how does it differ from Medicare Advantage?",
+      "What is HIPAA and why does it matter for health insurance agents?",
+      "Explain the difference between a deductible, copay, and coinsurance.",
+    ],
+    annuity: [
+      "What's the difference between a fixed and indexed annuity?",
+      "Why does an annuity require a securities license if it's variable?",
+      "Walk me through how the 1035 exchange works for annuities.",
+      "What is LIFO taxation and how does it affect annuity withdrawals?",
+      "Explain surrender charges — what are they and why do they exist?",
+      "What does 'best interest' mean under NAIC Model 275?",
+    ],
+    mortgage_protection: [
+      "What license do I need to sell mortgage protection insurance?",
+      "What are the key advertising rules I must follow when sending MP mailers?",
+      "Explain the difference between twisting and replacement in the MP context.",
+      "What is a Notice Regarding Replacement and when do I need to provide one?",
+      "What makes a mortgage protection mailer illegal — give me examples.",
+      "Walk me through decreasing term vs. level term for mortgage protection.",
+    ],
+  };
+
   function TutorTab({ stateCode, lineId, lineLabel, variety }) {
     const [turns, setTurns] = useState([]);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
     const [err, setErr]   = useState(null);
     const bottomRef = useRef(null);
+    const inputRef = useRef(null);
 
-    useEffect(() => { setTurns([]); setErr(null); }, [stateCode, variety.id]);
+    const starters = TUTOR_STARTERS[lineId] || TUTOR_STARTERS.life;
+
+    useEffect(() => { setTurns([]); setErr(null); setDraft(""); }, [stateCode, variety.id]);
     useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [turns]);
 
-    const ask = async () => {
-      const q = draft.trim();
+    const ask = async (questionOverride) => {
+      const q = (questionOverride || draft).trim();
       if (!q || busy) return;
       setDraft(""); setBusy(true); setErr(null);
-      const history = turns.slice(-3).map(t => ({ q: t.q, a: t.a }));
+      const history = turns.slice(-4).map(t => ({ q: t.q, a: t.a }));
       const pendingTurn = { q, a: null };
       setTurns(prev => [...prev, pendingTurn]);
       try {
@@ -803,36 +1018,77 @@
       } catch (e) {
         setErr(e.message || String(e));
         setTurns(prev => prev.slice(0, -1));
-      } finally { setBusy(false); }
+      } finally {
+        setBusy(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
     };
     const onKey = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); } };
 
     return (
-      <div className="panel">
-        <div className="panel-h"><h3>Tutor · {variety.name}</h3><span className="meta">⌘↵ to send</span></div>
-        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 480, minHeight: 240, overflowY: "auto" }}>
-            {turns.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.6, padding: "4px 0" }}>
-                Ask anything about {stateCode} {lineLabel} concepts. Plain-language explanations,
-                term definitions, mechanics with examples. NOT exam-question content (that's the
-                Practice tab — this is concept Q&amp;A only).
-              </div>
-            )}
-            {turns.map((t, i) => (
-              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ alignSelf: "flex-end", maxWidth: "80%", background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", padding: "8px 12px", fontSize: 12.5 }}>{t.q}</div>
-                <div style={{ alignSelf: "flex-start", maxWidth: "92%", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", padding: "10px 14px", fontSize: 12.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                  {t.a == null ? <span style={{ color: "var(--text-quaternary)" }}>thinking…</span> : t.a}
-                </div>
-              </div>
-            ))}
-            <div ref={bottomRef}/>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 12, alignItems: "start" }}>
+        {/* Chat panel */}
+        <div className="panel">
+          <div className="panel-h">
+            <h3>AI Tutor · {stateCode} {lineLabel}</h3>
+            <span className="meta">{variety.name} · ⌘↵ to send</span>
           </div>
-          {err && <div style={{ fontSize: 11, color: "var(--state-danger)" }}>{err}</div>}
-          <div style={{ display: "flex", gap: 6 }}>
-            <input className="text-input" style={{ flex: 1 }} placeholder={`Ask about ${stateCode} ${lineLabel}…`} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKey} disabled={busy}/>
-            <button className="btn btn-primary" onClick={ask} disabled={busy || !draft.trim()}>{busy ? "…" : "Send"}</button>
+          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 520, minHeight: 260, overflowY: "auto" }}>
+              {turns.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.7, padding: "4px 0 8px" }}>
+                  <div style={{ fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Your {stateCode} {lineLabel} tutor is ready.</div>
+                  Ask anything about {lineLabel} concepts — plain-language explanations, term definitions,
+                  mechanics with examples. Or click a starter question →<br/>
+                  <span style={{ fontSize: 11 }}>Concept Q&amp;A only; exam questions live in the Practice tab.</span>
+                </div>
+              )}
+              {turns.map((t, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ alignSelf: "flex-end", maxWidth: "82%", background: "color-mix(in oklch, var(--accent-money) 10%, var(--bg-elevated))", border: "1px solid color-mix(in oklch, var(--accent-money) 25%, transparent)", borderRadius: "var(--radius-sm)", padding: "8px 12px", fontSize: 12.5 }}>{t.q}</div>
+                  <div style={{ alignSelf: "flex-start", maxWidth: "94%", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", padding: "10px 14px", fontSize: 12.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+                    {t.a == null ? (
+                      <span style={{ color: "var(--text-quaternary)", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid var(--border-subtle)", borderTopColor: "var(--accent-money)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+                        thinking…
+                      </span>
+                    ) : t.a}
+                  </div>
+                  {t.ms && <div style={{ fontSize: 10, color: "var(--text-quaternary)", alignSelf: "flex-start", paddingLeft: 4 }}>{t.model} · {t.ms}ms</div>}
+                </div>
+              ))}
+              <div ref={bottomRef}/>
+            </div>
+            {err && <div style={{ fontSize: 11, color: "var(--state-danger)" }}>Error: {err}</div>}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input ref={inputRef} className="text-input" style={{ flex: 1 }}
+                placeholder={`Ask about ${stateCode} ${lineLabel}…`}
+                value={draft} onChange={e => setDraft(e.target.value)}
+                onKeyDown={onKey} disabled={busy}/>
+              <button className="btn btn-primary" onClick={() => ask()} disabled={busy || !draft.trim()}>
+                {busy ? "…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Starter questions */}
+        <div className="panel">
+          <div className="panel-h"><h3>Quick questions</h3></div>
+          <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+            {starters.map((s, i) => (
+              <button key={i} className="btn btn-ghost"
+                style={{ justifyContent: "flex-start", textAlign: "left", fontSize: 11.5, lineHeight: 1.5, padding: "8px 10px", opacity: busy ? 0.5 : 1 }}
+                onClick={() => ask(s)} disabled={busy}>
+                {s}
+              </button>
+            ))}
+            {turns.length > 0 && (
+              <button className="btn btn-ghost" style={{ marginTop: 8, fontSize: 11, color: "var(--text-tertiary)" }}
+                onClick={() => { setTurns([]); setErr(null); }}>
+                Clear conversation
+              </button>
+            )}
           </div>
         </div>
       </div>
