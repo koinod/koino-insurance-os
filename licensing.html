@@ -5,16 +5,25 @@
 <!-- Anti-FOUC: set data-theme before first paint -->
 <script>!function(){try{var t=localStorage.getItem('repflow_theme')||'dark';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}}();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>Licensing — Repflow</title>
-<meta name="description" content="State-by-state roadmap to a producer license — Life, Health, Annuity, Mortgage Protection. NIPR codes, exam vendors, fingerprinting, fees, CE hours."/>
-<meta property="og:title" content="Licensing — Repflow"/>
-<meta property="og:description" content="State-by-state roadmap to a producer license, with Claude-tutored study guide + practice exams."/>
+<title>Insurance Licensing OS — Repflow by Koino Capital</title>
+<meta name="description" content="State-by-state roadmap to a producer license — Life, Health, Annuity, Mortgage Protection. Study guides, adaptive practice exams, and AI tutoring. All 50 states."/>
+<meta property="og:title" content="Insurance Licensing OS — Repflow"/>
+<meta property="og:description" content="Study guides · Practice exams · All 50 states. The fastest way for new insurance agents to pass their state licensing exam."/>
 <meta property="og:url" content="https://repflow.koino.capital/licensing"/>
+<meta property="og:image" content="https://repflow.koino.capital/og-licensing.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:type" content="website"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Insurance Licensing OS — Repflow"/>
+<meta name="twitter:description" content="Study guides · Practice exams · AI tutor · All 50 states."/>
+<meta name="twitter:image" content="https://repflow.koino.capital/og-licensing.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=92"/>
-<link rel="icon" type="image/svg+xml" href="/icon.svg"/>
+<link rel="stylesheet" href="styles.css?v=93"/>
+<link rel="icon" type="image/svg+xml" href="/icon-licensing.svg"/>
+<link rel="alternate icon" href="/icon-licensing.svg"/>
 <style>
   /* Standalone wrapper — no sidebar, no topbar, no auth. */
   body { background: var(--bg-base); margin: 0; }
@@ -32,7 +41,37 @@
   .lic-banner strong { color: var(--accent-money); letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
   .lic-banner a { color: var(--text-primary); text-decoration: underline; opacity: 0.85; }
   .lic-banner a:hover { opacity: 1; }
+  /* Footer */
+  .lic-footer {
+    margin-top: auto;
+    padding: 20px 22px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--text-quaternary);
+  }
+  .lic-footer a { color: var(--accent-money); text-decoration: none; opacity: 0.85; }
+  .lic-footer a:hover { opacity: 1; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── PDF / Print styles ───────────────────────────────────────── */
+  @media print {
+    .lic-banner, .lic-footer, .btn, button, .chip { display: none !important; }
+    .lic-shell { max-width: 100%; margin: 0; }
+    body { background: #fff !important; color: #111 !important; font-size: 11pt; }
+    .panel { border: 1px solid #ccc !important; page-break-inside: avoid; margin-bottom: 16pt; }
+    .panel-h { background: #f5f5f5 !important; color: #111 !important; }
+    .pdf-print-footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 8pt 16pt;
+      border-top: 1pt solid #ccc;
+      display: flex !important;
+      justify-content: space-between;
+      font-size: 8pt; color: #666;
+      background: #fff;
+    }
+  }
+  /* Hidden normally, shown only during print via JS window open */
+  .pdf-print-footer { display: none; }
 </style>
 </head>
 <body>
@@ -97,6 +136,23 @@
     );
   }
 
+  function Footer() {
+    var year = new Date().getFullYear();
+    return React.createElement("div", { className: "lic-footer" },
+      React.createElement("div", null,
+        "© " + year + " ",
+        React.createElement("a", { href: "https://koino.capital", target: "_blank", rel: "noopener noreferrer" }, "Koino Capital"),
+        " · RepFlow Insurance Agency Software"
+      ),
+      React.createElement("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
+        React.createElement("span", null, "Study guides sourced from official state DOI handbooks · Verify all numbers before exam day"),
+        React.createElement("a", { href: "https://koino.capital", target: "_blank", rel: "noopener noreferrer" },
+          "koino.capital"
+        )
+      )
+    );
+  }
+
   function LicensingApp() {
     var Page = window.PageLicensing;
     if (!Page) {
@@ -117,7 +173,8 @@
           )
         )
       ),
-      React.createElement(Page, { role: "manager" })
+      React.createElement(Page, { role: "manager" }),
+      React.createElement(Footer)
     );
   }
   var root = ReactDOM.createRoot(document.getElementById("root"));

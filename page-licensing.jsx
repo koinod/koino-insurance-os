@@ -796,6 +796,118 @@
       a.click(); URL.revokeObjectURL(url);
     };
 
+    const handleDownloadAllPDF = () => {
+      // Collect all sections from static guide
+      const allSections = sections.map((s, idx) => {
+        const doc = getStaticGuide(lineId, s.domain);
+        if (!doc || !doc.blocks) return null;
+        return { section: s, doc };
+      }).filter(Boolean);
+
+      const renderBlocks = (blocks) => {
+        if (!blocks) return "";
+        return blocks.map(b => {
+          if (!b) return "";
+          if (b.type === "heading") {
+            return `<h3 style="color:#00d4aa;font-size:13pt;margin:18pt 0 6pt;border-bottom:1px solid #e5dfd3;padding-bottom:4pt;">${b.text}</h3>`;
+          }
+          if (b.type === "intro") {
+            return `<p style="font-size:10pt;color:#555;line-height:1.65;background:#f0f8f5;padding:8pt 12pt;border-radius:4pt;">${b.text}</p>`;
+          }
+          if (b.type === "table") {
+            const rows = (b.rows || []).filter(Boolean).map(r =>
+              `<tr><td style="padding:5pt 10pt;font-weight:600;background:#f8f8f8;width:160pt;">${r.label||""}</td><td style="padding:5pt 10pt;font-family:monospace;color:#007a66;">${r.value||"\u2014"}</td><td style="padding:5pt 10pt;color:#555;">${r.description||""}</td></tr>`
+            ).join("");
+            return `<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;font-size:9.5pt;margin:8pt 0;">${rows}</table>`;
+          }
+          if (b.type === "bullets") {
+            const items = (b.items || []).filter(Boolean).map(it => {
+              const bold = it.bold ? `<strong>${it.bold}</strong> ` : "";
+              const text = it.text || (typeof it === "string" ? it : "");
+              return `<li style="margin:3pt 0;color:#333;">${bold}${text}</li>`;
+            }).join("");
+            return `<ul style="margin:6pt 0;padding-left:20pt;font-size:10pt;">${items}</ul>`;
+          }
+          if (b.type === "callout") {
+            const colors = {
+              test_trick: { bg: "#e8f7f3", bd: "#00d4aa", label: "✓ Test Trick" },
+              warning:    { bg: "#fef2f2", bd: "#dc2626", label: "⚠ Warning" },
+              info:       { bg: "#eff6ff", bd: "#2563eb", label: "ℹ Info" },
+            }[b.kind] || { bg: "#f8f8f8", bd: "#ccc", label: "Note" };
+            return `<div style="background:${colors.bg};border-left:3pt solid ${colors.bd};padding:8pt 12pt;margin:8pt 0;font-size:9.5pt;border-radius:3pt;"><strong style="color:${colors.bd};">${colors.label}:</strong> ${b.text}</div>`;
+          }
+          return "";
+        }).join("\n");
+      };
+
+      const sectionHTML = allSections.map(({ section, doc }, i) => {
+        const pct = section.weight_pct != null ? ` <span style="font-size:9pt;color:#888;">(${section.weight_pct}% of exam)</span>` : "";
+        return `
+          <div style="page-break-before:${i > 0 ? "always" : "auto"};padding:0;">
+            <div style="display:flex;align-items:baseline;gap:10pt;margin-bottom:10pt;">
+              <span style="font-family:monospace;font-size:10pt;color:#888;">${section.section_number}</span>
+              <h2 style="font-size:15pt;margin:0;color:#111;">${doc.title}</h2>${pct}
+            </div>
+            ${doc.subtitle ? `<p style="font-size:9.5pt;color:#888;font-style:italic;margin:0 0 12pt;">${doc.subtitle}</p>` : ""}
+            ${renderBlocks(doc.blocks)}
+          </div>`;
+      }).join("\n");
+
+      const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>${stateCode} ${lineLabel} — Complete Study Guide — RepFlow</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: Inter, system-ui, sans-serif; background: #fff; color: #111; }
+    body { padding: 36pt 48pt 72pt; }
+    h1 { font-size: 22pt; margin: 0 0 4pt; color: #111; }
+    .cover-meta { font-size: 10pt; color: #666; margin-bottom: 24pt; }
+    .cover-meta span { color: #00a88a; font-weight: 600; }
+    .divider { border: none; border-top: 2px solid #00d4aa; margin: 18pt 0; }
+    .footer-bar { position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 6pt 24pt; border-top: 1pt solid #ddd;
+      display: flex; justify-content: space-between;
+      font-size: 7.5pt; color: #999; background: #fff; }
+    @media print {
+      body { padding: 0.5in 0.65in 1.1in; }
+      .footer-bar { display: flex !important; }
+    }
+    table tr:nth-child(even) td { background: #f9f9f9; }
+  </style>
+</head>
+<body>
+  <div class="footer-bar">
+    <span>${stateCode} ${lineLabel} Complete Study Guide &mdash; RepFlow by Koino Capital</span>
+    <span>repflow.koino.capital/licensing &bull; &copy; ${new Date().getFullYear()} koino.capital &bull; ${today}</span>
+  </div>
+  <h1>${stateCode} ${lineLabel}</h1>
+  <p style="font-size:18pt;font-weight:600;color:#00a88a;margin:0 0 8pt;">Complete Study Guide</p>
+  <div class="cover-meta">
+    <span>${allSections.length} sections</span> &nbsp;&middot;&nbsp;
+    Generated by <strong>RepFlow</strong> by Koino Capital &nbsp;&middot;&nbsp; ${today}<br/>
+    <em>Verify all state-specific figures (fees, CE hours, time limits) against the ${stateCode} DOI or official candidate handbook before exam day.</em>
+  </div>
+  <hr class="divider"/>
+  ${sectionHTML}
+  <div style="margin-top:40pt;padding-top:16pt;border-top:1pt solid #e0e0e0;font-size:8.5pt;color:#888;">
+    <strong>Disclaimer:</strong> This study guide is compiled from publicly available state DOI handbooks and NIPR records for educational purposes.
+    Always verify state-specific requirements at your state Department of Insurance before relying on exam day.
+    RepFlow is a product of Koino Capital &mdash; <a href="https://koino.capital" style="color:#00a88a;">koino.capital</a>
+  </div>
+</body>
+</html>`;
+
+      const win = window.open("", "_blank", "width=900,height=700");
+      if (!win) { alert("Pop-up blocked. Please allow pop-ups to download the PDF."); return; }
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => { win.focus(); win.print(); }, 600);
+    };
+
     const handlePrint = () => { window.print(); };
 
     return (
@@ -833,11 +945,13 @@
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               {activeSection?.weight_pct != null && <span className="chip">{activeSection.weight_pct}% of exam</span>}
               <span className="chip chip-money">instant</span>
-              <button className="btn btn-ghost" onClick={handleExport} title="Download as Markdown">
-                <Icons.FileText size={11}/> Export
+              <button className="btn btn-ghost" onClick={handleExport} title="Download this section as Markdown">
+                <Icons.FileText size={11}/> Export .md
               </button>
-              <button className="btn btn-ghost" onClick={handlePrint} title="Print this section">
-                Print
+              <button className="btn btn-primary" onClick={handleDownloadAllPDF}
+                title="Download the full study guide for all sections as a PDF"
+                style={{ background: "color-mix(in oklch, var(--accent-money) 15%, var(--bg-elevated))", color: "var(--accent-money)", border: "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)" }}>
+                <Icons.FileText size={11}/> Download Full PDF
               </button>
             </div>
           </div>
