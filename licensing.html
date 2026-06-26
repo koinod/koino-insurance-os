@@ -53,9 +53,50 @@
 <script>
 /* Standalone licensing shell.
    Mounts window.PageLicensing directly. No sidebar, no auth, no role
-   switcher. Defaults to manager role since the page's UI is identical
-   across roles. */
+   switcher. Includes light/dark theme toggle using the same
+   localStorage key as the main Repflow app. */
 (function () {
+  var THEME_KEY = "repflow_theme";
+
+  function getTheme() {
+    try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; }
+  }
+  function setTheme(t) {
+    try { localStorage.setItem(THEME_KEY, t); } catch {}
+    document.documentElement.dataset.theme = t;
+  }
+
+  function ThemeToggle() {
+    var [theme, setT] = React.useState(getTheme);
+    var toggle = function () {
+      var next = theme === "dark" ? "light" : "dark";
+      setTheme(next);
+      setT(next);
+    };
+    var isDark = theme === "dark";
+    return React.createElement("button", {
+      onClick: toggle,
+      title: isDark ? "Switch to light mode" : "Switch to dark mode",
+      style: {
+        background: "transparent",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        padding: "4px 10px",
+        fontSize: 11,
+        color: "var(--text-secondary)",
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        transition: "background 0.15s",
+        lineHeight: 1,
+      }
+    },
+      React.createElement("span", { style: { fontSize: 13 } }, isDark ? "☀️" : "🌙"),
+      isDark ? "Light" : "Dark"
+    );
+  }
+
   function LicensingApp() {
     var Page = window.PageLicensing;
     if (!Page) {
@@ -67,10 +108,13 @@
       React.createElement("div", { className: "lic-banner" },
         React.createElement("strong", null, "Repflow Licensing"),
         React.createElement("span", { style: { color: "var(--text-secondary)" } },
-          "Public roadmap · no sign-in required · powered by Repflow"
+          "Public · no sign-in required · powered by Repflow"
         ),
-        React.createElement("a", { href: "/", style: { marginLeft: "auto" } },
-          "Open the full Repflow app →"
+        React.createElement("div", { style: { marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" } },
+          React.createElement(ThemeToggle),
+          React.createElement("a", { href: "/" },
+            "Open full app →"
+          )
         )
       ),
       React.createElement(Page, { role: "manager" })
