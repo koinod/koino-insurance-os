@@ -418,12 +418,12 @@ function TodayRep() {
 
   const [showCustomize, setShowCustomize] = React.useState(false);
   const [widgets, setWidgets] = React.useState(() => {
-    if (typeof window === "undefined" || !myRow?.id) return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+    if (typeof window === "undefined" || !myRow?.id) return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     try {
       const raw = localStorage.getItem(`today_widgets:${myRow.id}`);
-      return raw ? JSON.parse(raw) : { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+      return raw ? JSON.parse(raw) : { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     } catch {
-      return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+      return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     }
   });
 
@@ -444,6 +444,258 @@ function TodayRep() {
   const [bankName, setBankName] = React.useState("");
   const [kitAddress, setKitAddress] = React.useState("");
   const [onboardingSubmitting, setOnboardingSubmitting] = React.useState(false);
+
+  // --- Screenshare and Recording States & Logic ---
+  const [sharing, setSharing] = React.useState(false);
+  const [shareRoom, setShareRoom] = React.useState(null);
+  const [shareSessionId, setShareSessionId] = React.useState("");
+  const [viewerCount, setViewerCount] = React.useState(0);
+  const [recordEnabled, setRecordEnabled] = React.useState(true);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordings, setRecordings] = React.useState([]);
+  const [playingRecording, setPlayingRecording] = React.useState(null);
+  const [smsPhone, setSmsPhone] = React.useState("");
+  const [smsSending, setSmsSending] = React.useState(false);
+
+  const mediaRecorderRef = React.useRef(null);
+  const recordedChunksRef = React.useRef([]);
+  const recordingStartTimeRef = React.useRef(0);
+
+  // IndexedDB Helpers
+  const dbName = "repflow_screenshares";
+  const storeName = "recordings";
+
+  const getDB = React.useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(dbName, 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(storeName)) {
+          db.createObjectStore(storeName, { keyPath: "id" });
+        }
+      };
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }, []);
+
+  const loadRecordings = React.useCallback(async () => {
+    try {
+      const db = await getDB();
+      const tx = db.transaction(storeName, "readonly");
+      const req = tx.objectStore(storeName).getAll();
+      req.onsuccess = () => {
+        setRecordings((req.result || []).sort((a, b) => b.timestamp - a.timestamp));
+      };
+    } catch (e) {
+      console.warn("[screenshare.loadRecordings]", e);
+    }
+  }, [getDB]);
+
+  React.useEffect(() => {
+    loadRecordings();
+  }, [loadRecordings]);
+
+  const saveLocalRecording = async (id, blob, title, durationSec) => {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).put({
+        id,
+        blob,
+        title,
+        durationSec,
+        date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: Date.now()
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+
+  const deleteLocalRecording = async (id) => {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+
+  const startRecording = (mediaStreamTrack) => {
+    try {
+      recordedChunksRef.current = [];
+      const stream = new MediaStream([mediaStreamTrack]);
+      
+      const options = { mimeType: "video/webm; codecs=vp9" };
+      let mediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, options);
+      } catch (_) {
+        mediaRecorder = new MediaRecorder(stream);
+      }
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const durationSec = Math.round((Date.now() - recordingStartTimeRef.current) / 1000);
+        const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+        if (blob.size > 1000) {
+          const recId = `rec-${Date.now()}`;
+          const title = `Screen Share Session ${shareSessionId || ""}`;
+          try {
+            await saveLocalRecording(recId, blob, title, durationSec);
+            window.toast && window.toast("Recording saved locally!", "success");
+            loadRecordings();
+          } catch (e) {
+            console.error("[saveRecording]", e);
+          }
+        }
+        setIsRecording(false);
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      recordingStartTimeRef.current = Date.now();
+      mediaRecorder.start(1000);
+      setIsRecording(true);
+      
+      mediaStreamTrack.onended = () => {
+        stopRecording();
+      };
+    } catch (e) {
+      console.error("[startRecording]", e);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const startShare = async () => {
+    if (!myRow?.id) return;
+    const sessionId = `sc-${myRow.id}-${Math.floor(1000 + Math.random() * 9000)}`;
+    setShareSessionId(sessionId);
+    
+    try {
+      const res = await fetch(`/api/screenshare-token?session=${sessionId}&role=presenter`);
+      if (!res.ok) throw new Error("Could not mint screenshare token.");
+      const { token, url } = await res.json();
+
+      const room = new window.LiveKit.Room();
+      
+      room.on(window.LiveKit.RoomEvent.ParticipantConnected, () => {
+        setViewerCount(room.numParticipants);
+      });
+      room.on(window.LiveKit.RoomEvent.ParticipantDisconnected, () => {
+        setViewerCount(room.numParticipants);
+      });
+
+      room.on(window.LiveKit.RoomEvent.LocalTrackPublished, (pub) => {
+        if (pub.source === window.LiveKit.Track.Source.ScreenShare && recordEnabled) {
+          startRecording(pub.track.mediaStreamTrack);
+        }
+      });
+
+      await room.connect(url, token);
+      await room.localParticipant.setScreenShareEnabled(true);
+      
+      setShareRoom(room);
+      setSharing(true);
+      setViewerCount(room.numParticipants);
+      window.toast && window.toast("Screenshare session initialized!", "success");
+    } catch (err) {
+      console.error(err);
+      window.toast && window.toast(err.message || "Failed to start presentation", "error");
+    }
+  };
+
+  const stopShare = async () => {
+    if (shareRoom) {
+      try { await shareRoom.localParticipant.setScreenShareEnabled(false); } catch (_) {}
+      try { await shareRoom.disconnect(); } catch (_) {}
+    }
+    stopRecording();
+    setShareRoom(null);
+    setSharing(false);
+    setViewerCount(0);
+    setShareSessionId("");
+  };
+
+  const sendSmsInvite = async () => {
+    if (!smsPhone) {
+      window.toast && window.toast("Please enter a phone number", "error");
+      return;
+    }
+    setSmsSending(true);
+    const link = `${window.location.origin}/view.html?s=${shareSessionId}`;
+    const text = `Join my live presentation here: ${link}`;
+    try {
+      const res = await fetch("/api/twilio-sms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          to: smsPhone,
+          body: text,
+          agency_id: myRow?.agency_id || myRow?.agencyId,
+          rep_id: myRow?.id,
+          source: "screenshare"
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        window.toast && window.toast("Invitation sent!", "success");
+      } else {
+        throw new Error(data.error || "SMS send failed.");
+      }
+    } catch (e) {
+      console.error("[sendSmsInvite]", e);
+      window.toast && window.toast(e.message || "Failed to send SMS", "error");
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
+  const playRecording = (rec) => {
+    const url = URL.createObjectURL(rec.blob);
+    setPlayingRecording(url);
+  };
+
+  const closePlayer = () => {
+    if (playingRecording) {
+      URL.revokeObjectURL(playingRecording);
+      setPlayingRecording(null);
+    }
+  };
+
+  const downloadRecording = (rec) => {
+    const url = URL.createObjectURL(rec.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${rec.title.replace(/\s+/g, "_")}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const deleteRecording = async (id) => {
+    if (confirm("Are you sure you want to delete this recording?")) {
+      try {
+        await deleteLocalRecording(id);
+        loadRecordings();
+        window.toast && window.toast("Recording deleted", "success");
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
 
   const completeOnboardingStep = async (stepKey) => {
     if (!myRow?.id) return;
@@ -683,7 +935,8 @@ function TodayRep() {
                   { k: "onboarding",  l: "Onboarding Checklist" },
                   { k: "journal",     l: "Focus & Reflection" },
                   { k: "leaderboard", l: "Mini Leaderboard" },
-                  { k: "calls",       l: "Recent Scored Calls" }
+                  { k: "calls",       l: "Recent Scored Calls" },
+                  { k: "screenshare", l: "Live Screen Share" }
                 ].map(w => (
                   <label key={w.k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer", userSelect: "none", margin: 0 }}>
                     <input
@@ -872,11 +1125,223 @@ function TodayRep() {
         )}
       </div>
 
+      {widgets.screenshare !== false && (
+        /* Live Screenshare & Tab Recording Panel */
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <style>{`
+            @keyframes pulse {
+              0% { transform: scale(0.95); opacity: 0.5; }
+              50% { transform: scale(1.05); opacity: 1; }
+              100% { transform: scale(0.95); opacity: 0.5; }
+            }
+          `}</style>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <Icons.Video size={14} style={{ color: "var(--accent-money)" }}/>
+            <strong style={{ fontSize: 14 }}>Live Screen Share & Recording</strong>
+            {sharing ? (
+              <span className="chip chip-money" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600 }}>
+                <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "currentColor", animation: "pulse 1.5s infinite" }}></span>
+                Live Session: {shareSessionId}
+              </span>
+            ) : (
+              <span className="chip" style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)" }}>Offline</span>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: (sharing && recordings.length > 0) ? "1.2fr 1fr" : "1fr", gap: 16 }}>
+            {/* Presenter Controls */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {!sharing ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 16, background: "var(--bg-raised)", padding: 14, borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>Instantly Share Your Application Tab</div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>Create a visual bridge with your client. They open a clean browser link—no app installs required.</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", userSelect: "none" }}>
+                      <input
+                        type="checkbox"
+                        checked={recordEnabled}
+                        onChange={(e) => setRecordEnabled(e.target.checked)}
+                        style={{ accentColor: "var(--accent-money)", cursor: "pointer" }}
+                      />
+                      Record session locally
+                    </label>
+                    <button className="btn btn-primary" onClick={startShare}>Start Share</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: "var(--bg-raised)", padding: 14, borderRadius: 6, border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>Active Viewers: {viewerCount}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{viewerCount > 0 ? "Client connected and viewing live." : "Awaiting client to join..."}</div>
+                    </div>
+                    {isRecording && (
+                      <span className="chip chip-danger" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: "var(--accent-danger)", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                        <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "currentColor", animation: "pulse 1.5s infinite" }}></span>
+                        Recording
+                      </span>
+                    )}
+                    <button className="btn btn-danger" onClick={stopShare} style={{ padding: "5px 12px", fontSize: 12 }}>Stop Presenting</button>
+                  </div>
+
+                  {/* Share Link Actions */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>Share presentation link:</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${window.location.origin}/view.html?s=${shareSessionId}`}
+                        style={{
+                          flex: 1,
+                          padding: "6px 10px",
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: "var(--text-secondary)",
+                          outline: "none"
+                        }}
+                      />
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/view.html?s=${shareSessionId}`);
+                          window.toast && window.toast("Link copied to clipboard!", "success");
+                        }}
+                        style={{ padding: "6px 10px" }}
+                      >
+                        <Icons.Copy size={13}/>
+                      </button>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 }}>
+                      {/* Invite SMS form */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            type="text"
+                            placeholder="Client Phone (Twilio)"
+                            value={smsPhone}
+                            onChange={(e) => setSmsPhone(e.target.value)}
+                            style={{
+                              flex: 1,
+                              padding: "6px 10px",
+                              background: "var(--bg-card)",
+                              border: "1px solid var(--border-subtle)",
+                              borderRadius: 6,
+                              fontSize: 12,
+                              color: "var(--text-primary)",
+                              outline: "none"
+                            }}
+                          />
+                          <button
+                            className="btn btn-primary"
+                            disabled={smsSending}
+                            onClick={sendSmsInvite}
+                            style={{ padding: "6px 12px", fontSize: 11.5 }}
+                          >
+                            {smsSending ? "Sending…" : "Send"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Native SMS trigger (direct message from phone) */}
+                      <a
+                        className="btn btn-ghost"
+                        href={`sms:${smsPhone || ""}?body=${encodeURIComponent("Join my live presentation here: " + window.location.origin + "/view.html?s=" + shareSessionId)}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          height: "100%",
+                          fontSize: 12,
+                          textAlign: "center",
+                          textDecoration: "none",
+                          color: "var(--accent-money)",
+                          border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)"
+                        }}
+                      >
+                        <Icons.MessageSquare size={13}/>
+                        Text link from phone
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Local Recording Player & History List */}
+            {sharing && recordings.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border-subtle)", paddingLeft: 16 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>Session Recording History</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto", paddingRight: 4 }}>
+                  {recordings.map(rec => (
+                    <div key={rec.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg-card)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 500 }} className="cell-truncate">{rec.title}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{rec.date} · {Math.floor(rec.durationSec/60)}m {rec.durationSec%60}s</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn btn-ghost" style={{ padding: "4px 8px" }} onClick={() => playRecording(rec)} title="Play video">
+                          <Icons.Play size={11}/>
+                        </button>
+                        <button className="btn btn-ghost" style={{ padding: "4px 8px" }} onClick={() => downloadRecording(rec)} title="Download file">
+                          {/* Lucide Download Icon equivalent path */}
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                          </svg>
+                        </button>
+                        <button className="btn btn-ghost" style={{ padding: "4px 8px", color: "var(--accent-danger)" }} onClick={() => deleteRecording(rec.id)} title="Delete recording">
+                          <Icons.X size={11}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Local Video Player Modal Overlay */}
+      {playingRecording && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          background: "rgba(10, 11, 13, 0.9)",
+          zIndex: 9999,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24
+        }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", width: "100%", maxWidth: 800, marginBottom: 8 }}>
+            <button className="btn btn-danger" onClick={closePlayer} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Icons.X size={13}/> Close Player
+            </button>
+          </div>
+          <div style={{ background: "#000", borderRadius: 8, border: "1px solid var(--border-subtle)", overflow: "hidden", width: "100%", maxWidth: 800, aspectRatio: "16/9" }}>
+            <video src={playingRecording} controls autoPlay style={{ width: "100%", height: "100%" }} />
+          </div>
+        </div>
+      )}
+
       {widgets.journal !== false && (
         /* Focus & Journaling Workspace */
         <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <Icons.BookOpen size={14} style={{ color: "var(--accent-money)" }}/>
+            <Icons.Book size={14} style={{ color: "var(--accent-money)" }}/>
             <strong style={{ fontSize: 14 }}>Daily Focus & Reflection</strong>
             <button
               className="btn btn-primary"

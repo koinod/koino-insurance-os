@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live View · RepFlow Presentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #0a0b0d;
+      --bg-card: #111216;
+      --border-subtle: #1f2228;
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-tertiary: #6b7280;
+      --accent-money: #10b981;
+      --accent-danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'Outfit', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background-color: var(--bg-card);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      z-index: 10;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--accent-money);
+      box-shadow: 0 0 10px var(--accent-money);
+    }
+
+    .logo-text {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 4px 10px;
+      border-radius: 20px;
+      color: var(--accent-money);
+    }
+
+    .status-badge.live::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--accent-money);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-badge.ended {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: var(--accent-danger);
+    }
+
+    .status-badge.ended::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--accent-danger);
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      position: relative;
+      background-color: #000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #video-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #video-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: rgba(10, 11, 13, 0.85);
+      z-index: 5;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border-subtle);
+      border-top-color: var(--accent-money);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    .overlay-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+
+    .overlay-sub {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      max-width: 320px;
+      line-height: 1.5;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <div class="logo-dot"></div>
+      <div class="logo-text">RepFlow Presentation</div>
+    </div>
+    <div id="status-badge" class="status-badge">Connecting</div>
+  </header>
+
+  <main>
+    <div id="video-container"></div>
+
+    <div id="overlay" class="overlay">
+      <div class="spinner" id="spinner"></div>
+      <div class="overlay-title" id="overlay-title">Connecting to Presentation</div>
+      <div class="overlay-sub" id="overlay-sub">Setting up a secure live visual bridge with your agent...</div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.7.2/dist/livekit-client.umd.min.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const session = urlParams.get('s') || urlParams.get('session');
+    
+    const overlay = document.getElementById('overlay');
+    const spinner = document.getElementById('spinner');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlaySub = document.getElementById('overlay-sub');
+    const statusBadge = document.getElementById('status-badge');
+    const videoContainer = document.getElementById('video-container');
+
+    if (!session) {
+      spinner.style.display = 'none';
+      overlayTitle.innerText = "Invalid Presentation Link";
+      overlaySub.innerText = "Please contact your representative to get a valid live sharing link.";
+      statusBadge.innerText = "Error";
+      statusBadge.className = "status-badge ended";
+    } else {
+      init();
+    }
+
+    async function init() {
+      try {
+        // 1. Get subscriber token from Edge function
+        const tokenRes = await fetch(`/api/screenshare-token?session=${session}&role=viewer`);
+        if (!tokenRes.ok) throw new Error("Failed to get presentation access credentials.");
+        
+        const { token, url } = await tokenRes.json();
+
+        // 2. Connect to the LiveKit Room
+        const room = new LiveKit.Room();
+        
+        statusBadge.innerText = "Waiting for Host";
+        overlayTitle.innerText = "Awaiting Screen Stream";
+        overlaySub.innerText = "The visual bridge is connected. Waiting for your agent to select a tab or screen to present...";
+
+        room.on(LiveKit.RoomEvent.TrackSubscribed, (track, publication) => {
+          if (track.kind === 'video' && track.source === 'screen_share') {
+            overlay.style.display = 'none';
+            statusBadge.innerText = "LIVE";
+            statusBadge.className = "status-badge live";
+            
+            // Clean previous tracks
+            videoContainer.innerHTML = '';
+            
+            const mediaEl = track.attach();
+            videoContainer.appendChild(mediaEl);
+          }
+        });
+
+        room.on(LiveKit.RoomEvent.TrackUnsubscribed, (track, publication) => {
+          if (track.kind === 'video' && track.source === 'screen_share') {
+            videoContainer.innerHTML = '';
+            overlay.style.display = 'flex';
+            spinner.style.display = 'none';
+            overlayTitle.innerText = "Presentation Paused";
+            overlaySub.innerText = "Your agent has stopped sharing their screen. Keep this tab open to resume when they start again.";
+            statusBadge.innerText = "Paused";
+            statusBadge.className = "status-badge ended";
+          }
+        });
+
+        room.on(LiveKit.RoomEvent.Disconnected, () => {
+          videoContainer.innerHTML = '';
+          overlay.style.display = 'flex';
+          spinner.style.display = 'none';
+          overlayTitle.innerText = "Presentation Ended";
+          overlaySub.innerText = "This screen sharing session has closed. You can safely close this browser window.";
+          statusBadge.innerText = "Ended";
+          statusBadge.className = "status-badge ended";
+        });
+
+        await room.connect(url, token);
+        
+      } catch (err) {
+        console.error(err);
+        spinner.style.display = 'none';
+        overlayTitle.innerText = "Connection Failed";
+        overlaySub.innerText = err.message || "Could not connect to the visual share stream. Please try refreshing.";
+        statusBadge.innerText = "Offline";
+        statusBadge.className = "status-badge ended";
+      }
+    }
+  </script>
+</body>
+</html>
