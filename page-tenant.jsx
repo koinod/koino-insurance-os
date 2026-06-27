@@ -525,7 +525,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
   const [loginSaving, setLoginSaving]   = React.useState(false);
   const [loginVault, setLoginVault]     = React.useState({});   // { [slug]: { username, _has_password, _saved_at } }
   const loginCarrier = React.useMemo(() => (carriers || []).find(c => c.id === loginEditing) || null, [carriers, loginEditing]);
-  const loginSlug    = loginCarrier ? (loginCarrier.carrier_id || carrierSlugForName(loginCarrier.name)) : null;
+  const loginSlug    = loginCarrier ? (loginCarrier.id || loginCarrier.carrier_id || carrierSlugForName(loginCarrier.name)) : null;
 
   // Rehydrate per-user vault state for the carriers shown. Same shape as
   // the auto-quoter Credentials tab. Passwords never round-trip.
@@ -556,7 +556,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
   React.useEffect(() => { reloadVault(); }, [reloadVault]);
 
   const openLoginEditor = (c) => {
-    const slug = c.carrier_id || carrierSlugForName(c.name);
+    const slug = c.id || c.carrier_id || carrierSlugForName(c.name);
     const existing = loginVault[slug] || {};
     setLoginForm({ username: existing.username || "", password: "" });
     setLoginEditing(c.id);

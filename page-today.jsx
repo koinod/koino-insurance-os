@@ -343,6 +343,166 @@ function TodayRep() {
     return () => window.removeEventListener("me:loaded", onMe);
   }, []);
 
+  const dateKey = todayDateStr();
+  const [taps, setTaps] = React.useState({ dial: 0, contact: 0, set: 0, sale: 0 });
+  const [journal, setJournal] = React.useState({ focus: "", reflection: "" });
+  const [journalSaving, setJournalSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!myRow?.id) return;
+    try {
+      const raw = localStorage.getItem(`taps:${dateKey}:${myRow.id}`);
+      if (raw) setTaps(JSON.parse(raw));
+    } catch {}
+  }, [myRow?.id, dateKey]);
+
+  const incrementTap = (key) => {
+    if (!myRow?.id) return;
+    const next = { ...taps, [key]: (Number(taps[key]) || 0) + 1 };
+    setTaps(next);
+    try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(next)); } catch {}
+    window.dispatchEvent(new CustomEvent("data:mutated"));
+  };
+
+  const decrementTap = (key) => {
+    if (!myRow?.id) return;
+    const cur = Number(taps[key]) || 0;
+    if (cur <= 0) return;
+    const next = { ...taps, [key]: cur - 1 };
+    setTaps(next);
+    try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(next)); } catch {}
+    window.dispatchEvent(new CustomEvent("data:mutated"));
+  };
+
+  React.useEffect(() => {
+    if (!myRow?.id) return;
+    const loadJournal = async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      try {
+        const { data, error } = await sb.from("user_prefs")
+          .select("value")
+          .eq("rep_id", myRow.id)
+          .eq("key", `journal_${dateKey}`)
+          .single();
+        if (data && data.value) {
+          setJournal(data.value);
+        }
+      } catch (e) {
+        console.warn("[journal.load]", e);
+      }
+    };
+    loadJournal();
+  }, [myRow?.id, dateKey]);
+
+  const saveJournal = async () => {
+    if (!myRow?.id) return;
+    setJournalSaving(true);
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb) return;
+    try {
+      const { error } = await sb.from("user_prefs").upsert({
+        rep_id: myRow.id,
+        key: `journal_${dateKey}`,
+        value: journal,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "rep_id,key" });
+      if (error) throw error;
+      window.toast && window.toast("Journal saved successfully", "success");
+    } catch (e) {
+      window.toast && window.toast(`Save failed: ${e.message || e}`, "error");
+    } finally {
+      setJournalSaving(false);
+    }
+  };
+
+  const [showCustomize, setShowCustomize] = React.useState(false);
+  const [widgets, setWidgets] = React.useState(() => {
+    if (typeof window === "undefined" || !myRow?.id) return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+    try {
+      const raw = localStorage.getItem(`today_widgets:${myRow.id}`);
+      return raw ? JSON.parse(raw) : { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+    } catch {
+      return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true };
+    }
+  });
+
+  const toggleWidget = (key) => {
+    const next = { ...widgets, [key]: !widgets[key] };
+    setWidgets(next);
+    if (myRow?.id) {
+      try { localStorage.setItem(`today_widgets:${myRow.id}`, JSON.stringify(next)); } catch {}
+    }
+  };
+
+  const [onboardingModal, setOnboardingModal] = React.useState(null);
+  const [signingName, setSigningName] = React.useState("");
+  const [npnNumber, setNpnNumber] = React.useState("");
+  const [licenseState, setLicenseState] = React.useState("TX");
+  const [bankRouting, setBankRouting] = React.useState("");
+  const [bankAccount, setBankAccount] = React.useState("");
+  const [bankName, setBankName] = React.useState("");
+  const [kitAddress, setKitAddress] = React.useState("");
+  const [onboardingSubmitting, setOnboardingSubmitting] = React.useState(false);
+
+  const completeOnboardingStep = async (stepKey) => {
+    if (!myRow?.id) return;
+    setOnboardingSubmitting(true);
+    try {
+      if (window.AppData?.mutate?.onboardingStepSet) {
+        await window.AppData.mutate.onboardingStepSet(myRow.id, stepKey, true);
+        window.toast && window.toast("Step marked complete!", "success");
+      }
+    } catch (e) {
+      window.toast && window.toast(`Failed: ${e.message || e}`, "error");
+    } finally {
+      setOnboardingSubmitting(false);
+      setOnboardingModal(null);
+    }
+  };
+
+  const topReps = React.useMemo(() => {
+    return [...(REPS || [])]
+      .filter(r => r.active !== false && r.role === "rep")
+      .sort((a, b) => (b.mtd || 0) - (a.mtd || 0))
+      .slice(0, 3);
+  }, [REPS]);
+
+  const yesterdayKey = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const [yesterdayJournal, setYesterdayJournal] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!myRow?.id) return;
+    const loadYesterday = async () => {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+      try {
+        const { data } = await sb.from("user_prefs")
+          .select("value")
+          .eq("rep_id", myRow.id)
+          .eq("key", `journal_${yesterdayKey}`)
+          .single();
+        if (data && data.value) {
+          setYesterdayJournal(data.value);
+        }
+      } catch (e) {
+        console.warn("[journal.yesterday]", e);
+      }
+    };
+    loadYesterday();
+  }, [myRow?.id, yesterdayKey]);
+
+  const latestCall = React.useMemo(() => {
+    const list = [...(RECORDINGS || [])].filter(r => (r.repId || r.rep_id) === myRow?.id);
+    if (list.length === 0) return null;
+    return list.sort((a, b) => new Date(b.recordedAt || b.recorded_at || b.date) - new Date(a.recordedAt || a.recorded_at || a.date))[0];
+  }, [RECORDINGS, myRow?.id]);
+
   const today = todayDateStr();
   const monthPrefix = today.slice(0, 7);
 
@@ -468,28 +628,76 @@ function TodayRep() {
     try {
       await window.AppData.mutate.threadEnsure({ memberHandles: [myRow.handle, myManagerRow.handle], kind: "dm" });
     } catch (e) { console.warn("[today.dmManager.threadEnsure]", e); }
-    goMessages();
+    window.gotoPage && window.gotoPage("messages");
   };
 
-  // Log-activity quick action. Opens the existing CRM Add-lead flow
-  // pre-scoped to the rep so anything they touch outside the dialer (a
-  // referral, a walk-in, an event lead) gets captured before it falls out.
   const openLogActivity = () => {
     window.gotoPage && window.gotoPage("crm");
     setTimeout(() => window.dispatchEvent(new CustomEvent("crm:addLead")), 100);
   };
 
+  const displayDials = Math.max(taps.dial || 0, dialsToday);
+  const displayContacts = taps.contact || 0;
+  const displaySets = Math.max(taps.set || 0, appsToday);
+  const displayAP = Math.max(taps.sale || 0, todayCommission);
+
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">
+          <div className="page-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             Today <AnnouncementChip/>
-            {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, marginLeft: 8, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
+            {meIdent && meIdent.full_name && <span style={{ color: "var(--text-tertiary)", fontWeight: 400, fontSize: 13 }}>· {meIdent.full_name.split(" ")[0]}</span>}
           </div>
-          <div className="page-sub">{subline}</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowCustomize(!showCustomize)}
+              title="Customize dashboard widgets"
+              style={{ padding: 6, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <Icons.Settings size={14}/>
+            </button>
+            {showCustomize && (
+              <div style={{
+                position: "absolute",
+                top: 32,
+                right: 0,
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 8,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                zIndex: 100,
+                width: 200,
+                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8
+              }}>
+                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>Customize widgets</div>
+                {[
+                  { k: "activity",    l: "Today's Activity" },
+                  { k: "goals",       l: "My Goals" },
+                  { k: "onboarding",  l: "Onboarding Checklist" },
+                  { k: "journal",     l: "Focus & Reflection" },
+                  { k: "leaderboard", l: "Mini Leaderboard" },
+                  { k: "calls",       l: "Recent Scored Calls" }
+                ].map(w => (
+                  <label key={w.k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer", userSelect: "none", margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={widgets[w.k] !== false}
+                      onChange={() => toggleWidget(w.k)}
+                      style={{ accentColor: "var(--accent-money)", cursor: "pointer" }}
+                    />
+                    <span style={{ color: widgets[w.k] !== false ? "var(--text-primary)" : "var(--text-tertiary)" }}>{w.l}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             className="btn"
             onClick={openLogActivity}
@@ -504,41 +712,77 @@ function TodayRep() {
         </div>
       </div>
 
-      {window.TodayHero && <window.TodayHero role="rep"/>}
-
-      {dayIsBlank && (
-        <div style={{
-          display: "flex", alignItems: "center", gap: 14,
-          padding: "14px 18px", marginBottom: 14,
-          background: "color-mix(in oklch, var(--accent-money) 10%, var(--bg-raised))",
-          border: "1px solid color-mix(in oklch, var(--accent-money) 35%, transparent)",
-          borderRadius: 10,
-        }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "color-mix(in oklch, var(--accent-money) 22%, transparent)", color: "var(--accent-money)",
-          }}>
-            <Icons.Phone size={16}/>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)" }}>
-              Start the day with a dial
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, marginBottom: 16 }}>
+        {/* Left Column: Today's Activity Stats */}
+        {widgets.activity !== false && (
+          <div className="panel" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icons.Activity size={14} style={{ color: "var(--accent-money)" }}/>
+              <strong style={{ fontSize: 14 }}>Today's Activity</strong>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>left-click +1, right-click -1</span>
             </div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
-              {queueDepth > 0
-                ? `${queueDepth} lead${queueDepth === 1 ? "" : "s"} are waiting in your queue. The first one is fresh — speed-to-lead beats every other variable.`
-                : "Your queue is empty. Pull a list from CRM → Inbox or wait for inbound, then dial."}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {[
+                { k: "dial",    l: "Dials",       icon: "Phone",    val: displayDials },
+                { k: "contact", l: "Contacts",    icon: "Users",    val: displayContacts },
+                { k: "set",     l: "Sets",        icon: "Calendar", val: displaySets },
+                { k: "sale",    l: "AP Closed",   icon: "Wallet",   val: displayAP, prefix: "$" },
+              ].map(item => {
+                const Fic = Icons[item.icon] || Icons.Circle;
+                return (
+                  <div
+                    key={item.k}
+                    onClick={() => incrementTap(item.k)}
+                    onContextMenu={(e) => { e.preventDefault(); decrementTap(item.k); }}
+                    style={{
+                      padding: "12px 14px",
+                      background: "var(--bg-raised)",
+                      borderRadius: 8,
+                      border: "1px solid var(--border-subtle)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                    title={`+1 ${item.l} (right-click to subtract)`}
+                    className="interactive-card"
+                  >
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--bg-overlay)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
+                      <Fic size={15}/>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.03em" }}>{item.l}</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text-primary)", marginTop: 2 }}>
+                        {item.prefix || ""}{item.val.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <button className="btn btn-primary" onClick={goFloor}>
-            <Icons.Phone size={12}/> {queueDepth > 0 ? "Make your first dial" : "Open Floor"}
-          </button>
-        </div>
-      )}
+        )}
 
-      {showOnboarding && (
-        /* GAP-A4 — onboarding checklist. Persistent until all 5 steps done. */
-        <div className="panel" style={{ marginBottom: 14, padding: 14, background: "var(--bg-elevated)" }}>
+        {/* Right Column: Goal Setting & Progress */}
+        {widgets.goals !== false && (
+          <div className="panel" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icons.Trophy size={14} style={{ color: "var(--accent-money)" }}/>
+              <strong style={{ fontSize: 14 }}>My Goals</strong>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>tier {(myRow.tier || "—").toUpperCase()}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <GoalRow label="Today"   actual={todayCommission} target={dailyTarget}   pct={dailyPct}/>
+              <GoalRow label="Week"    actual={(myRow.mtd || 0) / 4} target={weeklyTarget} pct={Math.min(100, ((myRow.mtd || 0) / 4) / Math.max(1, weeklyTarget) * 100)}/>
+              <GoalRow label="Month"   actual={mtdNum}          target={monthlyTarget} pct={monthlyPct}/>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {widgets.onboarding !== false && showOnboarding && (
+        <div className="panel" style={{ marginBottom: 16, padding: 14, background: "var(--bg-elevated)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
             <Icons.ListChecks size={14} style={{ color: "var(--accent-status)" }}/>
             <strong style={{ fontSize: 13 }}>Get production-ready</strong>
@@ -549,12 +793,23 @@ function TodayRep() {
               const Ico = Icons[s.icon] || Icons.Check;
               const done = !!onboardingRow[s.k];
               return (
-                <div key={s.k} style={{
-                  padding: 10, borderRadius: 6,
-                  background: done ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
-                  border: `1px solid ${done ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "var(--border-subtle)"}`,
-                  display: "flex", alignItems: "center", gap: 8,
-                }}>
+                <div
+                  key={s.k}
+                  onClick={() => {
+                    if (done) return;
+                    if (s.k === "firstDial") goFloor();
+                    else setOnboardingModal(s.k);
+                  }}
+                  style={{
+                    padding: 10, borderRadius: 6,
+                    background: done ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
+                    border: `1px solid ${done ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "var(--border-subtle)"}`,
+                    display: "flex", alignItems: "center", gap: 8,
+                    cursor: done ? "default" : "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                  className={done ? "" : "interactive-card"}
+                >
                   <Ico size={12} style={{ color: done ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
                   <span style={{ flex: 1, fontSize: 11.5, color: done ? "var(--text-primary)" : "var(--text-secondary)", textDecoration: done ? "line-through" : "none" }}>{s.l}</span>
                   {done && <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>}
@@ -565,274 +820,285 @@ function TodayRep() {
         </div>
       )}
 
-      {/* GAP-P3 — my goals · target vs actual */}
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h">
-          <Icons.Trophy size={13}/>
-          <h3>My goals</h3>
-          <span className="meta">tier {(myRow.tier || "—").toUpperCase()} · derived from threshold</span>
-        </div>
-        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <GoalRow label="Today"   actual={todayCommission} target={dailyTarget}   pct={dailyPct}/>
-          <GoalRow label="Week"    actual={(myRow.mtd || 0) / 4} target={weeklyTarget} pct={Math.min(100, ((myRow.mtd || 0) / 4) / Math.max(1, weeklyTarget) * 100)}/>
-          <GoalRow label="Month"   actual={mtdNum}          target={monthlyTarget} pct={monthlyPct}/>
-        </div>
-      </div>
-
-      {/* GAP-D4 + OC1 — quick actions row */}
-      <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="panel-h"><Icons.Bolt size={13}/><h3>Quick actions</h3></div>
-        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-          <ActionTile icon="Phone"          label="Power Hour"        sub="open Floor + autodialer" onClick={goFloor}/>
-          <ActionTile icon="Plus"           label="Add lead"          sub="referral / walk-in / event" onClick={openLogActivity}/>
-          <ActionTile icon="MessageSquare"  label={myManagerRow ? `DM ${myManagerRow.name.split(" ")[0]}` : "Messages"}
-                                                                 sub={myManagerRow ? "your upline" : "open inbox"}  onClick={dmManager}/>
-          <ActionTile icon="Folder"         label="Pull a script"     sub="Plan G · FE · TPMO"     onClick={() => window.gotoPage && window.gotoPage("library")}/>
-        </div>
-      </div>
-
-      {(() => {
-        // Live ROAS — pull MTD lead spend from AppData (hydrated from agency_expenses).
-        // Issued count comes from POLICIES; falls back to demo numbers when empty.
-        const leadSpendCents = (AppData.LEAD_SPEND_TOTALS && AppData.LEAD_SPEND_TOTALS.mtd) || 0;
-        const leadSpendMtd = Math.round(leadSpendCents / 100);
-        const issuedMtd = (AppData.POLICIES || []).filter(p => {
-          if (!p.issuedAt && !p.issued_at) return false;
-          const d = new Date(p.issuedAt || p.issued_at);
-          const now = new Date();
-          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-        }).length;
-        const cpa = issuedMtd > 0 ? Math.round(leadSpendMtd / issuedMtd) : null;
-        // NIGO drag — sum AP at risk on open NIGOs owned by me. Mirrors the
-        // projection TodayManagerNigo uses (policy.ap || lead.ap, in dollars).
-        const leadById = new Map((AppData.PIPELINE || []).map(l => [l.id, l]));
-        const policyById = new Map((AppData.POLICIES || []).map(p => [p.id, p]));
-        const nigoDragDollars = (AppData.NIGOS || [])
-          .filter(n => n.status !== "resolved" && n.status !== "wont_fix")
-          .filter(n => {
-            const owner = n.assignedTo || (n.pipelineId && leadById.get(n.pipelineId)?.owner);
-            return owner === myRow.id;
-          })
-          .reduce((a, n) => {
-            const pol = n.policyId ? policyById.get(n.policyId) : null;
-            const lead = n.pipelineId ? leadById.get(n.pipelineId) : null;
-            return a + (pol?.ap || lead?.ap || 0);
-          }, 0);
-        const isDemo = window.isDemoAgency && window.isDemoAgency();
-        return (
-          <SpendStrip items={[
-            { l: "Cost / issued",  v: cpa != null ? `$${cpa}` : (isDemo ? "$112" : "—"), tone: "money" },
-            { l: "Lead spend MTD", v: leadSpendMtd > 0 ? `$${leadSpendMtd.toLocaleString()}` : (isDemo ? "$680" : "$0") },
-            { l: "Issued MTD",     v: issuedMtd > 0 ? String(issuedMtd) : (isDemo ? "—" : "0"), tone: "money" },
-            { l: "NIGO drag",      v: nigoDragDollars > 0 ? `$${nigoDragDollars.toLocaleString()}` : "$0", tone: "money" },
-          ]}/>
-        );
-      })()}
-
-      <div className="kpi-row">
-        <Shared.KpiCard hero label="Today's Commission" value={todayCommission.toLocaleString()} prefix="$" sub={`MTD: $${mtdNum.toLocaleString()}`} trend={todayCommission > 0 ? "up" : undefined} spark={spark1}/>
-        <Shared.KpiCard label="Apps submitted (today)" value={appsToday} sub={`tier: ${(myRow.tier || "—").toUpperCase()}`} spark={spark2}/>
-        <Shared.KpiCard label="Dials (today)" value={dialsToday} sub={`streak: ${myRow.streak || 0}d`} trend={myRow.streak > 0 ? "up" : undefined} spark={spark3}/>
-      </div>
-
-      <TasksPanel repId={myRow?.id} limit={5}/>
-
-      <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
-        <div className="panel">
-          <div className="panel-h">
-            <Icons.Phone size={14} style={{ color: "var(--accent-money)" }}/>
-            <h3>Next in queue</h3>
-            <span className="meta">47 leads · sorted by speed-to-lead</span>
-          </div>
-          <div className="list">
-            <div className="list-h" style={{ gridTemplateColumns: "1.2fr 60px 1fr 80px 90px 30px" }}>
-              <div>Lead</div><div>Age/St</div><div>Source</div><div>Product</div><div style={{ textAlign: "right" }}>SLA clock</div><div></div>
+      {/* Customizable Additional Modules (Leaderboard & Scored Calls) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        {widgets.leaderboard !== false && (
+          <div className="panel" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icons.Trophy size={14} style={{ color: "var(--accent-money)" }}/>
+              <strong style={{ fontSize: 14 }}>Team Leaderboard (MTD AP)</strong>
             </div>
-            {QUEUE.slice(0, 6).map(l => {
-              const heat = l.elapsed < 30 ? "fresh" : l.elapsed < 90 ? "warm" : "late";
-              const heatColor = heat === "fresh" ? "var(--accent-money)" : heat === "warm" ? "var(--state-warning)" : "var(--state-danger)";
-              return (
-                <div key={l.id} className="row" style={{ gridTemplateColumns: "1.2fr 60px 1fr 80px 90px 30px" }}>
-                  <div className="cell-truncate" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span className="dot" style={{ background: heatColor }}></span>
-                    <strong style={{ fontWeight: 500 }}>{l.lead}</strong>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {topReps.map((r, idx) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 99, background: idx === 0 ? "gold" : idx === 1 ? "silver" : "#cd7f32", display: "flex", alignItems: "center", justifyContent: "center", color: "#000", fontWeight: 700, fontSize: 11 }}>
+                    {idx + 1}
                   </div>
-                  <div className="cell-truncate tabular" style={{ color: "var(--text-tertiary)" }}>{l.age} · {l.state}</div>
-                  <div className="cell-truncate" style={{ color: "var(--text-secondary)" }}>{l.source}</div>
-                  <div><span className="chip">{l.product}</span></div>
-                  <div className="tabular" style={{ textAlign: "right", color: heatColor, fontWeight: 500 }}>{l.elapsed}s</div>
-                  <button className="icon-btn"><Icons.Phone size={13}/></button>
+                  <strong style={{ fontSize: 12.5, color: "var(--text-primary)" }}>{r.name}</strong>
+                  <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-money)" }}>
+                    ${Math.round(r.mtd || 0).toLocaleString()}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="panel">
-            <div className="panel-h">
-              <Icons.Activity size={14} style={{ color: "var(--accent-status)" }}/>
-              <h3>This week's coaching</h3>
-              <span className="meta">from Tuesday's call review</span>
-            </div>
-            <div style={{ padding: "14px 16px" }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Ask 3 more open-ended questions per hour.</div>
-              <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.55 }}>
-                {(window.isDemoAgency && window.isDemoAgency())
-                  ? `On Cheryl Hampton's call, you asked "Do you take medications?" instead of "Walk me through your day with your medications." 4 closed-ended in the first 6 min cost rapport.`
-                  : `Open with a behavioral question instead of a yes/no. Closed-ended questions in the first 6 minutes correlate with -12% close rate.`}
-              </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    if (window.gotoPage) window.gotoPage("calls");
-                    window.toast && window.toast("Coaching surface opened — find the moment in your call history", "info");
-                  }}
-                ><Icons.Play size={11}/> Replay moment</button>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    try {
-                      const k = "repflow.coaching_practiced";
-                      const today = new Date().toISOString().slice(0, 10);
-                      const log = JSON.parse(localStorage.getItem(k) || "[]");
-                      log.unshift({ topic: "open-ended-questions", at: today });
-                      localStorage.setItem(k, JSON.stringify(log.slice(0, 90)));
-                    } catch {}
-                    window.toast && window.toast("Marked practiced · streak +1", "success");
-                  }}
-                >Mark practiced</button>
-              </div>
+              ))}
             </div>
           </div>
+        )}
 
-          {(() => {
-            // GAP — replace hardcoded $42,310 / 82% / 3 days with live computed values.
-            const tierKey   = (myRow.tier || "bronze").toLowerCase();
-            const tierData  = TIER_TARGETS[tierKey] || TIER_TARGETS.bronze;
-            const nextTier  = tierData.next || null;
-            const nextThr   = nextTier ? (TIER_TARGETS[nextTier]?.threshold ?? tierData.threshold) : tierData.threshold;
-            const baseThr   = tierData.threshold || 0;
-            const mtd       = mtdNum;
-            const span      = Math.max(1, nextThr - baseThr);
-            const pctOfBand = nextTier ? Math.min(100, Math.max(0, ((mtd - baseThr) / span) * 100)) : 100;
-            const remaining = nextTier ? Math.max(0, nextThr - mtd) : 0;
-            // Days left in month + pace needed
-            const now       = new Date();
-            const lastDay   = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            const daysLeft  = Math.max(0, lastDay - now.getDate());
-            const dailyNeed = daysLeft > 0 && remaining > 0 ? Math.round(remaining / daysLeft) : 0;
-            return (
-              <div className="panel">
-                <div className="panel-h">
-                  <Icons.Trophy size={14} style={{ color: "var(--accent-status)" }}/>
-                  <h3>Tier progress</h3>
-                  <Shared.TierChip tier={tierKey}/>
+        {widgets.calls !== false && (
+          <div className="panel" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icons.Volume size={14} style={{ color: "var(--accent-money)" }}/>
+              <strong style={{ fontSize: 14 }}>Last Call Analysis</strong>
+              {latestCall && (
+                <span className={`chip ${latestCall.score >= 80 ? "chip-money" : latestCall.score >= 70 ? "chip-status" : "chip-danger"}`} style={{ fontSize: 11, fontWeight: 600, marginLeft: "auto" }}>
+                  Score: {latestCall.score}
+                </span>
+              )}
+            </div>
+            {!latestCall ? (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No calls recorded yet.</div>
+            ) : (
+              <div style={{ background: "var(--bg-raised)", padding: 12, borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <strong style={{ fontSize: 13, color: "var(--text-primary)" }}>{latestCall.lead}</strong>
+                  <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{latestCall.date} · {Math.floor(latestCall.durSec/60)}m {latestCall.durSec%60}s</span>
                 </div>
-                <div style={{ padding: "14px 16px" }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span className="tabular" style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 600, letterSpacing: "-0.02em" }}>${Math.round(mtd).toLocaleString()}</span>
-                    <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>MTD AP</span>
-                  </div>
-                  <div style={{ height: 6, background: "var(--bg-raised)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
-                    <div style={{ width: pctOfBand + "%", height: "100%", background: nextTier ? `linear-gradient(90deg, var(--tier-${tierKey}), var(--tier-${nextTier}))` : "var(--accent-money)" }}></div>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                    <span><Shared.TierChip tier={tierKey} compact/> ${(baseThr/1000).toFixed(0)}K</span>
-                    {nextTier
-                      ? <span className="tabular" style={{ color: "var(--accent-money)" }}>${remaining.toLocaleString()} to {nextTier}</span>
-                      : <span className="tabular" style={{ color: "var(--accent-money)" }}>top tier — keep stacking</span>}
-                    {nextTier && <span><Shared.TierChip tier={nextTier} compact/> ${(nextThr/1000).toFixed(0)}K</span>}
-                  </div>
-                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                    {daysLeft} day{daysLeft === 1 ? "" : "s"} left in month
-                    {nextTier && remaining > 0 && (
-                      <> · pace: <span className="tabular" style={{ color: "var(--accent-money)" }}>+${dailyNeed.toLocaleString()}/day needed</span></>
-                    )}
-                  </div>
+                <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, borderTop: "1px solid var(--border-subtle)", paddingTop: 8, marginTop: 4 }}>
+                  <strong>AI Feedback:</strong> {latestCall.ai || "Analyzing recording metrics…"}
                 </div>
               </div>
-            );
-          })()}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="today-grid">
-        <div className="panel">
-          <div className="panel-h">
-            <Icons.Headset size={14}/>
-            <h3>Recent calls</h3>
-            <span className="meta">AI-scored</span>
+      {widgets.journal !== false && (
+        /* Focus & Journaling Workspace */
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <Icons.BookOpen size={14} style={{ color: "var(--accent-money)" }}/>
+            <strong style={{ fontSize: 14 }}>Daily Focus & Reflection</strong>
+            <button
+              className="btn btn-primary"
+              onClick={saveJournal}
+              disabled={journalSaving}
+              style={{ marginLeft: "auto", padding: "5px 12px", fontSize: 12 }}
+            >
+              {journalSaving ? "Saving…" : "Save reflection"}
+            </button>
           </div>
-          <div className="list">
-            {RECORDINGS.map(r => (
-              <div key={r.id} className="row" style={{ gridTemplateColumns: "1.2fr 70px 80px 80px 1fr", height: 44 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Icons.Volume size={13} style={{ color: "var(--text-tertiary)" }}/>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{r.lead}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.date}</div>
-                  </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            {/* Yesterday's reflection */}
+            <div style={{ background: "color-mix(in oklch, var(--text-tertiary) 4%, transparent)", padding: 12, borderRadius: 6, border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.03em" }}>Yesterday's Reflection</div>
+              {yesterdayJournal ? (
+                <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontStyle: "italic", marginBottom: 8 }}>"{yesterdayJournal.reflection || "No reflection logged."}"</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", borderTop: "1px solid var(--border-subtle)", paddingTop: 6 }}>Focus was: {yesterdayJournal.focus || "none"}</div>
                 </div>
-                <div className="tabular" style={{ color: "var(--text-secondary)" }}>{Math.floor(r.durSec/60)}:{String(r.durSec%60).padStart(2,"0")}</div>
-                <div className="tabular" style={{ color: r.talkRatio > 50 ? "var(--state-danger)" : "var(--text-secondary)" }}>{r.talkRatio}% talk</div>
-                <div><span className={`chip ${r.score >= 80 ? "chip-money" : r.score >= 70 ? "chip-status" : "chip-danger"}`}>{r.score}</span></div>
-                <div className="cell-truncate" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{r.ai}</div>
-              </div>
-            ))}
+              ) : (
+                <div style={{ fontSize: 12, color: "var(--text-quaternary)", fontStyle: "italic", margin: "auto 0" }}>No reflection logged yesterday.</div>
+              )}
+            </div>
+            {/* Today's Focus */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6 }}>Today's main focus:</div>
+              <textarea
+                style={{
+                  width: "100%",
+                  height: 120,
+                  padding: "10px 12px",
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: "var(--text-primary)",
+                  resize: "none",
+                  lineHeight: "1.5",
+                }}
+                placeholder="What is your #1 focus/objective for today? e.g. dial 60 times, help 2 clients..."
+                value={journal.focus || ""}
+                onChange={(e) => setJournal({ ...journal, focus: e.target.value })}
+              />
+            </div>
+            {/* Today's Reflection */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6 }}>End-of-day reflection:</div>
+              <textarea
+                style={{
+                  width: "100%",
+                  height: 120,
+                  padding: "10px 12px",
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: "var(--text-primary)",
+                  resize: "none",
+                  lineHeight: "1.5",
+                }}
+                placeholder="How did today go? What did you learn? What was your biggest win?"
+                value={journal.reflection || ""}
+                onChange={(e) => setJournal({ ...journal, reflection: e.target.value })}
+              />
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="panel">
-          <div className="panel-h">
-            <Icons.Bolt size={14} style={{ color: "var(--accent-money)" }}/>
-            <h3>Daily ritual</h3>
-            <span className="meta">daily</span>
+      {/* Onboarding Modals */}
+      {onboardingModal === "licenseSigned" && (
+        <Shared.Modal title="Sign Producer Agreement" width={560} onClose={() => setOnboardingModal(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={!signingName.trim() || onboardingSubmitting}
+              onClick={() => completeOnboardingStep("license_signed")}
+            >
+              {onboardingSubmitting ? "Signing…" : "Sign & Agree"}
+            </button>
+          </>
+        }>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <p style={{ marginBottom: 12 }}>Please read and accept the representative contract terms below for KOINO CAPITAL / MARANATHA.GLOBAL:</p>
+            <div style={{
+              height: 180, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6,
+              padding: 10, background: "var(--bg-raised)", fontFamily: "monospace", fontSize: 11, marginBottom: 14
+            }}>
+              1. APPOINTMENT AND RELATIONSHIP: The Agency hereby appoints the Representative to solicit applications for insurance policies...
+              <br/><br/>
+              2. REPRESENTATIONS AND WARRANTIES: Representative warrants compliance with all state licensing, NIPR guidelines, and ethical sales standards...
+              <br/><br/>
+              3. COMPENSATION: Commissions shall be paid in accordance with the Schedule of Commissions, contingent on active carrier contracting...
+              <br/><br/>
+              4. TERM AND TERMINATION: This Agreement remains in effect until terminated by either party upon written notice...
+            </div>
+            <Shared.Field label="Type your full name to sign electronically:">
+              <input
+                className="text-input"
+                placeholder={meIdent?.full_name || "John Doe"}
+                value={signingName}
+                onChange={e => setSigningName(e.target.value)}
+              />
+            </Shared.Field>
           </div>
-          {(() => {
-            // Was a hardcoded "9:00a Lead Drop · 47 fresh leads · done / 4:00p
-            // Power Hour · now" block — every agency saw the same fake schedule
-            // with a fake "47 leads" number. Now derives from agency-config's
-            // ritual array (if owners have configured one) and live queue count.
-            const cfg = (window.AgencyConfig && window.AgencyConfig.get && window.AgencyConfig.get()) || null;
-            const ritual = Array.isArray(cfg?.daily_ritual) ? cfg.daily_ritual : null;
-            const queueLen = (AppData.QUEUE || []).length;
-            if (!ritual || ritual.length === 0) {
-              return (
-                <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12, lineHeight: 1.5, textAlign: "center" }}>
-                  No daily ritual configured yet. Queue depth: <span className="tabular" style={{ color: queueLen > 0 ? "var(--accent-money)" : "var(--text-tertiary)" }}>{queueLen}</span>.
-                  <div style={{ marginTop: 6, fontSize: 11 }}>Your manager can set a team cadence in agency-config.</div>
-                </div>
-              );
-            }
-            const now = new Date();
-            const nowMin = now.getHours() * 60 + now.getMinutes();
-            return (
-              <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                {ritual.map((r, i) => {
-                  const [h, m] = (r.t || "0:00").split(":").map(Number);
-                  const startMin = (h || 0) * 60 + (m || 0);
-                  const next = ritual[i + 1];
-                  const endMin = next ? (() => { const [nh, nm] = (next.t || "23:59").split(":").map(Number); return (nh || 23) * 60 + (nm || 59); })() : 24 * 60;
-                  const state = nowMin >= startMin && nowMin < endMin ? "now" : nowMin >= endMin ? "done" : "next";
-                  return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: "var(--radius-sm)", background: state === "now" ? "color-mix(in srgb, var(--accent-money) 10%, transparent)" : "var(--bg-raised)", border: state === "now" ? "1px solid color-mix(in srgb, var(--accent-money) 35%, transparent)" : "1px solid var(--border-subtle)" }}>
-                      <span className="tabular mono" style={{ width: 46, fontSize: 10.5, color: state === "now" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{r.t}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>{r.n}</div>
-                        {r.s && <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{r.s}</div>}
-                      </div>
-                      {state === "done" && <Icons.Check size={12} style={{ color: "var(--accent-money)" }}/>}
-                      {state === "now"  && <span className="chip chip-money" style={{ fontSize: 9.5 }}>NOW</span>}
-                    </div>
-                  );
-                })}
+        </Shared.Modal>
+      )}
+
+      {onboardingModal === "niprVerified" && (
+        <Shared.Modal title="NIPR License Verification" width={480} onClose={() => setOnboardingModal(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={!npnNumber.trim() || npnNumber.length < 5 || onboardingSubmitting}
+              onClick={() => completeOnboardingStep("nipr_verified")}
+            >
+              {onboardingSubmitting ? "Verifying…" : "Verify License"}
+            </button>
+          </>
+        }>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <p style={{ marginBottom: 12 }}>Verify your National Producer Number (NPN) against NIPR database registries:</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12, marginBottom: 10 }}>
+              <Shared.Field label="NPN (National Producer Number)">
+                <input
+                  className="text-input"
+                  placeholder="19876543"
+                  value={npnNumber}
+                  onChange={e => setNpnNumber(e.target.value.replace(/\D/g, ""))}
+                />
+              </Shared.Field>
+              <Shared.Field label="Resident State">
+                <input
+                  className="text-input"
+                  placeholder="TX"
+                  maxLength={2}
+                  value={licenseState}
+                  onChange={e => setLicenseState(e.target.value.toUpperCase())}
+                />
+              </Shared.Field>
+            </div>
+          </div>
+        </Shared.Modal>
+      )}
+
+      {onboardingModal === "bankingSet" && (
+        <Shared.Modal title="Secure Direct Deposit Setup" width={480} onClose={() => setOnboardingModal(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={!bankRouting.trim() || !bankAccount.trim() || onboardingSubmitting}
+              onClick={() => completeOnboardingStep("banking_set")}
+            >
+              {onboardingSubmitting ? "Saving…" : "Save Direct Deposit"}
+            </button>
+          </>
+        }>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <p style={{ marginBottom: 12 }}>Enter your banking information below to set up direct deposit routing for commission payments:</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
+              <Shared.Field label="Bank Name">
+                <input
+                  className="text-input"
+                  placeholder="Chase Bank, Wells Fargo, etc."
+                  value={bankName}
+                  onChange={e => setBankName(e.target.value)}
+                />
+              </Shared.Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 12 }}>
+                <Shared.Field label="Routing Number">
+                  <input
+                    className="text-input"
+                    placeholder="9 digits"
+                    maxLength={9}
+                    value={bankRouting}
+                    onChange={e => setBankRouting(e.target.value.replace(/\D/g, ""))}
+                  />
+                </Shared.Field>
+                <Shared.Field label="Account Number">
+                  <input
+                    className="text-input"
+                    placeholder="Account Number"
+                    value={bankAccount}
+                    onChange={e => setBankAccount(e.target.value.replace(/\D/g, ""))}
+                  />
+                </Shared.Field>
               </div>
-            );
-          })()}
-        </div>
-      </div>
+            </div>
+          </div>
+        </Shared.Modal>
+      )}
+
+      {onboardingModal === "kitShipped" && (
+        <Shared.Modal title="Order Producer Kit" width={480} onClose={() => setOnboardingModal(null)} actions={
+          <>
+            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={!kitAddress.trim() || onboardingSubmitting}
+              onClick={() => completeOnboardingStep("kit_shipped")}
+            >
+              {onboardingSubmitting ? "Ordering…" : "Confirm & Order"}
+            </button>
+          </>
+        }>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <p style={{ marginBottom: 12 }}>Confirm your shipping address to dispatch your MARANATHA.GLOBAL producer kit (polo, bible, notebook, and stickers):</p>
+            <Shared.Field label="Shipping Address">
+              <textarea
+                className="text-input"
+                style={{ height: 80, resize: "none" }}
+                placeholder="123 Devout Way, Suite 100&#10;Dallas, TX 75201"
+                value={kitAddress}
+                onChange={e => setKitAddress(e.target.value)}
+              />
+            </Shared.Field>
+          </div>
+        </Shared.Modal>
+      )}
     </div>
   );
 }

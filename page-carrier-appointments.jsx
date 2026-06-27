@@ -58,12 +58,10 @@
   const STATUS_OPTIONS = ["unassigned", "self", "bridge", "pending", "not_pursuing"];
 
   function carrierLoginProvider(carrier) {
-    const base = String(carrier?.carrier_id || carrier?.id || carrier?.name || "")
+    const id = String(carrier?.carrier_id || carrier?.id || "")
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48);
-    return `carrier_${base}`;
+      .trim();
+    return `carrier_${id}`;
   }
 
   function statusPillStyle(tone) {
@@ -686,8 +684,7 @@
         const next = {};
         for (const c of connectors) {
           if (!c.provider || !c.provider.startsWith("carrier_")) continue;
-          const slug = c.provider.slice("carrier_".length);
-          next[slug] = {
+          next[c.provider] = {
             username: c.account_metadata?.username || "",
             _has_password: true,
             _saved_at: c.connected_at,
@@ -778,7 +775,7 @@
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              provider: `carrier_${slug}`,
+              provider: slug,
               account_label: `Carrier portal · ${carrier.name}`,
               api_key: JSON.stringify({
                 username,
@@ -806,7 +803,7 @@
       if (!sb) return;
       setLoginSaving(true);
       try {
-        const { error } = await sb.from("connector_vault").delete().eq("provider", `carrier_${slug}`);
+        const { error } = await sb.from("connector_vault").delete().eq("provider", slug);
         if (error) throw error;
         window.toast && window.toast(`${carrier.name} login cleared`, "success");
         await reloadVault();
@@ -980,7 +977,7 @@
                       </div>
                     </div>
                     <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
-                      Saved as <code style={{ fontSize: 10 }}>connector_vault.provider="carrier_{carrierLoginProvider(c).replace(/^carrier_/, "")}"</code>.
+                      Saved as <code style={{ fontSize: 10 }}>connector_vault.provider="{carrierLoginProvider(c)}"</code>.
                     </div>
                   </div>
                 )}

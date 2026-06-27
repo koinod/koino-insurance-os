@@ -236,11 +236,9 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
     ? (customLayout !== null ? customLayout : (NAV[role] || []))
     : (NAV[role] || []);
 
-  // Floor temporarily disabled for non-super_admin accounts (2026-06-05).
-  // Hide the sidebar entry; route is also gated in app.jsx so deep links land
-  // on a disabled stub. Revert by removing this block + the app.jsx gate.
+  const _isDemo = typeof window !== "undefined" && window.isDemoAgency && window.isDemoAgency();
   const _floorIsSuperOnly = !(typeof window !== "undefined" && window.isSuperAdmin && window.isSuperAdmin());
-  const items = _floorIsSuperOnly
+  const items = (_floorIsSuperOnly || _isDemo)
     ? itemsRaw.filter(i => i.id !== "floor" && (i.pageId || i.id) !== "floor")
     : itemsRaw;
 

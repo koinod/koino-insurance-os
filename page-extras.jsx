@@ -337,6 +337,20 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
     setAddOpen(true);
   };
 
+  const openCustomize = (s) => {
+    const defaultRoles = isManager ? ["owner","manager","rep"] : ["rep"];
+    setDraft({
+      id: null,
+      title: `${s.title} (Copy)`,
+      cat: s.cat || "Cold",
+      body: s.body || "",
+      description: s.description || "",
+      segmentId: s.segmentId || null,
+      targetRoles: defaultRoles,
+    });
+    setAddOpen(true);
+  };
+
   const saveScript = async () => {
     const title = draft.title.trim();
     const body  = draft.body.trim();
@@ -419,11 +433,13 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
                   {s.cat && <span className="chip" style={{ fontSize: 9.5 }}>{s.cat}</span>}
                   {s.version && <span style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{s.version}</span>}
                   <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copy(s); }} title="Copy"><Icons.Copy size={11}/></button>
-                  {canMod && (
+                  {canMod ? (
                     <>
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); openEdit(s); }} title="Edit"><Icons.Edit size={11}/></button>
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); removeScript(s.id); }} title="Delete" style={{ color: "var(--state-danger)" }}><Icons.X size={11}/></button>
                     </>
+                  ) : (
+                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); openCustomize(s); }} title="Customize (create personal copy)" style={{ color: "var(--accent-money)" }}><Icons.Plus size={11}/></button>
                   )}
                 </div>
                 {open && (
@@ -5024,7 +5040,7 @@ function CarrierPortalLogins() {
   }, []);
   React.useEffect(() => { reloadVault(); }, [reloadVault]);
 
-  const carrierSlug = (c) => (c.carrier_id || String(c.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48));
+  const carrierSlug = (c) => (c.id || c.carrier_id || String(c.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48));
 
   const openConnect = (c) => {
     const slug = carrierSlug(c);
