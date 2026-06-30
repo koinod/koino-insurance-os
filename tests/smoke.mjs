@@ -64,6 +64,14 @@ const browser = await chromium.launch({ headless: true });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 
+// Intercept and abort fonts/posthog to avoid hanging on slow network requests inside sandbox
+await page.route(url => {
+  const urlStr = url.href;
+  return urlStr.includes("fonts.googleapis.com") || urlStr.includes("fonts.gstatic.com") || urlStr.includes("posthog");
+}, route => {
+  route.abort();
+});
+
 let consoleErrors = [];
 page.on("console", (msg) => {
   if (msg.type() !== "error") return;

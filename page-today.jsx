@@ -1670,7 +1670,7 @@ function TodayManager() {
         </div>
       </div>
 
-      {window.TodayHero && <window.TodayHero role="manager"/>}
+      {(() => { const Hero = window.TodayHero; return Hero ? <Hero role="manager"/> : null; })()}
 
       {/* Floor live strip — compact presence-pill row showing which downline
           reps are dialing right now. Sits ABOVE the spend strip so the

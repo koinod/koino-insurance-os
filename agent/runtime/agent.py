@@ -455,6 +455,7 @@ def main():
     last_heartbeat = time.time()
     last_caps = time.time()
     last_update = time.time()
+    current_poll_interval = COMMAND_POLL_INTERVAL_SEC
 
     while _running:
         try:
@@ -506,16 +507,22 @@ def main():
                            result="ok" if status == "succeeded" else "error",
                            detail=error, duration_ms=dur)
                 log(f"cmd {cid[:8]} · {status} in {dur}ms" + (f" · {error}" if error else ""))
+                current_poll_interval = COMMAND_POLL_INTERVAL_SEC # reset backoff on active claim
                 continue  # tight loop on backlog
+
+            # No command claimed: apply exponential backoff up to 30s
+            current_poll_interval = min(current_poll_interval + 3, 30)
 
             if args.once:
                 break
-            time.sleep(COMMAND_POLL_INTERVAL_SEC)
+            time.time() # check loop time
+            time.sleep(current_poll_interval)
         except KeyboardInterrupt:
             break
         except Exception as e:
             log(f"loop error: {e}")
-            time.sleep(COMMAND_POLL_INTERVAL_SEC)
+            current_poll_interval = min(current_poll_interval + 5, 30)
+            time.sleep(current_poll_interval)
 
     log("agent stop")
 
