@@ -5,6 +5,9 @@ with open('lib/licensing-data.json', 'r') as f:
 
 states = data.get('states', {})
 
+with open('lib/licensing-study-guides.js', 'r') as f:
+    guides_code = f.read()
+
 audit_results = {
     "fully_built": [],
     "partially_built": [],
@@ -45,17 +48,19 @@ for code, s in sorted(states.items()):
         outline = v0.get('content_outline') or []
         for d in outline:
             domain_name = d.get('domain', '')
-            if 'Laws' in domain_name or 'Statutes' in domain_name or 'Rules' in domain_name or 'Regulations' in domain_name:
+            if any(k in domain_name for k in ['Laws', 'Law', 'Statutes', 'Rules', 'Regulations', 'Regulation', 'Code']):
                 state_law_topics_count += len(d.get('topics', []))
-        if state_law_topics_count >= 5:
+        if state_law_topics_count >= 3:
             has_custom_outline = True
 
     # Approved providers
     providers = s.get('approved_courses', [])
     provider_count = len(providers) if isinstance(providers, list) else 0
+    
+    has_custom_guide = f"{code.lower()}:" in guides_code or f"{code.lower()}_" in guides_code
 
     # Determine status tier
-    if has_curated_varieties and bulletin_url and total_items and passing_score and has_custom_outline:
+    if has_curated_varieties and bulletin_url and total_items and passing_score and has_custom_outline and has_custom_guide:
         tier = "fully_built"
     elif has_curated_varieties or (bulletin_url and total_items):
         tier = "partially_built"
