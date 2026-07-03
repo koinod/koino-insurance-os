@@ -31,7 +31,7 @@
 (function () {
   const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=9";
+  const DATA_URL = "/lib/licensing-data.json?v=10";
 
   /* ── Static study guide lookup (from lib/licensing-study-guides.js) ──
      That file exposes window.LicensingStudyGuides when loaded as a script.

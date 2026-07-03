@@ -564,15 +564,15 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are tested and sold under the Life Producer line of authority in Arizona (100-item Prometric Series 13-31 Exam). Producers must also complete the state-mandated 4-hour NAIC Model 275 Best Interest annuity training (A.R.S. 20-1243).",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "Prometric",
           "exam_fee_usd": 74,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": "IdentoGO by Idemia",
           "fingerprint_code": "AZ00012",
@@ -585,9 +585,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
-          "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. AZ is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
+          "source_quote": "Prometric Series 13-31 covers Annuities (10% of exam) including A.R.S. 20-1243 Suitability rules.",
+          "captured_at": "2026-07-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf"
         },
         "health": {
           "research_pending": false,
@@ -595,10 +596,10 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "Prometric",
           "exam_fee_usd": 74,
           "exam_passing_score_pct": 70,
-          "exam_question_count": 100,
+          "exam_question_count": 150,
           "exam_time_minutes": 150,
           "fingerprint_required": true,
           "fingerprint_vendor": "Arizona Department of Public Safety Public Services Portal (electronic)",
@@ -615,9 +616,10 @@
           "license_type_note": "Arizona Life license. 20-hour pre-licensing required. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/arizona-resident-licensing-individual",
-          "source_quote": "Fee: $120. All fingerprints submitted to DIFI for resident insurance professional licenses must be submitted electronically through the Arizona Department of Public Safety's Public Services Portal.",
-          "captured_at": "2026-06-03T04:16:07Z"
+          "source_url": "https://www.prometric.com/files/2019-12/13-33_4.pdf",
+          "source_quote": "Prometric Arizona Life, Accident & Health Producer Combo Exam Outline (Series 13-33, Effective Jan 22, 2020). 150 scored items, 2.5-hour time limit, 70% passing score.",
+          "captured_at": "2026-07-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.prometric.com/files/2019-12/13-33_4.pdf"
         },
         "mortgage_protection": {
           "research_pending": false,
@@ -655,11 +657,11 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "Prometric",
           "exam_fee_usd": 74,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": "Arizona DPS Public Services Portal",
           "fingerprint_code": "AZ00012",
@@ -675,333 +677,245 @@
           "license_type_note": "Arizona Life license. 20-hour pre-licensing required. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/arizona-resident-licensing-individual",
-          "source_quote": "Application fee: $120 per application. All fingerprints submitted to the Department of Insurance and Financial Institutions (DIFI) for bail recovery agents and resident insurance professional licenses must be submitted electronically through the Arizona Department of Public Safety's (DPS) Public Services Portal (PSP)",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
+          "source_quote": "Prometric Arizona Life Insurance Producer Examination Outline (Series 13-31, Effective Jan 22, 2020). 100 scored items, 2-hour time limit, 70% passing score. 7 Domains: Insurance Regulation (5%), General Insurance (10%), Life Insurance Basics (24%), Life Insurance Policies (23%), Policy Provisions/Options/Riders (23%), Annuities (10%), Federal Tax Considerations (5%).",
+          "captured_at": "2026-07-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf"
         }
       },
       "exam_varieties": [
         {
           "id": "az_life_producer",
-          "name": "Arizona Life Insurance Producer",
-          "series_code": "13-31",
-          "exam_vendor": "PSI Services LLC",
+          "name": "Arizona Life Insurance Producer (Series 13-31)",
+          "series_code": "Series 13-31",
+          "exam_vendor": "Prometric",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/AZINS/life1.pdf",
+          "candidate_handbook_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
+          "source_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
+          "applies_to_lines": [
+            "life",
+            "annuity"
+          ],
+          "source_quote": "Prometric Arizona Life Insurance Producer Examination Outline (Series 13-31, Effective Jan 22, 2020). 100 questions, 2 Hours, 70% passing score. 7 Domains.",
+          "captured_at": "2026-07-03T00:00:00Z",
           "content_outline": [
             {
               "domain": "Insurance Regulation",
               "weight_pct": 5,
+              "item_count": 5,
               "topics": [
-                "Licensing requirements",
-                "Producer regulation",
-                "Disciplinary actions",
-                "State regulation"
-              ]
-            },
-            {
-              "domain": "Federal Laws and Regulations",
-              "weight_pct": 3,
-              "topics": [
-                "Fair Credit Reporting Act",
-                "18 USC 1033/1034",
-                "Do Not Call",
-                "GLBA",
-                "Terrorism Risk Insurance"
-              ]
-            },
-            {
-              "domain": "General Insurance Concepts",
-              "weight_pct": 13,
-              "topics": [
-                "Risk and methods of handling",
-                "Classifications of insurers",
-                "Elements of a contract",
-                "Producer authority",
-                "Law of agency"
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 16,
-              "topics": [
-                "Insurable interest",
-                "Personal + business uses",
-                "Premium determination",
-                "Field underwriting",
-                "Company underwriting + risk classes"
-              ]
-            },
-            {
-              "domain": "Types of Life Insurance Policies",
-              "weight_pct": 18,
-              "topics": [
-                "Term life",
-                "Whole life",
-                "Universal / variable / indexed",
-                "Specialized (joint, survivorship, juvenile)",
-                "Group life"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options, and Riders",
-              "weight_pct": 28,
-              "topics": [
-                "Standard provisions",
-                "Beneficiary designations + clauses",
-                "Settlement options",
-                "Nonforfeiture",
-                "Policy loans + withdrawals",
-                "Dividend options",
-                "Riders (WP, GIO, ADB, LTC, ROP, COL, accelerated)",
-                "Exclusions"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 8,
-              "topics": [
-                "Principles",
-                "Payout options",
-                "Annuity products (fixed, indexed, variable)",
-                "Uses",
-                "Suitability"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life and Annuities",
-              "weight_pct": 9,
-              "topics": [
-                "Personal life taxation",
-                "MECs",
-                "Qualified plans (IRA, 401k, 403b)",
-                "Annuity taxation"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/AZINS/life1.pdf",
-          "source_quote": "Arizona Examination for Life Insurance Producer \u2014 Series 13-31 \u2014 100 Items - 2 Hours. Insurance Regulation 5%; Federal Laws 3%; General Insurance Concepts 13%; Life Insurance Basics 16%; Types of Life Insurance Policies 18%; Life Insurance Policy Provisions, Options, and Riders 28%; Annuities 8%; Federal Tax Considerations 9%.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "az_accident_health",
-          "name": "Arizona Examination for Accident and Health or Sickness Insurance Producer",
-          "series_code": "13-32",
-          "exam_vendor": "Prometric",
-          "question_count": 100,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
-          "content_outline": null,
-          "research_pending_reason": "Prometric AZ 13-32 standalone A&H outline PDF was not retrievable via WebFetch (Prometric serves bot-blocked HTML page in place of PDF). The 13-33 combined L+A&H outline IS captured below; for 13-32 standalone A&H, take the 10 health-side domains from 13-33 (domains 8.0-15.0) which represent ~55% of 13-33 and rebalance to 100%.",
-          "source_url": "https://www.prometric.com/sites/default/files/2023-05/AZINS%20LIB%203.23.23%20UPDATED%20.pdf",
-          "source_quote": "NEW variety listed. AZ Licensing Information Bulletin (Prometric, 3.23.23): 'Accident and Health or Sickness 13-32 $38'. Standalone outline PDF blocked by Prometric's anti-bot CDN.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "health"
-          ]
-        },
-        {
-          "id": "az_life_accident_health",
-          "name": "Arizona Examination for Life, Accident and Health or Sickness Insurance Producer",
-          "series_code": "13-33",
-          "exam_vendor": "Prometric",
-          "question_count": 150,
-          "time_minutes": 150,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 4,
-              "topics": [
-                "Licensing ",
-                "State regulation ",
-                "Federal regulation "
+                "Licensing Requirements (A.R.S. 20-285, 20-284H exam attempts, 41-1080 lawful presence)",
+                "Types of Licensees (Producers 20-281(5)/286, Nonresidents 20-281(11), Adjusters 20-321, Life Settlement Brokers 20-3202, Business entities 20-285, Surplus lines 20-407/411, Temporary 20-294)",
+                "Fingerprinting & Background Checks (A.R.S. 20-142(E), 285(E), 286(C), 289(D))",
+                "Maintenance & Duration (Expiration & renewal 20-289, Military inactive 20-289.01, Contact info change 20-286(C), Report of actions 20-301, Continuing education 20-2902/2903)",
+                "Disciplinary Actions & Fines (Denial, suspension, revocation 20-295/296, Cease & desist 20-292)",
+                "State Insurance Regulation (Transaction definition 20-106/282/401.01, Solicit/Sell/Negotiate 20-281, Certificate of Authority 20-217A, Commission sharing 20-298, Records 20-157/290)",
+                "Unfair Trade Practices & Fraud (UTPA 20-442, Misrepresentation 20-443/Rule R20-6-801, False ads 20-444, Defamation 20-445, Coercion 20-446, Rebating 20-449, Inducements 20-452, Fees 20-465, Unfair claims 20-461, Fraud 20-463/466, Privacy 20-2101)",
+                "Federal Regulation (Violent Crime Control Act 20-489/18 USC 1033, FCRA 15 USC 1681, Telemarketing 16 CFR 310, CAN-SPAM 15 USC 7701, GLBA 20-2121, Terrorism Risk Act)"
               ]
             },
             {
               "domain": "General Insurance",
-              "weight_pct": 6,
+              "weight_pct": 10,
+              "item_count": 10,
               "topics": [
-                "Concepts ",
-                "Insurers ",
-                "Producers and general rules of agency ",
-                "Contracts "
+                "Definition of Insurance (A.R.S. 20-103)",
+                "Risk Management Concepts (Risk, exposure, hazard, peril, loss; Avoidance, retention, sharing, reduction, transfer)",
+                "Elements of Insurable Risk (Adverse selection, law of large numbers, reinsurance)",
+                "Types of Insurers (Stock, mutual, fraternal 20-702/703, Captives 20-1098, Reciprocals 20-761, Risk retention groups 20-2401, Domestic/foreign/alien 20-201)",
+                "Producers & Agency Law (Insurer as principal, Express/implied/apparent authority)",
+                "Contract Law (Offer & acceptance, consideration, competent parties, legal purpose; Adhesion, personal, aleatory, unilateral, conditional; Utmost good faith, representations vs warranties, concealment, fraud, waiver & estoppel)"
               ]
             },
             {
               "domain": "Life Insurance Basics",
-              "weight_pct": 12,
+              "weight_pct": 24,
+              "item_count": 24,
               "topics": [
-                "Insurable interest  (20-443.02, 20-1104, ",
-                "Personal uses of life insurance ",
-                "Determining amount of personal life ",
-                "Business uses of life insurance ",
-                "Classes of life insurance policies ",
-                "Premiums ",
-                "Producer responsibilities ",
-                "Individual underwriting by the insurer "
+                "Insurable Interest (A.R.S. 20-443.02, 20-1104, 1106, 1107)",
+                "Personal & Business Uses (Survivor protection, estate creation/conservation, liquidity, viatical settlements, buy-sell funding, key person, exec bonus)",
+                "Determining Coverage Amount (Human life value vs needs approach)",
+                "Classes of Policies (Group vs individual, ordinary vs industrial, permanent vs term, part vs nonpart, fixed vs variable A.R.S. 20-2604/2606/2662)",
+                "Premiums (Mortality, interest, expense; Net single vs gross annual)",
+                "Producer Responsibilities (Advertising Rule R20-6-202, policy summary Rule R20-6-209, buyer guide 20-1242.02, Life & Disability Guaranty Fund A.R.S. 20-443(6)/683, Replacement 20-1241-1241.09, Rule R20-6-212, field underwriting, delivery, effective date)",
+                "Underwriting & Risk Selection (Producer report, APS, inspection report 20-2107, MIB, HIV testing A.R.S. 20-448.01/Rule R20-6-1203, blindness discrimination Rule R20-6-211, genetic testing 20-448D/E, risk classes, Certificate of Authority 20-206A)"
               ]
             },
             {
               "domain": "Life Insurance Policies",
-              "weight_pct": 10,
+              "weight_pct": 23,
+              "item_count": 23,
               "topics": [
-                "Term life insurance ",
-                "Whole life insurance ",
-                "Flexible premium policies ",
-                "Specialized policies ",
-                "Group life insurance ",
-                "Credit life insurance (individual versus "
+                "Term Life (Level term, ART, level premium term, decreasing term)",
+                "Whole Life (Straight life, limited payment, single premium)",
+                "Flexible Premium Policies (Adjustable life, universal life, variable universal, index whole life)",
+                "Specialized Policies (Joint life first-to-die, juvenile life, survivorship second-to-die)",
+                "Group Life Insurance (Certificates A.R.S. 20-1265, group eligibility 20-1251, conversion right 20-1266-1269)",
+                "Credit Life Insurance"
               ]
             },
             {
               "domain": "Life Insurance Policy Provisions, Options and Riders",
-              "weight_pct": 10,
+              "weight_pct": 23,
+              "item_count": 23,
               "topics": [
-                "Standard provisions ",
-                "Beneficiaries ",
-                "Settlement options ",
-                "Nonforfeiture options  (20-1231) ",
-                "Policy loan and withdrawal options  (20-",
-                "Dividend options ",
-                "Disability riders ",
-                "Accelerated (living) benefit ",
-                "Riders covering additional insureds  (20-",
-                "Riders affecting the death benefit "
+                "Standard Provisions (Ownership, assignment A.R.S. 20-1122/1277, limitation of liability 20-1226, entire contract 20-1205, free look Rule R20-6-209, grace period 20-1203/1259, reinstatement 20-1213, incontestability 20-1204/1217, misstatement of age 20-1206, policy title 20-1216, claims payment 20-1215)",
+                "Beneficiaries (Designations, primary vs contingent, revocable vs irrevocable, common disaster clause)",
+                "Settlement Options (Cash, interest only, fixed period, fixed amount, life income)",
+                "Nonforfeiture Options (A.R.S. 20-1231 \u2014 Cash surrender, extended term, reduced paid-up)",
+                "Policy Loans & Withdrawals (A.R.S. 20-1209, APL)",
+                "Dividend Options (Cash, reduce premium, accumulate interest, 1-year term, paid-up additions)",
+                "Disability & Living Benefit Riders (Waiver of premium, disability income, payor benefit, accelerated living benefits A.R.S. 20-1136, LTC riders)",
+                "Additional Insured & Death Benefit Riders (Spouse/child term A.R.S. 20-1257, AD&D, guaranteed insurability, COLA, return of premium)"
               ]
             },
             {
               "domain": "Annuities",
-              "weight_pct": 9,
+              "weight_pct": 10,
+              "item_count": 10,
               "topics": [
-                "Standard provisions ",
-                "Annuity principles and concepts ",
-                "Immediate versus deferred annuities ",
-                "Annuity (benefit) payment options ",
-                "Annuity products ",
-                "Uses of annuities "
+                "Standard Provisions (Grace period A.R.S. 20-1219, incontestability 20-1220, entire contract 20-1221, misstatement of age 20-1222, reinstatement 20-1224, free look 20-1233, disclosures 20-1242)",
+                "Annuity Principles (Accumulation vs annuity period, owner/annuitant/beneficiary)",
+                "Immediate vs Deferred Annuities (SPIAs, deferred, nonforfeiture A.R.S. 20-1232, surrender charges, death benefits)",
+                "Benefit Payment Options (Life contingency, pure life vs period certain, joint & survivor)",
+                "Fixed & Equity Indexed Annuities (General account, interest rate guarantees, index participation)",
+                "Uses & Suitability (Market value adjusted, qualified plans, annuity suitability A.R.S. 20-1243-1243.06)"
               ]
             },
             {
               "domain": "Federal Tax Considerations for Life Insurance and Annuities",
-              "weight_pct": 4,
+              "weight_pct": 5,
+              "item_count": 5,
               "topics": [
-                "Taxation of personal life insurance ",
-                "Modified endowment contracts (MECs) ",
-                "Taxation of non-qualified annuities ",
-                "Taxation of individual retirement plans ",
-                "Rollovers and transfers (IRAs and ",
-                "Section 1035 exchanges"
-              ]
-            },
-            {
-              "domain": "Disability (Accident and Health) Insurance Basics",
-              "weight_pct": 9,
-              "topics": [
-                "Definitions of perils ",
-                "Principal types of losses and benefits ",
-                "Classes of health insurance policies ",
-                "Limited policies ",
-                "Common exclusions from coverage ",
-                "Producer responsibilities in individual ",
-                "Individual underwriting by the insurer ",
-                "Considerations in replacing health "
-              ]
-            },
-            {
-              "domain": "Individual Disability (Accident and Health) Insurance Policy General Provisions",
-              "weight_pct": 6,
-              "topics": [
-                "Uniform required provisions ",
-                "Uniform optional provisions ",
-                "Other general provisions "
-              ]
-            },
-            {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 4,
-              "topics": [
-                "Qualifying for disability benefits ",
-                "Individual disability income insurance ",
-                "Unique aspects of individual disability ",
-                "Group disability income insurance ",
-                "Business disability insurance ",
-                "Social Security disability ",
-                "Workers compensation "
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 6,
-              "topics": [
-                "Medical plan concepts ",
-                "Types of providers and plans ",
-                "Cost containment in health care ",
-                "Arizona eligibility requirements ",
-                "Marketing Considerations "
-              ]
-            },
-            {
-              "domain": "Group Accident and Health Insurance",
-              "weight_pct": 6,
-              "topics": [
-                "Characteristics of group insurance ",
-                "Types of eligible groups  (20-1401) ",
-                "Marketing considerations ",
-                "Large group disability (accident and ",
-                "Small group disability (accident and ",
-                "Privacy  (20-1379) "
-              ]
-            },
-            {
-              "domain": "Dental Insurance",
-              "weight_pct": 3,
-              "topics": [
-                "Types of dental treatment ",
-                "Indemnity plans/PPO Dental Plans ",
-                "Prepaid dental plans "
-              ]
-            },
-            {
-              "domain": "Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 8,
-              "topics": [
-                "Medicare ",
-                "Medicare supplements  (Rule R20-6-",
-                "Other options for individuals with ",
-                "Long-term care (LTC) insurance "
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Disability (Accident and Health) Insurance",
-              "weight_pct": 3,
-              "topics": [
-                "Personally-owned health insurance ",
-                "Employer group health insurance ",
-                "Medical expense coverage for sole ",
-                "Business disability insurance ",
-                "Health Reimbursement Arrangements "
+                "Taxation of Personal Life Insurance (Cash value growth, dividends, loans, surrenders, death benefit proceeds, estate tax values)",
+                "Modified Endowment Contracts (MECs) (7-pay test, LIFO taxation, 10% IRS penalty)",
+                "Taxation of Non-Qualified Annuities (Accumulation withdrawals, exclusion ratio, death distributions)",
+                "Section 1035 Tax-Free Exchanges"
               ]
             }
-          ],
+          ]
+        },
+        {
+          "id": "az_life_accident_health",
+          "name": "Arizona Life, Accident & Health Producer (Series 13-33)",
+          "series_code": "Series 13-33",
+          "exam_vendor": "Prometric",
+          "question_count": 150,
+          "time_minutes": 150,
+          "passing_score_pct": 70,
+          "candidate_handbook_url": "https://www.prometric.com/files/2019-12/13-33_4.pdf",
           "source_url": "https://www.prometric.com/files/2019-12/13-33_4.pdf",
-          "source_quote": "NEW variety + content_outline. AZ Series 13-33. '150 questions \u2013 2.5 hour time limit. Effective January 22, 2020.' 15 domains sum to 100%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
+            "annuity",
             "health"
+          ],
+          "source_quote": "Prometric Arizona Life, Accident & Health Producer Combo Exam Outline (Series 13-33, Effective Jan 22, 2020). 150 questions, 2.5 Hours, 70% passing score.",
+          "captured_at": "2026-07-03T00:00:00Z",
+          "content_outline": [
+            {
+              "domain": "Insurance Regulation",
+              "weight_pct": 5,
+              "item_count": 5,
+              "topics": [
+                "Licensing Requirements (A.R.S. 20-285, 20-284H exam attempts, 41-1080 lawful presence)",
+                "Types of Licensees (Producers 20-281(5)/286, Nonresidents 20-281(11), Adjusters 20-321, Life Settlement Brokers 20-3202, Business entities 20-285, Surplus lines 20-407/411, Temporary 20-294)",
+                "Fingerprinting & Background Checks (A.R.S. 20-142(E), 285(E), 286(C), 289(D))",
+                "Maintenance & Duration (Expiration & renewal 20-289, Military inactive 20-289.01, Contact info change 20-286(C), Report of actions 20-301, Continuing education 20-2902/2903)",
+                "Disciplinary Actions & Fines (Denial, suspension, revocation 20-295/296, Cease & desist 20-292)",
+                "State Insurance Regulation (Transaction definition 20-106/282/401.01, Solicit/Sell/Negotiate 20-281, Certificate of Authority 20-217A, Commission sharing 20-298, Records 20-157/290)",
+                "Unfair Trade Practices & Fraud (UTPA 20-442, Misrepresentation 20-443/Rule R20-6-801, False ads 20-444, Defamation 20-445, Coercion 20-446, Rebating 20-449, Inducements 20-452, Fees 20-465, Unfair claims 20-461, Fraud 20-463/466, Privacy 20-2101)",
+                "Federal Regulation (Violent Crime Control Act 20-489/18 USC 1033, FCRA 15 USC 1681, Telemarketing 16 CFR 310, CAN-SPAM 15 USC 7701, GLBA 20-2121, Terrorism Risk Act)"
+              ]
+            },
+            {
+              "domain": "General Insurance",
+              "weight_pct": 10,
+              "item_count": 10,
+              "topics": [
+                "Definition of Insurance (A.R.S. 20-103)",
+                "Risk Management Concepts (Risk, exposure, hazard, peril, loss; Avoidance, retention, sharing, reduction, transfer)",
+                "Elements of Insurable Risk (Adverse selection, law of large numbers, reinsurance)",
+                "Types of Insurers (Stock, mutual, fraternal 20-702/703, Captives 20-1098, Reciprocals 20-761, Risk retention groups 20-2401, Domestic/foreign/alien 20-201)",
+                "Producers & Agency Law (Insurer as principal, Express/implied/apparent authority)",
+                "Contract Law (Offer & acceptance, consideration, competent parties, legal purpose; Adhesion, personal, aleatory, unilateral, conditional; Utmost good faith, representations vs warranties, concealment, fraud, waiver & estoppel)"
+              ]
+            },
+            {
+              "domain": "Life Insurance Basics",
+              "weight_pct": 24,
+              "item_count": 24,
+              "topics": [
+                "Insurable Interest (A.R.S. 20-443.02, 20-1104, 1106, 1107)",
+                "Personal & Business Uses (Survivor protection, estate creation/conservation, liquidity, viatical settlements, buy-sell funding, key person, exec bonus)",
+                "Determining Coverage Amount (Human life value vs needs approach)",
+                "Classes of Policies (Group vs individual, ordinary vs industrial, permanent vs term, part vs nonpart, fixed vs variable A.R.S. 20-2604/2606/2662)",
+                "Premiums (Mortality, interest, expense; Net single vs gross annual)",
+                "Producer Responsibilities (Advertising Rule R20-6-202, policy summary Rule R20-6-209, buyer guide 20-1242.02, Life & Disability Guaranty Fund A.R.S. 20-443(6)/683, Replacement 20-1241-1241.09, Rule R20-6-212, field underwriting, delivery, effective date)",
+                "Underwriting & Risk Selection (Producer report, APS, inspection report 20-2107, MIB, HIV testing A.R.S. 20-448.01/Rule R20-6-1203, blindness discrimination Rule R20-6-211, genetic testing 20-448D/E, risk classes, Certificate of Authority 20-206A)"
+              ]
+            },
+            {
+              "domain": "Life Insurance Policies",
+              "weight_pct": 23,
+              "item_count": 23,
+              "topics": [
+                "Term Life (Level term, ART, level premium term, decreasing term)",
+                "Whole Life (Straight life, limited payment, single premium)",
+                "Flexible Premium Policies (Adjustable life, universal life, variable universal, index whole life)",
+                "Specialized Policies (Joint life first-to-die, juvenile life, survivorship second-to-die)",
+                "Group Life Insurance (Certificates A.R.S. 20-1265, group eligibility 20-1251, conversion right 20-1266-1269)",
+                "Credit Life Insurance"
+              ]
+            },
+            {
+              "domain": "Life Insurance Policy Provisions, Options and Riders",
+              "weight_pct": 23,
+              "item_count": 23,
+              "topics": [
+                "Standard Provisions (Ownership, assignment A.R.S. 20-1122/1277, limitation of liability 20-1226, entire contract 20-1205, free look Rule R20-6-209, grace period 20-1203/1259, reinstatement 20-1213, incontestability 20-1204/1217, misstatement of age 20-1206, policy title 20-1216, claims payment 20-1215)",
+                "Beneficiaries (Designations, primary vs contingent, revocable vs irrevocable, common disaster clause)",
+                "Settlement Options (Cash, interest only, fixed period, fixed amount, life income)",
+                "Nonforfeiture Options (A.R.S. 20-1231 \u2014 Cash surrender, extended term, reduced paid-up)",
+                "Policy Loans & Withdrawals (A.R.S. 20-1209, APL)",
+                "Dividend Options (Cash, reduce premium, accumulate interest, 1-year term, paid-up additions)",
+                "Disability & Living Benefit Riders (Waiver of premium, disability income, payor benefit, accelerated living benefits A.R.S. 20-1136, LTC riders)",
+                "Additional Insured & Death Benefit Riders (Spouse/child term A.R.S. 20-1257, AD&D, guaranteed insurability, COLA, return of premium)"
+              ]
+            },
+            {
+              "domain": "Annuities",
+              "weight_pct": 10,
+              "item_count": 10,
+              "topics": [
+                "Standard Provisions (Grace period A.R.S. 20-1219, incontestability 20-1220, entire contract 20-1221, misstatement of age 20-1222, reinstatement 20-1224, free look 20-1233, disclosures 20-1242)",
+                "Annuity Principles (Accumulation vs annuity period, owner/annuitant/beneficiary)",
+                "Immediate vs Deferred Annuities (SPIAs, deferred, nonforfeiture A.R.S. 20-1232, surrender charges, death benefits)",
+                "Benefit Payment Options (Life contingency, pure life vs period certain, joint & survivor)",
+                "Fixed & Equity Indexed Annuities (General account, interest rate guarantees, index participation)",
+                "Uses & Suitability (Market value adjusted, qualified plans, annuity suitability A.R.S. 20-1243-1243.06)"
+              ]
+            },
+            {
+              "domain": "Federal Tax Considerations for Life Insurance and Annuities",
+              "weight_pct": 5,
+              "item_count": 5,
+              "topics": [
+                "Taxation of Personal Life Insurance (Cash value growth, dividends, loans, surrenders, death benefit proceeds, estate tax values)",
+                "Modified Endowment Contracts (MECs) (7-pay test, LIFO taxation, 10% IRS penalty)",
+                "Taxation of Non-Qualified Annuities (Accumulation withdrawals, exclusion ratio, death distributions)",
+                "Section 1035 Tax-Free Exchanges"
+              ]
+            }
           ]
         }
       ],
       "exam_meta": {
-        "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/AZINS/life1.pdf",
-        "state_content_outline_url": null,
+        "exam_vendor_primary": "Prometric",
+        "state_doi_handbook_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
+        "state_content_outline_url": "https://www.prometric.com/files/2019-12/13-31_0.pdf",
         "state_doi_page": "https://difi.az.gov/licensing"
       },
       "course_meta": {
