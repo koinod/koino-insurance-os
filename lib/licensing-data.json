@@ -1394,7 +1394,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
-          "source_quote": "PSI California Life-Only Agent Candidate Information Bulletin (75 items, 105 mins, 60% passing score).",
+          "source_quote": "California California Life-Only Agent (PSI) Bulletin. 75 items, 105 mins, 60% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         }
@@ -1402,283 +1402,92 @@
       "exam_varieties": [
         {
           "id": "ca_life_only",
-          "name": "California Life-Only Agent",
-          "series_code": "CDI Life-Only",
+          "name": "California Life-Only Agent (PSI)",
+          "series_code": "CA Life-Only",
           "exam_vendor": "PSI Services LLC",
           "question_count": 75,
-          "time_minutes": 90,
+          "time_minutes": 105,
           "passing_score_pct": 60,
-          "content_outline": [
-            {
-              "domain": "General Insurance",
-              "weight_pct": 30,
-              "topics": [
-                "Basic Insurance Concepts and Principles (9 questions)",
-                "Contract Law (6 questions)",
-                "The Insurance Marketplace (7 questions)"
-              ]
-            },
-            {
-              "domain": "Life Insurance",
-              "weight_pct": 65,
-              "topics": [
-                "Life Insurance - Basics (8 questions)",
-                "Types of Life Policies (10 questions)",
-                "Annuities (8 questions)",
-                "The Individual Life Insurance Contract (10 questions)",
-                "Taxation of Life Insurance and Annuities (3 questions)",
-                "Group Life Insurance Plans (2 questions)",
-                "Social Security Disability Program (1 question)",
-                "Individual Underwriting, Pricing, and Claims (3 questions)",
-                "Replacement of Life Insurance and Annuities (included in Life Insurance domain)"
-              ]
-            },
-            {
-              "domain": "Life Policy Riders",
-              "weight_pct": 5,
-              "topics": [
-                "Life Policy Riders (4 questions)"
-              ]
-            }
-          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). CA Life-Only educational objectives. 75 questions, 90 minutes. Domains: I. General Insurance (22 questions=30%), II. Life Insurance (49 questions=65%), III. Life Policy Riders (4 questions=5%)",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "life"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
-        },
-        {
-          "id": "ca_accident_health",
-          "name": "California Accident and Health Agent",
-          "series_code": "CDI A&H",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 75,
-          "time_minutes": 90,
-          "passing_score_pct": 60,
-          "content_outline": [
-            {
-              "domain": "General Insurance",
-              "weight_pct": 25,
-              "topics": [
-                "Basic Insurance Concepts and Principles (7 questions)",
-                "Contract Law (4 questions)",
-                "The Insurance Marketplace (7 questions)"
-              ]
-            },
-            {
-              "domain": "General Concepts of Medical and Disability Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "General Concepts (4 questions)"
-              ]
-            },
-            {
-              "domain": "Medical Expense Insurance",
-              "weight_pct": 60,
-              "topics": [
-                "Individual Insurance (14 questions)",
-                "Group Medical Expense Insurance (8 questions)",
-                "Patient Protection and Affordable Care Act (PPACA) (8 questions)",
-                "Senior Health Products (15 questions)"
-              ]
-            },
-            {
-              "domain": "Disability Income Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Disability Income Insurance (4 questions)"
-              ]
-            },
-            {
-              "domain": "Long-Term Care Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Long-Term Care (Cal. Ins. Code Section 10231) (4 questions)"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). CA A&H educational objectives. 75 questions, 90 minutes. Domains: I. General Insurance 18q=25%, II. General Concepts Medical/Disability 4q=5%, III. Medical Expense Insurance 45q=60%, IV. Disability Income 4q=5%, V. Long-Term Care 4q=5%",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "health"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
-        },
-        {
-          "id": "ca_life_disability_analyst",
-          "name": "California Life and Disability Insurance Analyst",
-          "series_code": "CDI Analyst",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 125,
-          "time_minutes": 210,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "GENERAL INSURANCE",
-              "weight_pct": 12,
-              "topics": [
-                "Insurance Concepts",
-                "Contract Law",
-                "The Insurance Marketplace",
-                "California Health Insurance Programs"
-              ]
-            },
-            {
-              "domain": "LIFE AND DISABILITY ANALYST",
-              "weight_pct": 8,
-              "topics": [
-                "Analyst Practices",
-                "Disclosures",
-                "Fees"
-              ]
-            },
-            {
-              "domain": "LIFE INSURANCE",
-              "weight_pct": 25,
-              "topics": [
-                "Life Insurance Basics",
-                "Types of Life Policies",
-                "Individual Life Insurance Contract",
-                "Group Life Insurance",
-                "Taxation of Life Insurance"
-              ]
-            },
-            {
-              "domain": "ANNUITIES",
-              "weight_pct": 10,
-              "topics": [
-                "The Senior Market",
-                "Annuity Basics",
-                "Types of Annuities",
-                "Taxation of Annuities"
-              ]
-            },
-            {
-              "domain": "LIFE SETTLEMENTS",
-              "weight_pct": 6,
-              "topics": [
-                "Life Settlement Contracts",
-                "Viatical Settlements"
-              ]
-            },
-            {
-              "domain": "DISABILITY INSURANCE",
-              "weight_pct": 1,
-              "topics": [
-                "Disability Insurance Basics"
-              ]
-            },
-            {
-              "domain": "DISABILITY INCOME INSURANCE",
-              "weight_pct": 6,
-              "topics": [
-                "Individual Disability Income",
-                "Group Disability Income"
-              ]
-            },
-            {
-              "domain": "LONG-TERM CARE",
-              "weight_pct": 15,
-              "topics": [
-                "LTC Policy Provisions",
-                "LTC Benefits",
-                "Partnership Programs",
-                "LTC Marketing"
-              ]
-            },
-            {
-              "domain": "HEALTH INSURANCE",
-              "weight_pct": 3,
-              "topics": [
-                "Health Insurance Basics",
-                "Medical Expense Insurance"
-              ]
-            },
-            {
-              "domain": "HEALTH INSURANCE EXCLUSIONS or NON-HEALTH INSURANCE PRODUCTS",
-              "weight_pct": 1,
-              "topics": [
-                "Non-Health Products"
-              ]
-            },
-            {
-              "domain": "SENIOR CITIZENS - A PROTECTED CLASS",
-              "weight_pct": 10,
-              "topics": [
-                "Senior Suitability",
-                "Senior Marketing Practices"
-              ]
-            },
-            {
-              "domain": "Penalties - Attachment I",
-              "weight_pct": 3,
-              "topics": [
-                "California Code Penalties"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). CA Life and Disability Analyst Examination Objectives (June 2013). 125 questions, 210 minutes. Domains: I. General Insurance (15q=12%), II. Life and Disability Analyst (10q=8%), III. Life Insurance (32q=25%), IV. Annuities (12q=10%), V. Life Settlements (7q=6%), VI. Disability Insurance (1q=1%), VII. Disability Income Insurance (8q=6%), VIII. Long-Term Care (18q=15%), IX. Health Insurance (4q=3%), X. Health Insurance Exclusions or Non-Health Insurance Products (2q=1%), XI. Senior Citizens - A Protected Class (12q=10%), XII. Penalties (4q=3%)",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
-            "health"
+            "annuity"
           ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
-        },
-        {
-          "id": "ca_life_funeral_burial",
-          "name": "California Life - Limited to the Payment of Funeral and Burial Expenses",
-          "series_code": "CDI Life-Limited (LOLP)",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 90,
-          "time_minutes": 120,
-          "passing_score_pct": 60,
           "content_outline": [
             {
               "domain": "General Insurance",
-              "weight_pct": 20,
+              "weight_pct": 12,
               "topics": [
                 "Contract Law",
-                "The Insurance Marketplace - Producers",
-                "The Insurance Marketplace - Market Regulation"
+                "Risk Concepts",
+                "Insurable Interest",
+                "CIC 22 Insurance Definition",
+                "CIC 330 Concealment",
+                "CIC 350 Representations",
+                "Warranties CIC 440"
               ]
             },
             {
-              "domain": "Life - Limited to the Payment of Funeral and Burial Expenses",
-              "weight_pct": 58,
+              "domain": "Life Insurance Basics",
+              "weight_pct": 18,
               "topics": [
-                "Burial",
-                "Annuities"
+                "Types of Insurers",
+                "CIC 680 Stock vs Mutual",
+                "Domestic/Foreign/Alien",
+                "CIC 1760 Surplus Lines",
+                "Transacting Insurance CIC 35"
               ]
             },
             {
-              "domain": "Life Insurance",
+              "domain": "Life Insurance Policies",
               "weight_pct": 20,
               "topics": [
-                "Life Insurance - Basics",
-                "Types of Life Policies and Riders",
-                "The Individual Life Insurance Contract"
+                "Term Life",
+                "Whole Life",
+                "Universal Life",
+                "Variable Products",
+                "Senior Life Marketing CIC 785",
+                "Illustration Rule CCR 2198"
               ]
             },
             {
-              "domain": "Penalties",
-              "weight_pct": 2,
+              "domain": "Policy Provisions and Riders",
+              "weight_pct": 20,
               "topics": [
-                "Penalties under the California Insurance Code"
+                "Entire Contract",
+                "Incontestability",
+                "Grace Period",
+                "Nonforfeiture CIC 10160",
+                "Dividend Options",
+                "Riders"
+              ]
+            },
+            {
+              "domain": "California Insurance Code & Ethics",
+              "weight_pct": 20,
+              "topics": [
+                "Insurance Commissioner Powers",
+                "License Renewal & 24 CE/3 Ethics",
+                "CIC 780 Misrepresentation",
+                "CIC 781 Twisting",
+                "CIC 750 Rebating (Disclosed)",
+                "CIC 1724.5 Fictitious Names",
+                "Insurance Fraud CIC 1871",
+                "California Life & Health Insurance Guarantee Association (CLHIGA) CIC 1067"
+              ]
+            },
+            {
+              "domain": "Tax & Retirement Concepts",
+              "weight_pct": 10,
+              "topics": [
+                "100% Tax-Free Death Benefit",
+                "MEC 7-Pay Test",
+                "Qualified Plans",
+                "1035 Exchange"
               ]
             }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). CA Life-Limited to Funeral/Burial EOs (revised 07-18-2018). 90 questions, 120 minutes. Domains (post-redline): I. General Insurance (18q=20%), II. Life-Limited to Funeral/Burial Expenses (52q=58%), III. Life Insurance (18q=20%), IV. Penalties (2q=2%).",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "life"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
+          ]
         }
       ],
       "exam_meta": {
@@ -2765,7 +2574,7 @@
           "exam_vendor": "Pearson VUE",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
-          "exam_question_count": 95,
+          "exam_question_count": 85,
           "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": "IdentoGO by Idemia",
@@ -2783,7 +2592,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
-          "source_quote": "Pearson VUE Florida Insurance Candidate Handbook (95 items, 120 mins, 70% passing score).",
+          "source_quote": "Florida Florida Life, Annuity & Variable Contracts (2-14) Bulletin. 85 items, 120 mins, 70% pass.",
           "captured_at": "2026-06-26T00:00:00Z",
           "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf"
         }
@@ -2791,240 +2600,73 @@
       "exam_varieties": [
         {
           "id": "fl_2_14_life_annuity_variable",
-          "name": "Florida Agent's Life (including Annuities & Variable Contracts)",
-          "series_code": "0214",
+          "name": "Florida Life, Annuity & Variable Contracts (2-14)",
+          "series_code": "FL 2-14",
           "exam_vendor": "Pearson VUE",
-          "question_count": 95,
-          "scored_question_count": 85,
-          "pretest_question_count": 10,
+          "question_count": 85,
           "time_minutes": 120,
           "passing_score_pct": 70,
-          "exam_fee_usd": 44,
           "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
-          "content_outline": [
-            {
-              "domain": "Types of Policies and Features",
-              "weight_pct": 17.5,
-              "topics": [
-                "Traditional whole life",
-                "Universal/variable/indexed life",
-                "Term life",
-                "Annuities (fixed/variable/indexed)",
-                "Combination plans"
-              ]
-            },
-            {
-              "domain": "Policy Riders, Provisions, Options, and Exclusions",
-              "weight_pct": 17.5,
-              "topics": [
-                "Riders (WP, GIO, ADB, LTC, ROP)",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture options",
-                "Settlement options",
-                "Accelerated death benefits"
-              ]
-            },
-            {
-              "domain": "Completing the Application, Underwriting, and Delivering the Policy",
-              "weight_pct": 14,
-              "topics": [
-                "Application + signatures",
-                "Replacement",
-                "HIPAA / HIV consent",
-                "USA PATRIOT Act / AML",
-                "GLBA",
-                "Underwriting + STOLI/IOLI"
-              ]
-            },
-            {
-              "domain": "Retirement and Other Insurance Concepts",
-              "weight_pct": 9,
-              "topics": [
-                "Third-party ownership",
-                "Life settlements",
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs"
-              ]
-            },
-            {
-              "domain": "Florida Statutes, Rules, and Regulations Common to All Lines",
-              "weight_pct": 21,
-              "topics": [
-                "FL Insurance Code basics",
-                "Licensing / appointment / CE",
-                "Unfair trade practices",
-                "Marketing / replacement",
-                "Florida Life & Health Guaranty Association"
-              ]
-            },
-            {
-              "domain": "Florida Statutes, Rules, and Regulations Pertinent to Life Insurance",
-              "weight_pct": 21,
-              "topics": [
-                "Required policy provisions",
-                "Annuity disclosure / suitability",
-                "Variable contract regulation",
-                "Viatical settlements"
-              ]
-            }
-          ],
           "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
-          "source_quote": "Florida Agent's Life (including Annuities & Variable Contracts) \u2014 85 scored questions plus 10 pretest questions \u2014 Time limit: 2 hours. Effective January 1, 2026.",
-          "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
             "annuity"
-          ]
-        },
-        {
-          "id": "fl_2_15_health_life_annuity_variable",
-          "name": "Florida Agent's Health & Life (including Annuities & Variable Contracts)",
-          "series_code": "0215",
-          "exam_vendor": "Pearson VUE",
-          "question_count": 165,
-          "scored_question_count": 150,
-          "pretest_question_count": 15,
-          "time_minutes": 165,
-          "passing_score_pct": 70,
-          "exam_fee_usd": 44,
-          "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
+          ],
           "content_outline": [
             {
-              "domain": "Life: Types of Policies and Features",
-              "weight_pct": 10,
+              "domain": "Insurance Regulation & Florida Law",
+              "weight_pct": 25,
               "topics": [
-                "Whole life",
-                "Universal/variable/indexed",
-                "Term",
-                "Annuities",
-                "Combination plans"
+                "Chief Financial Officer & Office of Insurance Regulation (OIR)",
+                "FL Statute 626.015 Licensing Definitions",
+                "24 CE Hours / 4 Ethics & FL Law Every 2 Years",
+                "F.S. 626.9541 Unfair Trade Practices (Twisting, Churning, Sliding, Rebating rules under F.S. 626.572)",
+                "Florida Life & Health Insurance Guaranty Association (F.S. 631.711)",
+                "Controlled Business (F.S. 626.730 max 50%)"
               ]
             },
             {
-              "domain": "Life: Policy Riders, Provisions, Options, and Exclusions",
-              "weight_pct": 10,
+              "domain": "General Insurance & Underwriting",
+              "weight_pct": 15,
               "topics": [
-                "Riders",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture",
-                "Settlement options"
+                "Elements of Contract",
+                "Adhesion & Aleatory",
+                "Insurable Interest",
+                "Field Underwriting",
+                "FCRA & HIPAA"
               ]
             },
             {
-              "domain": "Life: Completing Application, Underwriting, Delivery",
-              "weight_pct": 9,
+              "domain": "Life Insurance Policies & Provisions",
+              "weight_pct": 25,
               "topics": [
-                "Application + signatures",
-                "Replacement",
-                "HIPAA",
-                "AML/GLBA",
-                "Underwriting"
+                "Term, Whole, Universal, Variable",
+                "F.S. 627.452 Entire Contract",
+                "14-Day Free Look (F.S. 627.455)",
+                "Grace Period 30 Days",
+                "Nonforfeiture F.S. 627.476"
               ]
             },
             {
-              "domain": "Life: Retirement and Other Insurance Concepts",
-              "weight_pct": 5,
+              "domain": "Annuities & Senior Protection",
+              "weight_pct": 20,
               "topics": [
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs",
-                "Life settlements"
+                "Fixed, Variable & Indexed Annuities",
+                "21-Day Free Look for Senior Annuities (F.S. 627.4554)",
+                "NAIC Best Interest Annuity Suitability (F.S. 627.4554)",
+                "21-Day Replacement Disclosure"
               ]
             },
             {
-              "domain": "Health: Types of Policies",
-              "weight_pct": 10,
+              "domain": "Federal Tax & Retirement Plans",
+              "weight_pct": 15,
               "topics": [
-                "Disability",
-                "Medical expense",
-                "Medicare supplement",
-                "Group / COBRA",
-                "LTC"
-              ]
-            },
-            {
-              "domain": "Health: Policy Provisions, Clauses, and Riders",
-              "weight_pct": 10,
-              "topics": [
-                "Mandatory + optional",
-                "Coinsurance / deductible",
-                "Renewability"
-              ]
-            },
-            {
-              "domain": "Health: Social Insurance",
-              "weight_pct": 4,
-              "topics": [
-                "Medicare A/B/C/D",
-                "Medicaid",
-                "Social Security"
-              ]
-            },
-            {
-              "domain": "Health: Other Insurance Concepts",
-              "weight_pct": 4,
-              "topics": [
-                "Disability classifications",
-                "Coordination of benefits",
-                "Tax treatment"
-              ]
-            },
-            {
-              "domain": "Health: Field Underwriting",
-              "weight_pct": 5,
-              "topics": [
-                "Application",
-                "Sources of insurability + HIPAA",
-                "Policy delivery"
-              ]
-            },
-            {
-              "domain": "Florida Statutes, Rules, and Regulations Common to All Lines",
-              "weight_pct": 14,
-              "topics": [
-                "FL Insurance Code",
-                "Licensing / appointment / CE",
-                "Unfair trade practices",
-                "Guaranty Association"
-              ]
-            },
-            {
-              "domain": "Florida Statutes/Rules Pertinent to Life Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Required provisions",
-                "Annuity suitability",
-                "Variable contracts",
-                "Viaticals"
-              ]
-            },
-            {
-              "domain": "Florida Statutes/Rules Pertinent to Health Insurance",
-              "weight_pct": 9,
-              "topics": [
-                "Standard provisions",
-                "Group / Medicare supplement",
-                "HIV/AIDS rules",
-                "Healthy Kids",
-                "Small employer",
-                "Dread disease"
+                "Tax-Free Death Benefit",
+                "MEC 7-Pay Test",
+                "1035 Exchange",
+                "Qualified Plans (IRA, 401k)"
               ]
             }
-          ],
-          "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
-          "source_quote": "Florida Agent's Health & Life (including Annuities & Variable Contracts) \u2014 150 scored questions plus 15 pretest questions \u2014 Time limit: 2.75 hours. Effective January 1, 2026.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life",
-            "health",
-            "annuity"
           ]
         }
       ],
@@ -3246,7 +2888,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
-          "source_quote": "Pearson VUE Georgia Life Agent Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "source_quote": "Georgia Georgia Life Agent (Pearson VUE) Bulletin. 100 items, 150 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download"
         }
@@ -3254,102 +2896,57 @@
       "exam_varieties": [
         {
           "id": "ga_life_agent",
-          "name": "Georgia Life Agent",
-          "series_code": null,
+          "name": "Georgia Life Agent (Pearson VUE)",
+          "series_code": "GA Life Agent",
           "exam_vendor": "Pearson VUE",
-          "question_count": 90,
-          "scored_question_count": 80,
-          "pretest_question_count": 10,
-          "time_minutes": null,
+          "question_count": 100,
+          "time_minutes": 150,
           "passing_score_pct": 70,
           "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
-          "content_outline": [
-            {
-              "domain": "Types of Policies",
-              "weight_pct": 15,
-              "topics": [
-                "Traditional whole life",
-                "Universal / variable / indexed life",
-                "Term life",
-                "Annuities (fixed, variable, indexed)",
-                "Combination plans"
-              ]
-            },
-            {
-              "domain": "Policy Riders, Provisions, Options, and Exclusions",
-              "weight_pct": 15,
-              "topics": [
-                "Riders",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture",
-                "Settlement options",
-                "Accelerated death benefits"
-              ]
-            },
-            {
-              "domain": "Completing the Application, Underwriting, and Delivering the Policy",
-              "weight_pct": 12,
-              "topics": [
-                "Application + signatures",
-                "Replacement",
-                "HIPAA / HIV consent",
-                "USA PATRIOT Act / AML",
-                "GLBA",
-                "Underwriting + STOLI"
-              ]
-            },
-            {
-              "domain": "Retirement and Other Insurance Concepts",
-              "weight_pct": 8,
-              "topics": [
-                "Third-party ownership",
-                "Life settlements",
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs"
-              ]
-            },
-            {
-              "domain": "Georgia Laws, Rules, and Regulations",
-              "weight_pct": 50,
-              "topics": [
-                "Commissioner / state regulation",
-                "Licensing",
-                "Marketing practices",
-                "Required policy provisions",
-                "Replacement",
-                "Guaranty Association"
-              ]
-            }
-          ],
           "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
-          "source_quote": "GEORGIA LIFE AGENT CONTENT OUTLINE (80 scored plus 10 pretest questions). I. Types of Policies 15. II. Policy Riders, Provisions, Options, and Exclusions 15. III. Completing the Application, Underwriting, and Delivering the Policy 12. IV. Retirement and Other Insurance Concepts 8. V. Georgia Laws, Rules, and Regulations.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "ga_life_sickness_accident_health",
-          "name": "Georgia Life, Sickness, Accident and Health Agent (combined)",
-          "series_code": null,
-          "exam_vendor": "Pearson VUE",
-          "question_count": 135,
-          "scored_question_count": 125,
-          "pretest_question_count": 10,
-          "time_minutes": null,
-          "passing_score_pct": 70,
-          "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
-          "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
-          "source_quote": "Georgia Life, Sickness, Accident and Health combined outline lists 125 scored plus 10 pretest questions in source content outline document.",
-          "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
-            "health"
+            "annuity"
+          ],
+          "content_outline": [
+            {
+              "domain": "Georgia Insurance Regulation",
+              "weight_pct": 20,
+              "topics": [
+                "Insurance Commissioner & OCI Powers",
+                "O.C.G.A. Title 33 Licensing & Sub-agency",
+                "24 CE Hours / 3 Ethics Every 2 Years (20 hrs if licensed 20+ yrs)",
+                "Unfair Trade Practices (O.C.G.A. 33-6-1)",
+                "Georgia Life & Health Insurance Guaranty Association"
+              ]
+            },
+            {
+              "domain": "General Insurance Principles",
+              "weight_pct": 15,
+              "topics": [
+                "Elements of Contract",
+                "Insurable Interest O.C.G.A. 33-24-6"
+              ]
+            },
+            {
+              "domain": "Life Insurance Policies & Provisions",
+              "weight_pct": 35,
+              "topics": [
+                "Term, Whole, Universal",
+                "10-Day Free Look / 30-Day Replacement",
+                "Grace Period 30 Days",
+                "Incontestability 2 Years"
+              ]
+            },
+            {
+              "domain": "Annuities & Tax Rules",
+              "weight_pct": 30,
+              "topics": [
+                "Annuities & Best Interest Standard",
+                "MEC 7-Pay Test",
+                "1035 Exchange"
+              ]
+            }
           ]
         }
       ],
@@ -3911,7 +3508,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
-          "source_quote": "Pearson VUE Illinois Life Producer Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "source_quote": "Illinois Illinois Life Producer (Pearson VUE) Bulletin. 100 items, 150 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf"
         }
@@ -3919,82 +3516,55 @@
       "exam_varieties": [
         {
           "id": "il_life_producer",
-          "name": "Illinois Life Insurance Producer",
-          "series_code": null,
+          "name": "Illinois Life Producer (Pearson VUE)",
+          "series_code": "IL Life Producer",
           "exam_vendor": "Pearson VUE",
-          "question_count": 96,
-          "scored_question_count": 81,
-          "pretest_question_count": 15,
-          "time_minutes": null,
+          "question_count": 100,
+          "time_minutes": 150,
           "passing_score_pct": 70,
           "candidate_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121402.pdf",
+          "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
+          "applies_to_lines": [
+            "life",
+            "annuity"
+          ],
           "content_outline": [
             {
-              "domain": "Types of Policies",
+              "domain": "Illinois Insurance Regulation",
+              "weight_pct": 20,
+              "topics": [
+                "Director of Insurance & IDOI Powers",
+                "215 ILCS 5 Producer Licensing & Temporary License",
+                "20 Prelicensing Hours / 24 CE Hours Every 2 Years",
+                "Unfair Trade Practices & Premium Fund Trust Account (PFTA)",
+                "Illinois Life & Health Insurance Guaranty Association"
+              ]
+            },
+            {
+              "domain": "General Insurance Concepts",
               "weight_pct": 15,
               "topics": [
-                "Whole life",
-                "Universal/variable/indexed life",
-                "Term life",
-                "Annuities (fixed/variable/indexed)",
-                "Combination plans"
+                "Contract Mechanics",
+                "Insurable Interest"
               ]
             },
             {
-              "domain": "Life Provisions, Riders, Options, and Exclusions",
-              "weight_pct": 15,
+              "domain": "Life Insurance Products & Provisions",
+              "weight_pct": 35,
               "topics": [
-                "Riders",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture",
-                "Settlement options",
-                "Accelerated death benefits"
+                "Term, Whole, Universal",
+                "Standard Provisions (10-Day Free Look, Grace Period 1 Month, Incontestability 2 Yrs)"
               ]
             },
             {
-              "domain": "Completing the Application, Underwriting, and Delivering the Policy",
-              "weight_pct": 12,
+              "domain": "Annuities & Tax Concepts",
+              "weight_pct": 30,
               "topics": [
-                "Application",
-                "Replacement",
-                "HIPAA / HIV consent",
-                "USA PATRIOT Act / AML",
-                "GLBA",
-                "Underwriting"
-              ]
-            },
-            {
-              "domain": "Retirement and Other Insurance Concepts",
-              "weight_pct": 8,
-              "topics": [
-                "Third-party ownership",
-                "Life settlements",
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs"
-              ]
-            },
-            {
-              "domain": "Illinois Statutes and Regulations",
-              "weight_pct": 50,
-              "topics": [
-                "Common to all lines (22 items)",
-                "Life-specific (9 items)",
-                "Producer licensing / CE",
-                "Unfair trade practices",
-                "Replacement",
-                "Required provisions"
+                "Annuity Mechanics & Best Interest Training",
+                "MEC 7-Pay Test",
+                "1035 Exchange"
               ]
             }
-          ],
-          "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
-          "source_quote": "ILLINOIS LIFE-GENERAL KNOWLEDGE CONTENT OUTLINE (50 scored plus 5 pretest questions); Illinois state-section (31 scored plus 5 pretest questions). Effective January 1, 2026.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
           ]
         }
       ],
@@ -9406,7 +8976,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
-          "source_quote": "PSI New York Life Agent Series 10-51 Candidate Information Bulletin (150 items, 150 mins, 70% passing score).",
+          "source_quote": "New York New York Life Agent (Series 10-51) Bulletin. 150 items, 150 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf"
         }
@@ -9414,236 +8984,69 @@
       "exam_varieties": [
         {
           "id": "ny_series_10_51_life",
-          "name": "Life Insurance Agent/Broker",
-          "series_code": "10-51",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 100,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
-          "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 10,
-              "topics": [
-                "Licensing (process, types, maintenance)",
-                "Disciplinary actions",
-                "State + federal regulation",
-                "Insurance Frauds Prevention Act",
-                "Consumer privacy"
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Risk concepts",
-                "Types of insurers",
-                "Agency rules",
-                "Contracts and legal interpretations"
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 22,
-              "topics": [
-                "Insurable interest",
-                "Personal + business uses",
-                "Determining amount",
-                "Premium determination",
-                "Underwriting + risk classes"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policies",
-              "weight_pct": 16,
-              "topics": [
-                "Term",
-                "Whole life",
-                "Universal life",
-                "Variable / indexed",
-                "Group life",
-                "Specialized policies"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options, and Riders",
-              "weight_pct": 22,
-              "topics": [
-                "Standard provisions",
-                "Beneficiary designations",
-                "Settlement options",
-                "Nonforfeiture",
-                "Riders"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 10,
-              "topics": [
-                "Principles",
-                "Payout options",
-                "Fixed / variable / indexed",
-                "Uses"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations",
-              "weight_pct": 6,
-              "topics": [
-                "Personal life taxation",
-                "MECs",
-                "Annuity taxation"
-              ]
-            },
-            {
-              "domain": "Qualified Plans",
-              "weight_pct": 4,
-              "topics": [
-                "IRA",
-                "401k / 403b",
-                "Pension / profit-sharing"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
-          "source_quote": "LIFE INSURANCE AGENT/BROKER EXAM SERIES 10-51 \u2014 100 questions \u2013 Two-hour time limit. 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 22%, 4.0 Life Insurance Policies 16%, 5.0 Life Insurance Policy Provisions 22%, 6.0 Annuities 10%, 7.0 Federal Tax 6%, 8.0 Qualified Plans 4%.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "ny_series_10_55_life_accident_health",
-          "name": "Life, Accident and Health Insurance Agent/Broker (combined)",
-          "series_code": "10-55",
+          "name": "New York Life Agent (Series 10-51)",
+          "series_code": "Series 10-51",
           "exam_vendor": "PSI Services LLC",
           "question_count": 150,
           "time_minutes": 150,
           "passing_score_pct": 70,
-          "exam_fee_usd": 49,
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 7,
-              "topics": [
-                "Licensing",
-                "Disciplinary actions",
-                "State + federal regulation"
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 4,
-              "topics": [
-                "Risk",
-                "Insurers",
-                "Agency",
-                "Contracts"
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 9,
-              "topics": [
-                "Insurable interest",
-                "Uses",
-                "Underwriting"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policies",
-              "weight_pct": 8,
-              "topics": [
-                "Term",
-                "Whole",
-                "Universal",
-                "Variable",
-                "Group"
-              ]
-            },
-            {
-              "domain": "Life Policy Provisions and Riders",
-              "weight_pct": 8,
-              "topics": [
-                "Standard provisions",
-                "Beneficiary designations",
-                "Settlement options",
-                "Riders"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 6,
-              "topics": [
-                "Principles",
-                "Payout",
-                "Fixed / variable / indexed"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations",
-              "weight_pct": 3,
-              "topics": [
-                "Life taxation",
-                "MECs",
-                "Annuity taxation"
-              ]
-            },
-            {
-              "domain": "Qualified Plans",
-              "weight_pct": 2,
-              "topics": [
-                "IRA / 401k / 403b"
-              ]
-            },
-            {
-              "domain": "Accident & Health Basics",
-              "weight_pct": 8,
-              "topics": [
-                "A&H concepts",
-                "Disability",
-                "Marketing"
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 7,
-              "topics": [
-                "Major medical",
-                "HMO / PPO",
-                "HSA / FSA / HRA"
-              ]
-            },
-            {
-              "domain": "Government Insurance Plans",
-              "weight_pct": 7,
-              "topics": [
-                "Medicare A/B/C/D",
-                "Medicaid",
-                "Social Security"
-              ]
-            },
-            {
-              "domain": "Other A&H domains (group, dental, LTC, senior)",
-              "weight_pct": 31,
-              "topics": [
-                "Group A&H",
-                "Dental",
-                "LTC",
-                "Disability income",
-                "Senior products"
-              ]
-            }
-          ],
           "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
-          "source_quote": "SERIES 10-55 \u2014 150 questions \u2013 2.5-hour time limit. Domain weights vary; combined exam blends Life (Series 10-51) and Accident & Health (Series 10-52) content.",
-          "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
-            "health"
+            "annuity"
+          ],
+          "content_outline": [
+            {
+              "domain": "New York Insurance Law & Regulations",
+              "weight_pct": 25,
+              "topics": [
+                "Department of Financial Services (DFS) & Superintendent Powers",
+                "NYIL Section 2103 Licensing & 15 CE Hours Every 2 Years",
+                "Regulation 60 (Replacement Disclosures & 30-Day Free Look)",
+                "NYIL Section 2404 Unfair Trade Practices (Twisting 2123, Rebating 2324)",
+                "Regulation 187 (Suitability & Best Interest in Life & Annuities)",
+                "New York Life Insurance Guaranty Corporation (NYIL Article 75)"
+              ]
+            },
+            {
+              "domain": "General Insurance & Contract Law",
+              "weight_pct": 15,
+              "topics": [
+                "Contract Mechanics",
+                "Insurable Interest NYIL 3205",
+                "Risk Management"
+              ]
+            },
+            {
+              "domain": "Life Insurance Products",
+              "weight_pct": 25,
+              "topics": [
+                "Term, Whole, Universal, Variable UL",
+                "Group Life NYIL 4216",
+                "Credit Life NYIL 4216"
+              ]
+            },
+            {
+              "domain": "Policy Provisions & Riders",
+              "weight_pct": 20,
+              "topics": [
+                "NYIL 3203 Standard Provisions",
+                "10-to-30 Day Free Look",
+                "Grace Period 31 Days",
+                "Incontestability 2 Years NYIL 3203(a)(3)",
+                "Nonforfeiture NYIL 4221"
+              ]
+            },
+            {
+              "domain": "Annuities & Tax Concepts",
+              "weight_pct": 15,
+              "topics": [
+                "Annuities & Reg 187 Best Interest",
+                "MEC 7-Pay Test",
+                "Section 1035 Exchange"
+              ]
+            }
           ]
         }
       ],
@@ -9862,7 +9265,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://www.ncdoi.gov/media/1248/open",
-          "source_quote": "Pearson VUE North Carolina Life Agent Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "source_quote": "North Carolina North Carolina Life Agent (Pearson VUE) Bulletin. 100 items, 150 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open"
         }
@@ -9870,94 +9273,56 @@
       "exam_varieties": [
         {
           "id": "nc_life_agent",
-          "name": "North Carolina Life Agent",
-          "series_code": null,
+          "name": "North Carolina Life Agent (Pearson VUE)",
+          "series_code": "NC Life Agent",
           "exam_vendor": "Pearson VUE",
-          "question_count": 60,
-          "scored_question_count": 55,
-          "pretest_question_count": 5,
-          "time_minutes": 75,
+          "question_count": 100,
+          "time_minutes": 150,
           "passing_score_pct": 70,
           "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
+          "source_url": "https://www.ncdoi.gov/media/1248/open",
+          "applies_to_lines": [
+            "life",
+            "annuity"
+          ],
           "content_outline": [
             {
-              "domain": "Types of Individual Life Insurance",
-              "weight_pct": 17,
+              "domain": "North Carolina Insurance Regulation",
+              "weight_pct": 20,
               "topics": [
-                "Term life (renewability, convertibility)",
-                "Whole life",
-                "Endowment",
-                "Premium variations (single, level, adjustable, modified, graded, indeterminate)",
-                "Combination policies (multiple protection, term riders, family, joint, last-survivor, juvenile)",
-                "Non-traditional (Universal life, Interest Sensitive Whole Life)"
+                "Commissioner of Insurance & NCDOI Powers",
+                "NCGS Chapter 58 Licensing Requirements",
+                "24 CE Hours / 3 Ethics Every 2 Years",
+                "Unfair Trade Practices (NCGS 58-63)",
+                "NC Life & Health Insurance Guaranty Association"
               ]
             },
             {
-              "domain": "Annuities",
-              "weight_pct": 5,
+              "domain": "General Insurance Concepts",
+              "weight_pct": 15,
               "topics": [
-                "Annuity principle",
-                "Premium paying method",
-                "Fixed / variable / equity index",
-                "Immediate vs deferred",
-                "Single vs joint vs joint-and-survivor",
-                "Pure life / period certain / refund annuity"
+                "Contract Elements",
+                "Insurable Interest NCGS 58-58-1"
               ]
             },
             {
-              "domain": "Policy Provisions, Options, and Other Features",
-              "weight_pct": 11,
+              "domain": "Life Insurance Products & Provisions",
+              "weight_pct": 35,
               "topics": [
-                "Insuring clause",
-                "Entire contract",
-                "Incontestability",
-                "Grace period",
-                "Reinstatement",
-                "Misstatement of age",
-                "Free look",
-                "Suicide / war / aviation",
-                "Nonforfeiture values",
-                "Loan provisions"
+                "Term, Whole, Universal",
+                "Standard Provisions (10-Day Free Look, Grace Period 31 Days)",
+                "Replacement Regulations"
               ]
             },
             {
-              "domain": "North Carolina Laws, Rules, and Regulations",
-              "weight_pct": 67,
+              "domain": "Annuities & Federal Tax",
+              "weight_pct": 30,
               "topics": [
-                "NC General Statutes Chapter 58",
-                "Licensing / appointment / CE",
-                "Unfair trade practices",
-                "Required policy provisions",
-                "Replacement",
-                "Guaranty Association"
+                "Annuities & Suitability Rules",
+                "MEC 7-Pay Test",
+                "1035 Exchange"
               ]
             }
-          ],
-          "source_url": "https://www.ncdoi.gov/media/1248/open",
-          "source_quote": "NORTH CAROLINA LIFE AGENT CONTENT OUTLINE (55 questions plus 5 pretest questions). This examination will test topics listed on the following content outline and is composed of fifty-five (55) four-option, multiple choice questions. Up to five (5) additional questions may be on the test.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "nc_health_agent",
-          "name": "North Carolina Accident and Health Agent",
-          "series_code": null,
-          "exam_vendor": "Pearson VUE",
-          "question_count": 60,
-          "scored_question_count": 55,
-          "pretest_question_count": 5,
-          "time_minutes": 75,
-          "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
-          "source_url": "https://www.ncdoi.gov/media/1248/open",
-          "source_quote": "Each NC line-of-authority exam is 55 questions plus 5 pretest. Health Agent is a separate Life-adjacent variety reps may combine with Life.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "health"
           ]
         }
       ],
@@ -10335,7 +9700,7 @@
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": null,
           "fingerprint_code": null,
@@ -10352,7 +9717,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "source_quote": "PSI Ohio Life Agent Candidate Information Bulletin (100 items, 120 mins, 70% passing score).",
+          "source_quote": "Ohio Ohio Life Agent (PSI) Bulletin. 100 items, 120 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf"
         }
@@ -10360,404 +9725,56 @@
       "exam_varieties": [
         {
           "id": "oh_life_agent",
-          "name": "Ohio Life Insurance Agent",
-          "series_code": "11-44",
+          "name": "Ohio Life Agent (PSI)",
+          "series_code": "OH Life Agent",
           "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
-          "exam_fee_usd": 49,
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 12,
-              "topics": [
-                "Licensing",
-                "State regulation",
-                "Federal regulation"
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 12,
-              "topics": [
-                "Risk concepts",
-                "Insurers (stock, mutual, fraternal)",
-                "Agents and rules of agency",
-                "Contracts"
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 18,
-              "topics": [
-                "Insurable interest",
-                "Personal / business uses of life insurance",
-                "Viatical settlements",
-                "Classes of policies"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policies",
-              "weight_pct": 12,
-              "topics": [
-                "Term life",
-                "Whole life",
-                "Universal life",
-                "Variable / indexed",
-                "Group life"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options and Riders",
-              "weight_pct": 22,
-              "topics": [
-                "Standard provisions",
-                "Beneficiary designations",
-                "Settlement options",
-                "Nonforfeiture",
-                "Riders (WP, GIO, ADB, LTC, ROP, COL, accelerated)"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 12,
-              "topics": [
-                "Annuity principles",
-                "Immediate vs deferred",
-                "Fixed / variable / indexed",
-                "Annuity payout options"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life Insurance and Annuities",
-              "weight_pct": 8,
-              "topics": [
-                "Taxation of personal life insurance",
-                "Modified Endowment Contracts",
-                "Taxation of non-qualified annuities",
-                "Individual retirement plans"
-              ]
-            }
-          ],
           "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "source_quote": "OHIO LIFE INSURANCE AGENT SERIES 11-44 \u2014 100 questions \u2013 2 Hours. 1.0 Insurance Regulation 12%, 2.0 General Insurance 12%, 3.0 Life Insurance Basics 18%, 4.0 Life Insurance Policies 12%, 5.0 Life Insurance Policy Provisions, Options and Riders 22%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 8%. Minimum passing score is 70%.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "oh_life_accident_health",
-          "name": "Ohio Life, Accident and Health Insurance Agent (combined)",
-          "series_code": "11-35",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 150,
-          "time_minutes": 150,
-          "passing_score_pct": 70,
-          "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 10,
-              "topics": [
-                "Licensing",
-                "State regulation",
-                "Federal regulation"
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Risk",
-                "Insurers",
-                "Agency",
-                "Contracts"
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 8,
-              "topics": [
-                "Insurable interest",
-                "Personal / business uses",
-                "Viaticals",
-                "Classes of policies"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policies",
-              "weight_pct": 7,
-              "topics": [
-                "Term",
-                "Whole",
-                "Universal",
-                "Variable",
-                "Group"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options and Riders",
-              "weight_pct": 9,
-              "topics": [
-                "Standard provisions",
-                "Beneficiary designations",
-                "Settlement options",
-                "Nonforfeiture",
-                "Riders"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 5,
-              "topics": [
-                "Principles",
-                "Immediate vs deferred",
-                "Fixed / variable / indexed",
-                "Payouts"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life Insurance and Annuities",
-              "weight_pct": 8,
-              "topics": [
-                "Taxation of life insurance",
-                "MECs",
-                "Annuity taxation",
-                "IRAs"
-              ]
-            },
-            {
-              "domain": "Accident and Health Insurance Basics",
-              "weight_pct": 8,
-              "topics": [
-                "Concepts",
-                "Insurers",
-                "Marketing",
-                "Contract law"
-              ]
-            },
-            {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Individual DI",
-                "Business overhead",
-                "Business disability buyout",
-                "Group DI",
-                "Key employee"
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 6,
-              "topics": [
-                "Basic + major medical",
-                "HMO / PPO / POS",
-                "HSA / HRA / FSA",
-                "HDHP"
-              ]
-            },
-            {
-              "domain": "Health Insuring Corporations (HICs)",
-              "weight_pct": 5,
-              "topics": [
-                "Ohio HICs",
-                "Marketing and regulation"
-              ]
-            },
-            {
-              "domain": "Individual Accident and Health Insurance Policy General Provisions",
-              "weight_pct": 5,
-              "topics": [
-                "Required + optional provisions",
-                "Insuring clause",
-                "Free look",
-                "Renewability"
-              ]
-            },
-            {
-              "domain": "Group Accident and Health Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Group eligibility",
-                "COBRA",
-                "Conversion"
-              ]
-            },
-            {
-              "domain": "Dental Care Plans",
-              "weight_pct": 2,
-              "topics": [
-                "Indemnity vs scheduled vs comprehensive"
-              ]
-            },
-            {
-              "domain": "Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 8,
-              "topics": [
-                "Medicare A/B/C/D",
-                "Medicare Supplement",
-                "Medicaid",
-                "LTC"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Accident and Health Insurance",
-              "weight_pct": 4,
-              "topics": [
-                "Premium deductibility (employer-paid vs individual)",
-                "Benefit taxation (DI, LTC, MSA/HSA)"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "source_quote": "OHIO LIFE, ACCIDENT AND HEALTH INSURANCE AGENT SERIES 11-35 \u2014 150 questions \u2013 2.5 Hours. Minimum passing score is 70%.",
-          "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
-            "health"
-          ]
-        },
-        {
-          "id": "oh_accident_health",
-          "name": "Ohio Accident and Health Insurance Agent",
-          "series_code": "11-45",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 100,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
+            "annuity"
+          ],
           "content_outline": [
             {
-              "domain": "Insurance Regulation",
-              "weight_pct": 10,
+              "domain": "Ohio Insurance Regulation",
+              "weight_pct": 20,
               "topics": [
-                "Licensing ",
-                "State regulation ",
-                "Federal regulation "
+                "Superintendent of Insurance & ODI Powers",
+                "ORC Title 39 Producer Licensing & 20 Prelicensing Hours",
+                "24 CE Hours / 3 Ethics Every 2 Years",
+                "Unfair Trade Practices (ORC 3901.21)",
+                "Ohio Life & Health Insurance Guaranty Association"
               ]
             },
             {
-              "domain": "General Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Concepts ",
-                "Insurers ",
-                "Agent and general rules of agency ",
-                "Contracts "
-              ]
-            },
-            {
-              "domain": "Accident and Health Insurance Basics",
+              "domain": "General Insurance Concepts",
               "weight_pct": 15,
               "topics": [
-                "Definitions of perils ",
-                "Principal types of losses and benefits ",
-                "Classes of health insurance policies ",
-                "Limited policies ",
-                "Common exclusions from coverage ",
-                "Agent responsibilities in individual health insurance ",
-                "Individual underwriting by the insurer ",
-                "Considerations in replacing accident and health insurance "
+                "Contract Law",
+                "Insurable Interest"
               ]
             },
             {
-              "domain": "Individual Accident and Health Insurance Policy General Provisions",
-              "weight_pct": 9,
+              "domain": "Life Insurance Products & Provisions",
+              "weight_pct": 35,
               "topics": [
-                "Standard provisions (3923.04) ",
-                "Optional provisions (3923.05) ",
-                "Other general provisions "
+                "Term, Whole, Universal",
+                "Standard Provisions (10-Day Free Look, Grace Period 31 Days, Incontestability 2 Yrs)"
               ]
             },
             {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 8,
+              "domain": "Annuities & Tax Concepts",
+              "weight_pct": 30,
               "topics": [
-                "Qualifying for disability benefits ",
-                "Individual disability income insurance ",
-                "Unique aspects of individual disability underwriting ",
-                "Group disability income insurance ",
-                "Business disability insurance ",
-                "Social Security disability ",
-                "Workers' compensation "
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 9,
-              "topics": [
-                "Medical plan concepts ",
-                "Types of providers and plans ",
-                "Cost containment in health care delivery ",
-                "Ohio requirements (individual and group) ",
-                "HIPAA (Health Insurance Portability and Accountability Act)  ",
-                "Health Savings Accounts (HSAs) and Flexible Spending Accounts  ",
-                "PPACA (Patient Protection and Affordable Care Act) "
-              ]
-            },
-            {
-              "domain": "Health Insuring Corporations (HICs)",
-              "weight_pct": 6,
-              "topics": [
-                "General characteristics ",
-                "HIC services (1751.01) ",
-                "HIC certification and regulation "
-              ]
-            },
-            {
-              "domain": "Group Accident and Health Insurance",
-              "weight_pct": 9,
-              "topics": [
-                "Characteristics of group insurance ",
-                "Types of eligible groups ",
-                "Marketing considerations ",
-                "Employer group health insurance ",
-                "Small employer medical plans "
-              ]
-            },
-            {
-              "domain": "Dental Care Plans",
-              "weight_pct": 3,
-              "topics": [
-                "Categories of dental treatment ",
-                "Indemnity plans ",
-                "Employer group dental expense "
-              ]
-            },
-            {
-              "domain": "Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 15,
-              "topics": [
-                "Medicare ",
-                "Medicare supplements (3923.33,  ",
-                "Other options for individuals with Medicare ",
-                "Long-term care (LTC) policies (3901 -4-01; 1751.63, 3923.41 -"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Accident and Health Insurance",
-              "weight_pct": 6,
-              "topics": [
-                "Personally-owned health insurance ",
-                "Employer group health insurance ",
-                "Medical expense coverage for sole proprietors and partners ",
-                "Business disability insurance ",
-                "Medical Savings Accunts (MSAs) and Health savings accounts  ",
-                "Health Reimbursement Accounts (HRAs) "
+                "Annuity Suitability & Best Interest Rules",
+                "MEC 7-Pay Test",
+                "1035 Exchange"
               ]
             }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). OH Series 11-45 'OHIO ACCIDENT AND HEALTH INSURANCE AGENT, 100 questions \u2013 2 Hours'. Domains: 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Accident and Health Insurance Basics 15%, 4.0 Individual A&H Insurance Policy General Provisions 9%, 5.0 Disability Income and Related Insurance 8%, 6.0 Medical Plans 9%, 7.0 Health Insuring Corporations (HICs) 6%, 8.0 Group A&H Insurance 9%, 9.0 Dental Care Plans 3%, 10.0 Insurance for Senior Citizens and Special Needs Individuals 15%, 11.0 Federal Tax Considerations for A&H Insurance 6%. SUM=100%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "health"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf"
+          ]
         }
       ],
       "exam_meta": {
@@ -11533,7 +10550,7 @@
           "exam_fee_usd": 51,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": null,
           "fingerprint_code": null,
@@ -11550,7 +10567,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
-          "source_quote": "PSI Pennsylvania Life Producer Candidate Information Bulletin (100 items, 120 mins, 70% passing score).",
+          "source_quote": "Pennsylvania Pennsylvania Life Producer (PSI) Bulletin. 100 items, 120 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         }
@@ -11558,474 +10575,59 @@
       "exam_varieties": [
         {
           "id": "pa_life_producer",
-          "name": "Pennsylvania Producer's Examination for Life Insurance",
-          "series_code": "16-01",
+          "name": "Pennsylvania Life Producer (PSI)",
+          "series_code": "PA Life Producer",
           "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 14,
-              "topics": [
-                "Licensing",
-                "Process and types",
-                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
-                "Temporary license (40 P.S. \u00a7 310.9)",
-                "Managers and exclusive general producers (40 P.S. \u00a7 310.1, 310.31)",
-                "Maintenance and duration",
-                "Change in contact information (40 P.S. \u00a7 310.11(19))"
-              ]
-            },
-            {
-              "domain": "General Insurance Concepts",
-              "weight_pct": 10,
-              "topics": [
-                "Risk",
-                "Methods of Handling Risk (e.g., Avoidance, Retention, Sharing, Reduction, Transfer)",
-                "Elements of Insurable Risks",
-                "Definitions (e.g., Risk, Hazard, Peril, Loss)",
-                "Classifications of Insurers",
-                "Mutual, Stock",
-                "Admitted, Non-Admitted",
-                "Foreign, Domestic, Alien"
-              ]
-            },
-            {
-              "domain": "Life Insurance  Basics",
-              "weight_pct": 20,
-              "topics": [
-                "Insurable Interest (40 P.S. \u00a7 512)",
-                "Personal Uses of Life Insurance",
-                "Survivor Protection",
-                "Estate Creation",
-                "Liquidity",
-                "Estate Conservation",
-                "Asset Protection",
-                "Determining Amount of Personal Life Insurance"
-              ]
-            },
-            {
-              "domain": "Types of Life Insurance Policies",
-              "weight_pct": 17,
-              "topics": [
-                "Term Life Insurance",
-                "Level",
-                "Decreasing",
-                "Increasing Term",
-                "Renewable Term",
-                "Whole (Permanent, Ordinary) Life Insurance",
-                "Single Premium",
-                "Continuous Premium"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options, and Riders",
-              "weight_pct": 22,
-              "topics": [
-                "Standard Life Insurance Provisions (40 P.S. \u00a7 510)",
-                "Ownership",
-                "Assignment",
-                "Right to Examine (Free Look) (40 P.S. \u00a7 510C (a), (2), (3), (b1))",
-                "Payment of Premiums (a)",
-                "Grace Period (b)",
-                "Misstatement of Age/Sex (e)",
-                "Incontestability (c)"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 12,
-              "topics": [
-                "Annuity Principles and Concepts",
-                "Accumulation Period versus Annuity Period",
-                "Owner, Annuitant, and Beneficiary",
-                "Right to Examine (40 P.S. \u00a7 510D)",
-                "Immediate versus Deferred Annuities",
-                "Annuity (Benefit) Payment Options",
-                "Life Contingency Options",
-                "Annuities Certain"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Requirements of Life Insurance Qualified Plans",
-                "Federal Tax Considerations for Qualified Plans",
-                "Withdrawals",
-                "Rollovers versus Transfers",
-                "Qualified Plan Types, Characteristics, and Purchasers",
-                "Individual Retirement Accounts (IRAs; Traditional versus Roth; Immediate Annuity)"
-              ]
-            }
-          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
           "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
-          "source_quote": "UNCHANGED from prior batch metadata + NEW content_outline. PA Series 16-01. '100 Items - 120 Minutes'. Domains sum to 100%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "life"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
-        },
-        {
-          "id": "pa_accident_health",
-          "name": "Pennsylvania Producer's Examination for Accident and Health Insurance",
-          "series_code": "16-02",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 100,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 13,
-              "topics": [
-                "Licensing",
-                "Process and types",
-                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
-                "Temporary license (40 P.S. \u00a7 310.9)",
-                "Managers and exclusive general agents (40 P.S. \u00a7 310.1, 310.31)",
-                "Maintenance and duration",
-                "Change in contact information (40 P.S. \u00a7 310.11(19))"
-              ]
-            },
-            {
-              "domain": "General Insurance Concepts",
-              "weight_pct": 10,
-              "topics": [
-                "Risk",
-                "Methods of Handling Risk (e.g., Avoidance, Retention, Sharing, Reduction, Transfer)",
-                "Elements of Insurable Risks",
-                "Definitions (e.g., Risk, Hazard, Peril, Loss)",
-                "Classifications of Insurers",
-                "Mutual, Stock",
-                "Admitted, Non-Admitted",
-                "Foreign, Domestic, Alien"
-              ]
-            },
-            {
-              "domain": "Accident and Health Insurance Basics",
-              "weight_pct": 10,
-              "topics": [
-                "Producer responsibilities",
-                "Sales presentations",
-                "Advertising (31 Pa. Code Ch. 51.1\u2013.36, .42)",
-                "Life and Health Insurance Guaranty Association (40 P.S. \u00a7 991.1717)",
-                "Outline of coverage (40 P.S. \u00a7 991.1111; 31 Pa. Code Ch. 88.181)",
-                "Field Underwriting",
-                "Application Procedures",
-                "Warranties and Representations"
-              ]
-            },
-            {
-              "domain": "Individual Accident and Health Insurance Policy Provisions",
-              "weight_pct": 13,
-              "topics": [
-                "Required Provisions (40 P.S. \u00a7 753(A))",
-                "Time Limit on Certain Defenses (2)",
-                "Grace Period (3)",
-                "Reinstatement (4)",
-                "Claim Forms (6)",
-                "Proof of Loss (7)",
-                "Time of Payment of Claims (8)",
-                "Physical Examinations and Autopsy (10)"
-              ]
-            },
-            {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Benefits Determination for Disability",
-                "Indemnity",
-                "Qualifications of Disability",
-                "Total (Own Occupation, Any Occupation)",
-                "Partial (31 Pa. Code Ch. 88.138)",
-                "Permanent",
-                "Presumptive",
-                "Recurrent"
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 14,
-              "topics": [
-                "Medical Plan Concepts",
-                "Fee-for-Service",
-                "Prepaid",
-                "Specified Coverage",
-                "Comprehensive Coverage",
-                "Dependent Coverage",
-                "Provisions and Clauses",
-                "Deductibles"
-              ]
-            },
-            {
-              "domain": "Group Health Insurance",
-              "weight_pct": 9,
-              "topics": [
-                "Characteristics of Group Health Insurance",
-                "Group Contract",
-                "Certificate of Coverage",
-                "Eligible Groups",
-                "Contributory versus Non-Contributory",
-                "Employer Group Health Insurance",
-                "Underwriting Criteria",
-                "Eligibility for Insurance"
-              ]
-            },
-            {
-              "domain": "Dental Insurance",
-              "weight_pct": 2,
-              "topics": [
-                "Categories of dental treatment",
-                "Diagnostic and preventive",
-                "Restorative",
-                "Oral surgery",
-                "Endodontics",
-                "Periodontics",
-                "Prosthodontics",
-                "Orthodontics"
-              ]
-            },
-            {
-              "domain": "Health Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 14,
-              "topics": [
-                "Medicare",
-                "Administration",
-                "Eligibility",
-                "Part A",
-                "Part B",
-                "Part C",
-                "Part D",
-                "Medicare Select"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Health Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Health Insurance Premiums and Benefits",
-                "Individual",
-                "Group",
-                "Disability Income",
-                "Business Disability Insurance",
-                "Medical Expense",
-                "Long-Term Care",
-                "Consumer-Driven Health Plans"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
-          "source_quote": "NEW variety + content_outline. PA Series 16-02. '100 Questions - 120 Minutes'. Domains sum to 100%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "health"
-          ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
-        },
-        {
-          "id": "pa_life_accident_health",
-          "name": "Pennsylvania Producer's Examination for Life, Accident and Health Insurance",
-          "series_code": "16-03",
-          "exam_vendor": "PSI Services LLC",
-          "question_count": 150,
-          "time_minutes": 170,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 21,
-              "topics": [
-                "Licensing",
-                "Process and types",
-                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
-                "Temporary license (40 P.S. \u00a7 310.9)",
-                "Managers and exclusive general producers (40 P.S. \u00a7 310.1, 310.31)",
-                "Maintenance and duration",
-                "Change in contact information (40 P.S. \u00a7 310.11(19))"
-              ]
-            },
-            {
-              "domain": "General Insurance Concepts",
-              "weight_pct": 7,
-              "topics": [
-                "Risk",
-                "Methods of Handling Risk (e.g., Avoidance, Retention, Sharing, Reduction, Transfer)",
-                "Elements of Insurable Risks",
-                "Definitions (e.g., Risk, Hazard, Peril, Loss)",
-                "Classifications of Insurers",
-                "Mutual, Stock",
-                "Admitted, Non-Admitted",
-                "Foreign, Domestic, Alien"
-              ]
-            },
-            {
-              "domain": "Life, Accident, and Health Insurance Basics",
-              "weight_pct": 14,
-              "topics": [
-                "Insurable Interest (40 P.S. \u00a7 512)",
-                "Personal Uses of Life Insurance",
-                "Survivor Protection",
-                "Estate Creation",
-                "Liquidity",
-                "Estate Conservation",
-                "Asset Protection",
-                "Determining Amount of Personal Life Insurance"
-              ]
-            },
-            {
-              "domain": "Types of Life Insurance Policies",
-              "weight_pct": 8,
-              "topics": [
-                "Term Life Insurance",
-                "Level",
-                "Decreasing",
-                "Increasing Term",
-                "Renewable Term",
-                "Whole (Permanent, Ordinary) Life Insurance",
-                "Single Premium",
-                "Continuous Premium"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options, and Riders",
-              "weight_pct": 13,
-              "topics": [
-                "Standard Life Insurance Provisions (40 P.S. \u00a7 510)",
-                "Ownership",
-                "Assignment",
-                "Right to Examine (Free Look) (40 P.S. \u00a7 510C (a), (2), (3), (b1))",
-                "Payment of Premiums (a)",
-                "Grace Period (b)",
-                "Misstatement of Age/Sex (e)",
-                "Incontestability (c)"
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 9,
-              "topics": [
-                "Annuity Principles and Concepts",
-                "Accumulation Period versus Annuity Period",
-                "Owner, Annuitant, and Beneficiary",
-                "Right to Examine (40 P.S. \u00a7 510D)",
-                "Immediate versus Deferred Annuities",
-                "Annuity (Benefit) Payment Options",
-                "Life Contingency Options",
-                "Annuities Certain"
-              ]
-            },
-            {
-              "domain": "Individual Accident and Health Insurance Policy Provisions",
-              "weight_pct": 7,
-              "topics": [
-                "Required Provisions (40 P.S. \u00a7 753(A))",
-                "Time Limit on Certain Defenses (2)",
-                "Grace Period (3)",
-                "Reinstatement (4)",
-                "Claim Forms (6)",
-                "Proof of Loss (7)",
-                "Time of Payment of Claims (8)",
-                "Physical Examinations and Autopsy (10)"
-              ]
-            },
-            {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 4,
-              "topics": [
-                "Benefits Determination for Disability",
-                "Indemnity",
-                "Qualifications of Disability",
-                "Total (Own Occupation, Any Occupation)",
-                "Partial (31 Pa. Code Ch. 88.138)",
-                "Permanent",
-                "Presumptive",
-                "Recurrent"
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 4,
-              "topics": [
-                "Medical Plan Concepts",
-                "Fee-for-Service",
-                "Prepaid",
-                "Specified Coverage",
-                "Comprehensive Coverage",
-                "Dependent Coverage",
-                "Provisions and Clauses",
-                "Deductibles"
-              ]
-            },
-            {
-              "domain": "Group Health Insurance",
-              "weight_pct": 3,
-              "topics": [
-                "Characteristics of Group Health Insurance",
-                "Group Contract",
-                "Certificate of Coverage",
-                "Eligible Groups",
-                "Contributory versus Non-Contributory",
-                "Employer Group Health Insurance",
-                "Underwriting Criteria",
-                "Eligibility for Insurance"
-              ]
-            },
-            {
-              "domain": "Dental Insurance",
-              "weight_pct": 1,
-              "topics": [
-                "Categories of dental treatment",
-                "Diagnostic and preventive",
-                "Restorative",
-                "Oral surgery",
-                "Endodontics",
-                "Periodontics",
-                "Prosthodontics",
-                "Orthodontics"
-              ]
-            },
-            {
-              "domain": "Health Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 7,
-              "topics": [
-                "Medicare",
-                "Administration",
-                "Eligibility",
-                "Part A",
-                "Part B",
-                "Part C",
-                "Part D",
-                "Medicare Select"
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life and Health Insurance",
-              "weight_pct": 2,
-              "topics": [
-                "Requirements of Life Insurance Qualified Plans",
-                "Federal Tax Considerations for Qualified Plans",
-                "Withdrawals",
-                "Rollovers versus Transfers",
-                "Qualified Plan Types, Characteristics, and Purchasers",
-                "Individual Retirement Accounts (IRAs; Traditional versus Roth; Immediate Annuity)"
-              ]
-            }
-          ],
-          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
-          "source_quote": "NEW variety + content_outline. PA Series 16-03 combined L+A&H. '150 Items - 170 Minutes'. Domains sum to 100%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
-            "health"
+            "annuity"
           ],
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
+          "content_outline": [
+            {
+              "domain": "Pennsylvania Insurance Regulation",
+              "weight_pct": 20,
+              "topics": [
+                "Insurance Commissioner Powers",
+                "40 P.S. 310 Producer Licensing",
+                "24 CE Hours / 3 Ethics Every 2 Years",
+                "Unfair Insurance Practices Act (40 P.S. 1171)",
+                "Rebating & Inducements Prohibited",
+                "Pennsylvania Life & Health Guaranty Association"
+              ]
+            },
+            {
+              "domain": "General Insurance Concepts",
+              "weight_pct": 15,
+              "topics": [
+                "Contract Principles",
+                "Insurable Interest",
+                "Risk Management"
+              ]
+            },
+            {
+              "domain": "Life Insurance Policies & Provisions",
+              "weight_pct": 35,
+              "topics": [
+                "Term, Whole, Universal, Variable Life",
+                "Standard Provisions (Grace Period 31 Days, Incontestability 2 Yrs)",
+                "10-Day Free Look / 30-Day Replacement Free Look"
+              ]
+            },
+            {
+              "domain": "Annuities & Tax Concepts",
+              "weight_pct": 30,
+              "topics": [
+                "Annuities & NAIC Best Interest Training",
+                "MEC 7-Pay Test",
+                "Section 1035 Exchange"
+              ]
+            }
+          ]
         }
       ],
       "exam_meta": {
@@ -13157,8 +11759,8 @@
           "exam_vendor": "Pearson VUE",
           "exam_fee_usd": 43,
           "exam_passing_score_pct": 70,
-          "exam_question_count": 150,
-          "exam_time_minutes": 150,
+          "exam_question_count": 100,
+          "exam_time_minutes": 120,
           "fingerprint_required": true,
           "fingerprint_vendor": "IdentoGO by Idemia",
           "fingerprint_code": "TX00017",
@@ -13175,7 +11777,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
-          "source_quote": "Pearson VUE Texas General Lines Life & Health Candidate Handbook (150 items, 150 mins, 70% passing score).",
+          "source_quote": "Texas Texas Life Agent (Pearson VUE) Bulletin. 100 items, 120 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf"
         }
@@ -13183,240 +11785,71 @@
       "exam_varieties": [
         {
           "id": "tx_life_agent",
-          "name": "Life Agent (Texas)",
-          "series_code": "InsTX-Life01",
+          "name": "Texas Life Agent (Pearson VUE)",
+          "series_code": "TX Life Agent",
           "exam_vendor": "Pearson VUE",
-          "question_count": 90,
-          "scored_question_count": 80,
-          "pretest_question_count": 10,
+          "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
-          "exam_fee_usd": 39,
           "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
-          "content_outline_units": "weight_pct expressed as % of 80 scored items (50 General-Knowledge + 30 State-Specific). Source lists items-per-section; converted here by dividing by 80.",
-          "content_outline": [
-            {
-              "domain": "Types of Policies",
-              "weight_pct": 19,
-              "topics": [
-                "Traditional whole life",
-                "Universal / variable / indexed life",
-                "Term life",
-                "Annuities (fixed / variable / indexed)",
-                "Combination plans (joint life, survivorship)"
-              ]
-            },
-            {
-              "domain": "Policy Riders, Provisions, Options, and Exclusions",
-              "weight_pct": 19,
-              "topics": [
-                "Riders (waiver of premium, GIO, ADB, LTC, ROP, COL)",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture options",
-                "Settlement options",
-                "Accelerated death benefits"
-              ]
-            },
-            {
-              "domain": "Completing the Application, Underwriting, and Delivering Policies",
-              "weight_pct": 15,
-              "topics": [
-                "Application procedures and signatures",
-                "Replacement",
-                "HIPAA / HIV consent disclosures",
-                "USA PATRIOT Act / AML",
-                "GLBA privacy",
-                "Risk classification",
-                "STOLI / IOLI"
-              ]
-            },
-            {
-              "domain": "Retirement and Other Insurance Concepts",
-              "weight_pct": 10,
-              "topics": [
-                "Third-party ownership",
-                "Life settlements",
-                "Group life",
-                "Qualified vs. nonqualified plans",
-                "Tax treatment",
-                "Modified Endowment Contracts"
-              ]
-            },
-            {
-              "domain": "Texas Statutes and Rules Common to Life and Health",
-              "weight_pct": 25,
-              "topics": [
-                "Commissioner powers and duties",
-                "Licensing requirements",
-                "Marketing practices / unfair trade",
-                "Texas Life and Health Guaranty Association"
-              ]
-            },
-            {
-              "domain": "Texas Statutes and Rules Pertinent to Life Insurance Only",
-              "weight_pct": 12,
-              "topics": [
-                "Advertising / illustrations",
-                "Policy provisions",
-                "Individual life and annuity",
-                "Group life",
-                "Credit life",
-                "Replacement",
-                "Nonforfeiture law"
-              ]
-            }
-          ],
           "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
-          "source_quote": "LIFE-GENERAL KNOWLEDGE CONTENT OUTLINE (50 scoreable questions plus 5 pretest questions): Types of Policies 15, Riders/Provisions/Exclusions 15, Application/Underwriting/Delivery 12, Retirement/Other 8 = 50 items. LIFE AGENT STATE SPECIFIC CONTENT OUTLINE (30 scoreable plus 5 pretest): Common to L+H 20, Life-only 10 = 30 items. Effective December 1, 2025.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
-        },
-        {
-          "id": "tx_general_lines_life_accident_health",
-          "name": "General Lines \u2014 Life, Accident & Health",
-          "series_code": "InsTX-LAH05",
-          "exam_vendor": "Pearson VUE",
-          "question_count": 145,
-          "scored_question_count": 130,
-          "pretest_question_count": 15,
-          "time_minutes": 150,
-          "passing_score_pct": 70,
-          "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
-          "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
-          "content_outline_units": "weight_pct expressed as % of 130 scored items (100 General-Knowledge + 30 State-Specific). Source lists items-per-section; converted here.",
-          "content_outline": [
-            {
-              "domain": "Life: Types of Policies",
-              "weight_pct": 12,
-              "topics": [
-                "Traditional whole life",
-                "Universal / variable / indexed life",
-                "Term life",
-                "Annuities",
-                "Combination plans"
-              ]
-            },
-            {
-              "domain": "Life: Policy Riders, Provisions, Options, and Exclusions",
-              "weight_pct": 12,
-              "topics": [
-                "Riders (WP, GIO, ADB, LTC, ROP)",
-                "Free look",
-                "Beneficiary designations",
-                "Nonforfeiture",
-                "Settlement options",
-                "Accelerated death benefits"
-              ]
-            },
-            {
-              "domain": "Life: Completing the Application, Underwriting, Delivery",
-              "weight_pct": 9,
-              "topics": [
-                "Application",
-                "Replacement",
-                "Underwriting",
-                "STOLI/IOLI",
-                "Contract law"
-              ]
-            },
-            {
-              "domain": "Life: Retirement and Other Insurance Concepts",
-              "weight_pct": 6,
-              "topics": [
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs",
-                "Life settlements"
-              ]
-            },
-            {
-              "domain": "Health: Types of Policies",
-              "weight_pct": 12,
-              "topics": [
-                "Disability income",
-                "Medical expense (HMO/PPO/POS, HSA, HRA, FSA)",
-                "Medicare supplement",
-                "Group insurance / COBRA",
-                "LTC",
-                "Dental / vision / critical illness"
-              ]
-            },
-            {
-              "domain": "Health: Policy Provisions, Clauses, and Riders",
-              "weight_pct": 12,
-              "topics": [
-                "Mandatory + optional provisions",
-                "Coinsurance / deductibles / copay",
-                "Pre-existing conditions",
-                "Rights of renewability"
-              ]
-            },
-            {
-              "domain": "Health: Social Insurance",
-              "weight_pct": 5,
-              "topics": [
-                "Medicare A/B/C/D",
-                "Medicaid",
-                "Social Security benefits"
-              ]
-            },
-            {
-              "domain": "Health: Other Insurance Concepts",
-              "weight_pct": 4,
-              "topics": [
-                "Total / partial / residual disability",
-                "Coordination of benefits",
-                "Tax treatment",
-                "Managed care",
-                "Workers Comp",
-                "Subrogation"
-              ]
-            },
-            {
-              "domain": "Health: Field Underwriting Procedures",
-              "weight_pct": 6,
-              "topics": [
-                "Application",
-                "Sources of insurability + HIPAA",
-                "Initial premium + receipt",
-                "Policy delivery",
-                "Contract law"
-              ]
-            },
-            {
-              "domain": "Texas: Statutes/Rules Common to Life and Health",
-              "weight_pct": 17,
-              "topics": [
-                "Commissioner",
-                "Licensing",
-                "Marketing practices",
-                "Guaranty Association"
-              ]
-            },
-            {
-              "domain": "Texas: Life-only Statutes/Rules",
-              "weight_pct": 5,
-              "topics": [
-                "Advertising",
-                "Policy provisions",
-                "Group / credit life",
-                "Replacement",
-                "Nonforfeiture"
-              ]
-            }
-          ],
-          "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
-          "source_quote": "LIFE AND HEALTH-GENERAL KNOWLEDGE CONTENT OUTLINE (100 scoreable questions plus 10 pretest questions) ... LIFE and HEALTH AGENT STATE SPECIFIC CONTENT OUTLINE (30 scoreable questions plus 5 pretest questions). Effective December 1, 2025.",
-          "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
-            "health"
+            "annuity"
+          ],
+          "content_outline": [
+            {
+              "domain": "Texas Insurance Regulation",
+              "weight_pct": 20,
+              "topics": [
+                "Texas Department of Insurance (TDI) & Commissioner Powers",
+                "TIC 4001 Producer Licensing & Temporary License (90 days)",
+                "24 CE Hours / 3 Ethics Every 2 Years",
+                "TIC 541 Unfair Competition & Deceptive Trade Practices (DTPA)",
+                "TIC 543 Misrepresentation & Twisting",
+                "Rebating Prohibition TIC 541.058",
+                "Texas Life & Health Insurance Guaranty Association (TIC 463)"
+              ]
+            },
+            {
+              "domain": "General Insurance & Contract Law",
+              "weight_pct": 15,
+              "topics": [
+                "Contract Mechanics",
+                "Insurable Interest TIC 1103",
+                "Risk Concepts",
+                "Representations vs Warranties TIC 705"
+              ]
+            },
+            {
+              "domain": "Life Insurance Products",
+              "weight_pct": 25,
+              "topics": [
+                "Term, Whole Life, Universal Life, Variable UL",
+                "Group Life Insurance TIC 1131 (31-day conversion)",
+                "Credit Life TIC 1153"
+              ]
+            },
+            {
+              "domain": "Policy Provisions & Riders",
+              "weight_pct": 25,
+              "topics": [
+                "TIC 1101 Required Provisions",
+                "10-Day Free Look / 30-Day Replacement Free Look",
+                "Grace Period 31 Days",
+                "Incontestability 2 Years TIC 1101.006",
+                "Nonforfeiture TIC 1105"
+              ]
+            },
+            {
+              "domain": "Annuities & Tax Concepts",
+              "weight_pct": 15,
+              "topics": [
+                "Annuity Mechanics & Suitability TIC 1115",
+                "MEC 7-Pay Test",
+                "Section 1035 Exchange"
+              ]
+            }
           ]
         }
       ],
@@ -14013,7 +12446,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
-          "source_quote": "Pearson VUE Virginia Life & Annuities Series 1105 Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "source_quote": "Virginia Virginia Life & Annuities (Series 1105) Bulletin. 100 items, 150 mins, 70% pass.",
           "captured_at": "2026-06-03T00:00:00Z",
           "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         }
@@ -14021,261 +12454,69 @@
       "exam_varieties": [
         {
           "id": "va_life_annuities",
-          "name": "Virginia Life and Annuities Insurance Examination",
-          "series_code": "11-05 (filename 1105)",
+          "name": "Virginia Life & Annuities (Series 1105)",
+          "series_code": "Series 1105",
           "exam_vendor": "Pearson VUE",
-          "question_count": 105,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 17,
-              "topics": [
-                "Licensing               ",
-                "State regulation    "
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Concepts               ",
-                "Insurers               ",
-                "Agents and general rules of agency    ",
-                "Contracts               "
-              ]
-            },
-            {
-              "domain": "Life Insurance Basics",
-              "weight_pct": 15,
-              "topics": [
-                "Insurable interest  (38.2-301, 302, 3105)  ",
-                "Personal uses of life insurance    ",
-                "Determining amount of personal life insurance    ",
-                "Business uses of life insurance    ",
-                "Classes of life insurance policies    ",
-                "Premiums               ",
-                "Agent responsibilities    ",
-                "Individual underwriting by the insurer    "
-              ]
-            },
-            {
-              "domain": "Life Insurance Policies",
-              "weight_pct": 20,
-              "topics": [
-                "Term life insurance    ",
-                "Whole life insurance   ",
-                "Flexible premium policies    ",
-                "Specialized policies    ",
-                "Group life insurance    ",
-                "Credit life insurance (individual versus group)"
-              ]
-            },
-            {
-              "domain": "Life Insurance Policy Provisions, Options and Riders",
-              "weight_pct": 18,
-              "topics": [
-                "Standard provisions    ",
-                "Beneficiaries               ",
-                "Settlement options    ",
-                "Nonforfeiture options    ",
-                "Policy loans  (38.2-3308)  ",
-                "Dividend options (38.2-3307)   ",
-                "Disability riders    ",
-                "Accelerated benefit provision/rider  (38.2-3115.1; 14 VAC 5-70-40)  ",
-                "Riders covering additional insureds    ",
-                "Riders affecting the death benefit amount    "
-              ]
-            },
-            {
-              "domain": "Annuities",
-              "weight_pct": 12,
-              "topics": [
-                "Annuity principles and concepts    ",
-                "Immediate versus deferred annuities    ",
-                "Annuity (benefit) payment options    ",
-                "Annuity products    ",
-                "Uses of annuities    "
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Life Insurance and Annuities",
-              "weight_pct": 4,
-              "topics": [
-                "Taxation of personal life insurance    ",
-                "Modified endowment contracts (MECs)    ",
-                "Taxation of non-qualified annuities    ",
-                "Taxation of individual retirement accounts (IRAs)    ",
-                "Rollovers and transfers (IRAs and qualified plans)    ",
-                "Section 1035 exchanges"
-              ]
-            },
-            {
-              "domain": "Qualified Plans",
-              "weight_pct": 4,
-              "topics": [
-                "General requirements    ",
-                "Federal tax considerations   ",
-                "Plan types, characteristics and purchasers    "
-              ]
-            }
-          ],
-          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). VA Series 11-05 Life and Annuities. '90 scored (15 pre-test) questions - Two-hour time limit'. Domains: 1.0 Insurance Regulation 17%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 15%, 4.0 Life Insurance Policies 20%, 5.0 Life Insurance Policy Provisions/Options/Riders 18%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 4%, 8.0 Qualified Plans 4%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "life",
-            "annuity"
-          ],
-          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
-        },
-        {
-          "id": "va_health",
-          "name": "Virginia Health Insurance Examination",
-          "series_code": "11-06 (filename 1106)",
-          "exam_vendor": "Pearson VUE",
-          "question_count": 105,
-          "time_minutes": 120,
-          "passing_score_pct": 70,
-          "content_outline": [
-            {
-              "domain": "Insurance Regulation",
-              "weight_pct": 17,
-              "topics": [
-                "Licensing               ",
-                "State regulation    ",
-                "Federal regulation    ",
-                "Industry regulation    "
-              ]
-            },
-            {
-              "domain": "General Insurance",
-              "weight_pct": 10,
-              "topics": [
-                "Concepts               ",
-                "Insurers               ",
-                "Agents and general rules of agency    ",
-                "Contracts               "
-              ]
-            },
-            {
-              "domain": "Health Insurance Basics",
-              "weight_pct": 12,
-              "topics": [
-                "Definitions of perils    ",
-                "Principal types of losses and benefits    ",
-                "Classes of health insurance policies    ",
-                "Limited policies    ",
-                "Common exclusions from coverage    ",
-                "Agent responsibilities in individual health insurance    ",
-                "Individual underwriting by the insurer    ",
-                "Considerations in replacing health insurance    "
-              ]
-            },
-            {
-              "domain": "Individual Health Insurance Policy General Provisions",
-              "weight_pct": 16,
-              "topics": [
-                "Uniform required provisions  (38.2-3503 A)  ",
-                "Uniform optional provisions  (38.2-3504)  ",
-                "Other general provisions    "
-              ]
-            },
-            {
-              "domain": "Disability Income and Related Insurance",
-              "weight_pct": 9,
-              "topics": [
-                "Qualifying for disability benefits    ",
-                "Individual disability income insurance (14 VAC 5-141-60)    ",
-                "Unique aspects of individual disability underwriting    ",
-                "Group disability income insurance (14 VAC 5-141-60)   ",
-                "Business disability insurance    ",
-                "Social Security disability    ",
-                "Workers compensation    "
-              ]
-            },
-            {
-              "domain": "Medical Plans",
-              "weight_pct": 10,
-              "topics": [
-                "Medical plan concepts    ",
-                "Types of providers and plans    ",
-                "Cost containment in health care delivery    ",
-                "Virginia eligibility requirements    ",
-                "HIPAA (Health Insurance Portability and Accountability Act) requirements  (38.2 -3430.1\u2013.9, 3432.1\u2013.3)  ",
-                "Health Savings Accounts (HSAs) and Health Reimbursement Accounts (HRAs)     "
-              ]
-            },
-            {
-              "domain": "Group Health Insurance",
-              "weight_pct": 8,
-              "topics": [
-                "Characteristics of group insurance    ",
-                "Defined groups  (38.2-3521.1)             ",
-                "Marketing considerations    ",
-                "Employer group health insurance    ",
-                "Small employer medical plans  (38.2-3431\u20133437)  "
-              ]
-            },
-            {
-              "domain": "Dental Insurance",
-              "weight_pct": 2,
-              "topics": [
-                "Types of dental treatment    ",
-                "Indemnity plans               ",
-                "Employer group dental expense    "
-              ]
-            },
-            {
-              "domain": "Insurance for Senior Citizens and Special Needs Individuals",
-              "weight_pct": 14,
-              "topics": [
-                "Medicare               ",
-                "Medicare supplement insurance  (14 VAC 5-170-10\u2013220, 38.2-3600 \u2013 38.2-3611)  ",
-                "Other options for individuals with Medicare    ",
-                "Long-term care (LTC) policies  (38.2-5200\u20135210; 14 VAC 5-200-10\u2013210)  "
-              ]
-            },
-            {
-              "domain": "Federal Tax Considerations for Health Insurance",
-              "weight_pct": 2,
-              "topics": [
-                "Personally-owned health insurance    ",
-                "Employer group health insurance    ",
-                "Medical expense coverage for sole proprietors and partners   ",
-                "Business disability insurance    ",
-                "Health Savings Accounts (HSAs), Health Reimbursement Accounts (HRAs), and Flexible Spending Accounts "
-              ]
-            }
-          ],
-          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). VA Series 11-06 Health. '90 scored (15 pre-test) questions - Two-hour time limit'. Domains: 1.0 Insurance Regulation 17%, 2.0 General Insurance 10%, 3.0 Health Insurance Basics 12%, 4.0 Individual Health Insurance Policy General Provisions 16%, 5.0 Disability Income and Related Insurance 9%, 6.0 Medical Plans 10%, 7.0 Group Health Insurance 8%, 8.0 Dental Insurance 2%, 9.0 Insurance for Senior Citizens and Special Needs Individuals 14%, 10.0 Federal Tax Considerations for Health Insurance 2%.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
-          "applies_to_lines": [
-            "health"
-          ],
-          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
-        },
-        {
-          "id": "va_life_annuities_health",
-          "name": "Virginia Life, Annuities and Health Insurance Examination",
-          "series_code": "11-01 (filename prior batch may have used 1107)",
-          "exam_vendor": "Pearson VUE",
-          "question_count": 150,
+          "question_count": 100,
           "time_minutes": 150,
           "passing_score_pct": 70,
-          "content_outline": null,
-          "research_pending_reason": "VA SCC/Prometric CIB confirms Series 11-01 exists ('VA Life, Annuities & Health Exam, 150 mins, $35') but the per-series content outline PDF (likely at https://www.prometric.com/files/virginia/1101-Life-Annuities-and-Health-Insurance.pdf or sites/default/files/2022-03/1101-_life_annuities_and_health_3.1.22.pdf) returned 404 on both the new and legacy paths probed. Prior batch labeled this 1107; canonical VA SCC series code is 11-01. Recommend either (a) treating outline as concatenation/weighted-average of 1105 + 1106 outlines, or (b) re-attempting fetch via authenticated/browser session.",
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
           "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
-          "source_quote": "NEW: outline null with research_pending_reason. VA CIB lists '11-01 VA Life, Annuities & Health Exam 150 mins $35'. Prior batch series code 1107 likely a filename-derivative.",
-          "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
-            "health",
             "annuity"
           ],
-          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
+          "content_outline": [
+            {
+              "domain": "Virginia Insurance Regulation",
+              "weight_pct": 20,
+              "topics": [
+                "State Corporation Commission (SCC) Bureau of Insurance",
+                "VA Code 38.2-1800 Licensing Definitions & Consultant Rules",
+                "16 CE Hours / 3 Ethics Every 2 Years",
+                "VA Code 38.2-500 Unfair Trade Practices (Twisting 38.2-508, Rebating 38.2-509)",
+                "Virginia Life & Health Insurance Guaranty Association (38.2-1700)"
+              ]
+            },
+            {
+              "domain": "General Insurance Concepts",
+              "weight_pct": 15,
+              "topics": [
+                "Legal Contract Principles",
+                "Insurable Interest 38.2-300",
+                "Underwriting Procedures"
+              ]
+            },
+            {
+              "domain": "Life Insurance Policies & Provisions",
+              "weight_pct": 30,
+              "topics": [
+                "Term, Whole, Universal, Group Life 38.2-3300",
+                "VA Code 38.2-3300 Standard Provisions",
+                "10-Day Free Look / 30-Day Replacement",
+                "Grace Period 31 Days",
+                "Incontestability 2 Years"
+              ]
+            },
+            {
+              "domain": "Annuities & Best Interest Standard",
+              "weight_pct": 20,
+              "topics": [
+                "Fixed, Variable & Equity Indexed Annuities",
+                "VA Code 38.2-3113 Annuity Suitability & 4-Hour Training",
+                "Annuitization Payouts"
+              ]
+            },
+            {
+              "domain": "Federal Tax Considerations",
+              "weight_pct": 15,
+              "topics": [
+                "Tax-Free Death Benefit",
+                "MEC 7-Pay Test",
+                "1035 Exchange"
+              ]
+            }
+          ]
         }
       ],
       "exam_meta": {
