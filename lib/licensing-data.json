@@ -1371,7 +1371,7 @@
           "prelicense_hours_required": 8,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "PSI Exams",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 55,
           "exam_passing_score_pct": 60,
           "exam_question_count": 75,
@@ -1388,9 +1388,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life-Only LoA; no separate annuity license. CA requires 8 hours initial CA-specific annuity training before solicitation (CIC \u00a71749.8); 4 hours each subsequent license term. SB 263 added 8-hr Annuity Suitability & Best Interest course effective Jan 1, 2025 (existing producers had until Jul 1, 2025).",
-          "source_url": "https://www.insurance.ca.gov/0200-industry/0050-renew-license/0200-requirements/Life/questions-answers.cfm",
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_quote": "Section 1749.8 of the California Insurance Code states that any life agent who sells annuities must complete eight hours of approved annuity training prior to soliciting any individual consumers. A four-hour California-specific annuity training course is required each subsequent license term in which the agent sells an annuity.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         },
         "health": {
           "research_pending": false,
@@ -1458,7 +1459,7 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "PSI Exams",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 55,
           "exam_passing_score_pct": 60,
           "exam_question_count": 75,
@@ -1478,9 +1479,10 @@
           "license_type_note": "California Life-Only (0L) agent license. 20-hour CDI-approved pre-licensing. Exam via PSI. Passing score 60%. Fingerprinting via DOJ LiveScan.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/california-resident-licensing-individual",
-          "source_quote": "$188 for a 2-year term. If a license is applied for within a year of expiration the fee is $94. New license applicants must submit their fingerprints after submitting their insurance license application to the California Department of Insurance (Department) or soon thereafter.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
+          "source_quote": "PSI California Life-Only Agent Candidate Information Bulletin (75 items, 105 mins, 60% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         }
       },
       "exam_varieties": [
@@ -1488,7 +1490,7 @@
           "id": "ca_life_only",
           "name": "California Life-Only Agent",
           "series_code": "CDI Life-Only",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 75,
           "time_minutes": 90,
           "passing_score_pct": 60,
@@ -1525,18 +1527,19 @@
               ]
             }
           ],
-          "source_url": "https://www.insurance.ca.gov/0200-industry/0030-seek-pre-lic/upload/PreEduObjLO.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_quote": "NEW: content_outline (weights & topics). CA Life-Only educational objectives. 75 questions, 90 minutes. Domains: I. General Insurance (22 questions=30%), II. Life Insurance (49 questions=65%), III. Life Policy Riders (4 questions=5%)",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         },
         {
           "id": "ca_accident_health",
           "name": "California Accident and Health Agent",
           "series_code": "CDI A&H",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 75,
           "time_minutes": 90,
           "passing_score_pct": 60,
@@ -1582,18 +1585,19 @@
               ]
             }
           ],
-          "source_url": "https://www.insurance.ca.gov/0200-industry/0030-seek-pre-lic/upload/PreLicEduObjAH.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_quote": "NEW: content_outline (weights & topics). CA A&H educational objectives. 75 questions, 90 minutes. Domains: I. General Insurance 18q=25%, II. General Concepts Medical/Disability 4q=5%, III. Medical Expense Insurance 45q=60%, IV. Disability Income 4q=5%, V. Long-Term Care 4q=5%",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         },
         {
           "id": "ca_life_disability_analyst",
           "name": "California Life and Disability Insurance Analyst",
           "series_code": "CDI Analyst",
-          "exam_vendor": "CDI (administered at CDI site)",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 125,
           "time_minutes": 210,
           "passing_score_pct": 70,
@@ -1702,19 +1706,20 @@
               ]
             }
           ],
-          "source_url": "https://www.insurance.ca.gov/0200-industry/0030-seek-pre-lic/upload/LDAnalystEOsJune2013.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_quote": "NEW: content_outline (weights & topics). CA Life and Disability Analyst Examination Objectives (June 2013). 125 questions, 210 minutes. Domains: I. General Insurance (15q=12%), II. Life and Disability Analyst (10q=8%), III. Life Insurance (32q=25%), IV. Annuities (12q=10%), V. Life Settlements (7q=6%), VI. Disability Insurance (1q=1%), VII. Disability Income Insurance (8q=6%), VIII. Long-Term Care (18q=15%), IX. Health Insurance (4q=3%), X. Health Insurance Exclusions or Non-Health Insurance Products (2q=1%), XI. Senior Citizens - A Protected Class (12q=10%), XII. Penalties (4q=3%)",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         },
         {
           "id": "ca_life_funeral_burial",
           "name": "California Life - Limited to the Payment of Funeral and Burial Expenses",
           "series_code": "CDI Life-Limited (LOLP)",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 90,
           "time_minutes": 120,
           "passing_score_pct": 60,
@@ -1753,18 +1758,19 @@
               ]
             }
           ],
-          "source_url": "https://www.insurance.ca.gov/0200-industry/0030-seek-pre-lic/upload/Life-Limited-EOs-EDITS-FINAL-2.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
           "source_quote": "NEW: content_outline (weights & topics). CA Life-Limited to Funeral/Burial EOs (revised 07-18-2018). 90 questions, 120 minutes. Domains (post-redline): I. General Insurance (18q=20%), II. Life-Limited to Funeral/Burial Expenses (52q=58%), III. Life Insurance (18q=20%), IV. Penalties (2q=2%).",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf"
         }
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://www.insurance.ca.gov/0200-industry/0020-apply-license/0100-indiv-resident/upload/PSI-Candidate-Information-Bulletin-English-2-13-2025.pdf",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/media/programs/cains/CIB_Life_Only_Agent.pdf",
         "state_doi_page": "https://www.insurance.ca.gov/0200-industry/0020-apply-license/0100-indiv-resident/"
       },
       "course_meta": {
@@ -2771,9 +2777,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. In Florida the relevant LoAs are 2-15 (Life, Health & Variable Annuity) or 2-14 (Life including Variable Annuity).",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. FL is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf"
         },
         "health": {
           "research_pending": false,
@@ -2861,9 +2868,10 @@
           "license_type_note": "License type 2-14 Life (including Annuities & Variable Contracts). 30 hours pre-licensing; exam administered by Pearson VUE. CE due biannually by end of birth month. Agents licensed 6+ years need only 20 CE hours per cycle.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/florida-resident-licensing-individual",
-          "source_quote": "$50 plus $5.00 Per line of authority. Florida applicants must be fingerprinted by IdentoGO by Idemia, formerly MorphoTrust USA. 30-hour pre-licensing course required for 2-14. Exam: Pearson VUE, 95 questions (85 scored), 120 min, $44 fee, 70% passing score.",
-          "captured_at": "2026-06-26T00:00:00Z"
+          "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
+          "source_quote": "Pearson VUE Florida Insurance Candidate Handbook (95 items, 120 mins, 70% passing score).",
+          "captured_at": "2026-06-26T00:00:00Z",
+          "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf"
         }
       },
       "exam_varieties": [
@@ -2878,7 +2886,7 @@
           "time_minutes": 120,
           "passing_score_pct": 70,
           "exam_fee_usd": 44,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121000.pdf",
+          "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
           "content_outline": [
             {
@@ -2950,7 +2958,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
+          "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
           "source_quote": "Florida Agent's Life (including Annuities & Variable Contracts) \u2014 85 scored questions plus 10 pretest questions \u2014 Time limit: 2 hours. Effective January 1, 2026.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -2969,7 +2977,7 @@
           "time_minutes": 165,
           "passing_score_pct": 70,
           "exam_fee_usd": 44,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121000.pdf",
+          "candidate_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
           "content_outline": [
             {
@@ -3096,7 +3104,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
+          "source_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
           "source_quote": "Florida Agent's Health & Life (including Annuities & Variable Contracts) \u2014 150 scored questions plus 15 pretest questions \u2014 Time limit: 2.75 hours. Effective January 1, 2026.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -3108,8 +3116,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121000.pdf",
-        "state_content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
+        "state_doi_handbook_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
+        "state_content_outline_url": "https://www.myfloridacfo.com/docs-sf/agent-and-agency-services-libraries/agent-and-agency-services-documents/licensing/candidate-handbook.pdf",
         "state_doi_page": "https://www.myfloridacfo.com/division/agents/licensing/agents-and-adjusters/exams"
       },
       "course_meta": {
@@ -3232,9 +3240,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. GA is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download"
         },
         "health": {
           "research_pending": false,
@@ -3322,9 +3331,10 @@
           "license_type_note": "Georgia Life license. 40-hour pre-licensing required. Fingerprint required. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://oci.georgia.gov/",
-          "source_quote": "Office of Commissioner of Insurance and Safety Fire \u2014 Get an Agent License \u2014 Agent Portal (specific Life fee/fingerprint details not on landing page)",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
+          "source_quote": "Pearson VUE Georgia Life Agent Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download"
         }
       },
       "exam_varieties": [
@@ -3338,7 +3348,7 @@
           "pretest_question_count": 10,
           "time_minutes": null,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121100.pdf",
+          "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
           "content_outline": [
             {
@@ -3401,7 +3411,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
+          "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
           "source_quote": "GEORGIA LIFE AGENT CONTENT OUTLINE (80 scored plus 10 pretest questions). I. Types of Policies 15. II. Policy Riders, Provisions, Options, and Exclusions 15. III. Completing the Application, Underwriting, and Delivering the Policy 12. IV. Retirement and Other Insurance Concepts 8. V. Georgia Laws, Rules, and Regulations.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -3418,9 +3428,9 @@
           "pretest_question_count": 10,
           "time_minutes": null,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121100.pdf",
+          "candidate_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
+          "source_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
           "source_quote": "Georgia Life, Sickness, Accident and Health combined outline lists 125 scored plus 10 pretest questions in source content outline document.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -3431,8 +3441,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121100.pdf",
-        "state_content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121102.pdf",
+        "state_doi_handbook_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
+        "state_content_outline_url": "https://oci.georgia.gov/document/document/ga-insurance-candidate-handbook/download",
         "state_doi_page": "https://oci.georgia.gov/get-resident-insurance-agent-license"
       },
       "course_meta": {
@@ -3895,9 +3905,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. IL is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf"
         },
         "health": {
           "research_pending": false,
@@ -3985,9 +3996,10 @@
           "license_type_note": "Illinois Life license. 20-hour pre-licensing required. No fingerprint. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/illinois-resident-licensing-individual",
-          "source_quote": "$215. Public Adjuster applicant will be deferred for fingerprint requirements.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
+          "source_quote": "Pearson VUE Illinois Life Producer Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf"
         }
       },
       "exam_varieties": [
@@ -4001,7 +4013,7 @@
           "pretest_question_count": 15,
           "time_minutes": null,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121400.pdf",
+          "candidate_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121402.pdf",
           "content_outline": [
             {
@@ -4064,7 +4076,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121402.pdf",
+          "source_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
           "source_quote": "ILLINOIS LIFE-GENERAL KNOWLEDGE CONTENT OUTLINE (50 scored plus 5 pretest questions); Illinois state-section (31 scored plus 5 pretest questions). Effective January 1, 2026.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -4074,8 +4086,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121400.pdf",
-        "state_content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121402.pdf",
+        "state_doi_handbook_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
+        "state_content_outline_url": "https://idoi.illinois.gov/content/dam/soi/en/web/idoi/licensing/documents/il_insurance_handbook.pdf",
         "state_doi_page": "https://idoi.illinois.gov/producers.html"
       },
       "course_meta": {
@@ -6316,7 +6328,7 @@
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -6333,9 +6345,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. MI is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         },
         "health": {
           "research_pending": false,
@@ -6403,7 +6416,7 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -6423,9 +6436,10 @@
           "license_type_note": "Michigan Life license. 20-hour pre-licensing. No fingerprint. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/michigan-resident-licensing-individual",
-          "source_quote": "$10 Resident Producer fee per application. If applicant responds 'yes' to one of the background questions please submit supporting documents electronically via NIPR's Attachments Warehouse.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
+          "source_quote": "PSI Michigan Life Producer Candidate Information Bulletin (100 items, 120 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         }
       },
       "exam_varieties": [
@@ -6433,7 +6447,7 @@
           "id": "mi_life_producer",
           "name": "Michigan Life Producer",
           "series_code": "16-65",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 72,
@@ -6551,18 +6565,19 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/MIINS/Life%20Prod%2016-65x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "UNCHANGED metadata + NEW content_outline. MI Series 16-65 Life Producer. '100 Items - 2 Hours. 72% (72 Correct to Pass)'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         },
         {
           "id": "mi_life_accident_health",
           "name": "Michigan Life, Accident and Health Producer",
           "series_code": "16-80",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 150,
           "time_minutes": 150,
           "passing_score_pct": 75,
@@ -6808,13 +6823,14 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/MIINS/Life&Health%20Prod%2016-80x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "NEW variety + content_outline. MI Series 16-80 combined L+A&H. '150 Items - 2 1/2 Hours. 75% (113 Correct to Pass)'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         },
         {
           "id": "mi_life_variable_annuities",
@@ -6824,8 +6840,8 @@
           "question_count": 130,
           "time_minutes": 150,
           "passing_score_pct": 73,
-          "candidate_handbook_url": "https://www.michigan.gov/difs/-/media/Project/Websites/difs/Licensing/Candidate_Information_Bulletin.pdf",
-          "source_url": "https://proctor2.psionline.com/media/programs/MIINS/MIINSCONTENTOUTLINESxx.pdf",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "Life, Variable Life and Annuities Producer 2.5 hours 130 items 73% cut score.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -6837,7 +6853,7 @@
           "id": "mi_variable_life_annuities",
           "name": "Michigan Variable Life and Annuities Producer (alias)",
           "series_code": "16-83",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 60,
           "time_minutes": 60,
           "passing_score_pct": 74,
@@ -6947,19 +6963,20 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/MIINS/Variable%20Annuties%20Prod%2016-83x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "NEW variety + content_outline. NOTE: The prior batch listed both 'Variable Annuities' and 'Variable Life and Annuities Producer' as separate varieties; per the MI cut-scores doc and the 16-83 PDF title, these refer to the SAME series 16-83 license (60 items, 1 hour). The DIFS cut-scores PDF also lists 'Life, Variable Life and Annuities Producer (2.5 hours 130 items 73%)' as a SEPARATE bigger combined exam \u2014 outline for that 130-item exam was not located on the PSI media path probed (see research_pending_reason on mi_life_variable_life_annuities below).",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "annuity"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         },
         {
           "id": "mi_life_counselor",
           "name": "Michigan Life Counselor",
           "series_code": "16-73",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 110,
           "time_minutes": 120,
           "passing_score_pct": 80,
@@ -7077,36 +7094,38 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/MIINS/Life%20Counselor%2016-73x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "NEW variety + content_outline. MI Series 16-73 Life Counselor. '110 Items - 2 Hours. 80% (88 Correct to Pass)'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         },
         {
           "id": "mi_life_variable_life_annuities_combined",
           "name": "Michigan Life, Variable Life and Annuities Producer",
           "series_code": "16-82 (per prior batch / PSI media)",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 130,
           "time_minutes": 150,
           "passing_score_pct": 73,
           "content_outline": null,
           "research_pending_reason": "DIFS cut-scores PDF confirms 'Life, Variable Life and Annuities Producer 2.5 hours 130 items 73%'. PSI media URL for this Series 16-82 outline was not found after probing 10+ URL variations under proctor2.psionline.com/media/programs/MIINS/. Recommend deriving content_outline as the weighted union of MI Life Producer (16-65) + Variable Life and Annuities Producer (16-83) outlines, or re-querying DIFS directly.",
-          "source_url": "https://www.michigan.gov/difs/-/media/Project/Websites/difs/Licensing/Ins_Exam_Cut_Scores.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
           "source_quote": "NEW: outline null with research_pending_reason. DIFS 2025 cut-scores doc: 'Life, Variable Life and Annuities Producer 2.5 hours 130 items 73%'.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "annuity"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf"
         }
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/MIINS/MIINSCONTENTOUTLINESxx.pdf",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/media/programs/miins/MI_Life_Producer_CIB.pdf",
         "state_doi_page": "https://www.michigan.gov/difs/industry/licensing-ins/examinations"
       },
       "course_meta": {
@@ -8772,7 +8791,8 @@
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. New Jersey was the 50TH and FINAL state to approve the NAIC standard.",
           "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
           "source_quote": "Fixed annuities sold under Life LoA in New Jersey. Life Producer examination (PSI 83-item exam) covers Annuities under Types of Policies (Single/level/flexible, Immediate/deferred, Fixed/variable, Equity index) and NJ Laws (Bulletin 09-06 & N.J.S.A. 17B:25-34 et seq. Suitability of Annuities & Life Products).",
-          "captured_at": "2026-07-03T00:00:00Z"
+          "captured_at": "2026-07-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf"
         },
         "health": {
           "research_pending": false,
@@ -8861,7 +8881,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
-          "source_quote": "PSI NJ Life Producer & Instructor Examination Bulletin (Effective Nov 11, 2010 / Current). 83 scored items, 70% passing score (59/83 correct), 3.5 hours (210 minutes). Outline covers 6 domains: Types of Policies (9 items), Policy Riders/Provisions/Options/Exclusions (21 items), Completing Application/Underwriting/Delivery (12 items), Taxes/Retirement/Other Concepts (8 items), NJ Laws Common (25 items), NJ Laws Pertinent to Life & Annuities (8 items).",
+          "source_quote": "PSI NJ Life Producer & Instructor Examination (83 items, 210 mins, 70% passing score).",
           "captured_at": "2026-07-03T00:00:00Z",
           "candidate_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf"
         }
@@ -8968,7 +8988,7 @@
           "id": "nj_accident_health",
           "name": "New Jersey Accident and Health Producer",
           "series_code": "NJ A&H",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 88,
           "time_minutes": 210,
           "passing_score_pct": 70,
@@ -9067,12 +9087,13 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/njins/a_hproduceinstructor.pdf",
+          "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
           "source_quote": "NEW variety + content_outline. NJ PSI Examination Content Outlines (Effective July 14, 2011). 'Producer 88 70% Correct 3.5 Hours'. Domains stated as item counts (Types of Policies 14 items, Policy Provisions 20, Social Insurance 3, Other Concepts 4, Field Underwriting 9, NJ Laws Common 25, NJ Laws A&H Only 13 \u2014 total 88 items). Weights computed as item_count/88.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf"
         }
       ],
       "exam_meta": {
@@ -9362,7 +9383,7 @@
           "prelicense_hours_required": 4,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 40,
           "exam_passing_score_pct": 70,
           "exam_question_count": 150,
@@ -9379,9 +9400,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life Accident & Health LoA; no separate annuity license. NY has its own best-interest rule \u2014 Regulation 187 / 11 NYCRR 224 \u2014 broader than NAIC Model 275 (covers life insurance too). Effective Aug 1, 2019 for annuities, Feb 1, 2020 for life. Approved Reg 187 product/best-interest training required.",
-          "source_url": "https://www.dfs.ny.gov/apps_and_licensing/agents_and_brokers/Suitability/Best-Interests-Training",
+          "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
           "source_quote": "11 NYCRR 224 (Insurance Regulation 187): Suitability and Best Interests in Life Insurance and Annuity Transactions. The new regulation became effective August 1, 2019 with respect to annuity transactions and February 1, 2020 with respect to life insurance policies.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf"
         },
         "health": {
           "research_pending": false,
@@ -9449,7 +9471,7 @@
           "prelicense_hours_required": 40,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 40,
           "exam_passing_score_pct": 70,
           "exam_question_count": 150,
@@ -9469,9 +9491,10 @@
           "license_type_note": "New York Life license. 40-hour pre-licensing. Fingerprint required ($102 NY rate). 150-question exam. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/new-york-resident-licensing-individual",
-          "source_quote": "$80 for Life/Accident & Health Agent or Broker (if license duration exceeds one year; $40 if one year or less). Fingerprinting applies only to Independent Adjuster, Public Adjuster, Bail Bonds, Life Settlement Broker.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
+          "source_quote": "PSI New York Life Agent Series 10-51 Candidate Information Bulletin (150 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf"
         }
       },
       "exam_varieties": [
@@ -9484,7 +9507,7 @@
           "time_minutes": 120,
           "passing_score_pct": 70,
           "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
           "content_outline": [
             {
               "domain": "Insurance Regulation",
@@ -9570,7 +9593,7 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
           "source_quote": "LIFE INSURANCE AGENT/BROKER EXAM SERIES 10-51 \u2014 100 questions \u2013 Two-hour time limit. 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 22%, 4.0 Life Insurance Policies 16%, 5.0 Life Insurance Policy Provisions 22%, 6.0 Annuities 10%, 7.0 Federal Tax 6%, 8.0 Qualified Plans 4%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -9586,7 +9609,7 @@
           "time_minutes": 150,
           "passing_score_pct": 70,
           "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
           "content_outline": [
             {
               "domain": "Insurance Regulation",
@@ -9701,7 +9724,7 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
           "source_quote": "SERIES 10-55 \u2014 150 questions \u2013 2.5-hour time limit. Domain weights vary; combined exam blends Life (Series 10-51) and Accident & Health (Series 10-52) content.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -9712,8 +9735,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/media/programs/nyins/NY_Life_Agent_CIB.pdf",
         "state_doi_page": "https://www.dfs.ny.gov/apps_and_licensing/agents_and_brokers/lic_app_la_lb"
       },
       "course_meta": {
@@ -9833,9 +9856,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://www.ncdoi.gov/media/1248/open",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. NC is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open"
         },
         "health": {
           "research_pending": false,
@@ -9923,9 +9947,10 @@
           "license_type_note": "North Carolina Life license. 20-hour pre-licensing. No fingerprint. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/north-carolina-resident-licensing-individual",
-          "source_quote": "$82 (plus $50 per additional line of authority). Effective October 1, 2010, fingerprints are required for the following initial License Classes: Insurance Producer.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://www.ncdoi.gov/media/1248/open",
+          "source_quote": "Pearson VUE North Carolina Life Agent Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open"
         }
       },
       "exam_varieties": [
@@ -9939,7 +9964,7 @@
           "pretest_question_count": 5,
           "time_minutes": 75,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123400.pdf",
+          "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
           "content_outline": [
             {
@@ -9995,7 +10020,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
+          "source_url": "https://www.ncdoi.gov/media/1248/open",
           "source_quote": "NORTH CAROLINA LIFE AGENT CONTENT OUTLINE (55 questions plus 5 pretest questions). This examination will test topics listed on the following content outline and is composed of fifty-five (55) four-option, multiple choice questions. Up to five (5) additional questions may be on the test.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -10012,9 +10037,9 @@
           "pretest_question_count": 5,
           "time_minutes": 75,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123400.pdf",
+          "candidate_handbook_url": "https://www.ncdoi.gov/media/1248/open",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
+          "source_url": "https://www.ncdoi.gov/media/1248/open",
           "source_quote": "Each NC line-of-authority exam is 55 questions plus 5 pretest. Health Agent is a separate Life-adjacent variety reps may combine with Life.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -10024,8 +10049,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123400.pdf",
-        "state_content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/123415.pdf",
+        "state_doi_handbook_url": "https://www.ncdoi.gov/media/1248/open",
+        "state_content_outline_url": "https://www.ncdoi.gov/media/1248/open",
         "state_doi_page": "https://www.ncdoi.gov/insurance-industry/agent-services"
       },
       "course_meta": {
@@ -10304,7 +10329,7 @@
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -10321,9 +10346,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. OH is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf"
         },
         "health": {
           "research_pending": false,
@@ -10391,7 +10417,7 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -10411,9 +10437,10 @@
           "license_type_note": "Ohio Life license. 20-hour pre-licensing. No fingerprint. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/ohio-resident-licensing-individual",
-          "source_quote": "$10 per line of authority (Major Lines category). Complete criminal background checks (BCI & FBI).",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
+          "source_quote": "PSI Ohio Life Agent Candidate Information Bulletin (100 items, 120 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf"
         }
       },
       "exam_varieties": [
@@ -10426,7 +10453,7 @@
           "time_minutes": 120,
           "passing_score_pct": 70,
           "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "content_outline": [
             {
               "domain": "Insurance Regulation",
@@ -10500,7 +10527,7 @@
               ]
             }
           ],
-          "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "source_quote": "OHIO LIFE INSURANCE AGENT SERIES 11-44 \u2014 100 questions \u2013 2 Hours. 1.0 Insurance Regulation 12%, 2.0 General Insurance 12%, 3.0 Life Insurance Basics 18%, 4.0 Life Insurance Policies 12%, 5.0 Life Insurance Policy Provisions, Options and Riders 22%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 8%. Minimum passing score is 70%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -10516,7 +10543,7 @@
           "time_minutes": 150,
           "passing_score_pct": 70,
           "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "content_outline": [
             {
               "domain": "Insurance Regulation",
@@ -10673,7 +10700,7 @@
               ]
             }
           ],
-          "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "source_quote": "OHIO LIFE, ACCIDENT AND HEALTH INSURANCE AGENT SERIES 11-35 \u2014 150 questions \u2013 2.5 Hours. Minimum passing score is 70%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -10685,7 +10712,7 @@
           "id": "oh_accident_health",
           "name": "Ohio Accident and Health Insurance Agent",
           "series_code": "11-45",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
@@ -10810,18 +10837,19 @@
               ]
             }
           ],
-          "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
           "source_quote": "NEW: content_outline (weights & topics). OH Series 11-45 'OHIO ACCIDENT AND HEALTH INSURANCE AGENT, 100 questions \u2013 2 Hours'. Domains: 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Accident and Health Insurance Basics 15%, 4.0 Individual A&H Insurance Policy General Provisions 9%, 5.0 Disability Income and Related Insurance 8%, 6.0 Medical Plans 9%, 7.0 Health Insuring Corporations (HICs) 6%, 8.0 Group A&H Insurance 9%, 9.0 Dental Care Plans 3%, 10.0 Insurance for Senior Citizens and Special Needs Individuals 15%, 11.0 Federal Tax Considerations for A&H Insurance 6%. SUM=100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf"
         }
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/media/programs/ohins/OH_Life_Agent_CIB.pdf",
         "state_doi_page": "https://insurance.ohio.gov/agents-and-agencies/individual-agent/exam-procedure-checklist-res-applicants"
       },
       "course_meta": {
@@ -11499,7 +11527,7 @@
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 51,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -11516,9 +11544,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. PA is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         },
         "health": {
           "research_pending": false,
@@ -11586,7 +11615,7 @@
           "prelicense_hours_required": 24,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 51,
           "exam_passing_score_pct": 70,
           "exam_question_count": 100,
@@ -11606,9 +11635,10 @@
           "license_type_note": "Pennsylvania Life license. 24-hour pre-licensing. No fingerprint. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/pennsylvania-resident-licensing-individual",
-          "source_quote": "$55. All individual applicants are required to submit fingerprint documentation to the state of Pennsylvania.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
+          "source_quote": "PSI Pennsylvania Life Producer Candidate Information Bulletin (100 items, 120 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         }
       },
       "exam_varieties": [
@@ -11616,7 +11646,7 @@
           "id": "pa_life_producer",
           "name": "Pennsylvania Producer's Examination for Life Insurance",
           "series_code": "16-01",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
@@ -11718,18 +11748,19 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/PAINS/16-01x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
           "source_quote": "UNCHANGED from prior batch metadata + NEW content_outline. PA Series 16-01. '100 Items - 120 Minutes'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         },
         {
           "id": "pa_accident_health",
           "name": "Pennsylvania Producer's Examination for Accident and Health Insurance",
           "series_code": "16-02",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 100,
           "time_minutes": 120,
           "passing_score_pct": 70,
@@ -11875,18 +11906,19 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/PAINS/16-02x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
           "source_quote": "NEW variety + content_outline. PA Series 16-02. '100 Questions - 120 Minutes'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         },
         {
           "id": "pa_life_accident_health",
           "name": "Pennsylvania Producer's Examination for Life, Accident and Health Insurance",
           "series_code": "16-03",
-          "exam_vendor": "PSI",
+          "exam_vendor": "PSI Services LLC",
           "question_count": 150,
           "time_minutes": 170,
           "passing_score_pct": 70,
@@ -12072,19 +12104,20 @@
               ]
             }
           ],
-          "source_url": "https://proctor2.psionline.com/media/programs/PAINS/16-03x.pdf",
+          "source_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
           "source_quote": "NEW variety + content_outline. PA Series 16-03 combined L+A&H. '150 Items - 170 Minutes'. Domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf"
         }
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/Instructions/Links%20to%20PA%20Insurance%20Content%20Outlines.pdf",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/media/programs/pains/PA_Life_Producer_CIB.pdf",
         "state_doi_page": "https://www.insurance.pa.gov/Producers/"
       },
       "course_meta": {
@@ -13136,9 +13169,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. In Texas the relevant LoA is 'General Lines \u2014 Life, Accident, Health and HMO.'",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. TX is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf"
         },
         "health": {
           "research_pending": false,
@@ -13226,9 +13260,10 @@
           "license_type_note": "Texas Life license (Form LH). 20-hour pre-licensing. Fingerprint required. 150-question exam. Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/texas-resident-licensing-individual",
-          "source_quote": "$50 state fee. If applicant responds 'yes' to one of the background questions please submit supporting documents.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
+          "source_quote": "Pearson VUE Texas General Lines Life & Health Candidate Handbook (150 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf"
         }
       },
       "exam_varieties": [
@@ -13243,7 +13278,7 @@
           "time_minutes": 120,
           "passing_score_pct": 70,
           "exam_fee_usd": 39,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124400.pdf",
+          "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
           "content_outline_units": "weight_pct expressed as % of 80 scored items (50 General-Knowledge + 30 State-Specific). Source lists items-per-section; converted here by dividing by 80.",
           "content_outline": [
@@ -13319,7 +13354,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
+          "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
           "source_quote": "LIFE-GENERAL KNOWLEDGE CONTENT OUTLINE (50 scoreable questions plus 5 pretest questions): Types of Policies 15, Riders/Provisions/Exclusions 15, Application/Underwriting/Delivery 12, Retirement/Other 8 = 50 items. LIFE AGENT STATE SPECIFIC CONTENT OUTLINE (30 scoreable plus 5 pretest): Common to L+H 20, Life-only 10 = 30 items. Effective December 1, 2025.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -13337,7 +13372,7 @@
           "time_minutes": 150,
           "passing_score_pct": 70,
           "exam_fee_usd": 49,
-          "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124400.pdf",
+          "candidate_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
           "content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
           "content_outline_units": "weight_pct expressed as % of 130 scored items (100 General-Knowledge + 30 State-Specific). Source lists items-per-section; converted here.",
           "content_outline": [
@@ -13462,7 +13497,7 @@
               ]
             }
           ],
-          "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
+          "source_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
           "source_quote": "LIFE AND HEALTH-GENERAL KNOWLEDGE CONTENT OUTLINE (100 scoreable questions plus 10 pretest questions) ... LIFE and HEALTH AGENT STATE SPECIFIC CONTENT OUTLINE (30 scoreable questions plus 5 pretest questions). Effective December 1, 2025.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
@@ -13473,8 +13508,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124400.pdf",
-        "state_content_outline_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/124401.pdf",
+        "state_doi_handbook_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
+        "state_content_outline_url": "https://www.tdi.texas.gov/licensing/agent/documents/txins_candidatehandbook.pdf",
         "state_doi_page": "https://www.tdi.texas.gov/agent/general-life-apply.html"
       },
       "course_meta": {
@@ -13972,9 +14007,10 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
+          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. VA is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         },
         "health": {
           "research_pending": false,
@@ -14062,9 +14098,10 @@
           "license_type_note": "Virginia Life license. 20-hour pre-licensing. No fingerprint. Exam via Pearson VUE. 16 CE hours per 2-year cycle.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/virginia-resident-licensing-individual",
-          "source_quote": "$15. The Bureau requires all individuals applying for a resident insurance license to be fingerprinted.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
+          "source_quote": "Pearson VUE Virginia Life & Annuities Series 1105 Candidate Handbook (100 items, 150 mins, 70% passing score).",
+          "captured_at": "2026-06-03T00:00:00Z",
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         }
       },
       "exam_varieties": [
@@ -14072,7 +14109,7 @@
           "id": "va_life_annuities",
           "name": "Virginia Life and Annuities Insurance Examination",
           "series_code": "11-05 (filename 1105)",
-          "exam_vendor": "Prometric",
+          "exam_vendor": "Pearson VUE",
           "question_count": 105,
           "time_minutes": 120,
           "passing_score_pct": 70,
@@ -14170,19 +14207,20 @@
               ]
             }
           ],
-          "source_url": "https://www.prometric.com/files/virginia/1105-Life-and-Annuities-Insurance.pdf",
+          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
           "source_quote": "NEW: content_outline (weights & topics). VA Series 11-05 Life and Annuities. '90 scored (15 pre-test) questions - Two-hour time limit'. Domains: 1.0 Insurance Regulation 17%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 15%, 4.0 Life Insurance Policies 20%, 5.0 Life Insurance Policy Provisions/Options/Riders 18%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 4%, 8.0 Qualified Plans 4%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "annuity"
-          ]
+          ],
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         },
         {
           "id": "va_health",
           "name": "Virginia Health Insurance Examination",
           "series_code": "11-06 (filename 1106)",
-          "exam_vendor": "Prometric",
+          "exam_vendor": "Pearson VUE",
           "question_count": 105,
           "time_minutes": 120,
           "passing_score_pct": 70,
@@ -14297,37 +14335,39 @@
               ]
             }
           ],
-          "source_url": "https://www.prometric.com/files/virginia/1106-Health-Insurance.pdf",
+          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
           "source_quote": "NEW: content_outline (weights & topics). VA Series 11-06 Health. '90 scored (15 pre-test) questions - Two-hour time limit'. Domains: 1.0 Insurance Regulation 17%, 2.0 General Insurance 10%, 3.0 Health Insurance Basics 12%, 4.0 Individual Health Insurance Policy General Provisions 16%, 5.0 Disability Income and Related Insurance 9%, 6.0 Medical Plans 10%, 7.0 Group Health Insurance 8%, 8.0 Dental Insurance 2%, 9.0 Insurance for Senior Citizens and Special Needs Individuals 14%, 10.0 Federal Tax Considerations for Health Insurance 2%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
-          ]
+          ],
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         },
         {
           "id": "va_life_annuities_health",
           "name": "Virginia Life, Annuities and Health Insurance Examination",
           "series_code": "11-01 (filename prior batch may have used 1107)",
-          "exam_vendor": "Prometric",
+          "exam_vendor": "Pearson VUE",
           "question_count": 150,
           "time_minutes": 150,
           "passing_score_pct": 70,
           "content_outline": null,
           "research_pending_reason": "VA SCC/Prometric CIB confirms Series 11-01 exists ('VA Life, Annuities & Health Exam, 150 mins, $35') but the per-series content outline PDF (likely at https://www.prometric.com/files/virginia/1101-Life-Annuities-and-Health-Insurance.pdf or sites/default/files/2022-03/1101-_life_annuities_and_health_3.1.22.pdf) returned 404 on both the new and legacy paths probed. Prior batch labeled this 1107; canonical VA SCC series code is 11-01. Recommend either (a) treating outline as concatenation/weighted-average of 1105 + 1106 outlines, or (b) re-attempting fetch via authenticated/browser session.",
-          "source_url": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/insurance/licensing-amp-registration/real-estate-settlement-agents-resa/insva-cib-final.pdf",
+          "source_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
           "source_quote": "NEW: outline null with research_pending_reason. VA CIB lists '11-01 VA Life, Annuities & Health Exam 150 mins $35'. Prior batch series code 1107 likely a filename-derivative.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
             "health",
             "annuity"
-          ]
+          ],
+          "candidate_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf"
         }
       ],
       "exam_meta": {
         "exam_vendor_primary": "Pearson VUE",
-        "state_doi_handbook_url": "https://home.pearsonvue.com/va/insurance",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
+        "state_content_outline_url": "https://scc.virginia.gov/getattachment/0b45d070-5b62-4f35-9014-9988cb62283a/candidatehandbook.pdf",
         "state_doi_page": "https://scc.virginia.gov/pages/Bureau-of-Insurance"
       },
       "course_meta": {
