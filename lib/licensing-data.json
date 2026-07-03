@@ -1,5 +1,5 @@
 {
-  "_doc": "Per-state licensing requirements for life / health / annuity / mortgage_protection. Every cell starts as research_pending=true. Populate via cited research batch (pattern: migration 0059b — source_url + source_quote on every value, omit rather than invent). DO NOT hand-edit invented values. Schema is frozen 2026-06-02 — bump _schema_version on shape changes.",
+  "_doc": "Per-state licensing requirements for life / health / annuity / mortgage_protection. Every cell starts as research_pending=true. Populate via cited research batch (pattern: migration 0059b \u2014 source_url + source_quote on every value, omit rather than invent). DO NOT hand-edit invented values. Schema is frozen 2026-06-02 \u2014 bump _schema_version on shape changes.",
   "_schema_version": 1,
   "_lines": [
     {
@@ -18,39 +18,39 @@
       "id": "annuity",
       "label": "Annuity",
       "naic_loa_code": "30_VARIABLE_LIFE_ANNUITY_OR_FIXED_ANNUITY",
-      "notes": "Some states fold annuity authority into Life — others require separate. Verify per state."
+      "notes": "Some states fold annuity authority into Life \u2014 others require separate. Verify per state."
     },
     {
       "id": "mortgage_protection",
       "label": "Mortgage Protection",
       "naic_loa_code": "12_LIFE",
-      "notes": "Sold under Life LoA; not a separate license — but check state-specific marketing-name rules"
+      "notes": "Sold under Life LoA; not a separate license \u2014 but check state-specific marketing-name rules"
     }
   ],
   "_cell_schema": {
-    "research_pending": "boolean — true until a cited row is filled in",
+    "research_pending": "boolean \u2014 true until a cited row is filled in",
     "prelicense_hours_required": "integer hours; null if state requires no formal pre-licensing course",
-    "prelicense_required_course": "boolean — does state mandate a state-approved pre-licensing course",
-    "approved_course_vendors": "array of { name, url, source_url } — state-approved pre-licensing providers",
+    "prelicense_required_course": "boolean \u2014 does state mandate a state-approved pre-licensing course",
+    "approved_course_vendors": "array of { name, url, source_url } \u2014 state-approved pre-licensing providers",
     "exam_vendor": "string enum: PSI | PEARSON_VUE | PROMETRIC | EXAMFX | OTHER",
     "exam_fee_usd": "integer dollars",
     "exam_passing_score_pct": "integer 0-100",
     "exam_question_count": "integer",
     "exam_time_minutes": "integer",
     "fingerprint_required": "boolean",
-    "fingerprint_vendor": "string — e.g. IdentoGO, MorphoTrust, state-specific",
-    "fingerprint_code": "string — the agency/ORI/service code applicants give the fingerprint vendor",
+    "fingerprint_vendor": "string \u2014 e.g. IdentoGO, MorphoTrust, state-specific",
+    "fingerprint_code": "string \u2014 the agency/ORI/service code applicants give the fingerprint vendor",
     "fingerprint_fee_usd": "integer dollars",
     "license_application_fee_usd": "integer dollars",
-    "license_renewal_years": "integer — typical 2",
+    "license_renewal_years": "integer \u2014 typical 2",
     "ce_hours_per_cycle": "integer continuing-education hours per renewal cycle",
-    "ce_ethics_hours": "integer — ethics-specific CE within ce_hours_per_cycle",
-    "background_check": "string — NICE/FBI/state-criminal, varies",
-    "nipr_path_url": "https://nipr.com/... — direct apply link",
-    "state_doi_url": "https://... — state DOI producer page",
-    "reciprocity_notes": "string — does this state grant non-resident license freely?",
-    "source_url": "string — citable URL the values trace to (DOI, NIPR, statute)",
-    "source_quote": "string — verbatim quote from source_url proving the value",
+    "ce_ethics_hours": "integer \u2014 ethics-specific CE within ce_hours_per_cycle",
+    "background_check": "string \u2014 NICE/FBI/state-criminal, varies",
+    "nipr_path_url": "https://nipr.com/... \u2014 direct apply link",
+    "state_doi_url": "https://... \u2014 state DOI producer page",
+    "reciprocity_notes": "string \u2014 does this state grant non-resident license freely?",
+    "source_url": "string \u2014 citable URL the values trace to (DOI, NIPR, statute)",
+    "source_quote": "string \u2014 verbatim quote from source_url proving the value",
     "captured_at": "ISO timestamp"
   },
   "_step_by_step_template": [
@@ -82,7 +82,7 @@
     {
       "step": 6,
       "title": "Get appointed",
-      "what": "License is dormant until at least one carrier appoints the producer. Use Repflow → Carriers tab to start carrier-appointment requests."
+      "what": "License is dormant until at least one carrier appoints the producer. Use Repflow \u2192 Carriers tab to start carrier-appointment requests."
     },
     {
       "step": 7,
@@ -90,14 +90,14 @@
       "what": "Calendar renewal date and CE hours. Set Repflow reminders for the renewal cycle."
     }
   ],
-  "_research_batch_instructions": "Populate via a parallel research-agent batch (mirror migration 0059b methodology). Each agent gets one (state, line) pair and the cell schema above. Agents MUST either fill every required field with source_url + source_quote — OR set research_pending=true with a brief reason. Inventing values = automatic reject. Cited sources should be NAIC, NIPR, the state's DOI producer page, or state statute. Avoid third-party blogs (Kaplan, ExamFX marketing pages, etc.) as primary sources — they're OK as secondary corroboration but not as source_url.",
+  "_research_batch_instructions": "Populate via a parallel research-agent batch (mirror migration 0059b methodology). Each agent gets one (state, line) pair and the cell schema above. Agents MUST either fill every required field with source_url + source_quote \u2014 OR set research_pending=true with a brief reason. Inventing values = automatic reject. Cited sources should be NAIC, NIPR, the state's DOI producer page, or state statute. Avoid third-party blogs (Kaplan, ExamFX marketing pages, etc.) as primary sources \u2014 they're OK as secondary corroboration but not as source_url.",
   "states": {
     "AL": {
       "name": "Alabama",
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -177,9 +177,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ala. Code §§ 27-12-1 to 27-12-23 [UTPA, NAIC Model 880]; Ala. Admin. Code r. 482-1-132 [NAIC Model 570]",
+          "marketing_rule_statute": "Ala. Code \u00a7\u00a7 27-12-1 to 27-12-23 [UTPA, NAIC Model 880]; Ala. Admin. Code r. 482-1-132 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Alabama   ALA. CODE §§ 27-12-1 to 27-12-23 (1971/1994).",
+          "source_quote": "Alabama   ALA. CODE \u00a7\u00a7 27-12-1 to 27-12-23 (1971/1994).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -415,7 +415,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -495,9 +495,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Alaska Stat. §§ 21.36.010 to 21.36.323 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Alaska Stat. \u00a7\u00a7 21.36.010 to 21.36.323 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Alaska  ALASKA STAT. ANN. §§ 21.36.010 to 21.36.323 (1976/2009).",
+          "source_quote": "Alaska  ALASKA STAT. ANN. \u00a7\u00a7 21.36.010 to 21.36.323 (1976/2009).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -564,7 +564,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -644,9 +644,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ariz. Rev. Stat. §§ 20-441 to 20-461 [UTPA, NAIC Model 880]; Ariz. Admin. Code § R20-6-202 [NAIC Model 570]",
+          "marketing_rule_statute": "Ariz. Rev. Stat. \u00a7\u00a7 20-441 to 20-461 [UTPA, NAIC Model 880]; Ariz. Admin. Code \u00a7 R20-6-202 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Arizona  ARIZ. REV. STAT. ANN. §§ 20-441 to 20-461 (1954/2008).",
+          "source_quote": "Arizona  ARIZ. REV. STAT. ANN. \u00a7\u00a7 20-441 to 20-461 (1954/2008).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -782,7 +782,7 @@
             }
           ],
           "source_url": "https://proctor2.psionline.com/media/programs/AZINS/life1.pdf",
-          "source_quote": "Arizona Examination for Life Insurance Producer — Series 13-31 — 100 Items - 2 Hours. Insurance Regulation 5%; Federal Laws 3%; General Insurance Concepts 13%; Life Insurance Basics 16%; Types of Life Insurance Policies 18%; Life Insurance Policy Provisions, Options, and Riders 28%; Annuities 8%; Federal Tax Considerations 9%.",
+          "source_quote": "Arizona Examination for Life Insurance Producer \u2014 Series 13-31 \u2014 100 Items - 2 Hours. Insurance Regulation 5%; Federal Laws 3%; General Insurance Concepts 13%; Life Insurance Basics 16%; Types of Life Insurance Policies 18%; Life Insurance Policy Provisions, Options, and Riders 28%; Annuities 8%; Federal Tax Considerations 9%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life"
@@ -990,7 +990,7 @@
             }
           ],
           "source_url": "https://www.prometric.com/files/2019-12/13-33_4.pdf",
-          "source_quote": "NEW variety + content_outline. AZ Series 13-33. '150 questions – 2.5 hour time limit. Effective January 22, 2020.' 15 domains sum to 100%.",
+          "source_quote": "NEW variety + content_outline. AZ Series 13-33. '150 questions \u2013 2.5 hour time limit. Effective January 22, 2020.' 15 domains sum to 100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
@@ -1098,7 +1098,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -1178,9 +1178,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ark. Code Ann. §§ 23-66-201 to 23-66-316 [UTPA, NAIC Model 880]; Ark. Admin. Code §§ 054-00-99-1 to 054-00-99-14 [NAIC Model 570]",
+          "marketing_rule_statute": "Ark. Code Ann. \u00a7\u00a7 23-66-201 to 23-66-316 [UTPA, NAIC Model 880]; Ark. Admin. Code \u00a7\u00a7 054-00-99-1 to 054-00-99-14 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Arkansas  ARK. CODE ANN. §§ 23-66-201 to 23-66-316 (1959/2011).",
+          "source_quote": "Arkansas  ARK. CODE ANN. \u00a7\u00a7 23-66-201 to 23-66-316 (1959/2011).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -1367,7 +1367,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 8,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
@@ -1387,7 +1387,7 @@
           "background_check": null,
           "nipr_path_url": null,
           "state_doi_url": null,
-          "reciprocity_notes": "Fixed annuities sold under the Life-Only LoA; no separate annuity license. CA requires 8 hours initial CA-specific annuity training before solicitation (CIC §1749.8); 4 hours each subsequent license term. SB 263 added 8-hr Annuity Suitability & Best Interest course effective Jan 1, 2025 (existing producers had until Jul 1, 2025).",
+          "reciprocity_notes": "Fixed annuities sold under the Life-Only LoA; no separate annuity license. CA requires 8 hours initial CA-specific annuity training before solicitation (CIC \u00a71749.8); 4 hours each subsequent license term. SB 263 added 8-hr Annuity Suitability & Best Interest course effective Jan 1, 2025 (existing producers had until Jul 1, 2025).",
           "source_url": "https://www.insurance.ca.gov/0200-industry/0050-renew-license/0200-requirements/Life/questions-answers.cfm",
           "source_quote": "Section 1749.8 of the California Insurance Code states that any life agent who sells annuities must complete eight hours of approved annuity training prior to soliciting any individual consumers. A four-hour California-specific annuity training course is required each subsequent license term in which the agent sells an annuity.",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -1447,9 +1447,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Cal. Ins. Code §§ 790 to 790.10 [UTPA, NAIC Model 880]; Cal. Code Regs. tit. 10, §§ 2547 to 2547.11 [NAIC Model 570]",
+          "marketing_rule_statute": "Cal. Ins. Code \u00a7\u00a7 790 to 790.10 [UTPA, NAIC Model 880]; Cal. Code Regs. tit. 10, \u00a7\u00a7 2547 to 2547.11 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "California  CAL. INS. CODE §§ 790 to 790.10 (1959/2000).",
+          "source_quote": "California  CAL. INS. CODE \u00a7\u00a7 790 to 790.10 (1959/2000).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -1866,7 +1866,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -1946,9 +1946,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Colo. Rev. Stat. §§ 10-3-1101 to 10-3-1113 [UTPA, NAIC Model 880]; 3 Colo. Code Regs. § 702-4:4-1-2 [NAIC Model 570]",
+          "marketing_rule_statute": "Colo. Rev. Stat. \u00a7\u00a7 10-3-1101 to 10-3-1113 [UTPA, NAIC Model 880]; 3 Colo. Code Regs. \u00a7 702-4:4-1-2 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Colorado  COLO. REV. STAT. ANN. §§ 10-3-1101 to 10-3-1113 (1963/2021).",
+          "source_quote": "Colorado  COLO. REV. STAT. ANN. \u00a7\u00a7 10-3-1101 to 10-3-1113 (1963/2021).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -2163,7 +2163,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -2243,9 +2243,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Conn. Gen. Stat. §§ 38a-815 to 38a-819 [UTPA, NAIC Model 880]; Conn. Agencies Regs. §§ 38a-819-21 to 38a-819-31 [NAIC Model 570]",
+          "marketing_rule_statute": "Conn. Gen. Stat. \u00a7\u00a7 38a-815 to 38a-819 [UTPA, NAIC Model 880]; Conn. Agencies Regs. \u00a7\u00a7 38a-819-21 to 38a-819-31 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Connecticut  CONN. GEN. STAT. ANN. §§ 38a-815 to 38a-819 (1955/2013).",
+          "source_quote": "Connecticut  CONN. GEN. STAT. ANN. \u00a7\u00a7 38a-815 to 38a-819 (1955/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -2433,7 +2433,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -2513,9 +2513,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Del. Code Ann. tit. 18, §§ 2301 to 2314 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Del. Code Ann. tit. 18, \u00a7\u00a7 2301 to 2314 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Delaware  DEL. CODE ANN. tit. 18, §§ 2301 to 2314 (1953/2013).",
+          "source_quote": "Delaware  DEL. CODE ANN. tit. 18, \u00a7\u00a7 2301 to 2314 (1953/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -2601,7 +2601,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -2681,9 +2681,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "D.C. Code §§ 31-2231.01 to 31-2231.25 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "D.C. Code \u00a7\u00a7 31-2231.01 to 31-2231.25 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "District of Columbia  D.C. CODE §§ 31-2231.01 to 31-2231.25 (2000/2012).",
+          "source_quote": "District of Columbia  D.C. CODE \u00a7\u00a7 31-2231.01 to 31-2231.25 (2000/2012).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -2729,7 +2729,7 @@
           "exam_fee_usd": 75,
           "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/120900.pdf",
           "content_outline": null,
-          "research_pending_reason": "Outline at https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/120901.pdf — not transcribed this batch.",
+          "research_pending_reason": "Outline at https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/120901.pdf \u2014 not transcribed this batch.",
           "source_url": "https://www.pearsonvue.com/us/en/dc/insurance.html",
           "source_quote": "Washington DC uses Pearson VUE as its official testing service ... The Washington DC life insurance exam outline contains a total of 80 scored questions that cover two sections: general and district-specific knowledge ... You'll have 120 minutes to complete the exam.",
           "captured_at": "2026-06-03T00:00:00Z",
@@ -2750,7 +2750,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -2830,9 +2830,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Fla. Stat. §§ 626.951 to 626.9641 [UTPA, NAIC Model 880]; Fla. Admin. Code Ann. r. 69O-150.101 to 69O-150.122 [NAIC Model 570]",
+          "marketing_rule_statute": "Fla. Stat. \u00a7\u00a7 626.951 to 626.9641 [UTPA, NAIC Model 880]; Fla. Admin. Code Ann. r. 69O-150.101 to 69O-150.122 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Florida  FLA. STAT. ANN. §§ 626.951 to 626.9641 (1982/2014).",
+          "source_quote": "Florida  FLA. STAT. ANN. \u00a7\u00a7 626.951 to 626.9641 (1982/2014).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -2951,7 +2951,7 @@
             }
           ],
           "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
-          "source_quote": "Florida Agent's Life (including Annuities & Variable Contracts) — 85 scored questions plus 10 pretest questions — Time limit: 2 hours. Effective January 1, 2026.",
+          "source_quote": "Florida Agent's Life (including Annuities & Variable Contracts) \u2014 85 scored questions plus 10 pretest questions \u2014 Time limit: 2 hours. Effective January 1, 2026.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
@@ -3097,7 +3097,7 @@
             }
           ],
           "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/121003.pdf",
-          "source_quote": "Florida Agent's Health & Life (including Annuities & Variable Contracts) — 150 scored questions plus 15 pretest questions — Time limit: 2.75 hours. Effective January 1, 2026.",
+          "source_quote": "Florida Agent's Health & Life (including Annuities & Variable Contracts) \u2014 150 scored questions plus 15 pretest questions \u2014 Time limit: 2.75 hours. Effective January 1, 2026.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
@@ -3211,7 +3211,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -3291,14 +3291,14 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ga. Code Ann. §§ 33-6-1 to 33-6-14 [UTPA, NAIC Model 880]; Ga. Comp. R. & Regs. 120-2-11 [NAIC Model 570]",
+          "marketing_rule_statute": "Ga. Code Ann. \u00a7\u00a7 33-6-1 to 33-6-14 [UTPA, NAIC Model 880]; Ga. Comp. R. & Regs. 120-2-11 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Georgia  GA. CODE ANN. §§ 33-6-1 to 33-6-14 (1972/2005).",
+          "source_quote": "Georgia  GA. CODE ANN. \u00a7\u00a7 33-6-1 to 33-6-14 (1972/2005).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
           "research_pending": true,
-          "research_pending_reason": "Georgia does not use NIPR for resident licensing; oci.georgia.gov resident-license fee/fingerprint specifics not surfaced on landing page — requires deeper crawl of Georgia OCI Agent Portal",
+          "research_pending_reason": "Georgia does not use NIPR for resident licensing; oci.georgia.gov resident-license fee/fingerprint specifics not surfaced on landing page \u2014 requires deeper crawl of Georgia OCI Agent Portal",
           "prelicense_hours_required": 40,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
@@ -3323,7 +3323,7 @@
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
           "source_url": "https://oci.georgia.gov/",
-          "source_quote": "Office of Commissioner of Insurance and Safety Fire — Get an Agent License — Agent Portal (specific Life fee/fingerprint details not on landing page)",
+          "source_quote": "Office of Commissioner of Insurance and Safety Fire \u2014 Get an Agent License \u2014 Agent Portal (specific Life fee/fingerprint details not on landing page)",
           "captured_at": "2026-06-03T00:00:00Z"
         }
       },
@@ -3576,7 +3576,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -3656,9 +3656,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Haw. Rev. Stat. §§ 431:13-101 to 431:13-204 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Haw. Rev. Stat. \u00a7\u00a7 431:13-101 to 431:13-204 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Hawaii  HAW. REV. STAT. ANN. §§ 431:13-101 to 431:13-204 (1988/2014).",
+          "source_quote": "Hawaii  HAW. REV. STAT. ANN. \u00a7\u00a7 431:13-101 to 431:13-204 (1988/2014).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -3725,7 +3725,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -3805,9 +3805,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Idaho Code §§ 41-1301 to 41-1331 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Idaho Code \u00a7\u00a7 41-1301 to 41-1331 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Idaho  IDAHO CODE ANN. §§ 41-1301 to 41-1331 (1961/2005).",
+          "source_quote": "Idaho  IDAHO CODE ANN. \u00a7\u00a7 41-1301 to 41-1331 (1961/2005).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -3874,7 +3874,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -3954,7 +3954,7 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "215 Ill. Comp. Stat. 5/421 to 5/434 [UTPA, NAIC Model 880]; Ill. Admin. Code tit. 50, §§ 909.10 to 909.120 [NAIC Model 570]",
+          "marketing_rule_statute": "215 Ill. Comp. Stat. 5/421 to 5/434 [UTPA, NAIC Model 880]; Ill. Admin. Code tit. 50, \u00a7\u00a7 909.10 to 909.120 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
           "source_quote": "Illinois   215 ILL. COMP. STAT. 5/421 to 5/434 (1959/2015); 5/236 (1937/2004).",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -4174,7 +4174,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -4254,9 +4254,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Ind. Code §§ 27-4-1-1 to 27-4-1-18 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Ind. Code \u00a7\u00a7 27-4-1-1 to 27-4-1-18 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Indiana  IND. CODE ANN. §§ 27-4-1-1 to 27-4-1-18 (1947/2009).",
+          "source_quote": "Indiana  IND. CODE ANN. \u00a7\u00a7 27-4-1-1 to 27-4-1-18 (1947/2009).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -4516,7 +4516,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -4596,9 +4596,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Iowa Code §§ 507B.1 to 507B.14 [UTPA, NAIC Model 880]; Iowa Admin. Code r. 191-15.1 to 191-15.14 [NAIC Model 570]",
+          "marketing_rule_statute": "Iowa Code \u00a7\u00a7 507B.1 to 507B.14 [UTPA, NAIC Model 880]; Iowa Admin. Code r. 191-15.1 to 191-15.14 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Iowa  IOWA CODE ANN. §§ 507B.1 to 507B.14 (1955/2010).",
+          "source_quote": "Iowa  IOWA CODE ANN. \u00a7\u00a7 507B.1 to 507B.14 (1955/2010).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -4679,7 +4679,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -4759,9 +4759,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Kan. Stat. Ann. §§ 40-2401 to 40-2421 [UTPA, NAIC Model 880]; Kan. Admin. Regs. § 40-9-118 [NAIC Model 570]",
+          "marketing_rule_statute": "Kan. Stat. Ann. \u00a7\u00a7 40-2401 to 40-2421 [UTPA, NAIC Model 880]; Kan. Admin. Regs. \u00a7 40-9-118 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Kansas  S.B. 448 (2022); KAN. STAT. ANN. §§ 40-2401 to 40-2421 (1955/2007).",
+          "source_quote": "Kansas  S.B. 448 (2022); KAN. STAT. ANN. \u00a7\u00a7 40-2401 to 40-2421 (1955/2007).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -4848,7 +4848,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -4928,9 +4928,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ky. Rev. Stat. §§ 304.12-010 to 304.12-230 [UTPA, NAIC Model 880]; 806 Ky. Admin. Regs. 12:010 to 12:020 [NAIC Model 570]",
+          "marketing_rule_statute": "Ky. Rev. Stat. \u00a7\u00a7 304.12-010 to 304.12-230 [UTPA, NAIC Model 880]; 806 Ky. Admin. Regs. 12:010 to 12:020 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Kentucky  KY. REV. STAT. ANN. §§ 304.12-010 to 304.12-230 (1970/2010).",
+          "source_quote": "Kentucky  KY. REV. STAT. ANN. \u00a7\u00a7 304.12-010 to 304.12-230 (1970/2010).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -5181,7 +5181,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -5201,7 +5201,7 @@
           "background_check": null,
           "nipr_path_url": null,
           "state_doi_url": null,
-          "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. Louisiana was among the LAST states to adopt — effective Sep 1, 2024 for new licensees.",
+          "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. Louisiana was among the LAST states to adopt \u2014 effective Sep 1, 2024 for new licensees.",
           "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. LA is among the adopting jurisdictions.",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -5261,9 +5261,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "La. Stat. Ann. §§ 22:1961 to 22:1973 [UTPA, NAIC Model 880]; La. Admin. Code §§ 37:XIII.4101 to 37:XIII.4123 (Regulation 60) [NAIC Model 570]",
+          "marketing_rule_statute": "La. Stat. Ann. \u00a7\u00a7 22:1961 to 22:1973 [UTPA, NAIC Model 880]; La. Admin. Code \u00a7\u00a7 37:XIII.4101 to 37:XIII.4123 (Regulation 60) [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Louisiana  LA. STAT. ANN. §§ 22:1961 to 22:1973 (1966/2014).",
+          "source_quote": "Louisiana  LA. STAT. ANN. \u00a7\u00a7 22:1961 to 22:1973 (1966/2014).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -5488,7 +5488,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -5568,9 +5568,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Me. Rev. Stat. tit. 24-A, §§ 2151 to 2182 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Me. Rev. Stat. tit. 24-A, \u00a7\u00a7 2151 to 2182 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Maine  ME. REV. STAT. ANN. tit. 24-A, §§ 2151 to 2182 (1970/2001).",
+          "source_quote": "Maine  ME. REV. STAT. ANN. tit. 24-A, \u00a7\u00a7 2151 to 2182 (1970/2001).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -5616,7 +5616,7 @@
           "exam_fee_usd": 55,
           "candidate_handbook_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/122000.pdf",
           "content_outline": null,
-          "research_pending_reason": "Verbatim domain weights present in handbook (Types of Policies, Provisions/Riders/Options, Retirement Concepts, etc.); not transcribed in this batch — priority was variety table.",
+          "research_pending_reason": "Verbatim domain weights present in handbook (Types of Policies, Provisions/Riders/Options, Retirement Concepts, etc.); not transcribed in this batch \u2014 priority was variety table.",
           "source_url": "https://www.pearsonvue.com/content/dam/VUE/vue/en/documents/publications/122000.pdf",
           "source_quote": "12-ME-41 Life Producer 1 hr 45 minutes $55",
           "captured_at": "2026-06-03T00:00:00Z",
@@ -5677,7 +5677,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -5757,9 +5757,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Md. Code Ann., Ins. §§ 27-101 to 27-219 [UTPA, NAIC Model 880]; Md. Code Regs. 31.15.01.01 to 31.15.01.10 [NAIC Model 570]",
+          "marketing_rule_statute": "Md. Code Ann., Ins. \u00a7\u00a7 27-101 to 27-219 [UTPA, NAIC Model 880]; Md. Code Regs. 31.15.01.01 to 31.15.01.10 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Maryland  MD. CODE ANN., INS. §§ 27-101 to 27-219 (1957/2014).",
+          "source_quote": "Maryland  MD. CODE ANN., INS. \u00a7\u00a7 27-101 to 27-219 (1957/2014).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -6006,7 +6006,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -6086,9 +6086,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Mass. Gen. Laws ch. 176D, §§ 1 to 14 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Mass. Gen. Laws ch. 176D, \u00a7\u00a7 1 to 14 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Massachusetts  MASS. GEN. LAWS ch. 176D, §§ 1 to 14 (1972/2012).",
+          "source_quote": "Massachusetts  MASS. GEN. LAWS ch. 176D, \u00a7\u00a7 1 to 14 (1972/2012).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -6312,7 +6312,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -6392,9 +6392,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Mich. Comp. Laws §§ 500.2001 to 500.2093 [UTPA, NAIC Model 880]; Mich. Admin. Code r. 500.1371 to 500.1387 [NAIC Model 570]",
+          "marketing_rule_statute": "Mich. Comp. Laws \u00a7\u00a7 500.2001 to 500.2093 [UTPA, NAIC Model 880]; Mich. Admin. Code r. 500.1371 to 500.1387 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Michigan  MICH. COMP. LAWS ANN. §§ 500.2001 to 500.2093 (1957/2011).",
+          "source_quote": "Michigan  MICH. COMP. LAWS ANN. \u00a7\u00a7 500.2001 to 500.2093 (1957/2011).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -6878,11 +6878,11 @@
               "domain": "Regulation of Variable Products",
               "weight_pct": 11.5,
               "topics": [
-                "Securities Act of 1933 (15 U.S.C. § 77a et seq.)",
-                "Securities Exchange Act of 1934 (15 U.S.C. § 78a et seq.)",
+                "Securities Act of 1933 (15 U.S.C. \u00a7 77a et seq.)",
+                "Securities Exchange Act of 1934 (15 U.S.C. \u00a7 78a et seq.)",
                 "Suitability",
                 "Compliance",
-                "Investment Company Act of 1940 (15 U.S.C. §§ 80a-1-80a-64)",
+                "Investment Company Act of 1940 (15 U.S.C. \u00a7\u00a7 80a-1-80a-64)",
                 "State Regulation of Variable Products"
               ]
             },
@@ -6948,7 +6948,7 @@
             }
           ],
           "source_url": "https://proctor2.psionline.com/media/programs/MIINS/Variable%20Annuties%20Prod%2016-83x.pdf",
-          "source_quote": "NEW variety + content_outline. NOTE: The prior batch listed both 'Variable Annuities' and 'Variable Life and Annuities Producer' as separate varieties; per the MI cut-scores doc and the 16-83 PDF title, these refer to the SAME series 16-83 license (60 items, 1 hour). The DIFS cut-scores PDF also lists 'Life, Variable Life and Annuities Producer (2.5 hours 130 items 73%)' as a SEPARATE bigger combined exam — outline for that 130-item exam was not located on the PSI media path probed (see research_pending_reason on mi_life_variable_life_annuities below).",
+          "source_quote": "NEW variety + content_outline. NOTE: The prior batch listed both 'Variable Annuities' and 'Variable Life and Annuities Producer' as separate varieties; per the MI cut-scores doc and the 16-83 PDF title, these refer to the SAME series 16-83 license (60 items, 1 hour). The DIFS cut-scores PDF also lists 'Life, Variable Life and Annuities Producer (2.5 hours 130 items 73%)' as a SEPARATE bigger combined exam \u2014 outline for that 130-item exam was not located on the PSI media path probed (see research_pending_reason on mi_life_variable_life_annuities below).",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "life",
@@ -7002,7 +7002,7 @@
               "topics": [
                 "Michigan Life Insurance Laws",
                 "Insurable Interest (500.2207, .2211)",
-                "Viatical Settlements (550.521–.528)",
+                "Viatical Settlements (550.521\u2013.528)",
                 "Regulation of Variable Products (SEC, FINRA, and Michigan) (R500.830-.839, .841-.842; Bul 09-15)",
                 "Solicitation and Sales Presentations (500.1371-.1383)",
                 "Advertising (R500.1371-.1387)",
@@ -7235,7 +7235,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -7315,9 +7315,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Minn. Stat. §§ 72A.17 to 72A.32 [UTPA, NAIC Model 880]; Minn. R. 2790.0100 to 2790.2200 [NAIC Model 570]",
+          "marketing_rule_statute": "Minn. Stat. \u00a7\u00a7 72A.17 to 72A.32 [UTPA, NAIC Model 880]; Minn. R. 2790.0100 to 2790.2200 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Minnesota  MINN. STAT. ANN. §§ 72A.17 to 72A.32 (1967/2013).",
+          "source_quote": "Minnesota  MINN. STAT. ANN. \u00a7\u00a7 72A.17 to 72A.32 (1967/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -7517,7 +7517,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -7597,9 +7597,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Miss. Code Ann. §§ 83-5-29 to 83-5-51 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Miss. Code Ann. \u00a7\u00a7 83-5-29 to 83-5-51 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Mississippi  MISS. CODE ANN. §§ 83-5-29 to 83-5-51 (1956/2009).",
+          "source_quote": "Mississippi  MISS. CODE ANN. \u00a7\u00a7 83-5-29 to 83-5-51 (1956/2009).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -7693,7 +7693,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -7773,9 +7773,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Mo. Rev. Stat. §§ 375.930 to 375.948 [UTPA, NAIC Model 880]; Mo. Code Regs. tit. 20, § 400-5.100 [NAIC Model 570]",
+          "marketing_rule_statute": "Mo. Rev. Stat. \u00a7\u00a7 375.930 to 375.948 [UTPA, NAIC Model 880]; Mo. Code Regs. tit. 20, \u00a7 400-5.100 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Missouri  MO. ANN. STAT. §§ 375.930 to 375.948 (1978/2004).",
+          "source_quote": "Missouri  MO. ANN. STAT. \u00a7\u00a7 375.930 to 375.948 (1978/2004).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8018,7 +8018,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -8098,9 +8098,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Mont. Code Ann. §§ 33-18-101 to 33-18-1006 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Mont. Code Ann. \u00a7\u00a7 33-18-101 to 33-18-1006 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Montana MONT. CODE ANN. §§ 33-18-101 to 33-18-1006 (1959/2025) (portions of model).",
+          "source_quote": "Montana MONT. CODE ANN. \u00a7\u00a7 33-18-101 to 33-18-1006 (1959/2025) (portions of model).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8167,7 +8167,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -8247,9 +8247,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Neb. Rev. Stat. §§ 44-1523 to 44-1535 [UTPA, NAIC Model 880]; 210 Neb. Admin. Code ch. 50, §§ 001 to 014 [NAIC Model 570]",
+          "marketing_rule_statute": "Neb. Rev. Stat. \u00a7\u00a7 44-1523 to 44-1535 [UTPA, NAIC Model 880]; 210 Neb. Admin. Code ch. 50, \u00a7\u00a7 001 to 014 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Nebraska L.B. 326 (2025); NEB. REV. STAT. §§ 44-1523 to 44-1535 (1973/2025).",
+          "source_quote": "Nebraska L.B. 326 (2025); NEB. REV. STAT. \u00a7\u00a7 44-1523 to 44-1535 (1973/2025).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8295,7 +8295,7 @@
           "exam_fee_usd": 45,
           "candidate_handbook_url": "https://www.prometric.com/files/NE_INS_LIB.pdf",
           "content_outline": null,
-          "research_pending_reason": "Outline at https://www.prometric.com/files/2019-11/13-01_1.pdf — not transcribed this batch.",
+          "research_pending_reason": "Outline at https://www.prometric.com/files/2019-11/13-01_1.pdf \u2014 not transcribed this batch.",
           "source_url": "https://proctor2.psionline.com/media/programs/NEINS/1301.pdf",
           "source_quote": "Nebraska Producer's Examination for Life and Annuities Insurance Series 13-01 ... 100 questions (plus 5 unscored items) with a 2-hour time limit.",
           "captured_at": "2026-06-03T00:00:00Z",
@@ -8336,7 +8336,7 @@
           "exam_fee_usd": null,
           "candidate_handbook_url": "https://www.prometric.com/files/NE_INS_LIB.pdf",
           "content_outline": null,
-          "research_pending_reason": "Funeral/preneed life variety; outline at https://www.prometric.com/files/2022-03/3.28.22_1324_producers_funeral.pdf — specs not extracted this batch.",
+          "research_pending_reason": "Funeral/preneed life variety; outline at https://www.prometric.com/files/2022-03/3.28.22_1324_producers_funeral.pdf \u2014 specs not extracted this batch.",
           "source_url": "https://www.prometric.com/files/2022-03/3.28.22_1324_producers_funeral.pdf",
           "source_quote": "Nebraska Producer's Examination for Funeral Insurance Series 13-24.",
           "captured_at": "2026-06-03T00:00:00Z",
@@ -8357,7 +8357,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -8437,9 +8437,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Nev. Rev. Stat. §§ 686A.010 to 686A.280 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Nev. Rev. Stat. \u00a7\u00a7 686A.010 to 686A.280 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Nevada  NEV. REV. STAT. ANN §§ 686A.010 to 686A.280 (1971/2013).",
+          "source_quote": "Nevada  NEV. REV. STAT. ANN \u00a7\u00a7 686A.010 to 686A.280 (1971/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8541,7 +8541,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -8621,9 +8621,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "N.H. Rev. Stat. §§ 417:1 to 417:17 [UTPA, NAIC Model 880]; N.H. Code Admin. R. Ann. Ins. 2602.01 to 2602.11 [NAIC Model 570]",
+          "marketing_rule_statute": "N.H. Rev. Stat. \u00a7\u00a7 417:1 to 417:17 [UTPA, NAIC Model 880]; N.H. Code Admin. R. Ann. Ins. 2602.01 to 2602.11 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "New Hampshire  N.H. REV. STAT. ANN §§ 417:1 to 417:17 (1947/2010).",
+          "source_quote": "New Hampshire  N.H. REV. STAT. ANN \u00a7\u00a7 417:1 to 417:17 (1947/2010).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8749,15 +8749,15 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are tested under the Life Producer line of authority in New Jersey (83-item PSI Life Producer & Instructor Exam). Producers must also complete the state-mandated 4-hour NAIC Model 275 Best Interest training.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
-          "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_question_count": 83,
+          "exam_time_minutes": 210,
           "fingerprint_required": true,
           "fingerprint_vendor": "IdentoGO by Idemia",
           "fingerprint_code": "NJ00013",
@@ -8770,9 +8770,9 @@
           "nipr_path_url": null,
           "state_doi_url": null,
           "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. New Jersey was the 50TH and FINAL state to approve the NAIC standard.",
-          "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
-          "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. NJ is among the adopting jurisdictions.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
+          "source_quote": "Fixed annuities sold under Life LoA in New Jersey. Life Producer examination (PSI 83-item exam) covers Annuities under Types of Policies (Single/level/flexible, Immediate/deferred, Fixed/variable, Equity index) and NJ Laws (Bulletin 09-06 & N.J.S.A. 17B:25-34 et seq. Suitability of Annuities & Life Products).",
+          "captured_at": "2026-07-03T00:00:00Z"
         },
         "health": {
           "research_pending": false,
@@ -8829,9 +8829,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "N.J. Stat. Ann. §§ 17:29B-1 to 17:29B-14 [UTPA, NAIC Model 880]; N.J. Admin. Code §§ 11:2-23.1 to 11:2-23.10 [NAIC Model 570]",
+          "marketing_rule_statute": "N.J. Stat. Ann. \u00a7\u00a7 17:29B-1 to 17:29B-14 [UTPA, NAIC Model 880]; N.J. Admin. Code \u00a7\u00a7 11:2-23.1 to 11:2-23.10 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "New Jersey  N.J.  STAT. ANN. §§ 17:29B-1 to 17:29B-14 (1947/2001).",
+          "source_quote": "New Jersey  N.J.  STAT. ANN. \u00a7\u00a7 17:29B-1 to 17:29B-14 (1947/2001).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -8840,11 +8840,11 @@
           "prelicense_hours_required": 20,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
-          "exam_vendor": "Pearson VUE",
+          "exam_vendor": "PSI Services LLC",
           "exam_fee_usd": 44,
           "exam_passing_score_pct": 70,
-          "exam_question_count": 100,
-          "exam_time_minutes": 150,
+          "exam_question_count": 83,
+          "exam_time_minutes": 210,
           "fingerprint_required": true,
           "fingerprint_vendor": "State Live Scan",
           "fingerprint_code": "NJ00013",
@@ -8860,85 +8860,109 @@
           "license_type_note": "New Jersey Life license. 20-hour pre-licensing. Fingerprint required ($66.05 NJ rate). Exam via Pearson VUE.",
           "marketing_rule_notes": null,
           "marketing_rule_statute": null,
-          "source_url": "https://nipr.com/licensing-center/state-requirements/new-jersey-resident-licensing-individual",
-          "source_quote": "$170. Applicants applying for all exam-required lines of authorities...must schedule and have their fingerprint impressions taken through the State's Live Scan electronic fingerprint process before applying online.",
-          "captured_at": "2026-06-03T00:00:00Z"
+          "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
+          "source_quote": "PSI NJ Life Producer & Instructor Examination Bulletin (Effective Nov 11, 2010 / Current). 83 scored items, 70% passing score (59/83 correct), 3.5 hours (210 minutes). Outline covers 6 domains: Types of Policies (9 items), Policy Riders/Provisions/Options/Exclusions (21 items), Completing Application/Underwriting/Delivery (12 items), Taxes/Retirement/Other Concepts (8 items), NJ Laws Common (25 items), NJ Laws Pertinent to Life & Annuities (8 items).",
+          "captured_at": "2026-07-03T00:00:00Z",
+          "candidate_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf"
         }
       },
       "exam_varieties": [
         {
           "id": "nj_life_producer",
-          "name": "New Jersey Life Producer",
-          "series_code": null,
+          "name": "New Jersey Life Producer & Instructor (Inc. Annuities)",
+          "series_code": "NJ Life Producer",
           "exam_vendor": "PSI Services LLC",
           "question_count": 83,
           "time_minutes": 210,
           "passing_score_pct": 70,
-          "candidate_handbook_url": "https://test-takers.psiexams.com/api/content/bulletin/1649",
+          "candidate_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
+          "applies_to_lines": [
+            "life",
+            "annuity"
+          ],
           "content_outline": [
             {
               "domain": "Types of Policies",
               "weight_pct": 11,
+              "item_count": 9,
               "topics": [
-                "Term",
-                "Whole",
-                "Universal",
-                "Variable",
-                "Annuities",
-                "Combination plans"
+                "Traditional Whole Life Products (Ordinary/straight, Limited-pay & single-premium, Adjustable life)",
+                "Interest-Sensitive Life Products (Universal life, Variable whole life, Variable universal life, Interest-sensitive whole life)",
+                "Term Life (Level, decreasing, increasing; Special features: Renewable, Convertible)",
+                "Annuities (Single, level, & flexible premium; Immediate & deferred; Fixed & variable; Equity index)",
+                "Combination Plans and Variations (Joint life, Survivorship life)"
               ]
             },
             {
               "domain": "Policy Riders, Provisions, Options, and Exclusions",
               "weight_pct": 25,
+              "item_count": 21,
               "topics": [
-                "Riders (WP, GIO, ADB, LTC, ROP, accelerated)",
-                "Standard provisions",
-                "Beneficiary designations",
-                "Nonforfeiture",
-                "Settlement options"
+                "Policy Riders (Waiver of premium & waiver with disability income, Guaranteed insurability, Payor benefit, AD&D, Term riders, Other insureds, Cost of living)",
+                "Policy Provisions & Options (Entire contract, Insuring clause, Free look, Consideration, Owner rights, Beneficiary designations [primary/contingent, revocable/irrevocable, common disaster, minor beneficiaries], Premium payment [modes, grace period, automatic premium loan, level/flexible], Reinstatement, Policy loans/withdrawals/partial surrenders, Nonforfeiture options, Dividends & dividend options, Incontestability, Assignments, Suicide, Misstatement of age & gender, Settlement options)",
+                "Policy Exclusions"
               ]
             },
             {
               "domain": "Completing the Application, Underwriting, and Delivering the Policy",
               "weight_pct": 14,
+              "item_count": 12,
               "topics": [
-                "Application + signatures",
-                "Replacement",
-                "Underwriting",
-                "Disclosures"
+                "Completing The Application (Required signatures, Changes in application, Consequences of incomplete application, Warranties & representations, Collecting initial premium & issuing receipt, Replacement, Disclosures at point of sale [HIPAA, HIV consent])",
+                "Underwriting (Insurable interest, Medical information & consumer reports, Fair Credit Reporting Act, Risk classification)",
+                "Delivering The Policy (When coverage begins, Explaining policy/provisions/riders/exclusions/ratings to client)",
+                "Do Not Call List"
               ]
             },
             {
               "domain": "Taxes, Retirement, and Other Insurance Concepts",
               "weight_pct": 10,
+              "item_count": 8,
               "topics": [
-                "Group life",
-                "Qualified plans",
-                "Tax treatment",
-                "MECs",
-                "Life settlements"
+                "Third-Party Ownership",
+                "Group Life Insurance (Conversion privilege, Contributory vs noncontributory)",
+                "Retirement Plans (Tax-qualified plans, Nonqualified plans)",
+                "Business Insurance",
+                "Social Security Benefits and Taxes",
+                "Tax Treatment of Insurance Premiums, Proceeds, Dividends (Individual life, Group life, Modified Endowment Contracts - MECs)",
+                "Accelerated Death Benefits \u2014 Living Benefits",
+                "Endowments"
               ]
             },
             {
-              "domain": "New Jersey Laws, Rules, and Regulations",
-              "weight_pct": 40,
+              "domain": "New Jersey Laws, Rules, and Regulations Common to Life, Health, Property, and Casualty",
+              "weight_pct": 30,
+              "item_count": 25,
               "topics": [
-                "NJ insurance code",
-                "Licensing / appointment / CE",
-                "Unfair trade practices",
-                "Required provisions",
-                "Replacement",
-                "Guaranty Association"
+                "State Regulatory Jurisdiction (4 Items: Legislation, State Laws, Court Action, Effect on Law & Forms; Paul v. Virginia, US v. SEUA, McCarran-Ferguson Act / Public Law 15; Dept of Banking & Insurance, Broad Powers of Commissioner 17:1-8.1/17:1-15/17:22A-45, Notice & Hearing 17:22A-45/17:1-16/17:29B-6..13, Penalties 17:22A-40/45)",
+                "Definitions (4 Items: Insurance-related conduct 11:17-1.2, Domestic/foreign/alien companies 17B:17-7, Stock & mutual 17B:18-2/3, Reinsurance/retrocession 17B:18-62, Certificate of authority 17B:17-10/12, Agent vs Broker vs Consultant 17:22A-28/11:17B-1.3, Sell/Solicit/Negotiate)",
+                "Licensing (8 Items: Producer/Business entity/Nonresident 17:22A-29..34/11:17-1.2/2.2..2.6, Prelicensing 11:17-2/3.5/3.7/4, Surplus lines 17:22A-38, Temporary work authority 11:17-2.1/2.4, Contractual relationships [Company/producer 22A-42/11:17-2.9, Producer employing producer 11:17-2.9b, Disabled/deceased takeover 17:22A-37/11:17-2.10c], License duration & renewal 11:17-2.1/2.5, Refusal/termination/denial/revocation/suspension 17:22A-40/11:17-2.13/17D:2.1/2.5..2.7)",
+                "Trade Practices (6 Items: Prohibited practices 17:29B-1..14/11:2-17, Licensee responsibilities [Fictitious names 17:22A-36/11:17-1.2/2.7/11:17A-2.1, Branch offices 11:17-1.2/2.8, Change of address/email 11:17-2.7fg], Standards of conduct 11:17A..17D, Fraud 17:33A, Information Privacy NJSA 17:23A/HITECH/HIPAA)",
+                "Guaranty Associations (Title 17 Chapter 30A)",
+                "Ethics"
+              ]
+            },
+            {
+              "domain": "New Jersey Laws, Rules, and Regulations Pertinent to Life and Annuities",
+              "weight_pct": 10,
+              "item_count": 8,
+              "topics": [
+                "Credit Life (11:2-3.1..3.19)",
+                "Group Life (11:2-13.1..13.9; NJSA 17B:27-1..8, 11, 21)",
+                "Marketing Methods and Practices (17B:30-1..22)",
+                "Replacement (11:4-2.1..2.8)",
+                "Disclosures (11:4-11.1..11.7)",
+                "Advertising (11:2-23.1..23.10)",
+                "Twisting (17B:30-6)",
+                "The Insurance Contract (NJSA 17B:24-1..12)",
+                "Suitability of Annuities and Life Products (Bulletin No. 09-06 & N.J.S.A. 17B:25-34 et seq.)",
+                "Appropriate Use of Business Title or Designation when marketing life & annuity products (Bulletin No. 09-06 & N.J.S.A. 17B:25-36)"
               ]
             }
           ],
           "source_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
-          "source_quote": "Per current PSI NJ outlines (Feb 2026): NJ Life Producer 83 scored items, 3.5-hour time limit, 70% passing score. Outline: I. Types of Policies (9 Items), II. Policy Riders/Provisions/Options/Exclusions (21 Items), III. Completing Application/Underwriting/Delivery (12 Items), IV. Taxes/Retirement/Other Insurance Concepts (8 Items), V. New Jersey Laws Rules and Regulations.",
-          "captured_at": "2026-06-03T00:00:00Z",
-          "applies_to_lines": [
-            "life"
-          ]
+          "source_quote": "PSI New Jersey Life Producer & Instructor Examination Content Outline (Effective Nov 11, 2010 / Current). 83 scored items, 3.5 Hours, 70% passing score. 6 domains: Types of Policies (9 items), Policy Riders/Provisions/Options/Exclusions (21 items), Application/Underwriting/Delivery (12 items), Taxes/Retirement/Other Concepts (8 items), NJ Laws Common (25 items), NJ Laws Pertinent to Life & Annuities (8 items).",
+          "captured_at": "2026-07-03T00:00:00Z"
         },
         {
           "id": "nj_accident_health",
@@ -9044,7 +9068,7 @@
             }
           ],
           "source_url": "https://proctor2.psionline.com/media/programs/njins/a_hproduceinstructor.pdf",
-          "source_quote": "NEW variety + content_outline. NJ PSI Examination Content Outlines (Effective July 14, 2011). 'Producer 88 70% Correct 3.5 Hours'. Domains stated as item counts (Types of Policies 14 items, Policy Provisions 20, Social Insurance 3, Other Concepts 4, Field Underwriting 9, NJ Laws Common 25, NJ Laws A&H Only 13 — total 88 items). Weights computed as item_count/88.",
+          "source_quote": "NEW variety + content_outline. NJ PSI Examination Content Outlines (Effective July 14, 2011). 'Producer 88 70% Correct 3.5 Hours'. Domains stated as item counts (Types of Policies 14 items, Policy Provisions 20, Social Insurance 3, Other Concepts 4, Field Underwriting 9, NJ Laws Common 25, NJ Laws A&H Only 13 \u2014 total 88 items). Weights computed as item_count/88.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
@@ -9053,8 +9077,8 @@
       ],
       "exam_meta": {
         "exam_vendor_primary": "PSI Services LLC",
-        "state_doi_handbook_url": "https://test-takers.psiexams.com/api/content/bulletin/1649",
-        "state_content_outline_url": null,
+        "state_doi_handbook_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
+        "state_content_outline_url": "https://proctor2.psionline.com/programs/NJINS/LifeProducerInstructornov.pdf",
         "state_doi_page": "https://www.nj.gov/dobi/inslic.htm"
       },
       "course_meta": {
@@ -9185,7 +9209,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -9265,9 +9289,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "N.M. Stat. Ann. §§ 59A-16-1 to 59A-16-30 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "N.M. Stat. Ann. \u00a7\u00a7 59A-16-1 to 59A-16-30 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "New Mexico  N.M. STAT. ANN. §§ 59A-16-1 to 59A-16-30 (1985/1999) (portions of model).",
+          "source_quote": "New Mexico  N.M. STAT. ANN. \u00a7\u00a7 59A-16-1 to 59A-16-30 (1985/1999) (portions of model).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -9334,7 +9358,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": true,
           "approved_course_vendors": null,
@@ -9354,7 +9378,7 @@
           "background_check": null,
           "nipr_path_url": null,
           "state_doi_url": null,
-          "reciprocity_notes": "Fixed annuities sold under the Life Accident & Health LoA; no separate annuity license. NY has its own best-interest rule — Regulation 187 / 11 NYCRR 224 — broader than NAIC Model 275 (covers life insurance too). Effective Aug 1, 2019 for annuities, Feb 1, 2020 for life. Approved Reg 187 product/best-interest training required.",
+          "reciprocity_notes": "Fixed annuities sold under the Life Accident & Health LoA; no separate annuity license. NY has its own best-interest rule \u2014 Regulation 187 / 11 NYCRR 224 \u2014 broader than NAIC Model 275 (covers life insurance too). Effective Aug 1, 2019 for annuities, Feb 1, 2020 for life. Approved Reg 187 product/best-interest training required.",
           "source_url": "https://www.dfs.ny.gov/apps_and_licensing/agents_and_brokers/Suitability/Best-Interests-Training",
           "source_quote": "11 NYCRR 224 (Insurance Regulation 187): Suitability and Best Interests in Life Insurance and Annuity Transactions. The new regulation became effective August 1, 2019 with respect to annuity transactions and February 1, 2020 with respect to life insurance policies.",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -9414,9 +9438,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "N.Y. Ins. Law §§ 2401 to 2409; §§ 2602 to 2612 [UTPA, NAIC Model 880]; N.Y. Comp. Codes R. & Regs. tit. 11, §§ 219.1 to 219.7 (Regulation 34-A) [NAIC Model 570]",
+          "marketing_rule_statute": "N.Y. Ins. Law \u00a7\u00a7 2401 to 2409; \u00a7\u00a7 2602 to 2612 [UTPA, NAIC Model 880]; N.Y. Comp. Codes R. & Regs. tit. 11, \u00a7\u00a7 219.1 to 219.7 (Regulation 34-A) [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "New York  N.Y. INS. LAW §§ 2401 to 2409 (1984); §§ 2602 to 2612 (1984/2013).",
+          "source_quote": "New York  N.Y. INS. LAW \u00a7\u00a7 2401 to 2409 (1984); \u00a7\u00a7 2602 to 2612 (1984/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -9547,7 +9571,7 @@
             }
           ],
           "source_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
-          "source_quote": "LIFE INSURANCE AGENT/BROKER EXAM SERIES 10-51 — 100 questions – Two-hour time limit. 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 22%, 4.0 Life Insurance Policies 16%, 5.0 Life Insurance Policy Provisions 22%, 6.0 Annuities 10%, 7.0 Federal Tax 6%, 8.0 Qualified Plans 4%.",
+          "source_quote": "LIFE INSURANCE AGENT/BROKER EXAM SERIES 10-51 \u2014 100 questions \u2013 Two-hour time limit. 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Life Insurance Basics 22%, 4.0 Life Insurance Policies 16%, 5.0 Life Insurance Policy Provisions 22%, 6.0 Annuities 10%, 7.0 Federal Tax 6%, 8.0 Qualified Plans 4%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life"
@@ -9678,7 +9702,7 @@
             }
           ],
           "source_url": "https://proctor2.psionline.com/media/programs/NYINS/253post.pdf",
-          "source_quote": "SERIES 10-55 — 150 questions – 2.5-hour time limit. Domain weights vary; combined exam blends Life (Series 10-51) and Accident & Health (Series 10-52) content.",
+          "source_quote": "SERIES 10-55 \u2014 150 questions \u2013 2.5-hour time limit. Domain weights vary; combined exam blends Life (Series 10-51) and Accident & Health (Series 10-52) content.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
@@ -9788,7 +9812,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -9868,9 +9892,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "N.C. Gen. Stat. §§ 58-63-1 to 58-63-60 [UTPA, NAIC Model 880]; 11 N.C. Admin. Code §§ 0424 to 0433 [NAIC Model 570]",
+          "marketing_rule_statute": "N.C. Gen. Stat. \u00a7\u00a7 58-63-1 to 58-63-60 [UTPA, NAIC Model 880]; 11 N.C. Admin. Code \u00a7\u00a7 0424 to 0433 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "North Carolina  N.C. GEN. STAT. ANN. §§ 58-63-1 to 58-63-60 (1949/1999).",
+          "source_quote": "North Carolina  N.C. GEN. STAT. ANN. \u00a7\u00a7 58-63-1 to 58-63-60 (1949/1999).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -10127,7 +10151,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -10207,9 +10231,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "N.D. Cent. Code §§ 26.1-04-01 to 26.1-04-19 [UTPA, NAIC Model 880]; N.D. Admin. Code §§ 45-04-10-01 to 45-04-10-08 [NAIC Model 570]",
+          "marketing_rule_statute": "N.D. Cent. Code \u00a7\u00a7 26.1-04-01 to 26.1-04-19 [UTPA, NAIC Model 880]; N.D. Admin. Code \u00a7\u00a7 45-04-10-01 to 45-04-10-08 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "North Dakota  N.D. CENT. CODE ANN. §§ 26.1-04-01 to 26.1-04-19 (1983/2011).",
+          "source_quote": "North Dakota  N.D. CENT. CODE ANN. \u00a7\u00a7 26.1-04-01 to 26.1-04-19 (1983/2011).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -10276,7 +10300,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -10356,9 +10380,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Ohio Rev. Code §§ 3901.19 to 3901.26 [UTPA, NAIC Model 880]; Ohio Admin. Code 3901-6-01 [NAIC Model 570]",
+          "marketing_rule_statute": "Ohio Rev. Code \u00a7\u00a7 3901.19 to 3901.26 [UTPA, NAIC Model 880]; Ohio Admin. Code 3901-6-01 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Ohio  OHIO REV. CODE ANN. §§ 3901.19 to 3901.26 (1955-1956/2013); OHIO ADMIN. CODE § 3901-1-07 (1975/2011).",
+          "source_quote": "Ohio  OHIO REV. CODE ANN. \u00a7\u00a7 3901.19 to 3901.26 (1955-1956/2013); OHIO ADMIN. CODE \u00a7 3901-1-07 (1975/2011).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -10477,7 +10501,7 @@
             }
           ],
           "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
-          "source_quote": "OHIO LIFE INSURANCE AGENT SERIES 11-44 — 100 questions – 2 Hours. 1.0 Insurance Regulation 12%, 2.0 General Insurance 12%, 3.0 Life Insurance Basics 18%, 4.0 Life Insurance Policies 12%, 5.0 Life Insurance Policy Provisions, Options and Riders 22%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 8%. Minimum passing score is 70%.",
+          "source_quote": "OHIO LIFE INSURANCE AGENT SERIES 11-44 \u2014 100 questions \u2013 2 Hours. 1.0 Insurance Regulation 12%, 2.0 General Insurance 12%, 3.0 Life Insurance Basics 18%, 4.0 Life Insurance Policies 12%, 5.0 Life Insurance Policy Provisions, Options and Riders 22%, 6.0 Annuities 12%, 7.0 Federal Tax Considerations for Life Insurance and Annuities 8%. Minimum passing score is 70%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life"
@@ -10650,7 +10674,7 @@
             }
           ],
           "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
-          "source_quote": "OHIO LIFE, ACCIDENT AND HEALTH INSURANCE AGENT SERIES 11-35 — 150 questions – 2.5 Hours. Minimum passing score is 70%.",
+          "source_quote": "OHIO LIFE, ACCIDENT AND HEALTH INSURANCE AGENT SERIES 11-35 \u2014 150 questions \u2013 2.5 Hours. Minimum passing score is 70%.",
           "captured_at": "2026-06-03T00:00:00Z",
           "applies_to_lines": [
             "life",
@@ -10787,7 +10811,7 @@
             }
           ],
           "source_url": "https://dam.assets.ohio.gov/image/upload/insurance.ohio.gov/Agent/Documents/Candidate_Handbook_updated_3.20.2025.pdf",
-          "source_quote": "NEW: content_outline (weights & topics). OH Series 11-45 'OHIO ACCIDENT AND HEALTH INSURANCE AGENT, 100 questions – 2 Hours'. Domains: 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Accident and Health Insurance Basics 15%, 4.0 Individual A&H Insurance Policy General Provisions 9%, 5.0 Disability Income and Related Insurance 8%, 6.0 Medical Plans 9%, 7.0 Health Insuring Corporations (HICs) 6%, 8.0 Group A&H Insurance 9%, 9.0 Dental Care Plans 3%, 10.0 Insurance for Senior Citizens and Special Needs Individuals 15%, 11.0 Federal Tax Considerations for A&H Insurance 6%. SUM=100%.",
+          "source_quote": "NEW: content_outline (weights & topics). OH Series 11-45 'OHIO ACCIDENT AND HEALTH INSURANCE AGENT, 100 questions \u2013 2 Hours'. Domains: 1.0 Insurance Regulation 10%, 2.0 General Insurance 10%, 3.0 Accident and Health Insurance Basics 15%, 4.0 Individual A&H Insurance Policy General Provisions 9%, 5.0 Disability Income and Related Insurance 8%, 6.0 Medical Plans 9%, 7.0 Health Insuring Corporations (HICs) 6%, 8.0 Group A&H Insurance 9%, 9.0 Dental Care Plans 3%, 10.0 Insurance for Senior Citizens and Special Needs Individuals 15%, 11.0 Federal Tax Considerations for A&H Insurance 6%. SUM=100%.",
           "captured_at": "2026-06-04T01:40:31.187135Z",
           "applies_to_lines": [
             "health"
@@ -10913,7 +10937,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -10993,9 +11017,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Okla. Stat. tit. 36, §§ 1201 to 1220 [UTPA, NAIC Model 880]; Okla. Admin. Code §§ 365:10-3-30 to 365:10-3-39 [NAIC Model 570]",
+          "marketing_rule_statute": "Okla. Stat. tit. 36, \u00a7\u00a7 1201 to 1220 [UTPA, NAIC Model 880]; Okla. Admin. Code \u00a7\u00a7 365:10-3-30 to 365:10-3-39 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Oklahoma  OKLA. STAT. ANN. tit. 36, §§ 1201 to 1220 (1957/2012); § 1250.5 (2012).",
+          "source_quote": "Oklahoma  OKLA. STAT. ANN. tit. 36, \u00a7\u00a7 1201 to 1220 (1957/2012); \u00a7 1250.5 (2012).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -11170,7 +11194,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -11250,9 +11274,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Or. Rev. Stat. §§ 746.005 to 746.270 [UTPA, NAIC Model 880]; Or. Bulletin 2009-7 [NAIC Model 570]",
+          "marketing_rule_statute": "Or. Rev. Stat. \u00a7\u00a7 746.005 to 746.270 [UTPA, NAIC Model 880]; Or. Bulletin 2009-7 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Oregon   OR. REV. STAT. ANN. §§ 746.005 to 746.270 (1967/2010); OR. ADMIN. R. 836-080-0235 (1980/2010).",
+          "source_quote": "Oregon   OR. REV. STAT. ANN. \u00a7\u00a7 746.005 to 746.270 (1967/2010); OR. ADMIN. R. 836-080-0235 (1980/2010).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -11471,7 +11495,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -11551,9 +11575,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "40 Pa. Cons. Stat. §§ 1171.1 to 1171.15 [UTPA, NAIC Model 880]; 31 Pa. Code §§ 51.1 to 51.43 [NAIC Model 570]",
+          "marketing_rule_statute": "40 Pa. Cons. Stat. \u00a7\u00a7 1171.1 to 1171.15 [UTPA, NAIC Model 880]; 31 Pa. Code \u00a7\u00a7 51.1 to 51.43 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Pennsylvania  40 PA. CONS. STAT. §§ 1171.1 to 1171.15 (1974/2014); 47 PA. CONS. STAT. §§ 4701 to 4706 (2024) (rebating).",
+          "source_quote": "Pennsylvania  40 PA. CONS. STAT. \u00a7\u00a7 1171.1 to 1171.15 (1974/2014); 47 PA. CONS. STAT. \u00a7\u00a7 4701 to 4706 (2024) (rebating).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -11603,12 +11627,12 @@
               "topics": [
                 "Licensing",
                 "Process and types",
-                "Requirements (40 P.S. § 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. § 310.3–310.5, 310.10)",
-                "Temporary license (40 P.S. § 310.9)",
-                "Managers and exclusive general producers (40 P.S. § 310.1, 310.31)",
+                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
+                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
+                "Temporary license (40 P.S. \u00a7 310.9)",
+                "Managers and exclusive general producers (40 P.S. \u00a7 310.1, 310.31)",
                 "Maintenance and duration",
-                "Change in contact information (40 P.S. § 310.11(19))"
+                "Change in contact information (40 P.S. \u00a7 310.11(19))"
               ]
             },
             {
@@ -11629,7 +11653,7 @@
               "domain": "Life Insurance  Basics",
               "weight_pct": 20,
               "topics": [
-                "Insurable Interest (40 P.S. § 512)",
+                "Insurable Interest (40 P.S. \u00a7 512)",
                 "Personal Uses of Life Insurance",
                 "Survivor Protection",
                 "Estate Creation",
@@ -11657,10 +11681,10 @@
               "domain": "Life Insurance Policy Provisions, Options, and Riders",
               "weight_pct": 22,
               "topics": [
-                "Standard Life Insurance Provisions (40 P.S. § 510)",
+                "Standard Life Insurance Provisions (40 P.S. \u00a7 510)",
                 "Ownership",
                 "Assignment",
-                "Right to Examine (Free Look) (40 P.S. § 510C (a), (2), (3), (b1))",
+                "Right to Examine (Free Look) (40 P.S. \u00a7 510C (a), (2), (3), (b1))",
                 "Payment of Premiums (a)",
                 "Grace Period (b)",
                 "Misstatement of Age/Sex (e)",
@@ -11674,7 +11698,7 @@
                 "Annuity Principles and Concepts",
                 "Accumulation Period versus Annuity Period",
                 "Owner, Annuitant, and Beneficiary",
-                "Right to Examine (40 P.S. § 510D)",
+                "Right to Examine (40 P.S. \u00a7 510D)",
                 "Immediate versus Deferred Annuities",
                 "Annuity (Benefit) Payment Options",
                 "Life Contingency Options",
@@ -11716,12 +11740,12 @@
               "topics": [
                 "Licensing",
                 "Process and types",
-                "Requirements (40 P.S. § 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. § 310.3–310.5, 310.10)",
-                "Temporary license (40 P.S. § 310.9)",
-                "Managers and exclusive general agents (40 P.S. § 310.1, 310.31)",
+                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
+                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
+                "Temporary license (40 P.S. \u00a7 310.9)",
+                "Managers and exclusive general agents (40 P.S. \u00a7 310.1, 310.31)",
                 "Maintenance and duration",
-                "Change in contact information (40 P.S. § 310.11(19))"
+                "Change in contact information (40 P.S. \u00a7 310.11(19))"
               ]
             },
             {
@@ -11744,9 +11768,9 @@
               "topics": [
                 "Producer responsibilities",
                 "Sales presentations",
-                "Advertising (31 Pa. Code Ch. 51.1–.36, .42)",
-                "Life and Health Insurance Guaranty Association (40 P.S. § 991.1717)",
-                "Outline of coverage (40 P.S. § 991.1111; 31 Pa. Code Ch. 88.181)",
+                "Advertising (31 Pa. Code Ch. 51.1\u2013.36, .42)",
+                "Life and Health Insurance Guaranty Association (40 P.S. \u00a7 991.1717)",
+                "Outline of coverage (40 P.S. \u00a7 991.1111; 31 Pa. Code Ch. 88.181)",
                 "Field Underwriting",
                 "Application Procedures",
                 "Warranties and Representations"
@@ -11756,7 +11780,7 @@
               "domain": "Individual Accident and Health Insurance Policy Provisions",
               "weight_pct": 13,
               "topics": [
-                "Required Provisions (40 P.S. § 753(A))",
+                "Required Provisions (40 P.S. \u00a7 753(A))",
                 "Time Limit on Certain Defenses (2)",
                 "Grace Period (3)",
                 "Reinstatement (4)",
@@ -11873,12 +11897,12 @@
               "topics": [
                 "Licensing",
                 "Process and types",
-                "Requirements (40 P.S. § 310.1, 310.3-310.14)",
-                "Resident/nonresident (40 P.S. § 310.3–310.5, 310.10)",
-                "Temporary license (40 P.S. § 310.9)",
-                "Managers and exclusive general producers (40 P.S. § 310.1, 310.31)",
+                "Requirements (40 P.S. \u00a7 310.1, 310.3-310.14)",
+                "Resident/nonresident (40 P.S. \u00a7 310.3\u2013310.5, 310.10)",
+                "Temporary license (40 P.S. \u00a7 310.9)",
+                "Managers and exclusive general producers (40 P.S. \u00a7 310.1, 310.31)",
                 "Maintenance and duration",
-                "Change in contact information (40 P.S. § 310.11(19))"
+                "Change in contact information (40 P.S. \u00a7 310.11(19))"
               ]
             },
             {
@@ -11899,7 +11923,7 @@
               "domain": "Life, Accident, and Health Insurance Basics",
               "weight_pct": 14,
               "topics": [
-                "Insurable Interest (40 P.S. § 512)",
+                "Insurable Interest (40 P.S. \u00a7 512)",
                 "Personal Uses of Life Insurance",
                 "Survivor Protection",
                 "Estate Creation",
@@ -11927,10 +11951,10 @@
               "domain": "Life Insurance Policy Provisions, Options, and Riders",
               "weight_pct": 13,
               "topics": [
-                "Standard Life Insurance Provisions (40 P.S. § 510)",
+                "Standard Life Insurance Provisions (40 P.S. \u00a7 510)",
                 "Ownership",
                 "Assignment",
-                "Right to Examine (Free Look) (40 P.S. § 510C (a), (2), (3), (b1))",
+                "Right to Examine (Free Look) (40 P.S. \u00a7 510C (a), (2), (3), (b1))",
                 "Payment of Premiums (a)",
                 "Grace Period (b)",
                 "Misstatement of Age/Sex (e)",
@@ -11944,7 +11968,7 @@
                 "Annuity Principles and Concepts",
                 "Accumulation Period versus Annuity Period",
                 "Owner, Annuitant, and Beneficiary",
-                "Right to Examine (40 P.S. § 510D)",
+                "Right to Examine (40 P.S. \u00a7 510D)",
                 "Immediate versus Deferred Annuities",
                 "Annuity (Benefit) Payment Options",
                 "Life Contingency Options",
@@ -11955,7 +11979,7 @@
               "domain": "Individual Accident and Health Insurance Policy Provisions",
               "weight_pct": 7,
               "topics": [
-                "Required Provisions (40 P.S. § 753(A))",
+                "Required Provisions (40 P.S. \u00a7 753(A))",
                 "Time Limit on Certain Defenses (2)",
                 "Grace Period (3)",
                 "Reinstatement (4)",
@@ -12158,7 +12182,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -12238,9 +12262,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "R.I. Gen. Laws §§ 27-29-1 to 27-29-13 [UTPA, NAIC Model 880]; 230 R.I. Code R. §§ 20-25-5.1 to 20-25-5.13 [NAIC Model 570]",
+          "marketing_rule_statute": "R.I. Gen. Laws \u00a7\u00a7 27-29-1 to 27-29-13 [UTPA, NAIC Model 880]; 230 R.I. Code R. \u00a7\u00a7 20-25-5.1 to 20-25-5.13 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Rhode Island   R.I. GEN. LAWS ANN. §§ 27-29-1 to 27-29-13 (1958/2015).",
+          "source_quote": "Rhode Island   R.I. GEN. LAWS ANN. \u00a7\u00a7 27-29-1 to 27-29-13 (1958/2015).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -12307,7 +12331,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -12387,9 +12411,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "S.C. Code Ann. §§ 38-57-10 to 38-57-310; §§ 38-59-10 to 38-59-50 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "S.C. Code Ann. \u00a7\u00a7 38-57-10 to 38-57-310; \u00a7\u00a7 38-59-10 to 38-59-50 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "South Carolina  S.C. CODE ANN. §§ 38-57-10 to 38-57-310 (1988); §§ 38-59-10 to 38-59-50 (1988/1999).",
+          "source_quote": "South Carolina  S.C. CODE ANN. \u00a7\u00a7 38-57-10 to 38-57-310 (1988); \u00a7\u00a7 38-59-10 to 38-59-50 (1988/1999).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -12612,7 +12636,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -12692,9 +12716,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "S.D. Codified Laws §§ 58-33-1 to 58-33-46.1 [UTPA, NAIC Model 880]; S.D. Admin. R. 20:06:10 [NAIC Model 570]",
+          "marketing_rule_statute": "S.D. Codified Laws \u00a7\u00a7 58-33-1 to 58-33-46.1 [UTPA, NAIC Model 880]; S.D. Admin. R. 20:06:10 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "South Dakota  S.D. CODIFIED LAWS §§ 58-33-1 to 58-33-46.1 (1966/2000); §§ 58-33-66 to 58-33-69 (1986/1989).",
+          "source_quote": "South Dakota  S.D. CODIFIED LAWS \u00a7\u00a7 58-33-1 to 58-33-46.1 (1966/2000); \u00a7\u00a7 58-33-66 to 58-33-69 (1986/1989).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -12781,7 +12805,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -12861,7 +12885,7 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Tenn. Code Ann. § 56-8-104 [UTPA, NAIC Model 880]; Tenn. Comp. R. & Regs. 0780-1-33-.01 to 0780-1-33-.13 [NAIC Model 570]",
+          "marketing_rule_statute": "Tenn. Code Ann. \u00a7 56-8-104 [UTPA, NAIC Model 880]; Tenn. Comp. R. & Regs. 0780-1-33-.01 to 0780-1-33-.13 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
           "source_quote": "Tennessee  TENN. CODE ANN. 56-8-104 (2024).",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -13091,7 +13115,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -13111,7 +13135,7 @@
           "background_check": null,
           "nipr_path_url": null,
           "state_doi_url": null,
-          "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. In Texas the relevant LoA is 'General Lines — Life, Accident, Health and HMO.'",
+          "reciprocity_notes": "Fixed annuities sold under the Life LoA; no separate annuity license. NAIC Model 275 best-interest 4-hr one-time training adopted. In Texas the relevant LoA is 'General Lines \u2014 Life, Accident, Health and HMO.'",
           "source_url": "https://401kspecialistmag.com/all-50-states-now-on-board-with-naic-best-interest-annuity-rule/",
           "source_quote": "All 50 states have adopted the NAIC Model #275 best-interest standard for annuity sales; producers must complete a one-time 4-credit annuity training course approved by the Department of Insurance. TX is among the adopting jurisdictions.",
           "captured_at": "2026-06-03T00:00:00Z"
@@ -13171,9 +13195,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Tex. Ins. Code §§ 541.001 to 541.454 [UTPA, NAIC Model 880]; 28 Tex. Admin. Code §§ 21.101 to 21.122 [NAIC Model 570]",
+          "marketing_rule_statute": "Tex. Ins. Code \u00a7\u00a7 541.001 to 541.454 [UTPA, NAIC Model 880]; 28 Tex. Admin. Code \u00a7\u00a7 21.101 to 21.122 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Texas  TEX. INS. CODE ANN. §§ 541.001 to 541.454 (2005/2013).",
+          "source_quote": "Texas  TEX. INS. CODE ANN. \u00a7\u00a7 541.001 to 541.454 (2005/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -13304,7 +13328,7 @@
         },
         {
           "id": "tx_general_lines_life_accident_health",
-          "name": "General Lines — Life, Accident & Health",
+          "name": "General Lines \u2014 Life, Accident & Health",
           "series_code": "InsTX-LAH05",
           "exam_vendor": "Pearson VUE",
           "question_count": 145,
@@ -13553,7 +13577,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -13778,7 +13802,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -13858,9 +13882,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Vt. Stat. Ann. tit. 8, §§ 4721 to 4726 [UTPA, NAIC Model 880]; Vt. Admin. Code §§ 4-3-4:1 to 4-3-4:9 (Regulation 77-2) [NAIC Model 570]",
+          "marketing_rule_statute": "Vt. Stat. Ann. tit. 8, \u00a7\u00a7 4721 to 4726 [UTPA, NAIC Model 880]; Vt. Admin. Code \u00a7\u00a7 4-3-4:1 to 4-3-4:9 (Regulation 77-2) [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Vermont  VT. STAT. ANN. tit. 8, §§ 4721 to 4726 (1974/2023).",
+          "source_quote": "Vermont  VT. STAT. ANN. tit. 8, \u00a7\u00a7 4721 to 4726 (1974/2023).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -13927,7 +13951,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities sold under Virginia's 'Life & Annuities' LoA — annuity is named in the line title but is NOT a separate license.",
+          "license_type_note": "Fixed annuities sold under Virginia's 'Life & Annuities' LoA \u2014 annuity is named in the line title but is NOT a separate license.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -14007,9 +14031,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Va. Code Ann. §§ 38.2-500 to 38.2-516 [UTPA, NAIC Model 880]; 14 Va. Admin. Code §§ 5-41-10 to 5-41-160 [NAIC Model 570]",
+          "marketing_rule_statute": "Va. Code Ann. \u00a7\u00a7 38.2-500 to 38.2-516 [UTPA, NAIC Model 880]; 14 Va. Admin. Code \u00a7\u00a7 5-41-10 to 5-41-160 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Virginia  VA. CODE ANN. §§ 38.2-500 to 38.2-516 (1986/2013).",
+          "source_quote": "Virginia  VA. CODE ANN. \u00a7\u00a7 38.2-500 to 38.2-516 (1986/2013).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -14227,7 +14251,7 @@
                 "Types of providers and plans    ",
                 "Cost containment in health care delivery    ",
                 "Virginia eligibility requirements    ",
-                "HIPAA (Health Insurance Portability and Accountability Act) requirements  (38.2 -3430.1–.9, 3432.1–.3)  ",
+                "HIPAA (Health Insurance Portability and Accountability Act) requirements  (38.2 -3430.1\u2013.9, 3432.1\u2013.3)  ",
                 "Health Savings Accounts (HSAs) and Health Reimbursement Accounts (HRAs)     "
               ]
             },
@@ -14239,7 +14263,7 @@
                 "Defined groups  (38.2-3521.1)             ",
                 "Marketing considerations    ",
                 "Employer group health insurance    ",
-                "Small employer medical plans  (38.2-3431–3437)  "
+                "Small employer medical plans  (38.2-3431\u20133437)  "
               ]
             },
             {
@@ -14256,9 +14280,9 @@
               "weight_pct": 14,
               "topics": [
                 "Medicare               ",
-                "Medicare supplement insurance  (14 VAC 5-170-10–220, 38.2-3600 – 38.2-3611)  ",
+                "Medicare supplement insurance  (14 VAC 5-170-10\u2013220, 38.2-3600 \u2013 38.2-3611)  ",
                 "Other options for individuals with Medicare    ",
-                "Long-term care (LTC) policies  (38.2-5200–5210; 14 VAC 5-200-10–210)  "
+                "Long-term care (LTC) policies  (38.2-5200\u20135210; 14 VAC 5-200-10\u2013210)  "
               ]
             },
             {
@@ -14402,7 +14426,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -14482,9 +14506,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Wash. Rev. Code §§ 48.30.010 to 48.30.270 [UTPA, NAIC Model 880]; Wash. Admin. Code 284-23-010 to 284-23-110 [NAIC Model 570]",
+          "marketing_rule_statute": "Wash. Rev. Code \u00a7\u00a7 48.30.010 to 48.30.270 [UTPA, NAIC Model 880]; Wash. Admin. Code 284-23-010 to 284-23-110 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Washington  WASH. REV. CODE ANN. §§ 48.30.010 to 48.30.270 (1947/2015).",
+          "source_quote": "Washington  WASH. REV. CODE ANN. \u00a7\u00a7 48.30.010 to 48.30.270 (1947/2015).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -14627,7 +14651,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -14707,9 +14731,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "W. Va. Code §§ 33-11-1 to 33-11-10 [UTPA, NAIC Model 880]; W. Va. Code R. §§ 114-11-1 to 114-11-11 [NAIC Model 570]",
+          "marketing_rule_statute": "W. Va. Code \u00a7\u00a7 33-11-1 to 33-11-10 [UTPA, NAIC Model 880]; W. Va. Code R. \u00a7\u00a7 114-11-1 to 114-11-11 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "West Virginia  W. VA. CODE ANN. §§ 33-11-1 to 33-11-10 (1957/2005); INS. BULLETIN NO. 20-02 (2020).",
+          "source_quote": "West Virginia  W. VA. CODE ANN. \u00a7\u00a7 33-11-1 to 33-11-10 (1957/2005); INS. BULLETIN NO. 20-02 (2020).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -14776,7 +14800,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -14856,9 +14880,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies. State adopts NAIC Model 570 life-ad disclosure/recordkeeping rule.",
-          "marketing_rule_statute": "Wis. Stat. §§ 628.31 to 628.46 [UTPA, NAIC Model 880]; Wis. Admin. Code Ins. § 2.16 [NAIC Model 570]",
+          "marketing_rule_statute": "Wis. Stat. \u00a7\u00a7 628.31 to 628.46 [UTPA, NAIC Model 880]; Wis. Admin. Code Ins. \u00a7 2.16 [NAIC Model 570]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Wisconsin   WIS. STAT. §§ 628.31 to 628.46 (1975/1998); WIS. ADMIN. CODE INS. § 6.68 (1979/1984).",
+          "source_quote": "Wisconsin   WIS. STAT. \u00a7\u00a7 628.31 to 628.46 (1975/1998); WIS. ADMIN. CODE INS. \u00a7 6.68 (1979/1984).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {
@@ -15058,7 +15082,7 @@
       "lines": {
         "annuity": {
           "research_pending": false,
-          "license_type_note": "Fixed annuities are sold under the Life line of authority — no separate annuity producer license in this state.",
+          "license_type_note": "Fixed annuities are sold under the Life line of authority \u2014 no separate annuity producer license in this state.",
           "prelicense_hours_required": 4,
           "prelicense_required_course": false,
           "approved_course_vendors": null,
@@ -15138,9 +15162,9 @@
           "reciprocity_notes": null,
           "license_type_note": "Mortgage protection is sold under the Life LoA - no separate license required.",
           "marketing_rule_notes": "Ad must not use a policy name/title misrepresenting coverage's true nature (mortgage protection is term life); cannot imply affiliation with mortgage lender or government; cannot be untrue, deceptive, or misleading. Must identify carrier and product as life insurance; use approved form numbers; substantiate guaranteed-acceptance, no-exam, premium, and death-benefit claims; retain ad copies.",
-          "marketing_rule_statute": "Wyo. Stat. §§ 26-13-101 to 26-13-124 [UTPA, NAIC Model 880]",
+          "marketing_rule_statute": "Wyo. Stat. \u00a7\u00a7 26-13-101 to 26-13-124 [UTPA, NAIC Model 880]",
           "source_url": "https://content.naic.org/sites/default/files/model-law-state-page-880.pdf",
-          "source_quote": "Wyoming  WYO. STAT. ANN. §§ 26-13-101 to 26-13-124 (1967/1986).",
+          "source_quote": "Wyoming  WYO. STAT. ANN. \u00a7\u00a7 26-13-101 to 26-13-124 (1967/1986).",
           "captured_at": "2026-06-03T00:00:00Z"
         },
         "life": {

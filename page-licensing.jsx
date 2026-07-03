@@ -31,7 +31,7 @@
 (function () {
   const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-  const DATA_URL = "/lib/licensing-data.json?v=7";
+  const DATA_URL = "/lib/licensing-data.json?v=8";
 
   /* ── Static study guide lookup (from lib/licensing-study-guides.js) ──
      That file exposes window.LicensingStudyGuides when loaded as a script.
@@ -43,10 +43,10 @@
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_|_$/g, "");
   }
-  function getStaticGuide(lineId, domainName) {
+  function getStaticGuide(lineId, domainName, stateCode, varietyId) {
     const guides = window.LicensingStudyGuides;
     if (guides && guides.getStaticGuideSection) {
-      return guides.getStaticGuideSection(lineId, domainName);
+      return guides.getStaticGuideSection(lineId, domainName, stateCode, varietyId);
     }
     // Inline fallback — minimal skeleton so the UI doesn't blank out
     return {
@@ -755,7 +755,7 @@
     const [activeIdx, setActiveIdx] = useState(0);
 
     const activeSection = sections[activeIdx];
-    const guideDoc = activeSection ? getStaticGuide(lineId, activeSection.domain) : null;
+    const guideDoc = activeSection ? getStaticGuide(lineId, activeSection.domain, stateCode, variety?.id) : null;
 
     const handleExport = () => {
       if (!guideDoc) return;
@@ -799,7 +799,7 @@
     const handleDownloadAllPDF = () => {
       // Collect all sections from static guide
       const allSections = sections.map((s, idx) => {
-        const doc = getStaticGuide(lineId, s.domain);
+        const doc = getStaticGuide(lineId, s.domain, stateCode, variety?.id);
         if (!doc || !doc.blocks) return null;
         return { section: s, doc };
       }).filter(Boolean);
