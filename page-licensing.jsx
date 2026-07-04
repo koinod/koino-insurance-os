@@ -139,6 +139,8 @@
     const [lineId, setLineId]       = useState("life");
     const [varietyId, setVarietyId] = useState("");
     const [tab, setTab]             = useState("practice");
+    const [latestExamResult, setLatestExamResult] = useState(null);
+    const [initialTutorPrompt, setInitialTutorPrompt] = useState("");
 
     useEffect(() => {
       let alive = true;
@@ -290,9 +292,9 @@
               })}
             </div>
 
-            {tab === "practice"    && variety && <PracticeTab    stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
-            {tab === "study_guide" && variety && <StudyGuideTab  stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
-            {tab === "tutor"       && variety && <TutorTab       stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
+            {tab === "practice"    && variety && <PracticeTab    stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety} setLatestExamResult={setLatestExamResult} setTab={setTab} setInitialTutorPrompt={setInitialTutorPrompt}/>}
+            {tab === "study_guide" && variety && <StudyGuideTab  stateCode={stateCode} stateName={data?.states?.[stateCode]?.name || stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety}/>}
+            {tab === "tutor"       && variety && <TutorTab       stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} variety={variety} latestExamResult={latestExamResult} setLatestExamResult={setLatestExamResult} initialTutorPrompt={initialTutorPrompt} setInitialTutorPrompt={setInitialTutorPrompt}/>}
             {tab === "logistics"   &&             <LogisticsTab  stateCode={stateCode} lineId={lineId} lineLabel={lineLabel} cell={cell} stepByStep={data._step_by_step_template} stateRec={data.states[stateCode]}/>}
           </>
         )}
@@ -307,7 +309,7 @@
      mode: "free" | "exam"
      In exam mode, we track questions answered, score per domain, and
      bias the next-question domain selection toward weak domains. */
-  function PracticeTab({ stateCode, lineId, lineLabel, variety }) {
+  function PracticeTab({ stateCode, lineId, lineLabel, variety, setLatestExamResult, setTab, setInitialTutorPrompt }) {
     const [mode, setMode]           = useState("free"); // "free" | "exam"
     const [q, setQ]                 = useState(null);
     const [picked, setPicked]       = useState(null);
@@ -454,6 +456,16 @@
       return { correct, total: examResults.length, pct, byDomain };
     }, [examResults]);
 
+    useEffect(() => {
+      if (examDone && examScore && setLatestExamResult) {
+        setLatestExamResult({
+          score: examScore,
+          varietyName: variety.name,
+          stateName: stateCode
+        });
+      }
+    }, [examDone, examScore, variety.name, stateCode, setLatestExamResult]);
+
     // ── Exam done screen ──
     if (examDone && examScore) {
       const passPct = variety.passing_score_pct || 70;
@@ -490,10 +502,22 @@
                     );
                   })}
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                 <button className="btn btn-primary" onClick={() => startExam(examTotal)}>Retry same length</button>
                 <button className="btn btn-ghost" onClick={() => startExam(Math.min(examTotal + 10, 100))}>Longer exam ({Math.min(examTotal + 10, 100)}q)</button>
                 <button className="btn btn-ghost" onClick={endExam}>Free practice</button>
+                <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", color: "var(--accent-money)" }}
+                  onClick={() => {
+                    if (setInitialTutorPrompt) {
+                      const breakdown = Object.entries(examScore.byDomain)
+                        .map(([dom, d]) => `- ${dom}: ${d.correct}/${d.total} (${Math.round(100 * d.correct / d.total)}%)`)
+                        .join("\n");
+                      setInitialTutorPrompt(`I just finished a practice exam for ${variety.name} and scored ${examScore.pct}% (${examScore.correct}/${examScore.total}). Here is my breakdown by outline domain:\n${breakdown}\n\nPlease review these results, identify my weakest areas, and give me a tailored, custom study plan with actionable tips to improve my score.`);
+                    }
+                    if (setTab) setTab("tutor");
+                  }}>
+                  <Icons.MessageSquare size={11}/> Ask AI to Analyze Score
+                </button>
               </div>
             </div>
           </div>
@@ -533,6 +557,9 @@
                   </button>
                   <button className="btn btn-ghost" onClick={() => startExam(50)}>
                     <Icons.Sparkles size={11}/> Create Exam (50q)
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => startExam(100)}>
+                    <Icons.Sparkles size={11}/> Create Exam (100q)
                   </button>
                   {weakestDomain && (
                     <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); fetchOne(weakestDomain); }} title="Next question will be drawn from your weakest domain">
@@ -741,7 +768,7 @@
   }
 
   /* ───── Study Guide tab — STATIC hardcoded sections, instant load ───── */
-  function StudyGuideTab({ stateCode, lineId, lineLabel, variety }) {
+  function StudyGuideTab({ stateCode, stateName, lineId, lineLabel, variety }) {
     const outline = Array.isArray(variety.content_outline) ? variety.content_outline : [];
     const sections = [
       ...outline.map((d, i) => ({
@@ -809,49 +836,148 @@
         return blocks.map(b => {
           if (!b) return "";
           if (b.type === "heading") {
-            return `<h3 style="color:#00d4aa;font-size:13pt;margin:18pt 0 6pt;border-bottom:1px solid #e5dfd3;padding-bottom:4pt;">${b.text}</h3>`;
+            return `<h3 style="color:#007A66;font-size:13pt;font-weight:700;margin:18pt 0 8pt;font-family:Inter,sans-serif;">${b.text}</h3>`;
           }
           if (b.type === "intro") {
-            return `<p style="font-size:10pt;color:#555;line-height:1.65;background:#f0f8f5;padding:8pt 12pt;border-radius:4pt;">${b.text}</p>`;
+            return `<p style="font-size:10pt;color:#334155;line-height:1.6;background:#e6fbf7;padding:8pt 12pt;border-radius:4pt;margin:8pt 0;font-family:Inter,sans-serif;">${b.text}</p>`;
           }
           if (b.type === "table") {
-            const rows = (b.rows || []).filter(Boolean).map(r =>
-              `<tr><td style="padding:5pt 10pt;font-weight:600;background:#f8f8f8;width:160pt;">${r.label||""}</td><td style="padding:5pt 10pt;font-family:monospace;color:#007a66;">${r.value||"\u2014"}</td><td style="padding:5pt 10pt;color:#555;">${r.description||""}</td></tr>`
-            ).join("");
-            return `<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;font-size:9.5pt;margin:8pt 0;">${rows}</table>`;
+            const anyValue = (b.rows || []).some(r => r && r.value);
+            const rows = (b.rows || []).filter(Boolean).map(r => {
+              const labelCell = `<td style="padding:6pt 10pt;font-weight:600;background:#1e2530;color:#fff;width:160pt;font-size:9.5pt;vertical-align:middle;border-bottom:1px solid #111;">${r.label||""}</td>`;
+              
+              let valueCell = "";
+              if (anyValue) {
+                let valHtml = "&mdash;";
+                if (r.value) {
+                  const parts = r.value.trim().split(/\s+/);
+                  if (parts.length === 2 && !isNaN(parts[0])) {
+                    valHtml = `<div style="font-size:18pt;font-weight:700;color:#007A66;line-height:1.1;">${parts[0]}</div><div style="font-size:8.5pt;font-weight:600;color:#007A66;text-transform:uppercase;margin-top:2px;">${parts[1]}</div>`;
+                  } else {
+                    valHtml = `<div style="font-size:14pt;font-weight:700;color:#007A66;">${r.value}</div>`;
+                  }
+                }
+                valueCell = `<td style="padding:6pt 8pt;background:#eef3f7;width:80pt;text-align:center;vertical-align:middle;border-bottom:1px solid #e2e8f0;border-left:1px solid #e2e8f0;">${valHtml}</td>`;
+              }
+              
+              const descCell = `<td style="padding:6pt 10pt;background:#eef3f7;color:#1e293b;font-size:9.5pt;line-height:1.55;vertical-align:middle;border-bottom:1px solid #e2e8f0;border-left:1px solid #e2e8f0;">${r.description||""}</td>`;
+              
+              return `<tr>${labelCell}${valueCell}${descCell}</tr>`;
+            }).join("");
+            
+            return `<table style="width:100%;border-collapse:collapse;margin:12pt 0;font-family:Inter,sans-serif;">${rows}</table>`;
           }
           if (b.type === "bullets") {
             const items = (b.items || []).filter(Boolean).map(it => {
-              const bold = it.bold ? `<strong>${it.bold}</strong> ` : "";
+              const bold = it.bold ? `<strong style="color:#0f172a;">${it.bold}</strong> ` : "";
               const text = it.text || (typeof it === "string" ? it : "");
-              return `<li style="margin:3pt 0;color:#333;">${bold}${text}</li>`;
+              return `<li style="margin:5pt 0;color:#334155;line-height:1.5;">${bold}${text}</li>`;
             }).join("");
-            return `<ul style="margin:6pt 0;padding-left:20pt;font-size:10pt;">${items}</ul>`;
+            return `<ul style="margin:8pt 0;padding-left:18pt;font-size:10pt;font-family:Inter,sans-serif;">${items}</ul>`;
           }
           if (b.type === "callout") {
             const colors = {
-              test_trick: { bg: "#e8f7f3", bd: "#00d4aa", label: "✓ Test Trick" },
-              warning:    { bg: "#fef2f2", bd: "#dc2626", label: "⚠ Warning" },
-              info:       { bg: "#eff6ff", bd: "#2563eb", label: "ℹ Info" },
-            }[b.kind] || { bg: "#f8f8f8", bd: "#ccc", label: "Note" };
-            return `<div style="background:${colors.bg};border-left:3pt solid ${colors.bd};padding:8pt 12pt;margin:8pt 0;font-size:9.5pt;border-radius:3pt;"><strong style="color:${colors.bd};">${colors.label}:</strong> ${b.text}</div>`;
+              test_trick: { bg: "#e6fbf7", bd: "#007a66", label: "✓ Test Trick", color: "#007a66" },
+              warning:    { bg: "#fef2f2", bd: "#ef4444", label: "■ Note", color: "#ef4444" },
+              info:       { bg: "#eff6ff", bd: "#3b82f6", label: "ℹ Info", color: "#3b82f6" },
+            }[b.kind] || { bg: "#f8fafc", bd: "#94a3b8", label: "Note", color: "#64748b" };
+            return `<div style="background:${colors.bg};border-left:3.5pt solid ${colors.bd};padding:8pt 12pt;margin:10pt 0;font-size:9.5pt;border-radius:3pt;color:#1e293b;line-height:1.5;font-family:Inter,sans-serif;"><strong style="color:${colors.color};">${colors.label}: </strong>${b.text}</div>`;
           }
           return "";
         }).join("\n");
       };
 
-      const sectionHTML = allSections.map(({ section, doc }, i) => {
-        const pct = section.weight_pct != null ? ` <span style="font-size:9pt;color:#888;">(${section.weight_pct}% of exam)</span>` : "";
+      // Render cover index (Exam at a Glance table)
+      const coverRows = allSections.map(({ section, doc }) => {
+        const qCount = (section.weight_pct != null && variety.question_count)
+          ? `~${Math.round(variety.question_count * (section.weight_pct / 100))}`
+          : (section.domain === "Master Numbers Drill" ? "—" : `~${section.weight_pct || ""}`);
+        const weightText = section.weight_pct != null ? `${section.weight_pct}%` : "—";
         return `
-          <div style="page-break-before:${i > 0 ? "always" : "auto"};padding:0;">
-            <div style="display:flex;align-items:baseline;gap:10pt;margin-bottom:10pt;">
-              <span style="font-family:monospace;font-size:10pt;color:#888;">${section.section_number}</span>
-              <h2 style="font-size:15pt;margin:0;color:#111;">${doc.title}</h2>${pct}
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 8pt 12pt; font-family: monospace; font-size: 10pt; color: #475569; text-align: center; width: 60pt;">${section.section_number}</td>
+            <td style="padding: 8pt 12pt; font-weight: 600; color: #0f172a;">${doc.title || section.domain}</td>
+            <td style="padding: 8pt 12pt; color: #475569; text-align: right; width: 80pt;">${weightText}</td>
+            <td style="padding: 8pt 12pt; color: #475569; text-align: right; width: 80pt;">${qCount}</td>
+          </tr>`;
+      }).join("\n");
+
+      const coverHTML = `
+        <div style="page-break-after: always; padding: 0;">
+          <!-- Cover Dark Card -->
+          <div style="background: #0b121f; color: #fff; padding: 36pt; border-radius: 6pt; margin-bottom: 30pt; text-align: center; font-family: Inter, sans-serif;">
+            <div style="font-family: monospace; font-size: 12pt; color: #60a5fa; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12pt;">
+              ${stateName}
             </div>
-            ${doc.subtitle ? `<p style="font-size:9.5pt;color:#888;font-style:italic;margin:0 0 12pt;">${doc.subtitle}</p>` : ""}
+            <div style="font-size: 32pt; font-weight: 700; color: #fff; line-height: 1.2; margin-bottom: 6pt; font-family: Inter, sans-serif;">
+              ${lineLabel}
+            </div>
+            <div style="font-size: 18pt; font-weight: 500; color: #94a3b8; margin-bottom: 24pt;">
+              Producer Examination
+            </div>
+            <div style="font-size: 11pt; color: #94a3b8; letter-spacing: 1px; font-weight: 600; text-transform: uppercase; margin-bottom: 36pt; opacity: 0.85;">
+              ${variety.series_code ? `SERIES ${variety.series_code} · ` : ""}COMPLETE STUDY GUIDE
+            </div>
+            <div style="font-size: 12pt; font-style: italic; color: #60a5fa; font-weight: 600; letter-spacing: 0.5px;">
+              ${variety.question_count ? `${variety.question_count} Questions` : "100 Questions"} &bull; 
+              ${variety.time_minutes ? `${variety.time_minutes} Minutes` : "120 Minutes"} &bull; 
+              ${variety.passing_score_pct ? `${variety.passing_score_pct}% to Pass` : "70% to Pass"}
+            </div>
+            <div style="font-size: 8.5pt; color: #475569; margin-top: 36pt; border-top: 1px solid #1e293b; padding-top: 16pt;">
+              Based on ${variety.exam_vendor || "PSI"} Exam Content Outline ${variety.series_code ? `Series ${variety.series_code}` : ""} &bull; koinocapital.com
+            </div>
+          </div>
+          
+          <!-- TOC -->
+          <div style="margin-top: 20pt; font-family: Inter, sans-serif;">
+            <h2 style="font-size: 12pt; color: #007A66; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 12pt; text-transform: uppercase;">
+              Exam at a Glance
+            </h2>
+            <table style="width: 100%; border-collapse: collapse; font-size: 9.5pt;">
+              <thead>
+                <tr style="background: #0f172a; color: #fff; text-align: left; font-weight: 600;">
+                  <th style="padding: 8pt 12pt; text-align: center; border-radius: 4px 0 0 0;">Section</th>
+                  <th style="padding: 8pt 12pt;">Topic</th>
+                  <th style="padding: 8pt 12pt; text-align: right;">Weight</th>
+                  <th style="padding: 8pt 12pt; text-align: right; border-radius: 0 4px 0 0;">Questions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${coverRows}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+
+      const sectionHTML = allSections.map(({ section, doc }, i) => {
+        const pct = section.weight_pct != null ? `${section.weight_pct}% OF EXAM` : "";
+        return `
+          <div style="page-break-before: always; padding: 0;">
+            <!-- Section Header Banner -->
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 4pt; font-family: Inter, sans-serif;">
+              <span style="font-size: 9pt; font-weight: 700; color: #007A66; letter-spacing: 1px; text-transform: uppercase;">• SECTION ${section.section_number} •</span>
+              ${pct ? `<span style="font-size: 9pt; font-weight: 700; color: #d97706; letter-spacing: 1px;">${pct}</span>` : ""}
+            </div>
+            <div style="background: #0b121f; color: #fff; padding: 12pt 20pt; border-radius: 4px; margin-bottom: 12pt; font-family: Inter, sans-serif;">
+              <h2 style="font-size: 16pt; font-weight: 700; margin: 0; letter-spacing: 0.5px; line-height: 1.25;">
+                ${doc.title} &mdash; ${stateName}
+              </h2>
+            </div>
+            ${doc.subtitle ? `<p style="font-size: 9.5pt; color: #64748b; font-style: italic; margin: 0 0 16pt; font-family: Inter, sans-serif;">${doc.subtitle}</p>` : ""}
             ${renderBlocks(doc.blocks)}
           </div>`;
       }).join("\n");
+
+      const passHTML = `
+        <div style="page-break-before: always; padding: 0;">
+          <div style="background: #0b121f; color: #fff; padding: 48pt 36pt; border-radius: 6pt; text-align: center; font-family: Inter, sans-serif; margin-top: 40pt;">
+            <h1 style="font-size: 40pt; font-weight: 800; color: #fff; letter-spacing: 2px; margin: 0 0 12pt; line-height: 1;">YOU PASSED.</h1>
+            <p style="font-size: 16pt; font-style: italic; color: #60a5fa; margin: 0 0 30pt; font-weight: 500;">Now go write business.</p>
+            <div style="font-size: 10pt; color: #475569; border-top: 1px solid #1e293b; padding-top: 18pt; display: inline-block; width: 100%; max-width: 280pt;">
+              repflow.koino.capital/licensing &bull; koino.capital
+            </div>
+          </div>
+        </div>`;
 
       const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
       const html = `<!DOCTYPE html>
@@ -864,10 +990,6 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; font-family: Inter, system-ui, sans-serif; background: #fff; color: #111; }
     body { padding: 36pt 48pt 72pt; }
-    h1 { font-size: 22pt; margin: 0 0 4pt; color: #111; }
-    .cover-meta { font-size: 10pt; color: #666; margin-bottom: 24pt; }
-    .cover-meta span { color: #00a88a; font-weight: 600; }
-    .divider { border: none; border-top: 2px solid #00d4aa; margin: 18pt 0; }
     .footer-bar { position: fixed; bottom: 0; left: 0; right: 0;
       padding: 6pt 24pt; border-top: 1pt solid #ddd;
       display: flex; justify-content: space-between;
@@ -875,8 +997,10 @@
     @media print {
       body { padding: 0.5in 0.65in 1.1in; }
       .footer-bar { display: flex !important; }
+      @page {
+        margin: 0.6in 0.6in 0.8in;
+      }
     }
-    table tr:nth-child(even) td { background: #f9f9f9; }
   </style>
 </head>
 <body>
@@ -884,16 +1008,10 @@
     <span>${stateCode} ${lineLabel} Complete Study Guide &mdash; RepFlow by Koino Capital</span>
     <span>repflow.koino.capital/licensing &bull; &copy; ${new Date().getFullYear()} koino.capital &bull; ${today}</span>
   </div>
-  <h1>${stateCode} ${lineLabel}</h1>
-  <p style="font-size:18pt;font-weight:600;color:#00a88a;margin:0 0 8pt;">Complete Study Guide</p>
-  <div class="cover-meta">
-    <span>${allSections.length} sections</span> &nbsp;&middot;&nbsp;
-    Generated by <strong>RepFlow</strong> by Koino Capital &nbsp;&middot;&nbsp; ${today}<br/>
-    <em>Verify all state-specific figures (fees, CE hours, time limits) against the ${stateCode} DOI or official candidate handbook before exam day.</em>
-  </div>
-  <hr class="divider"/>
+  ${coverHTML}
   ${sectionHTML}
-  <div style="margin-top:40pt;padding-top:16pt;border-top:1pt solid #e0e0e0;font-size:8.5pt;color:#888;">
+  ${passHTML}
+  <div style="margin-top:40pt;padding-top:16pt;border-top:1pt solid #e0e0e0;font-size:8.5pt;color:#888;font-family:Inter,sans-serif;page-break-inside:avoid;">
     <strong>Disclaimer:</strong> This study guide is compiled from publicly available state DOI handbooks and NIPR records for educational purposes.
     Always verify state-specific requirements at your state Department of Insurance before relying on exam day.
     RepFlow is a product of Koino Capital &mdash; <a href="https://koino.capital" style="color:#00a88a;">koino.capital</a>
@@ -1014,21 +1132,39 @@
       <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
         {rows.map((r, i) => {
           if (!r || !r.label) return null;
+
+          let formattedValue = null;
+          if (r.value) {
+            const parts = r.value.trim().split(/\s+/);
+            if (parts.length === 2 && !isNaN(parts[0])) {
+              formattedValue = (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 1.1 }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "var(--accent-money)" }}>{parts[0]}</span>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: "var(--accent-money)", textTransform: "uppercase", marginTop: 2 }}>{parts[1]}</span>
+                </div>
+              );
+            } else {
+              formattedValue = (
+                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--accent-money)" }}>{r.value}</span>
+              );
+            }
+          }
+
           return (
             <div key={i} style={{
               display: "grid",
-              gridTemplateColumns: anyValue ? "minmax(160px, 1fr) minmax(80px, auto) 2fr" : "minmax(160px, 1fr) 3fr",
+              gridTemplateColumns: anyValue ? "minmax(160px, 1.2fr) minmax(90px, auto) 2fr" : "minmax(160px, 1fr) 3fr",
               gap: 0,
               borderTop: i === 0 ? "none" : "1px solid var(--border-subtle)",
               fontSize: 12,
             }}>
-              <div style={{ padding: "8px 12px", background: "var(--bg-elevated)", fontWeight: 500, color: "var(--text-primary)" }}>{r.label}</div>
+              <div style={{ padding: "10px 14px", background: "var(--bg-elevated)", fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center" }}>{r.label}</div>
               {anyValue && (
-                <div style={{ padding: "8px 12px", background: r.value ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)", fontFamily: r.value ? "var(--font-mono)" : "inherit", fontWeight: 600, color: r.value ? "var(--accent-money)" : "var(--text-quaternary)", textAlign: "center", whiteSpace: "nowrap" }}>
-                  {r.value || "—"}
+                <div style={{ padding: "10px 14px", background: "var(--bg-raised)", borderLeft: "1px solid var(--border-subtle)", borderRight: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", minWidth: 90 }}>
+                  {formattedValue || <span style={{ color: "var(--text-quaternary)" }}>—</span>}
                 </div>
               )}
-              <div style={{ padding: "8px 12px", background: "var(--bg-raised)", color: "var(--text-secondary)", lineHeight: 1.55 }}>{r.description || ""}</div>
+              <div style={{ padding: "10px 14px", background: "var(--bg-raised)", color: "var(--text-secondary)", lineHeight: 1.55, display: "flex", alignItems: "center" }}>{r.description || ""}</div>
             </div>
           );
         })}
@@ -1053,13 +1189,13 @@
   }
   function Callout({ kind, text }) {
     const style = {
-      test_trick: { bg: "color-mix(in oklch, var(--accent-money) 10%, transparent)",   bd: "color-mix(in oklch, var(--accent-money) 35%, transparent)", color: "var(--accent-money)",  prefix: "✓ Test trick: " },
-      warning:    { bg: "color-mix(in oklch, var(--state-danger) 10%, transparent)",   bd: "color-mix(in oklch, var(--state-danger) 35%, transparent)", color: "var(--state-danger)",  prefix: "■ " },
-      info:       { bg: "color-mix(in oklch, var(--accent-status) 10%, transparent)",  bd: "color-mix(in oklch, var(--accent-status) 35%, transparent)", color: "var(--accent-status)", prefix: "ℹ︎ " },
+      test_trick: { bg: "color-mix(in oklch, var(--accent-money) 8%, var(--bg-base))",   bd: "var(--accent-money)",  color: "var(--accent-money)",  prefix: "✓ Test trick: " },
+      warning:    { bg: "color-mix(in oklch, var(--state-danger) 8%, var(--bg-base))",   bd: "var(--state-danger)",  color: "var(--state-danger)",  prefix: "■ " },
+      info:       { bg: "color-mix(in oklch, var(--accent-status) 8%, var(--bg-base))",  bd: "var(--accent-status)", color: "var(--accent-status)", prefix: "ℹ︎ " },
     }[kind] || { bg: "var(--bg-raised)", bd: "var(--border-subtle)", color: "var(--text-secondary)", prefix: "" };
     return (
-      <div style={{ padding: "10px 14px", background: style.bg, border: `1px solid ${style.bd}`, borderRadius: "var(--radius-sm)", fontSize: 12.5, lineHeight: 1.6, color: "var(--text-primary)" }}>
-        <span style={{ color: style.color, fontWeight: 600 }}>{style.prefix}</span>{text}
+      <div style={{ padding: "10px 14px", background: style.bg, borderLeft: `3.5px solid ${style.bd}`, borderRadius: "var(--radius-xs)", fontSize: 12, lineHeight: 1.6, color: "var(--text-primary)" }}>
+        <span style={{ color: style.color, fontWeight: 600, marginRight: 4 }}>{style.prefix}</span>{text}
       </div>
     );
   }
@@ -1100,7 +1236,7 @@
     ],
   };
 
-  function TutorTab({ stateCode, lineId, lineLabel, variety }) {
+  function TutorTab({ stateCode, lineId, lineLabel, variety, latestExamResult, setLatestExamResult, initialTutorPrompt, setInitialTutorPrompt }) {
     const [turns, setTurns] = useState([]);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
@@ -1137,6 +1273,14 @@
         setTimeout(() => inputRef.current?.focus(), 50);
       }
     };
+
+    useEffect(() => {
+      if (initialTutorPrompt) {
+        ask(initialTutorPrompt);
+        if (setInitialTutorPrompt) setInitialTutorPrompt("");
+      }
+    }, [initialTutorPrompt]);
+
     const onKey = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); } };
 
     return (
@@ -1149,6 +1293,23 @@
           </div>
           <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 520, minHeight: 260, overflowY: "auto" }}>
+              {latestExamResult && (
+                <div style={{ background: "color-mix(in oklch, var(--accent-money) 8%, var(--bg-base))", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", padding: "10px 14px", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>Session Practice Result:</span> You scored <strong style={{ color: "var(--accent-money)" }}>{latestExamResult.score.pct}%</strong> on the {latestExamResult.varietyName} exam.
+                  </div>
+                  <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-money) 15%, transparent)", color: "var(--accent-money)", padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => {
+                      const breakdown = Object.entries(latestExamResult.score.byDomain)
+                        .map(([dom, d]) => `- ${dom}: ${d.correct}/${d.total} (${Math.round(100 * d.correct / d.total)}%)`)
+                        .join("\n");
+                      ask(`Here are my results from a practice exam for ${latestExamResult.varietyName} in this session:\nScore: ${latestExamResult.score.pct}% (${latestExamResult.score.correct}/${latestExamResult.score.total})\nBreakdown:\n${breakdown}\n\nPlease analyze my performance and give me custom advice on how to improve.`);
+                      if (setLatestExamResult) setLatestExamResult(null); // clear after asking
+                    }}>
+                    Ask AI Tutor
+                  </button>
+                </div>
+              )}
               {turns.length === 0 && (
                 <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.7, padding: "4px 0 8px" }}>
                   <div style={{ fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Your {stateCode} {lineLabel} tutor is ready.</div>
