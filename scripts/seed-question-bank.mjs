@@ -39,8 +39,13 @@ const stateFilter = (() => {
 // Load licensing data
 const licensingData = JSON.parse(fs.readFileSync(path.join(ROOT, "lib/licensing-data.json"), "utf8"));
 
-// Target states
-const TARGET_STATES = ["NJ", "AZ", "PA", "VA", "TX", "FL", "CA", "NY", "OH", "GA", "IL"];
+// Target states: all 50 US states + DC
+const TARGET_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM",
+  "NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA",
+  "WV","WI","WY"
+];
 
 // ═══════════════════════════════════════════════════════════════
 //  QUESTION TEMPLATES — domain-specific, high-quality exam items
