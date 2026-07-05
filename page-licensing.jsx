@@ -608,7 +608,7 @@
                   the official content outline — weak domains get extra reps automatically.
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button className="btn btn-primary" onClick={() => fetchOne()}>Start a question</button>
+                  <button className="btn btn-primary" onClick={() => fetchOne()}>Start Single Question</button>
                   <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", color: "var(--accent-money)" }}
                     onClick={() => startExam(20)}>
                     <Icons.Sparkles size={11}/> Create Exam (20q)
@@ -618,8 +618,14 @@
                   </button>
                   <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 30%, transparent)", color: "var(--accent-status)" }}
                     onClick={() => startExam(100)}>
-                    <Icons.Sparkles size={11}/> Full Exam (100q)
+                    <Icons.Sparkles size={11}/> Create Exam (100q)
                   </button>
+                  {variety.question_count && variety.question_count !== 100 && (
+                    <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-info) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-info) 30%, transparent)", color: "var(--accent-info)" }}
+                      onClick={() => startExam(variety.question_count)}>
+                      <Icons.Sparkles size={11}/> State Exam ({variety.question_count}q)
+                    </button>
+                  )}
                   {weakestDomain && (
                     <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); fetchOne(weakestDomain); }} title="Next question will be drawn from your weakest domain">
                       Drill weakest: {weakestDomain}
