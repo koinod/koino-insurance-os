@@ -161,7 +161,7 @@
     const [uplineRepId, setUplineRepId] = React.useState(me?.rep_id || "");
     const [label,       setLabel]       = React.useState("");
     const [maxUses,     setMaxUses]     = React.useState("1");
-    const [perma,       setPerma]       = React.useState(false);
+    const [expiry,      setExpiry]      = React.useState("14d");
     const [busy,        setBusy]        = React.useState(false);
     const [errMsg,      setErrMsg]      = React.useState("");
     const [newLink,     setNewLink]     = React.useState(null);
@@ -169,14 +169,15 @@
     // Data
     const [invites,       setInvites]       = React.useState([]);
     const [invLoading,    setInvLoading]    = React.useState(true);
-    const [eligibleUplines, setEligibleUplines] = React.useState([]);
     const [allReps,       setAllReps]       = React.useState([]);
     const [tab,           setTab]           = React.useState("mint"); // "mint" | "manage" | "team"
     const [authedJwt,     setAuthedJwt]     = React.useState(null);
 
     const origin = window.location.origin;
 
-    // Load JWT + uplines + invites + all reps
+    const perma = expiry === "perma";
+
+    // Load JWT + invites + all reps
     React.useEffect(() => {
       if (!me?.agency_id) return;
       let cancelled = false;
@@ -188,25 +189,7 @@
         const sb = window.getSupabase && window.getSupabase();
         if (!sb) return;
 
-        // Load upline candidates
-        const { data: members } = await sb
-          .from("agency_members")
-          .select("rep_id, role")
-          .eq("agency_id", me.agency_id)
-          .eq("active", true)
-          .in("role", ["manager","super_admin","owner","admin","imo_owner"]);
-
-        const repsById = Object.fromEntries(
-          ((window.AppData && window.AppData.REPS) || []).map(r => [r.id, r])
-        );
-        if (!cancelled) {
-          setEligibleUplines((members || [])
-            .filter(m => m.rep_id)
-            .map(m => ({ id: m.rep_id, role: m.role, name: repsById[m.rep_id]?.name || m.rep_id }))
-          );
-        }
-
-        // Load all reps for hierarchy tab
+        // Load all reps for hierarchy + dropdown
         const { data: repsData } = await sb
           .from("reps")
           .select("id, name, upline_id")
@@ -218,6 +201,48 @@
       })();
       return () => { cancelled = true; };
     }, [me?.agency_id]);
+
+    // Compute eligible uplines recursively if manager, or return all reps if owner
+    const eligibleUplines = React.useMemo(() => {
+      if (!me?.rep_id || !allReps || allReps.length === 0) return [];
+      
+      const isOwnerLike = ["owner", "super_admin", "admin", "imo_owner"].includes(me.role);
+      if (isOwnerLike) {
+        return allReps.map(r => ({ id: r.id, name: r.name || r.id }));
+      }
+      
+      // If manager, compute downline recursively
+      const downline = new Set();
+      function visit(id) {
+        if (downline.has(id)) return;
+        downline.add(id);
+        const children = allReps.filter(r => r.upline_id === id);
+        for (const child of children) {
+          visit(child.id);
+        }
+      }
+      visit(me.rep_id);
+      
+      return allReps
+        .filter(r => downline.has(r.id))
+        .map(r => ({ id: r.id, name: r.name || r.id }));
+    }, [me?.rep_id, me?.role, allReps]);
+
+    const uplineOptions = React.useMemo(() => {
+      const isOwnerLike = ["owner", "super_admin", "admin", "imo_owner"].includes(me?.role);
+      const opts = [];
+      if (isOwnerLike) {
+        opts.push({ v: "none", l: "— No upline (top level)" });
+      }
+      opts.push({ v: me?.rep_id || "", l: `${me?.full_name || "You"} (you)` });
+      
+      for (const r of eligibleUplines) {
+        if (r.id !== me?.rep_id) {
+          opts.push({ v: r.id, l: r.name });
+        }
+      }
+      return opts;
+    }, [me, eligibleUplines]);
 
     // Reset upline when role changes
     React.useEffect(() => {
@@ -263,14 +288,27 @@
         const jwt = await getJwt();
         if (!jwt) throw new Error("Not signed in. Sign in as a manager first.");
         const parsedMax = parseInt(maxUses, 10);
+        
+        let expires_at = null;
+        if (expiry !== "perma") {
+          let durationMs = 14 * 24 * 60 * 60 * 1000;
+          if (expiry === "1h") durationMs = 1 * 60 * 60 * 1000;
+          else if (expiry === "1d") durationMs = 24 * 60 * 60 * 1000;
+          else if (expiry === "7d") durationMs = 7 * 24 * 60 * 60 * 1000;
+          else if (expiry === "14d") durationMs = 14 * 24 * 60 * 60 * 1000;
+          else if (expiry === "30d") durationMs = 30 * 24 * 60 * 60 * 1000;
+          expires_at = new Date(Date.now() + durationMs).toISOString();
+        }
+
         const body = {
           agency_id:     me.agency_id,
           role,
           email_hint:    emailHint || null,
-          upline_rep_id: role === "rep" ? (uplineRepId || me.rep_id) : (uplineRepId || null),
+          upline_rep_id: (uplineRepId === "none" || !uplineRepId) ? null : uplineRepId,
           label:         label || null,
           max_uses:      perma ? null : (isNaN(parsedMax) || parsedMax < 1 ? 1 : parsedMax),
           perma,
+          expires_at,
         };
         const r = await fetch("/api/invites/create", {
           method: "POST",
@@ -389,12 +427,9 @@
               </Shared.Field>
               <Shared.Field label="Upline (reports to)">
                 <Shared.Select
-                  value={uplineRepId || me.rep_id}
+                  value={uplineRepId}
                   onChange={setUplineRepId}
-                  options={[
-                    { v: me.rep_id, l: `${me.full_name || "You"} (you)` },
-                    ...eligibleUplines.filter(r => r.id !== me.rep_id).map(r => ({ v: r.id, l: r.name })),
-                  ]}
+                  options={uplineOptions}
                 />
               </Shared.Field>
               <Shared.Field label="Link label (optional)">
@@ -409,11 +444,8 @@
               </Shared.Field>
               <Shared.Field label="Max uses">
                 <Shared.Select
-                  value={perma ? "unlimited" : maxUses}
-                  onChange={v => {
-                    if (v === "unlimited") { setPerma(false); setMaxUses("unlimited"); }
-                    else { setPerma(false); setMaxUses(v); }
-                  }}
+                  value={maxUses}
+                  onChange={setMaxUses}
                   options={[
                     { v: "1",         l: "1 — single use" },
                     { v: "5",         l: "5 uses" },
@@ -425,10 +457,14 @@
               </Shared.Field>
               <Shared.Field label="Expiry">
                 <Shared.Select
-                  value={perma ? "perma" : "14d"}
-                  onChange={v => setPerma(v === "perma")}
+                  value={expiry}
+                  onChange={setExpiry}
                   options={[
+                    { v: "1h",    l: "1 hour" },
+                    { v: "1d",    l: "1 day" },
+                    { v: "7d",    l: "7 days" },
                     { v: "14d",   l: "14 days (default)" },
+                    { v: "30d",   l: "30 days" },
                     { v: "perma", l: "Never expires" },
                   ]}
                 />

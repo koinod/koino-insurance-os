@@ -1069,33 +1069,45 @@ const CARRIER_NICHES = [
       return { score, reason: reasons.slice(0, 2).join(" · ") };
     },
   },
-  /* ─── Americo (FE + term) — added 2026-05-19 ──────────────────────────── */
+  /* ─── Americo (FE, Term, IUL, Annuity) ─────────────────────────────────── */
   {
-    id: "americo", name: "Americo Financial", products: ["fe", "term"],
+    id: "americo", name: "Americo Financial", products: ["fe", "term", "iul", "annuity"],
     underwriting: {
-      issueAges: { fe: [50, 85], term: [20, 75] },
+      issueAges: { fe: [40, 85], term: [20, 75], iul: [18, 65], annuity: [50, 85] },
       uwClasses: ["Standard Non-Nicotine", "Standard Nicotine"],
-      fe:   { product: "Eagle Premier / Ultra Protector", faceMax: 30000, tobaccoLookbackMonths: 12 },
-      term: { product: "Continuous Protection Term (CPT)", faceMax: 450000, tobaccoLookbackMonths: 24, instantDecision: true },
-      sweetSpot_fe:   "Eagle Premier Level for healthy 50-85; Ultra Protector II keeps insulin diabetics with retinopathy/neuropathy declined elsewhere; UP III GI safety-net",
-      sweetSpot_term: "Simplified-issue term to $450K with no medical exam — built-in living benefits (terminal/chronic/critical) at no extra cost",
-      sources: ["Americo Eagle Premier Agent Guide", "Americo Term Series Agent Guide", "Americo UW Reference Guide"],
+      fe:      { product: "Eagle Premier / Ultra Protector", faceMax: 40000, tobaccoLookbackMonths: 12 },
+      term:    { product: "Continuous Protection Term (CPT)", faceMax: 450000, tobaccoLookbackMonths: 24, instantDecision: true },
+      iul:     { product: "Instant Decision IUL", faceMax: 450000, tobaccoLookbackMonths: 24, instantDecision: true },
+      annuity: { product: "Platinum Assure MYGA", minPremium: 10000 },
+      sweetSpot_fe:      "Eagle Premier Level for healthy 40-85; Ultra Protector II keeps insulin diabetics with retinopathy/neuropathy declined elsewhere; UP III GI safety-net",
+      sweetSpot_term:    "Simplified-issue term to $450K with no medical exam — built-in living benefits (terminal/chronic/critical) at no extra cost",
+      sweetSpot_iul:     "Simplified-issue IUL to $450K with instant decision eApp for ages 18-65",
+      sweetSpot_annuity: "Multi-Year Guaranteed Annuity (MYGA) 2-7 year terms",
+      sources: ["Americo Eagle Premier Agent Guide", "Americo Term Series Agent Guide", "Americo IUL Agent Guide", "Americo MYGA Guide"],
     },
     fit: (i) => {
       const reasons = [];
       let score = 0;
       if (i.product === "fe") {
-        if (i.age < 50 || i.age > 85) return { score: 0, reason: "FE issue 50-85" };
-        score = 78;
+        if (i.age < 40 || i.age > 85) return { score: 0, reason: "FE issue 40-85" };
+        score = 82;
         if (i.tobacco) { score -= 4; reasons.push("12mo cigarette lookback (cigars/pipe OK)"); }
         if (i.diabetes && (i.flags || 0) >= 1) { score += 8; reasons.push("UP II keeps insulin+complications"); }
         else if (!i.diabetes && !i.bpHigh) reasons.push("Eagle Premier Level full day-one DB");
       } else if (i.product === "term") {
         if (i.age < 20 || i.age > 75) return { score: 0, reason: "Term issue 20-75" };
-        score = 78;
+        score = 80;
         if (i.tobacco) { score -= 8; reasons.push("24mo nicotine lookback (strict)"); }
         else reasons.push("$450K non-medical instant decision");
         if ((i.flags || 0) >= 2) { score -= 10; reasons.push("accept/reject — no substandard"); }
+      } else if (i.product === "iul") {
+        if (i.age < 18 || i.age > 65) return { score: 0, reason: "IUL issue 18-65" };
+        score = 82;
+        if (i.tobacco) score -= 6;
+        reasons.push("Instant decision IUL to $450K");
+      } else if (i.product === "annuity") {
+        score = 84;
+        reasons.push("Platinum Assure MYGA 5.35% APY");
       }
       return { score, reason: reasons.slice(0, 2).join(" · ") || "no exam · instant decision" };
     },

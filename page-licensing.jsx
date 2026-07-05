@@ -371,7 +371,7 @@
       return weighted[weighted.length - 1].domain;
     }, [drillDomain, outline, mode, examResults, stats]);
 
-    const fetchOne = useCallback(async (domainOverride) => {
+    const fetchOne = useCallback(async (domainOverride, _retryCount = 0) => {
       setBusy(true); setErr(null); setPicked(null); setQ(null);
       const domain = domainOverride || pickWeightedDomain();
       try {
@@ -382,10 +382,24 @@
         });
         const j = await resp.json();
         if (!resp.ok) throw new Error(j.error || `HTTP ${resp.status}`);
+        // Validate that the response has the expected shape
+        if (!j.stem || !Array.isArray(j.options) || j.options.length !== 4) {
+          throw new Error("Question format issue — retrying with a different model…");
+        }
         setQ(j);
         setDrillDomain(null);
       } catch (e) {
-        setErr(e.message || String(e));
+        // Auto-retry once before showing error
+        if (_retryCount < 1) {
+          return fetchOne(domainOverride, _retryCount + 1);
+        }
+        const msg = String(e.message || e);
+        // Strip long technical details for user-friendliness
+        if (msg.includes("All models failed") || msg.includes("invalid question")) {
+          setErr("AI models are busy — try again in a moment.");
+        } else {
+          setErr(msg.length > 100 ? msg.slice(0, 100) + "…" : msg);
+        }
       } finally {
         setBusy(false);
       }
@@ -455,6 +469,51 @@
     }, [examResults]);
 
     // ── Exam done screen ──
+    // Build a shareable text summary of exam results
+    const buildResultsSummary = useCallback(() => {
+      if (!examScore) return "";
+      const passPct = variety.passing_score_pct || 70;
+      const passed = examScore.pct >= passPct;
+      let txt = `Practice Exam Results — ${variety.name}\n`;
+      txt += `Score: ${examScore.correct}/${examScore.total} (${examScore.pct}%) — ${passed ? "PASS" : "NEEDS WORK"}\n`;
+      txt += `Passing threshold: ${passPct}%\n\n`;
+      txt += `Domain Breakdown:\n`;
+      Object.entries(examScore.byDomain)
+        .sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total))
+        .forEach(([dom, d]) => {
+          const pct = Math.round(100 * d.correct / d.total);
+          txt += `  ${dom}: ${d.correct}/${d.total} (${pct}%)\n`;
+        });
+      txt += `\nDate: ${new Date().toLocaleString()}\n`;
+      return txt;
+    }, [examScore, variety]);
+
+    const copyResults = useCallback(async () => {
+      const txt = buildResultsSummary();
+      try { await navigator.clipboard.writeText(txt); } catch {}
+    }, [buildResultsSummary]);
+
+    // Save session results to localStorage for history
+    useEffect(() => {
+      if (examDone && examScore) {
+        try {
+          const key = `repflow_exam_history_${stateCode}_${variety.id}`;
+          const history = JSON.parse(localStorage.getItem(key) || "[]");
+          history.push({
+            date: new Date().toISOString(),
+            total: examScore.total,
+            correct: examScore.correct,
+            pct: examScore.pct,
+            byDomain: examScore.byDomain,
+          });
+          // Keep last 20 sessions
+          if (history.length > 20) history.splice(0, history.length - 20);
+          localStorage.setItem(key, JSON.stringify(history));
+        } catch {}
+      }
+    }, [examDone, examScore, stateCode, variety.id]);
+
+    // ── Exam done screen ──
     if (examDone && examScore) {
       const passPct = variety.passing_score_pct || 70;
       const passed = examScore.pct >= passPct;
@@ -490,10 +549,33 @@
                     );
                   })}
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                 <button className="btn btn-primary" onClick={() => startExam(examTotal)}>Retry same length</button>
                 <button className="btn btn-ghost" onClick={() => startExam(Math.min(examTotal + 10, 100))}>Longer exam ({Math.min(examTotal + 10, 100)}q)</button>
                 <button className="btn btn-ghost" onClick={endExam}>Free practice</button>
+              </div>
+              {/* Share / AI tips row */}
+              <div style={{ display: "flex", gap: 8, borderTop: "1px solid var(--border-subtle)", paddingTop: 10 }}>
+                <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={copyResults} title="Copy your results to the clipboard — paste into ChatGPT, the tutor tab, or share with a mentor">
+                  <Icons.Copy size={11}/> Copy Results
+                </button>
+                <button className="btn btn-ghost" style={{ fontSize: 11, background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 25%, transparent)", color: "var(--accent-status)" }}
+                  onClick={() => {
+                    // Pre-fill the tutor with the results summary
+                    const summary = buildResultsSummary();
+                    const prompt = `Here are my practice exam results:\n\n${summary}\n\nBased on these results, what specific topics should I focus on to improve my weak areas? Give me a targeted study plan.`;
+                    // Store in sessionStorage so the tutor tab can pick it up
+                    try { sessionStorage.setItem("repflow_tutor_prefill", prompt); } catch {}
+                    // Switch to tutor tab via URL hash
+                    const url = new URL(window.location);
+                    url.searchParams.set("tab", "tutor");
+                    window.history.pushState({}, "", url);
+                    window.dispatchEvent(new PopStateEvent("popstate"));
+                  }}
+                  title="Send your results to the AI tutor for personalized study tips">
+                  <Icons.Sparkles size={11}/> Get AI Study Tips
+                </button>
               </div>
             </div>
           </div>
@@ -533,6 +615,10 @@
                   </button>
                   <button className="btn btn-ghost" onClick={() => startExam(50)}>
                     <Icons.Sparkles size={11}/> Create Exam (50q)
+                  </button>
+                  <button className="btn btn-ghost" style={{ background: "color-mix(in oklch, var(--accent-status) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-status) 30%, transparent)", color: "var(--accent-status)" }}
+                    onClick={() => startExam(100)}>
+                    <Icons.Sparkles size={11}/> Full Exam (100q)
                   </button>
                   {weakestDomain && (
                     <button className="btn btn-ghost" onClick={() => { setDrillDomain(weakestDomain); fetchOne(weakestDomain); }} title="Next question will be drawn from your weakest domain">
@@ -1112,6 +1198,18 @@
 
     useEffect(() => { setTurns([]); setErr(null); setDraft(""); }, [stateCode, variety.id]);
     useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [turns]);
+
+    // Pick up prefilled prompt from exam results "Get AI Study Tips" button
+    useEffect(() => {
+      try {
+        const prefill = sessionStorage.getItem("repflow_tutor_prefill");
+        if (prefill) {
+          sessionStorage.removeItem("repflow_tutor_prefill");
+          // Small delay to ensure component is mounted
+          setTimeout(() => ask(prefill), 300);
+        }
+      } catch {}
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const ask = async (questionOverride) => {
       const q = (questionOverride || draft).trim();

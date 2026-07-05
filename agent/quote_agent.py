@@ -755,6 +755,14 @@ def run_mapped_quote(m: dict, profile: dict, page) -> dict:
         return {"decline": True, "reason": f"mapped quote error: {str(e)[:200]}"}
 
 
+DB_TO_SCRAPER_CARRIER_MAP = {
+    "mutual_omaha": "moo",
+    "uhc_aarp": "uhc",
+    "aetna_src": "aetna",
+}
+SCRAPER_TO_DB_CARRIER_MAP = {v: k for k, v in DB_TO_SCRAPER_CARRIER_MAP.items()}
+
+
 class MapScraper:
     """Adapts a saved carrier_quote_maps row to the scraper contract so the
     generic login + quote flow drives it exactly like a hand-coded module."""
@@ -776,7 +784,13 @@ class MapScraper:
 def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
     req_id = req["id"]
     profile = req.get("profile") or {}
-    enabled_carriers = req.get("carriers") or list(scrapers.keys())
+    
+    # Map raw request carriers list (database IDs) or scrapers keys to canonical database carrier IDs
+    raw_enabled = req.get("carriers") or []
+    if not raw_enabled:
+        raw_enabled = [SCRAPER_TO_DB_CARRIER_MAP.get(k, k) for k in scrapers.keys()]
+    enabled_carriers = raw_enabled
+
     headless = bool(settings.get("headless", True))
     rep_id = req.get("rep_id") or settings.get("rep_id")
 
@@ -805,7 +819,8 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
         })
 
     for carrier_id in enabled_carriers:
-        scraper = scrapers.get(carrier_id)
+        scraper_id = DB_TO_SCRAPER_CARRIER_MAP.get(carrier_id, carrier_id)
+        scraper = scrapers.get(scraper_id)
         # A saved, rep-authored rate-path map takes precedence over (and fills
         # in for) a hand-coded scraper.
         saved_map = fetch_quote_map(carrier_id, settings)
@@ -823,7 +838,7 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
         # Per-rep credential resolution: local file → server vault. May be
         # None when the rep relies on a captured session instead.
         carrier_creds = resolve_creds(carrier_id, creds, settings) if scraper.REQUIRES_LOGIN else None
-        if scraper.REQUIRES_LOGIN and not has_session(carrier_id) and not carrier_creds:
+        if scraper.REQUIRES_LOGIN and not has_session(scraper_id) and not carrier_creds:
             supabase_insert("auto_quote_results", {
                 "request_id": req_id, "carrier_id": carrier_id,
                 "status": "no_creds",
@@ -832,12 +847,12 @@ def process_quote(req: dict, scrapers: dict, creds: dict, settings: dict):
             continue
 
         try:
-            p, context = get_browser(headless, carrier_id, persistent=True)
+            p, context = get_browser(headless, scraper_id, persistent=True)
             try:
                 page = context.new_page()
                 # Reuse the existing session if still valid; auto-login when we
                 # have creds; otherwise tell the rep exactly why we stopped.
-                auth = ensure_logged_in(page, scraper, carrier_id, carrier_creds)
+                auth = ensure_logged_in(page, scraper, scraper_id, carrier_creds)
                 if not auth.get("ok"):
                     ui_status = {"needs_login": "no_creds", "login_failed": "error"}.get(auth.get("status"), "error")
                     supabase_insert("auto_quote_results", {
@@ -896,15 +911,16 @@ def process_capture(req: dict, scrapers: dict, settings: dict):
     if not carrier_id:
         supabase_patch("auto_quote_requests", {"status": "failed", "notes": "carrier_id required"}, {"id": f"eq.{req_id}"})
         return
-    scraper = scrapers.get(carrier_id)
+    scraper_id = DB_TO_SCRAPER_CARRIER_MAP.get(carrier_id, carrier_id)
+    scraper = scrapers.get(scraper_id)
     if not scraper:
         supabase_patch("auto_quote_requests", {"status": "failed", "notes": f"no scraper {carrier_id}"}, {"id": f"eq.{req_id}"})
         return
 
-    log(f"CAPTURE {req_id}: carrier={carrier_id}")
+    log(f"CAPTURE {req_id}: carrier={carrier_id} (scraper={scraper_id})")
     supabase_patch("auto_quote_requests", {"status": "running", "started_at": now_iso()}, {"id": f"eq.{req_id}"})
 
-    result = capture_session(carrier_id, scraper, settings, payload)
+    result = capture_session(scraper_id, scraper, settings, payload)
 
     if result.get("ok"):
         ttl = timedelta(days=DEFAULT_SESSION_TTL_DAYS)
@@ -939,15 +955,16 @@ def process_inspect(req: dict, scrapers: dict, settings: dict):
     if not carrier_id:
         supabase_patch("auto_quote_requests", {"status": "failed", "notes": "carrier_id required"}, {"id": f"eq.{req_id}"})
         return
-    scraper = scrapers.get(carrier_id)
+    scraper_id = DB_TO_SCRAPER_CARRIER_MAP.get(carrier_id, carrier_id)
+    scraper = scrapers.get(scraper_id)
     if not scraper:
         supabase_patch("auto_quote_requests", {"status": "failed", "notes": f"no scraper {carrier_id}"}, {"id": f"eq.{req_id}"})
         return
 
-    log(f"INSPECT {req_id}: carrier={carrier_id}")
+    log(f"INSPECT {req_id}: carrier={carrier_id} (scraper={scraper_id})")
     supabase_patch("auto_quote_requests", {"status": "running", "started_at": now_iso()}, {"id": f"eq.{req_id}"})
 
-    result = inspect_form(carrier_id, scraper, settings, req.get("payload") or {})
+    result = inspect_form(scraper_id, scraper, settings, req.get("payload") or {})
 
     if result.get("ok"):
         supabase_insert("auto_quote_results", {
@@ -999,12 +1016,13 @@ def cmd_capture(carrier_id: str):
     """Local CLI: open headed browser for `carrier_id`, save storage_state."""
     settings = load_settings()
     scrapers = load_scrapers()
-    scraper = scrapers.get(carrier_id)
+    scraper_id = DB_TO_SCRAPER_CARRIER_MAP.get(carrier_id, carrier_id)
+    scraper = scrapers.get(scraper_id)
     if not scraper:
         print(f"✗ no scraper found for {carrier_id}. Available: {sorted(scrapers.keys())}")
         sys.exit(1)
     print(f"▸ opening {getattr(scraper, 'LOGIN_URL', '?')} — log in when the window appears.")
-    result = capture_session(carrier_id, scraper, settings)
+    result = capture_session(scraper_id, scraper, settings)
     if result.get("ok"):
         print(f"✓ captured {carrier_id} session at {result['captured_at']}")
         print(f"  storage: {result['storage_path']}")
@@ -1017,11 +1035,12 @@ def cmd_inspect(carrier_id: str):
     settings = load_settings()
     settings["headless"] = False  # always visible for manual inspection
     scrapers = load_scrapers()
-    scraper = scrapers.get(carrier_id)
+    scraper_id = DB_TO_SCRAPER_CARRIER_MAP.get(carrier_id, carrier_id)
+    scraper = scrapers.get(scraper_id)
     if not scraper:
         print(f"✗ no scraper found for {carrier_id}")
         sys.exit(1)
-    result = inspect_form(carrier_id, scraper, settings)
+    result = inspect_form(scraper_id, scraper, settings)
     if result.get("ok"):
         print(json.dumps(result["dump"], indent=2))
     else:

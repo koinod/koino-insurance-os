@@ -6,7 +6,7 @@
 // SECURITY: server-side encryption (pgsodium) is a follow-on migration.
 // For now we pass plaintext through; the storage column is named *_enc to
 // preserve forward compatibility.
-import { rpc, cors, readUserJwt } from "./_lib.js";
+import { rpc, cors, readUserJwt, loadCallerFromJwt, SERVICE } from "./_lib.js";
 
 export const config = { runtime: "edge" };
 
@@ -16,6 +16,11 @@ export default async function handler(req) {
 
   const jwt = readUserJwt(req);
   if (!jwt) return new Response(JSON.stringify({ error: "not authenticated" }), { status: 401, headers: cors() });
+
+  const caller = await loadCallerFromJwt(jwt);
+  if (!caller || !caller.user_id) {
+    return new Response(JSON.stringify({ error: "invalid user identity" }), { status: 403, headers: cors() });
+  }
 
   let body = {};
   try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: cors() }); }
@@ -46,7 +51,8 @@ export default async function handler(req) {
     p_metadata: body.metadata || {},
     p_scopes: body.scopes || [],
     p_expires_at: body.expires_at || null,
-  }, jwt);
+    p_user_id: caller.user_id,
+  }, SERVICE);
   if (!r.ok) return new Response(JSON.stringify({ error: r.data?.message || "upsert failed" }), { status: r.status, headers: cors() });
   return new Response(JSON.stringify({ vault_id: r.data }), { status: 200, headers: cors() });
 }

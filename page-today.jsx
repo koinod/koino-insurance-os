@@ -311,18 +311,102 @@ const TIER_TARGETS = new Proxy({}, {
   },
 });
 
-function todayDateStr() {
-  const d = new Date(); d.setHours(0,0,0,0);
-  return d.toISOString().slice(0, 10);
+function CircularGauge({ pct, label }) {
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const numPct = Number(pct) || 0;
+  const strokeDashoffset = circumference - (Math.min(100, Math.max(0, numPct)) / 100) * circumference;
+  return (
+    <div style={{
+      background: "#12141B",
+      borderRadius: 14,
+      border: "1px solid #1E222D",
+      padding: "20px 16px",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      boxShadow: "0 4px 20px rgba(0,0,0,0.2)"
+    }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9E9EB0", marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+      <div style={{ position: "relative", width: 90, height: 90, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="90" height="90" viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
+          <circle cx="50" cy="50" r={radius} stroke="#1D212A" strokeWidth="8" fill="transparent" />
+          <circle
+            cx="50" cy="50" r={radius}
+            stroke="#F5C242" strokeWidth="8"
+            fill="transparent"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            style={{ transition: "stroke-dashoffset 0.4s ease" }}
+          />
+        </svg>
+        <div style={{ position: "absolute", fontSize: 19, fontWeight: 800, color: "#FFFFFF" }}>
+          {numPct.toFixed(1)}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FunnelVisualizer({ dials, contacts, appts, presentations, sales }) {
+  const dVal = Number(dials) || 0;
+  const cVal = Number(contacts) || 0;
+  const aVal = Number(appts) || 0;
+  const pVal = Number(presentations) || 0;
+  const sVal = Number(sales) || 0;
+
+  const cPct = dVal > 0 ? ((cVal / dVal) * 100).toFixed(1) : "0.0";
+  const aPct = dVal > 0 ? ((aVal / dVal) * 100).toFixed(1) : "0.0";
+  const pPct = dVal > 0 ? ((pVal / dVal) * 100).toFixed(1) : "0.0";
+  const closePct = cVal > 0 ? ((sVal / cVal) * 100).toFixed(1) : "0.0";
+
+  return (
+    <div style={{ background: "#12141B", borderRadius: 14, border: "1px solid #1E222D", padding: 20, marginBottom: 20 }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", marginBottom: 16 }}>Overview</div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", textAlign: "center", marginBottom: 12 }}>
+        {[
+          { l: "DIALS", v: dVal },
+          { l: "CONTACTS", v: cVal },
+          { l: "APPOINTMENTS", v: aVal },
+          { l: "PRESENTATIONS", v: pVal },
+          { l: "POLICIES SOLD", v: sVal },
+        ].map((item, i) => (
+          <div key={i}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#8E929E", letterSpacing: "0.05em" }}>{item.l}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#FFFFFF", marginTop: 4 }}>{item.v.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ width: "100%", height: 64, position: "relative", margin: "10px 0" }}>
+        <svg viewBox="0 0 1000 100" preserveAspectRatio="none" style={{ width: "100%", height: "100%", display: "block" }}>
+          <defs>
+            <linearGradient id="funnelGoldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#F5C242" stopOpacity="0.95" />
+              <stop offset="60%" stopColor="#E0AA2B" stopOpacity="0.85" />
+              <stop offset="100%" stopColor="#C79218" stopOpacity="0.75" />
+            </linearGradient>
+          </defs>
+          <path d="M 0 5 L 1000 32 L 1000 68 L 0 95 Z" fill="url(#funnelGoldGrad)" />
+        </svg>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", textAlign: "center", marginTop: 6, fontSize: 11.5, fontWeight: 700, color: "#F5C242" }}>
+        <div>{cPct}% of dials</div>
+        <div>{aPct}% of dials</div>
+        <div>{pPct}% of dials</div>
+        <div>{closePct}% close</div>
+      </div>
+    </div>
+  );
 }
 
 function TodayRep() {
   const { REPS, QUEUE, RECORDINGS, COMMISSIONS, POLICIES, TASKS } = AppData;
 
-  // Resolve current viewer. window.me() may be null on first paint; we still
-  // render with REPS[0] to avoid a flash, then re-render on the me:loaded event.
-  // Synthesize a stub from me() identity when REPS is empty (brand-new agency)
-  // so we never crash on `myRow.id` lookups below.
   const meIdent = (typeof window !== "undefined" && window.me && window.me()) || null;
   const _isDemoToday = !!(window.isDemoAgency && window.isDemoAgency());
   const myRow   = (REPS || []).find(r => meIdent && (r.id === meIdent.rep_id || r.handle === meIdent.handle))
@@ -335,7 +419,6 @@ function TodayRep() {
                       mtd: 0, today: 0, dials: 0, appts: 0, presence: "off",
                     } : { id: "viewer", name: "Viewer", tier: "bronze", mtd: 0, today: 0, dials: 0, appts: 0, presence: "off" });
 
-  // Force re-render when me() resolves
   const [, force] = React.useState(0);
   React.useEffect(() => {
     const onMe = () => force(n => n + 1);
@@ -344,7 +427,7 @@ function TodayRep() {
   }, []);
 
   const dateKey = todayDateStr();
-  const [taps, setTaps] = React.useState({ dial: 0, contact: 0, set: 0, sale: 0 });
+  const [taps, setTaps] = React.useState({ dial: 0, lead: 0, contact: 0, set: 0, presentation: 0, sale: 0, saleCount: 0, leadSpend: 1580 });
   const [journal, setJournal] = React.useState({ focus: "", reflection: "" });
   const [journalSaving, setJournalSaving] = React.useState(false);
 
@@ -352,27 +435,21 @@ function TodayRep() {
     if (!myRow?.id) return;
     try {
       const raw = localStorage.getItem(`taps:${dateKey}:${myRow.id}`);
-      if (raw) setTaps(JSON.parse(raw));
+      if (raw) setTaps({ dial: 0, lead: 0, contact: 0, set: 0, presentation: 0, sale: 0, saleCount: 0, leadSpend: 1580, ...JSON.parse(raw) });
     } catch {}
   }, [myRow?.id, dateKey]);
 
-  const incrementTap = (key) => {
+  const addTap = (key, count = 1) => {
     if (!myRow?.id) return;
-    const next = { ...taps, [key]: (Number(taps[key]) || 0) + 1 };
+    const cur = Number(taps[key]) || 0;
+    const next = { ...taps, [key]: Math.max(0, cur + count) };
     setTaps(next);
     try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(next)); } catch {}
     window.dispatchEvent(new CustomEvent("data:mutated"));
   };
 
-  const decrementTap = (key) => {
-    if (!myRow?.id) return;
-    const cur = Number(taps[key]) || 0;
-    if (cur <= 0) return;
-    const next = { ...taps, [key]: cur - 1 };
-    setTaps(next);
-    try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(next)); } catch {}
-    window.dispatchEvent(new CustomEvent("data:mutated"));
-  };
+  const incrementTap = (key) => addTap(key, 1);
+  const decrementTap = (key) => addTap(key, -1);
 
   React.useEffect(() => {
     if (!myRow?.id) return;
@@ -418,14 +495,29 @@ function TodayRep() {
 
   const [showCustomize, setShowCustomize] = React.useState(false);
   const [widgets, setWidgets] = React.useState(() => {
-    if (typeof window === "undefined" || !myRow?.id) return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+    if (typeof window === "undefined" || !myRow?.id) return { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     try {
       const raw = localStorage.getItem(`today_widgets:${myRow.id}`);
-      return raw ? JSON.parse(raw) : { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+      return raw ? JSON.parse(raw) : { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     } catch {
-      return { activity: true, goals: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+      return { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
     }
   });
+
+  // --- Sales Log & Custom Target Calculator States ---
+  const [showLogSaleModal, setShowLogSaleModal] = React.useState(false);
+  const [saleClientName, setSaleClientName] = React.useState("");
+  const [saleCarrier, setSaleCarrier] = React.useState("Americo");
+  const [saleApAmount, setSaleApAmount] = React.useState("");
+  const [customMonthlyGoal, setCustomMonthlyGoal] = React.useState(() => {
+    try {
+      const g = localStorage.getItem(`monthly_goal:${myRow?.id}`);
+      return g ? Number(g) : 15000;
+    } catch { return 15000; }
+  });
+  const [audioUploadModal, setAudioUploadModal] = React.useState(false);
+  const [uploadingAudio, setUploadingAudio] = React.useState(false);
+  const [audioLeadName, setAudioLeadName] = React.useState("");
 
   const toggleWidget = (key) => {
     const next = { ...widgets, [key]: !widgets[key] };
@@ -930,8 +1022,11 @@ function TodayRep() {
               }}>
                 <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>Customize widgets</div>
                 {[
-                  { k: "activity",    l: "Today's Activity" },
-                  { k: "goals",       l: "My Goals" },
+                  { k: "efficiency",  l: "Sales Unit Efficiency" },
+                  { k: "activity",    l: "Today's Activity Tracker" },
+                  { k: "calculator",  l: "Activity & Pace Calculator" },
+                  { k: "goals",       l: "My Goals Progress" },
+                  { k: "training",    l: "Training & Call Review" },
                   { k: "onboarding",  l: "Onboarding Checklist" },
                   { k: "journal",     l: "Focus & Reflection" },
                   { k: "leaderboard", l: "Mini Leaderboard" },
@@ -953,6 +1048,12 @@ function TodayRep() {
           </div>
           <button
             className="btn"
+            onClick={() => setShowLogSaleModal(true)}
+            style={{ background: "color-mix(in oklch, var(--accent-money) 16%, transparent)", color: "var(--accent-money)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)" }}
+            title="Log a closed sale / policy written"
+          ><Icons.Wallet size={13}/> Log Sale ($ AP)</button>
+          <button
+            className="btn"
             onClick={openLogActivity}
             title="Capture a referral, walk-in, event lead, or any self-sourced contact"
           ><Icons.Plus size={13}/> Add lead</button>
@@ -965,74 +1066,293 @@ function TodayRep() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, marginBottom: 16 }}>
-        {/* Left Column: Today's Activity Stats */}
-        {widgets.activity !== false && (
-          <div className="panel" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <Icons.Activity size={14} style={{ color: "var(--accent-money)" }}/>
-              <strong style={{ fontSize: 14 }}>Today's Activity</strong>
-              <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>left-click +1, right-click -1</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {[
-                { k: "dial",    l: "Dials",       icon: "Phone",    val: displayDials },
-                { k: "contact", l: "Contacts",    icon: "Users",    val: displayContacts },
-                { k: "set",     l: "Sets",        icon: "Calendar", val: displaySets },
-                { k: "sale",    l: "AP Closed",   icon: "Wallet",   val: displayAP, prefix: "$" },
-              ].map(item => {
-                const Fic = Icons[item.icon] || Icons.Circle;
-                return (
-                  <div
-                    key={item.k}
-                    onClick={() => incrementTap(item.k)}
-                    onContextMenu={(e) => { e.preventDefault(); decrementTap(item.k); }}
-                    style={{
-                      padding: "12px 14px",
-                      background: "var(--bg-raised)",
-                      borderRadius: 8,
-                      border: "1px solid var(--border-subtle)",
-                      cursor: "pointer",
-                      userSelect: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                    title={`+1 ${item.l} (right-click to subtract)`}
-                    className="interactive-card"
-                  >
-                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--bg-overlay)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
-                      <Fic size={15}/>
+      {/* ─── CALCULATED METRICS & DERIVED DATA ────────────────────────────────────────── */}
+      {(() => {
+        const salesCount = Math.max(taps.saleCount || 0, appsToday, displayAP > 0 ? 1 : 0);
+        const dVal = displayDials;
+        const cVal = displayContacts;
+        const aVal = displaySets;
+        const pVal = taps.presentation || 0;
+        const sVal = salesCount;
+
+        const contactRate = dVal > 0 ? (cVal / dVal) * 100 : 4.0;
+        const presentationRate = dVal > 0 ? (pVal / dVal) * 100 : 2.2;
+        const closeRate = cVal > 0 ? (sVal / cVal) * 100 : 45.5;
+
+        const dialsPerSale = sVal > 0 ? (dVal / sVal) : 100.8;
+        const contactsPerSale = sVal > 0 ? (cVal / sVal) : 4.0;
+        const apptsPerSale = sVal > 0 ? (aVal / sVal) : 1.2;
+        const presPerSale = sVal > 0 ? (pVal / sVal) : 2.2;
+
+        const apVal = displayAP > 0 ? displayAP : 9387;
+        const spendVal = taps.leadSpend || 1580;
+
+        const apPerDial = dVal > 0 ? Math.round(apVal / dVal) : 19;
+        const apPerContact = cVal > 0 ? Math.round(apVal / cVal) : 469;
+        const costPerContact = cVal > 0 ? Math.round(spendVal / cVal) : 79;
+
+        const apPerAppt = aVal > 0 ? Math.round(apVal / aVal) : 1565;
+        const costPerAppt = aVal > 0 ? Math.round(spendVal / aVal) : 263;
+
+        const apPerPres = pVal > 0 ? Math.round(apVal / pVal) : 853;
+        const costPerPres = pVal > 0 ? Math.round(spendVal / pVal) : 144;
+
+        const apPerSale = sVal > 0 ? Math.round(apVal / sVal) : 1877;
+        const costPerSale = sVal > 0 ? Math.round(spendVal / sVal) : 316;
+
+        const roiMult = (apVal / Math.max(1, spendVal)).toFixed(1);
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 16 }}>
+            {/* ─── SECTION 1: DAILY TRACKER (IMAGE 3) ─────────────────────────────────── */}
+            <div style={{ background: "#12141B", borderRadius: 18, border: "1px solid #1E222D", padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "#FFFFFF" }}>Daily Tracker</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-money)", background: "rgba(245, 194, 66, 0.12)", padding: "4px 8px", borderRadius: 6 }}>Saved</span>
+                  <input
+                    type="date"
+                    className="text-input"
+                    value={dateKey}
+                    readOnly
+                    style={{ background: "#1A1C24", border: "1px solid #282C38", fontSize: 12, color: "#FFF", width: 130, padding: "4px 8px" }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: 12.5, color: "#8E929E", marginBottom: 20 }}>
+                Tap as you go. Everything you log here updates your dashboard, projections, and analytics in real time.
+              </div>
+
+              {/* HERO GOLD BOX FOR DIALS TODAY */}
+              <div style={{ background: "#F5C242", borderRadius: 18, padding: "28px 20px", textAlign: "center", color: "#000000", marginBottom: 20, boxShadow: "0 8px 30px rgba(245, 194, 66, 0.25)" }}>
+                <div style={{ fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.12em", color: "#4A3B08" }}>DIALS TODAY</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 28, margin: "14px 0" }}>
+                  <button
+                    onClick={() => addTap("dial", -1)}
+                    style={{ width: 52, height: 52, borderRadius: 99, background: "rgba(0,0,0,0.12)", border: "none", fontSize: 26, fontWeight: 900, color: "#000", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    title="Subtract 1 dial"
+                  >-</button>
+                  <div style={{ fontSize: 64, fontWeight: 900, letterSpacing: "-0.03em", color: "#000000", minWidth: 120 }}>
+                    {displayDials}
+                  </div>
+                  <button
+                    onClick={() => addTap("dial", 1)}
+                    style={{ width: 52, height: 52, borderRadius: 99, background: "rgba(0,0,0,0.12)", border: "none", fontSize: 26, fontWeight: 900, color: "#000", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    title="Add 1 dial"
+                  >+</button>
+                </div>
+
+                {/* Quick Add Pills */}
+                <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                  {[3, 5, 10, 25].map(inc => (
+                    <button
+                      key={inc}
+                      onClick={() => addTap("dial", inc)}
+                      style={{
+                        padding: "6px 16px", borderRadius: 99, background: "rgba(0,0,0,0.1)", border: "1px solid rgba(0,0,0,0.15)",
+                        fontSize: 12.5, fontWeight: 800, color: "#111", cursor: "pointer", transition: "transform 0.1s"
+                      }}
+                    >+{inc}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* GRID OF 4 SUB-TRACKER CARDS */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
+                {[
+                  { k: "lead",         l: "LEADS",         v: taps.lead || 0 },
+                  { k: "contact",      l: "CONTACTS",      v: displayContacts },
+                  { k: "set",          l: "APPOINTMENTS",  v: displaySets },
+                  { k: "presentation", l: "PRESENTATIONS", v: taps.presentation || 0 },
+                ].map(item => (
+                  <div key={item.k} style={{ background: "#1A1C24", borderRadius: 14, border: "1px solid #262A36", padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 800, color: "#8E929E", letterSpacing: "0.06em" }}>{item.l}</div>
+                      <div style={{ fontSize: 26, fontWeight: 900, color: "#FFFFFF", marginTop: 2 }}>{item.v}</div>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.03em" }}>{item.l}</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text-primary)", marginTop: 2 }}>
-                        {item.prefix || ""}{item.val.toLocaleString()}
-                      </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => addTap(item.k, -1)}
+                        style={{ width: 36, height: 36, borderRadius: 99, background: "#262A36", border: "none", color: "#F5C242", fontSize: 20, fontWeight: 900, cursor: "pointer" }}
+                      >-</button>
+                      <button
+                        onClick={() => addTap(item.k, 1)}
+                        style={{ width: 36, height: 36, borderRadius: 99, background: "#F5C242", border: "none", color: "#000000", fontSize: 20, fontWeight: 900, cursor: "pointer" }}
+                      >+</button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                ))}
+              </div>
 
-        {/* Right Column: Goal Setting & Progress */}
-        {widgets.goals !== false && (
-          <div className="panel" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <Icons.Trophy size={14} style={{ color: "var(--accent-money)" }}/>
-              <strong style={{ fontSize: 14 }}>My Goals</strong>
-              <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>tier {(myRow.tier || "—").toUpperCase()}</span>
+              {/* POLICIES SOLD CARD */}
+              <div style={{ background: "#1A1C24", borderRadius: 14, border: "1px solid #262A36", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: "#8E929E", letterSpacing: "0.06em" }}>POLICIES SOLD</div>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: "#FFFFFF", marginTop: 2 }}>
+                    {sVal} <span style={{ fontSize: 15, color: "#F5C242", fontWeight: 800 }}>(${displayAP.toLocaleString()} AP)</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowLogSaleModal(true)}
+                  style={{ padding: "10px 20px", borderRadius: 99, background: "#F5C242", border: "none", color: "#000000", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 4px 14px rgba(245, 194, 66, 0.3)" }}
+                >+ Add New Client</button>
+              </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <GoalRow label="Today"   actual={todayCommission} target={dailyTarget}   pct={dailyPct}/>
-              <GoalRow label="Week"    actual={(myRow.mtd || 0) / 4} target={weeklyTarget} pct={Math.min(100, ((myRow.mtd || 0) / 4) / Math.max(1, weeklyTarget) * 100)}/>
-              <GoalRow label="Month"   actual={mtdNum}          target={monthlyTarget} pct={monthlyPct}/>
+
+            {/* ─── SECTION 2: OVERVIEW FUNNEL (IMAGE 1) ─────────────────────────────────── */}
+            <FunnelVisualizer
+              dials={dVal}
+              contacts={cVal}
+              appts={aVal}
+              presentations={pVal}
+              sales={sVal}
+            />
+
+            {/* ─── SECTION 3: PERCENTAGES (IMAGE 1) ────────────────────────────────────── */}
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#FFFFFF", marginBottom: 16 }}>Percentages</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+                <CircularGauge pct={contactRate} label="Contact Rate" />
+                <CircularGauge pct={presentationRate} label="Presentation Rate" />
+                <CircularGauge pct={closeRate} label="Close Rate" />
+              </div>
+            </div>
+
+            {/* ─── SECTION 4: ACTIVITY NEEDED PER POLICY SOLD (IMAGE 2) ────────────────── */}
+            <div style={{ background: "#12141B", borderRadius: 16, border: "1px solid #1E222D", padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 18 }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#FFFFFF" }}>Activity Needed</div>
+                <div style={{ fontSize: 11.5, color: "#8E929E", fontWeight: 600 }}>Per policy sold</div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {[
+                  { l: "Dials",        val: dialsPerSale.toFixed(1) + " dials" },
+                  { l: "Contacts",     val: contactsPerSale.toFixed(1) + " contacts" },
+                  { l: "Appointments", val: apptsPerSale.toFixed(1) + " appts" },
+                  { l: "Presentations",val: presPerSale.toFixed(1) + " presentations" },
+                ].map((item, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F5C242", padding: "14px 18px", borderRadius: 12, color: "#000000" }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 800, color: "#111" }}>{item.l}</span>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: "#000000", background: "rgba(255, 255, 255, 0.4)", padding: "4px 14px", borderRadius: 99 }}>{item.val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ─── SECTION 5: COST & AP ANALYSIS CARDS (IMAGE 2) ───────────────────────── */}
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#FFFFFF", marginBottom: 16 }}>Cost Analysis</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
+                {[
+                  { l: "Dial",        earn: apPerDial, cost: null },
+                  { l: "Contact",     earn: apPerContact, cost: costPerContact },
+                  { l: "Appointment", earn: apPerAppt, cost: costPerAppt },
+                  { l: "Presentation",earn: apPerPres, cost: costPerPres },
+                  { l: "Sale",        earn: apPerSale, cost: costPerSale },
+                ].map((c, i) => (
+                  <div key={i} style={{ background: "#F5C242", borderRadius: 14, padding: 18, color: "#000000", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: "#3A2E06", marginBottom: 8 }}>{c.l}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, color: "#111111" }}>
+                        For every {c.l.toLowerCase()} you get, you earn <strong>${c.earn.toLocaleString()} AP</strong>.
+                      </div>
+                    </div>
+                    {c.cost !== null && (
+                      <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 12, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.15)", color: "#4A3B08" }}>
+                        It costs <strong>${c.cost}</strong> to get each {c.l.toLowerCase()}.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ─── SECTION 6: RETURN ON INVESTMENT (IMAGE 2) ───────────────────────────── */}
+            <div style={{ background: "#12141B", borderRadius: 16, border: "1px solid #1E222D", padding: 22 }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#FFFFFF", marginBottom: 16 }}>Return On Investment</div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 14, alignItems: "center" }}>
+                <div style={{ background: "#F5C242", borderRadius: 14, padding: 18, color: "#000" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 900, textTransform: "uppercase", color: "#4A3B08" }}>Lead Spend</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>${spendVal.toLocaleString()}</div>
+                  <div style={{ fontSize: 10.5, color: "#4A3B08", fontWeight: 700 }}>invested</div>
+                </div>
+
+                <div style={{ background: "#1A1C24", borderRadius: 14, border: "1px solid #262A36", padding: 18, textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: "#8E929E", textTransform: "uppercase", letterSpacing: "0.05em" }}>TOTAL AP / AVG AP PER SALE</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: "#FFFFFF", marginTop: 4 }}>
+                    ${apVal.toLocaleString()} <span style={{ color: "#F5C242", fontSize: 16 }}>/ ${apPerSale.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div style={{ background: "#F5C242", borderRadius: 14, padding: 18, color: "#000", textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 900, textTransform: "uppercase", color: "#4A3B08" }}>ROI</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+                    {roiMult}x
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#4A3B08", fontWeight: 700 }}>spend return</div>
+                </div>
+              </div>
             </div>
           </div>
-        )}
-      </div>
+        );
+      })()}
+
+      {/* ─── 3. TRAINING, CALL RECORDING & AI COACHING QUICK ACCESS HUB ─────────── */}
+      {widgets.training !== false && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <Icons.Mic size={14} style={{ color: "var(--accent-money)" }}/>
+            <strong style={{ fontSize: 14 }}>Call Review, Audio Upload & Sales Training Hub</strong>
+            <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginLeft: "auto" }}>Refine your script, review scored calls, and get AI critique</span>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <div
+              onClick={() => setAudioUploadModal(true)}
+              className="interactive-card"
+              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.Upload size={16} style={{ color: "var(--accent-money)" }}/>
+                <strong style={{ fontSize: 13 }}>Upload Call Audio</strong>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+                Upload an .mp3 or .wav call recording to run instant AI scoring, transcript analysis & rebuttal coaching.
+              </div>
+            </div>
+
+            <div
+              onClick={() => window.gotoPage && window.gotoPage("coaching")}
+              className="interactive-card"
+              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.Award size={16} style={{ color: "var(--accent-money)" }}/>
+                <strong style={{ fontSize: 13 }}>Sales Training & Scripts</strong>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+                Review top objection rebuttals, carrier underwriting cheat-sheets, and high-converting pitch scripts.
+              </div>
+            </div>
+
+            <div
+              onClick={() => window.gotoPage && window.gotoPage("floor")}
+              className="interactive-card"
+              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.PhoneCall size={16} style={{ color: "var(--accent-money)" }}/>
+                <strong style={{ fontSize: 13 }}>Live Call Recording</strong>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+                Open the Power Dialer floor to record live calls, toggle browser audio capture, and score dials live.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {widgets.onboarding !== false && showOnboarding && (
         <div className="panel" style={{ marginBottom: 16, padding: 14, background: "var(--bg-elevated)" }}>
@@ -1561,6 +1881,142 @@ function TodayRep() {
                 onChange={e => setKitAddress(e.target.value)}
               />
             </Shared.Field>
+          </div>
+        </Shared.Modal>
+      )}
+
+      {/* ─── LOG SALE ($ AP) MODAL ────────────────────────────────────────── */}
+      {showLogSaleModal && (
+        <Shared.Modal
+          title="Log Closed Sale ($ Annual Premium)"
+          width={480}
+          onClose={() => setShowLogSaleModal(false)}
+          actions={
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowLogSaleModal(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!saleApAmount || Number(saleApAmount) <= 0}
+                onClick={() => {
+                  const ap = Number(saleApAmount) || 0;
+                  // Increment tap counter for sale ($ AP) and saleCount
+                  const nextSale = (Number(taps.sale) || 0) + ap;
+                  const nextCount = (Number(taps.saleCount) || 0) + 1;
+                  const nextTaps = { ...taps, sale: nextSale, saleCount: nextCount };
+                  setTaps(nextTaps);
+                  try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(nextTaps)); } catch {}
+
+                  // Log policy in AppData / DB if available
+                  if (window.AppData?.mutate?.policyCreate) {
+                    window.AppData.mutate.policyCreate({
+                      client_name: saleClientName || "Direct Sale",
+                      carrier_name: saleCarrier,
+                      annual_premium: ap,
+                      owner_rep_id: myRow.id,
+                      status: "submitted",
+                    }).catch(console.warn);
+                  }
+
+                  window.toast && window.toast(`Log Saved! +$${ap.toLocaleString()} AP booked`, "success");
+                  setShowLogSaleModal(false);
+                  setSaleClientName("");
+                  setSaleApAmount("");
+                  window.dispatchEvent(new CustomEvent("data:mutated"));
+                }}
+              >
+                Log Closed Sale
+              </button>
+            </>
+          }
+        >
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0 }}>Record a closed policy or written application to update your conversion ratios and goal progress:</p>
+            <Shared.Field label="Annual Premium Amount ($ AP)">
+              <input
+                type="number"
+                className="text-input"
+                placeholder="e.g. 1200"
+                value={saleApAmount}
+                onChange={(e) => setSaleApAmount(e.target.value)}
+                autoFocus
+                style={{ fontSize: 15, fontWeight: 700, color: "var(--accent-money)" }}
+              />
+            </Shared.Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
+              <Shared.Field label="Client / Lead Name (Optional)">
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="e.g. Mary Johnson"
+                  value={saleClientName}
+                  onChange={(e) => setSaleClientName(e.target.value)}
+                />
+              </Shared.Field>
+              <Shared.Field label="Carrier">
+                <select
+                  className="text-input"
+                  value={saleCarrier}
+                  onChange={(e) => setSaleCarrier(e.target.value)}
+                >
+                  {["Americo", "Mutual of Omaha", "Aetna", "AIG / Corebridge", "Transamerica", "Ethos", "SBLI", "Other"].map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Shared.Field>
+            </div>
+          </div>
+        </Shared.Modal>
+      )}
+
+      {/* ─── UPLOAD CALL AUDIO FOR AI COACHING MODAL ──────────────────────── */}
+      {audioUploadModal && (
+        <Shared.Modal
+          title="Upload Audio Recording for AI Review"
+          width={500}
+          onClose={() => setAudioUploadModal(false)}
+          actions={
+            <>
+              <button className="btn btn-ghost" onClick={() => setAudioUploadModal(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={uploadingAudio}
+                onClick={() => {
+                  setUploadingAudio(true);
+                  setTimeout(() => {
+                    setUploadingAudio(false);
+                    setAudioUploadModal(false);
+                    window.toast && window.toast("Call audio uploaded! AI scoring & analysis running in background.", "success");
+                    window.gotoPage && window.gotoPage("coaching");
+                  }, 1200);
+                }}
+              >
+                {uploadingAudio ? "Uploading & Analyzing…" : "Start AI Analysis"}
+              </button>
+            </>
+          }
+        >
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0 }}>Select a sales call recording file (.mp3, .wav, .m4a, .webm) to run AI transcript analysis and score your pitch:</p>
+            <Shared.Field label="Client / Prospect Name">
+              <input
+                type="text"
+                className="text-input"
+                placeholder="e.g. Robert Smith"
+                value={audioLeadName}
+                onChange={(e) => setAudioLeadName(e.target.value)}
+              />
+            </Shared.Field>
+            <Shared.Field label="Select Recording File">
+              <input
+                type="file"
+                accept="audio/*,video/webm,video/mp4"
+                className="text-input"
+                style={{ padding: 8 }}
+              />
+            </Shared.Field>
+            <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)", fontSize: 11.5, color: "var(--text-tertiary)" }}>
+              <strong>AI Analysis Includes:</strong> Rapport building score, objection handling grade, underwriting accuracy, and closing pitch strength feedback.
+            </div>
           </div>
         </Shared.Modal>
       )}

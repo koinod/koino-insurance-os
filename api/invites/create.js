@@ -44,6 +44,7 @@ export default async function handler(req) {
     label = null,
     max_uses = 1,
     perma = false,
+    expires_at = null,
   } = body;
 
   const r = await fetch(`${SUPA_URL}/rest/v1/rpc/mint_invite`, {
@@ -57,6 +58,7 @@ export default async function handler(req) {
       p_label:         label,
       p_max_uses:      perma ? null : (Number.isInteger(max_uses) && max_uses > 0 ? max_uses : 1),
       p_perma:         !!perma,
+      p_expires_at:    perma ? null : expires_at,
     })
   });
 
@@ -67,9 +69,9 @@ export default async function handler(req) {
   const token = (await r.text()).replace(/"/g, "");
   const origin = new URL(req.url).origin;
   const invite_url = `${origin}/?invite=${token}`;
-  const expires_at = perma ? null : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const final_expires_at = perma ? null : (expires_at ? expires_at : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString());
 
-  return new Response(JSON.stringify({ token, invite_url, expires_at, role, label, max_uses: perma ? null : max_uses, perma }), {
+  return new Response(JSON.stringify({ token, invite_url, expires_at: final_expires_at, role, label, max_uses: perma ? null : max_uses, perma }), {
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "no-store" }
   });

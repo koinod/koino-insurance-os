@@ -1340,7 +1340,7 @@
                       </div>
                       <span className="chip" style={{ fontSize: 9.5, color: s.status === "live" ? "var(--accent-money)" : "var(--text-tertiary)" }}>{s.status}</span>
                       {s.deploymentUrl && (
-                        <a href={s.deploymentUrl} target="_blank" rel="noreferrer" className="icon-btn" title="Open">
+                        <a href={s.deploymentUrl.startsWith("http://") || s.deploymentUrl.startsWith("https://") ? s.deploymentUrl : `https://${s.deploymentUrl}`} target="_blank" rel="noreferrer" className="icon-btn" title="Open">
                           <Icons.ArrowUpRight size={11}/>
                         </a>
                       )}

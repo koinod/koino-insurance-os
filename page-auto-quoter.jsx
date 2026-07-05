@@ -37,6 +37,7 @@
     { id: "transamerica",     name: "Transamerica",          requiresLogin: true,  note: "Producer · transamerica.com/agent" },
     { id: "ethos",            name: "Ethos",                 requiresLogin: true,  note: "Producer · agents.ethoslife.com" },
     { id: "americanamicable", name: "American Amicable",     requiresLogin: true,  note: "Producer · aalife.com" },
+    { id: "americo",          name: "Americo Financial",     requiresLogin: true,  note: "Producer · agent.americo.com" },
     { id: "instabrain",       name: "Instabrain (multi)",    requiresLogin: true,  note: "Aggregator · instabrain.ai" },
     { id: "foresters",        name: "Foresters",             requiresLogin: true,  note: "Producer · foresters.com/agents" },
     { id: "sbli",             name: "SBLI",                  requiresLogin: true,  note: "Producer · sbli.com/agent" },
@@ -54,6 +55,7 @@
     transamerica: ["fe", "term", "iul"],
     ethos: ["term"],
     americanamicable: ["fe", "term"],
+    americo: ["fe", "term", "iul", "annuity"],
     instabrain: ["fe", "term", "iul"],
     foresters: ["term", "iul"],
     sbli: ["term"],
@@ -145,33 +147,49 @@
     return { products: [...supported], wholeLife };
   }
 
+  const CARRIER_ID_MAP = {
+    uhc_aarp: "uhc",
+    mutual_omaha: "moo",
+    aetna_src: "aetna",
+    corebridge: "aig",
+  };
+
   function buildSupportedCarriers() {
     const carriers = (window.AppData && window.AppData.CARRIERS) || [];
     const baseById = new Map(STATIC_CARRIER_META.map(c => [c.id, c]));
     const derived = carriers.map(c => {
-      const base = baseById.get(c.id) || { id: c.id, name: c.name, requiresLogin: true, note: c.notes || "DB carrier" };
+      const shortId = CARRIER_ID_MAP[c.id] || c.id;
+      const base = baseById.get(shortId) || baseById.get(c.id) || { id: shortId, name: c.name, requiresLogin: true, note: c.notes || "DB carrier" };
       const inferred = inferEngineProductsFromDb(c.id);
       const products = inferred.products.length > 0
         ? inferred.products
         : (Array.isArray(c.productLines) ? c.productLines.flatMap((line) => inferEngineProductsFromDb(String(line)).products) : []);
+      const fallbackProds = LEGACY_CARRIER_PRODUCTS[shortId] || [];
+      const finalProducts = [...new Set([...products, ...fallbackProds])];
       return {
         ...base,
-        id: c.id,
-        name: c.name || base.name,
+        id: shortId,
+        name: base.name || c.name,
         note: c.notes || base.note,
-        products: products.length > 0 ? [...new Set(products)] : [],
-        wholeLife: inferred.wholeLife,
+        products: finalProducts,
+        wholeLife: inferred.wholeLife || finalProducts.includes("fe"),
       };
     }).filter(c => c.products.length > 0);
 
-    if (derived.length > 0) return derived;
+    const seen = new Set();
+    const unique = [];
+    for (const c of derived) {
+      if (!seen.has(c.id)) { seen.add(c.id); unique.push(c); }
+    }
+
+    if (unique.length > 0) return unique;
     return STATIC_CARRIER_META.map(c => ({ ...c, products: LEGACY_CARRIER_PRODUCTS[c.id] || [] }));
   }
 
   function PageAutoQuoter({ role = "owner" }) {
     const [, force] = useState(0);
     const [credentials, setCredentials] = useState(() => loadJSON(LS_CREDS, {}));
-    const [settings, setSettings]       = useState(() => loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: ["uhc"] }));
+    const [settings, setSettings]       = useState(() => loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: ["uhc", "americo"] }));
     const [requests, setRequests]       = useState(() => loadJSON(LS_REQUESTS, []));
     const [sessions, setSessions]       = useState(() => loadJSON(LS_SESSIONS, {}));
     const [agentLastSeen, setAgentLastSeen] = useState(null);
@@ -239,8 +257,13 @@
           if (cancelled) return;
           const next = {};
           for (const c of connectors) {
-            if (!c.provider || !c.provider.startsWith("carrier_")) continue;
-            const carrierId = c.provider.slice("carrier_".length);
+            let carrierId = null;
+            if (c.provider && c.provider.startsWith("carrier_")) {
+              carrierId = c.provider.slice("carrier_".length);
+            } else if (c.provider === "custom" && (c.account_metadata?.carrier_id || c.account_label?.includes("americo"))) {
+              carrierId = c.account_metadata?.carrier_id || "americo";
+            }
+            if (!carrierId) continue;
             next[carrierId] = {
               username: c.account_metadata?.username || "",
               password: "",                 // never rehydrated for security

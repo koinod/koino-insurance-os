@@ -213,17 +213,24 @@ async function tryOpenRouter(key, prompt, model, want_json, max_tokens) {
   return { ok: true, text };
 }
 
+function buildCascade(prompt, want_json, max_tokens) {
+  const gKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  return [
+    ["gemini-2.5-flash",          () => gKey  && tryGemini("gemini-2.5-flash", gKey, prompt, want_json, max_tokens)],
+    ["gemini-2.0-flash",          () => gKey  && tryGemini("gemini-2.0-flash", gKey, prompt, want_json, max_tokens)],
+    ["gemini-2.0-flash (OR)",     () => orKey && tryOpenRouter(orKey, prompt, "google/gemini-2.0-flash-001", want_json, max_tokens)],
+    ["llama-3.3-70b:free (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "meta-llama/llama-3.3-70b-instruct:free", want_json, max_tokens)],
+    ["deepseek-v3:free (OR)",     () => orKey && tryOpenRouter(orKey, prompt, "deepseek/deepseek-chat-v3-0324:free", want_json, max_tokens)],
+    ["qwen-2.5-72b:free (OR)",    () => orKey && tryOpenRouter(orKey, prompt, "qwen/qwen-2.5-72b-instruct:free", want_json, max_tokens)],
+  ];
+}
+
 async function runCascade(prompt, want_json, max_tokens) {
   const gKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
   if (!gKey && !orKey) return { error: "no AI keys set" };
-  const cascade = [
-    ["gemini-2.5-flash",        () => gKey  && tryGemini("gemini-2.5-flash", gKey, prompt, want_json, max_tokens)],
-    ["gemini-2.0-flash",        () => gKey  && tryGemini("gemini-2.0-flash", gKey, prompt, want_json, max_tokens)],
-    ["gemini-2.0-flash (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "google/gemini-2.0-flash-001", want_json, max_tokens)],
-    ["llama-3.3-70b:free (OR)", () => orKey && tryOpenRouter(orKey, prompt, "meta-llama/llama-3.3-70b-instruct:free", want_json, max_tokens)],
-    ["deepseek-v3:free (OR)",   () => orKey && tryOpenRouter(orKey, prompt, "deepseek/deepseek-chat-v3-0324:free", want_json, max_tokens)],
-  ];
+  const cascade = buildCascade(prompt, want_json, max_tokens);
   const attempts = [];
   for (const [name, fn] of cascade) {
     const r = await fn();
@@ -232,6 +239,31 @@ async function runCascade(prompt, want_json, max_tokens) {
     attempts.push({ provider: name, status: r.status, detail: (r.detail || "").slice(0, 200) });
   }
   return { ok: false, error: "all providers failed", attempts };
+}
+
+// Same as runCascade but validates JSON parse + shape check via validateFn.
+// If a model returns text that parses but fails validation, skip to the next model.
+async function runCascadeWithValidation(prompt, want_json, max_tokens, validateFn) {
+  const gKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (!gKey && !orKey) return { error: "no AI keys set" };
+  const cascade = buildCascade(prompt, want_json, max_tokens);
+  const attempts = [];
+  for (const [name, fn] of cascade) {
+    const r = await fn();
+    if (!r) continue;
+    if (r.ok && r.text) {
+      const parsed = parseJsonLoose(r.text);
+      if (parsed && validateFn(parsed)) {
+        return { ok: true, text: r.text, parsed, model: name, attempts };
+      }
+      // Model returned text but it failed validation — try next model
+      attempts.push({ provider: name, status: 422, detail: `returned text but failed shape validation` });
+      continue;
+    }
+    attempts.push({ provider: name, status: r.status, detail: (r.detail || "").slice(0, 200) });
+  }
+  return { ok: false, error: "all providers failed or returned invalid shapes", attempts };
 }
 
 function bad(msg, status = 400) {
@@ -291,15 +323,21 @@ export default async function handler(req) {
       }
     }
 
-    // Fallback: live generate.
+    // Fallback: live generate — with validated cascade (tries next model if shape is bad).
     const fullPrompt = PRACTICE_SYSTEM(state, line, domain);
     const t0 = Date.now();
-    const r = await runCascade(fullPrompt, true);
-    if (!r.ok) return new Response(JSON.stringify({ error: r.error || "model failed", attempts: r.attempts }), { status: 502, headers: { "content-type": "application/json" }});
-    let q = parseJsonLoose(r.text);
-    if (!q || typeof q.stem !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || typeof q.correct_index !== "number" || q.correct_index < 0 || q.correct_index > 3) {
-      return new Response(JSON.stringify({ error: "model returned invalid question shape", raw: q || r.text.slice(0, 500) }), { status: 502, headers: { "content-type": "application/json" }});
+    const isValidQuestion = (q) =>
+      q && typeof q.stem === "string" && q.stem.length > 5 &&
+      Array.isArray(q.options) && q.options.length === 4 &&
+      q.options.every(o => typeof o === "string" && o.length > 0) &&
+      typeof q.correct_index === "number" && q.correct_index >= 0 && q.correct_index <= 3;
+
+    const r = await runCascadeWithValidation(fullPrompt, true, 1500, isValidQuestion);
+    if (!r.ok) {
+      const hint = (r.attempts || []).map(a => `${a.provider}: ${a.detail}`).join("; ");
+      return new Response(JSON.stringify({ error: `All models failed to generate a valid question. ${hint}`, attempts: r.attempts }), { status: 502, headers: { "content-type": "application/json" }});
     }
+    let q = r.parsed;
     // Fire-and-forget cache write so the bank grows organically through use.
     if (variety_id && domain) {
       const line_ = String(body.line || "").toLowerCase().trim() || "life";
@@ -371,9 +409,18 @@ export default async function handler(req) {
 
 function parseJsonLoose(text) {
   if (typeof text !== "string") return null;
-  try { return JSON.parse(text); } catch {}
-  // Some models wrap in ```json``` fences or add chatter despite the instruction.
+  // Direct parse first.
+  try { return JSON.parse(text.trim()); } catch {}
+  // Strip markdown code fences: ```json ... ``` or ``` ... ```
+  const fenced = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  try { return JSON.parse(fenced); } catch {}
+  // Extract the first top-level { ... } block (greedy innermost match to avoid nested issues).
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+  try { return JSON.parse(m[0]); } catch {}
+  // Last resort: try to fix common issues like trailing commas.
+  try {
+    const cleaned = m[0].replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(cleaned);
+  } catch { return null; }
 }
