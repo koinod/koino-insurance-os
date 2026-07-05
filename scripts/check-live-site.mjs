@@ -3,31 +3,41 @@ import { chromium } from 'playwright';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 
-console.log('Navigating to repflow.koino.capital/licensing ...');
-await page.goto('https://repflow.koino.capital/licensing', { waitUntil: 'networkidle', timeout: 30000 });
-await page.waitForTimeout(4000);
+// Log all script loads
+const loadedScripts = [];
+page.on('response', response => {
+  const url = response.url();
+  if (url.includes('page-licensing') || url.includes('licensing-study')) {
+    loadedScripts.push({ url, status: response.status(), headers: response.headers() });
+  }
+});
 
-// Get all button text
-const buttons = await page.$$eval('button', btns => btns.map(b => b.textContent.trim()));
-console.log('\n=== VISIBLE BUTTONS ===');
-buttons.forEach(b => b && console.log(' -', b));
+console.log('Loading page...');
+const response = await page.goto('https://repflow.koino.capital/licensing', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-// Get the licensing script src to check version number loaded
-const scripts = await page.$$eval('script[src]', els => els.map(el => el.getAttribute('src')));
-const licensingScripts = scripts.filter(s => s && (s.includes('licensing') || s.includes('study-guide')));
-console.log('\n=== LICENSING SCRIPTS LOADED ===');
-licensingScripts.forEach(s => console.log(' -', s));
+// Get raw HTML immediately to see what index.html was served
+const pageSource = await page.content();
+const licensingLine = pageSource.match(/page-licensing[^"']*/)?.[0];
+console.log('Index.html references:', licensingLine);
 
-// Check if 100q is rendered anywhere on the page
+// Check x-vercel-cache on the HTML response
+const respHeaders = response?.headers() || {};
+console.log('HTML x-vercel-cache:', respHeaders['x-vercel-cache']);
+console.log('HTML x-vercel-id:', respHeaders['x-vercel-id']);
+console.log('HTML age:', respHeaders['age']);
+console.log('HTML etag:', respHeaders['etag']);
+
+await page.waitForTimeout(5000);
+
+console.log('\nLoaded scripts:');
+for (const s of loadedScripts) {
+  console.log(` - ${s.url}`);
+  console.log(`   status: ${s.status}, age: ${s.headers['age']}, cache: ${s.headers['x-vercel-cache']}, content-length: ${s.headers['content-length']}`);
+}
+
 const bodyText = await page.$eval('body', el => el.innerText);
-const has100q = bodyText.includes('100q');
-const hasStateExam = bodyText.includes('State Exam');
-console.log('\n=== CONTENT CHECK ===');
-console.log(' - Contains "100q":', has100q);
-console.log(' - Contains "State Exam":', hasStateExam);
-
-// Screenshot for visual confirmation
-await page.screenshot({ path: '/tmp/repflow-licensing.png', fullPage: false });
-console.log('\n=== SCREENSHOT saved to /tmp/repflow-licensing.png ===');
+console.log('\nContains "100q":', bodyText.includes('100q'));
+console.log('Contains "State Exam":', bodyText.includes('State Exam'));
+console.log('Contains "Single Question":', bodyText.includes('Single Question'));
 
 await browser.close();
