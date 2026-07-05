@@ -304,23 +304,41 @@ export default async function handler(req) {
     const variety_id    = body.variety_id ? String(body.variety_id).slice(0, 60) : null;
     const variety_name  = body.variety_name ? String(body.variety_name).slice(0, 160) : null;
 
-    // Try the pre-stored question bank first if the variety has any.
-    // Sampling: PostgREST doesn't have a great random op, so we pull the bank
-    // (or 100 rows of it) and pick client-side. For typical bank sizes (20-50)
-    // this is one cheap request.
-    if (variety_id) {
+    // Try the pre-stored question bank first.
+    // Multi-tier fallback ensures users get fast, reliable questions from the bank
+    // even if live LLM providers are down or rate limited.
+    const queryBank = async (extraFilters = []) => {
       const filters = [
-        `state_code=eq.${state}`,
-        `variety_id=eq.${encodeURIComponent(variety_id)}`,
-        ...(domain ? [`domain=eq.${encodeURIComponent(domain)}`] : []),
         "select=stem,options,correct_index,explanation,domain,difficulty,source_url",
         "limit=100",
+        ...extraFilters
       ];
-      const rows = await dbSelect(`licensing_questions?${filters.join("&")}`);
-      if (Array.isArray(rows) && rows.length > 0) {
-        const pick = rows[Math.floor(Math.random() * rows.length)];
-        return new Response(JSON.stringify({ ...pick, source: "bank", ms: 0 }), { status: 200, headers: { "content-type": "application/json" }});
+      return await dbSelect(`licensing_questions?${filters.join("&")}`);
+    };
+
+    let bankRows = null;
+    if (variety_id) {
+      // Tier 1: State + Variety + Domain
+      if (domain) {
+        bankRows = await queryBank([`state_code=eq.${state}`, `variety_id=eq.${encodeURIComponent(variety_id)}`, `domain=eq.${encodeURIComponent(domain)}`]);
       }
+      // Tier 2: State + Variety (any domain)
+      if (!Array.isArray(bankRows) || bankRows.length === 0) {
+        bankRows = await queryBank([`state_code=eq.${state}`, `variety_id=eq.${encodeURIComponent(variety_id)}`]);
+      }
+    }
+    // Tier 3: State + Line
+    if (!Array.isArray(bankRows) || bankRows.length === 0) {
+      bankRows = await queryBank([`state_code=eq.${state}`, `line=eq.${encodeURIComponent(line)}`]);
+    }
+    // Tier 4: Any matching Line in the bank
+    if (!Array.isArray(bankRows) || bankRows.length === 0) {
+      bankRows = await queryBank([`line=eq.${encodeURIComponent(line)}`]);
+    }
+
+    if (Array.isArray(bankRows) && bankRows.length > 0) {
+      const pick = bankRows[Math.floor(Math.random() * bankRows.length)];
+      return new Response(JSON.stringify({ ...pick, source: "bank", ms: 0 }), { status: 200, headers: { "content-type": "application/json" }});
     }
 
     // Fallback: live generate — with validated cascade (tries next model if shape is bad).
