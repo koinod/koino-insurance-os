@@ -311,6 +311,11 @@ const TIER_TARGETS = new Proxy({}, {
   },
 });
 
+function todayDateStr() {
+  const d = new Date(); d.setHours(0,0,0,0);
+  return d.toISOString().slice(0, 10);
+}
+
 function CircularGauge({ pct, label }) {
   const radius = 34;
   const circumference = 2 * Math.PI * radius;
