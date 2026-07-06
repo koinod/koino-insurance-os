@@ -8230,66 +8230,82 @@
           "content_outline": [
             {
               "domain": "I. Types of Policies",
-              "weight_pct": 19,
-              "item_count": 15,
+              "weight_pct": 11,
+              "item_count": 9,
               "topics": [
-                "Traditional Whole Life Products (Ordinary, Limited-pay, Single-premium)",
-                "Interest/Market-Sensitive Products (Universal life, Variable whole life, Variable universal life, Indexed life)",
-                "Term Life (Level, decreasing, return of premium, annually renewable; Special features: Renewable, Convertible)",
-                "Annuities (Single & flexible premium, Immediate & deferred, Fixed & variable, Indexed, Accumulation/Annuity periods, Payout options)",
-                "Combination Plans & Variations (Joint life/first-to-die, Survivorship life/second-to-die)"
+                "Traditional Whole Life Products (Ordinary/straight life, Limited-pay and single-premium life, Adjustable life)",
+                "Interest-Sensitive Life Products (Universal life, Variable whole life, Variable universal life, Interest-sensitive whole life)",
+                "Term Life (Level, decreasing, and increasing term; Special features: Renewable, Convertible)",
+                "Annuities (Single, level, and flexible premium; Immediate and deferred; Fixed and variable; Equity index)",
+                "Combination Plans and Variations (Joint life, Survivorship life)"
               ]
             },
             {
-              "domain": "II. Life Provisions, Riders, Options, and Exclusions",
-              "weight_pct": 19,
-              "item_count": 15,
+              "domain": "II. Policy Riders, Provisions, Options, and Exclusions",
+              "weight_pct": 25,
+              "item_count": 21,
               "topics": [
-                "Policy Riders (Waiver of premium, Guaranteed insurability, Payor benefit, AD&D, Term riders, LTC rider, Cost of Living)",
-                "Policy Provisions & Options (Entire contract, Insuring clause, Free look 10 days, Owner's rights, Beneficiary designations)",
-                "Premium Payment & Reinstatement (Modes, Grace period 31 days, Automatic premium loan, Reinstatement rules)",
-                "Loans, Surrenders & Non-forfeiture (Policy loans, Cash surrender, Reduced paid-up, Extended term, Dividend options)",
-                "Incontestability, Assignments & Exclusions (2-year incontestability, Absolute/Collateral assignment, Suicide clause 2 yrs, War/Aviation exclusions)",
-                "Settlement Options & Accelerated Benefits (Lump sum, Interest only, Fixed period/amount, Life income, Living benefits)"
+                "Policy Riders (Waiver of premium, Waiver of premium with disability income, Guaranteed insurability, Payor benefit, Accidental death and/or accidental death and dismemberment, Term riders, Other insureds, Cost of living)",
+                "Policy Provisions and Options (Entire contract, Insuring clause, Free look, Consideration, Owner's rights, Beneficiary designations: Primary/contingent, Revocable/irrevocable, Changes, Common disaster, Minor beneficiaries; Premium payment: Modes, Grace period, Automatic premium loan, Level or flexible; Reinstatement, Policy loans/withdrawals/partial surrenders, Nonforfeiture options, Dividends and dividend options, Incontestability, Assignments, Suicide, Misstatement of age and gender, Settlement options)",
+                "Policy Exclusions"
               ]
             },
             {
               "domain": "III. Completing the Application, Underwriting, and Delivering the Policy",
-              "weight_pct": 15,
+              "weight_pct": 14,
               "item_count": 12,
               "topics": [
-                "Completing the Application (Required signatures, Changes/corrections, Incomplete applications, Warranties vs representations, Receipts)",
-                "Point-of-Sale Disclosures & Regulations (Replacement rules, HIPAA privacy/HIV consent, USA PATRIOT Act/AML, GLBA Privacy)",
-                "Underwriting Factors & Sources (Insurable interest at application, Medical Information Bureau/MIB, Fair Credit Reporting Act, Risk classification)",
-                "STOLI/IOLI Rules (Stranger-originated life insurance restrictions)",
-                "Delivering the Policy (Effective date of coverage, Statement of good health, Policy explanation at delivery)",
-                "Contract Law (Elements: Offer/acceptance, Consideration, Competence, Legal purpose; Attributes: Conditional, Unilateral, Adhesion, Aleatory)"
+                "Completing The Application (Required signatures, Changes in the application, Consequences of incomplete applications, Warranties and representations, Collecting the initial premium and issuing the receipt, Replacement, Disclosures at point of sale, HIPAA, HIV consent)",
+                "Underwriting (Insurable interest, Medical information and consumer reports, Fair Credit Reporting Act, Risk classification)",
+                "Delivering The Policy (When coverage begins, Explaining the policy and its provisions, riders, exclusions, and ratings to the client)",
+                "Do Not Call List"
               ]
             },
             {
-              "domain": "IV. Retirement, Tax, and Other Insurance Concepts",
+              "domain": "IV. Taxes, Retirement, and Other Insurance Concepts",
               "weight_pct": 10,
               "item_count": 8,
               "topics": [
-                "Third-Party Ownership & Group Life (Key-person insurance, Executive bonus, Group conversion privilege, COBRA)",
-                "Business Life Insurance (Buy-sell agreements, Cross-purchase vs Entity purchase)",
-                "Tax Treatment of Life Insurance (Income tax-free death benefit, Cash value withdrawals FIFO, Policy loan taxation, Surrender gain)",
-                "Modified Endowment Contracts (MECs, 7-Pay test, LIFO taxation, 10% early penalty prior to 59\u00bd)",
-                "Section 1035 Exchanges (Tax-free exchange of Life to Life, Life to Annuity, Annuity to Annuity)",
-                "Qualified Retirement Plans (IRAs, Roth IRAs, 401(k), Keogh, Rollover rules)"
+                "Third-Party Ownership",
+                "Group Life Insurance (Conversion privilege, Contributory vs. noncontributory)",
+                "Retirement Plans (Tax-qualified plans, Nonqualified plans)",
+                "Business Insurance",
+                "Social Security Benefits and Taxes",
+                "Tax Treatment of Insurance Premiums, Proceeds, Dividends (Individual life, Group life, Modified Endowment Contracts/MECs)",
+                "Accelerated Death Benefits—Living Benefits",
+                "Endowments"
               ]
             },
             {
-              "domain": "New Jersey Insurance Statutes, Rules, and Regulations",
+              "domain": "V. New Jersey Laws, Rules, and Regulations Common to Life, Accident and Health, Property, and Casualty Insurance",
               "weight_pct": 30,
-              "item_count": 30,
-              "statute_cite": "N.J.S.A. Title 17B",
+              "item_count": 25,
+              "statute_cite": "N.J.S.A. Title 17, 17B, Title 11",
               "topics": [
-                "New Jersey Department of Banking & Insurance (DOBI Commissioner Powers - N.J.S.A. 17:1C-19)",
-                "NJ Life Producer Licensing (N.J.S.A. 17B:22A-1: 20 prelicensing hrs, 24 CE / 3 ethics biennially)",
-                "NJ Replacement Regulations & 30-Day Free Look (N.J.A.C. 11:2-13)",
-                "NJ Unfair Trade Practices & Rebating Prohibition (N.J.S.A. 17B:30-1)",
-                "New Jersey Life & Health Insurance Guaranty Association (N.J.S.A. 17B:32A-1)"
+                "State Regulatory Jurisdiction (Legislation, State Laws, Court Action, Interpretations, Effect on Law and Policy Forms, Paul v. Virginia, US v. South-Eastern Underwriters Assoc., McCarran-Ferguson Act/Public Law 15, Commissioner/Dept. of Banking and Insurance powers, Notice and Hearing, Penalties)",
+                "Definitions (Insurance-related conduct, Domestic, foreign, and alien companies, Stock and mutual, Reinsurance/Retrocession, Certificate of authority, Producer acting as Agent, Broker, or Consultant, Sell, Solicit, and Negotiate)",
+                "Licensing (Types of licenses: Producer, Business entity, Nonresident, Prelicensing requirements, Surplus lines, Temporary work authority, Contractual relationships, Maintenance and duration, Renewal, License refusal/termination/denial/cancellation/reinstatement/revocation/suspension)",
+                "Trade Practices (Prohibited practices, Business names, Branch offices, Change of address, Standards of conduct, Fraud, Information Privacy, HITECH, HIPAA)",
+                "Guaranty Associations (Title 17 Chapter 30A)",
+                "Ethics"
+              ]
+            },
+            {
+              "domain": "VI. New Jersey Laws, Rules, and Regulations Pertinent to Life and Regulations",
+              "weight_pct": 10,
+              "item_count": 8,
+              "statute_cite": "N.J.S.A. Title 17B, Title 11",
+              "topics": [
+                "Credit Life (11:2-3.1 thru 3.19)",
+                "Group Life (11:2-13.1 thru 13.9, NJSA 17B:27-1 thru 8, 11, 21)",
+                "Marketing Methods and Practices (17B:30-1 thru 22)",
+                "Replacement (11:4-2.1 thru 2.8)",
+                "Disclosures (11:4-11.1 thru 11.7)",
+                "Advertising (11:2-23.1 thru 23.10)",
+                "Twisting (17B:30-6)",
+                "The Insurance Contract (NJSA 17B:24-1 thru 12)",
+                "Suitability of Annuities and Life Products (Bulletin No. 09-06 and N.J.S.A. 17B:25-34 et seq.)",
+                "Appropriate Use of Business Title or Designation when marketing life and annuity products (Bulletin No. 09-06 and N.J.S.A. 17B:25-36)"
               ]
             }
           ],

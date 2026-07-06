@@ -286,6 +286,24 @@ async function main() {
           continue;
         }
 
+        // Delete existing questions for this variety
+        try {
+          const delResp = await fetch(`${SUPA_URL}/rest/v1/licensing_questions?state_code=eq.${sc}&variety_id=eq.${variety.id}`, {
+            method: "DELETE",
+            headers: {
+              apikey: SUPA_SRV,
+              authorization: `Bearer ${SUPA_SRV}`,
+            }
+          });
+          if (!delResp.ok) {
+            console.error(`   ⚠️ Failed to delete existing questions: ${delResp.status}`);
+          } else {
+            console.log(`   🧹 Cleared existing questions for ${sc} / ${variety.id}`);
+          }
+        } catch (e) {
+          console.error(`   ⚠️ Error deleting existing questions: ${e.message}`);
+        }
+
         // Batch insert into Supabase (50 at a time)
         const BATCH = 50;
         for (let i = 0; i < questions.length; i += BATCH) {
