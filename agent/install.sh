@@ -133,7 +133,7 @@ echo "              koino-quote status              (list captured sessions)"
 # /api/agent/connector-exchange. Without it the agent still works using
 # captured sessions + the local credentials.json; it just can't pull the
 # centrally-saved logins.
-API_BASE="${KOINO_API_BASE:-https://os.koino.capital}"
+API_BASE="${KOINO_API_BASE:-https://repflow.koino.capital}"
 AGENT_TOKEN_JSON="null"
 if [ -n "${KOINO_RBA_TOKEN:-}" ]; then
   echo "  redeeming install token against ${API_BASE} ..."

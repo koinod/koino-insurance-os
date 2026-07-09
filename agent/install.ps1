@@ -91,7 +91,7 @@ Write-Host "  agent files + scrapers installed (14 carriers)"
 # Optional: redeem a one-shot install token (Settings → Agents) so the agent
 # can fetch saved carrier credentials from the server vault. Without it the
 # agent still runs on captured sessions + local credentials.json.
-$ApiBase = if ($env:KOINO_API_BASE) { $env:KOINO_API_BASE } else { "https://os.koino.capital" }
+$ApiBase = if ($env:KOINO_API_BASE) { $env:KOINO_API_BASE } else { "https://repflow.koino.capital" }
 $AgentToken = $null
 if ($env:KOINO_RBA_TOKEN) {
   Write-Host "  redeeming install token against $ApiBase ..."

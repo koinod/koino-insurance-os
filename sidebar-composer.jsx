@@ -43,7 +43,7 @@ function SidebarComposer({ onClose, role }) {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => window.loadSidebarLayout(role).then(l => {
-      if (!cancelled) setLayout((l || []).filter(item => item.kind !== "stat"));
+      if (!cancelled) setLayout((l || []).filter(item => item.kind !== "stat" && (item.label || "").toLowerCase().trim() !== "start coaching" && !(item.id || "").includes("start-coaching")));
     });
     refresh();
     // Focus search on open (keyboard a11y)

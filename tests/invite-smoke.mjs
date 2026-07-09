@@ -5,8 +5,8 @@ import { chromium } from "playwright";
 
 const BASE = (process.env.SMOKE_URL || "https://repflow.koino.capital").replace(/\/$/, "");
 const targets = [
-  { role: "manager",     pages: ["recruits", "tree", "downline"] },
-  { role: "super_admin", pages: ["recruits", "tree", "downline", "admin"] },
+  { role: "manager",     pages: ["recruiting", "tree", "downline"] },
+  { role: "super_admin", pages: ["recruiting", "tree", "downline", "admin"] },
 ];
 
 const browser = await chromium.launch({ headless: true });
@@ -41,25 +41,28 @@ for (const t of targets) {
   }
 }
 
-// Try to find the invite panel + Generate button under super_admin/recruits
+// Try to find the invite panel + Generate button under super_admin/recruiting
 const sa = page.locator(`.role-switch button[title="super_admin"]`).first();
 if (await sa.count() > 0) await sa.click({ timeout: 3000 }).catch(() => {});
-await page.evaluate(() => window.gotoPage && window.gotoPage("recruits"));
+await page.evaluate(() => window.gotoPage && window.gotoPage("recruiting"));
+await page.waitForTimeout(800);
+const inviteTabBtn = page.locator('button:has-text("Invite team")').first();
+if (await inviteTabBtn.count() > 0) await inviteTabBtn.click({ timeout: 3000 }).catch(() => {});
 await page.waitForTimeout(800);
 
-const invitePanel = await page.locator('h3:has-text("Invite team")').count();
-const genBtn = await page.locator('button:has-text("Generate link")').count();
+const invitePanel = await page.locator('h3:has-text("Team Invites & Hierarchy")').count();
+const genBtn = await page.locator('button:has-text("Generate invite link")').count();
 const demoBanner = await page.locator('text="demo mode — invites won\'t persist"').count();
-results.push({ where: "super_admin/recruits.invite-panel", ok: invitePanel > 0 && genBtn > 0, invitePanel, genBtn, demoBanner });
+results.push({ where: "super_admin/recruiting.invite-panel", ok: invitePanel > 0 && genBtn > 0, invitePanel, genBtn, demoBanner });
 
 // Click Generate link in demo mode → should show error toast (no JWT), not crash
 errs.length = 0;
 if (genBtn > 0) {
-  await page.locator('button:has-text("Generate link")').first().click().catch(() => {});
+  await page.locator('button:has-text("Generate invite link")').first().click().catch(() => {});
   await page.waitForTimeout(1500);
   const errBubble = await page.locator('text="Not signed in"').count();
   const crash = errs.find((e) => /Minified React error|TypeError|ReferenceError/i.test(e));
-  results.push({ where: "super_admin/recruits.generate-click", ok: !crash, errBubble, errs: errs.slice(0, 3) });
+  results.push({ where: "super_admin/recruiting.generate-click", ok: !crash, errBubble, errs: errs.slice(0, 3) });
 }
 
 await browser.close();

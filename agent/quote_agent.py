@@ -60,7 +60,7 @@ SUPABASE_URL = os.environ.get("KOINO_SUPABASE_URL", "https://jfphwmzwteermalzwoj
 SUPABASE_ANON = os.environ.get("KOINO_SUPABASE_ANON", "sb_publishable_cOWY-O9gg5-jPbxnIta4AA_qzogKrSr")
 # Where /api/carrier-recommend lives. Defaults to the production OS host;
 # override via KOINO_API_BASE for local dev.
-API_BASE = os.environ.get("KOINO_API_BASE", "https://os.koino.capital")
+API_BASE = os.environ.get("KOINO_API_BASE", "https://repflow.koino.capital")
 
 # How long to wait, in seconds, for the human to complete a login during a
 # headed capture. 5 min covers most MFA flows; can be overridden per request
@@ -1108,6 +1108,7 @@ def main():
         try:
             settings = load_settings()
             creds = load_credentials()
+            rep_id = settings.get("rep_id") or rep_id
 
             if time.time() - last_heartbeat > 30:
                 heartbeat(rep_id)

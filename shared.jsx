@@ -238,9 +238,17 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
 
   const _isDemo = typeof window !== "undefined" && window.isDemoAgency && window.isDemoAgency();
   const _floorIsSuperOnly = !(typeof window !== "undefined" && window.isSuperAdmin && window.isSuperAdmin());
-  const items = (_floorIsSuperOnly || _isDemo)
-    ? itemsRaw.filter(i => i.id !== "floor" && (i.pageId || i.id) !== "floor")
-    : itemsRaw;
+  const items = itemsRaw.filter(i => {
+    if (i.id === "floor" || (i.pageId || i.id) === "floor") {
+      if (_floorIsSuperOnly || _isDemo) return false;
+    }
+    const labelLower = (i.label || "").toLowerCase().trim();
+    const idLower = (i.id || "").toLowerCase().trim();
+    if (labelLower === "start coaching" || idLower.includes("start-coaching") || idLower.includes("start_coaching")) {
+      return false;
+    }
+    return true;
+  });
 
   function renderItem(item) {
     const kind = item.kind || "nav";

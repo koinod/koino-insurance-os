@@ -13,10 +13,11 @@ export function cors() {
 }
 
 export async function rpc(fn, body, jwt) {
+  const isService = jwt === SERVICE && !!SERVICE;
   const r = await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, {
     method: "POST",
     headers: {
-      "apikey": ANON,
+      "apikey": isService ? SERVICE : ANON,
       "authorization": `Bearer ${jwt || ANON}`,
       "content-type": "application/json",
     },

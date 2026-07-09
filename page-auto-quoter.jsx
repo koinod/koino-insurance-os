@@ -361,6 +361,92 @@
       return () => { cancelled = true; clearInterval(handle); };
     }, []);
 
+    // Poll for live RBA agent results when LIVE and a quote request is active
+    useEffect(() => {
+      if (!window.AppData?.LIVE || !activeRequest?.id || activeRequest.id.startsWith("req-")) return;
+      let cancelled = false;
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return;
+
+      const pollResults = async () => {
+        try {
+          const { data: requestRow } = await sb
+            .from("auto_quote_requests")
+            .select("status")
+            .eq("id", activeRequest.id)
+            .single();
+
+          const { data: results } = await sb
+            .from("auto_quote_results")
+            .select("carrier_id, status, premium_cents, uw_class, raw_excerpt, error")
+            .eq("request_id", activeRequest.id);
+
+          if (cancelled) return;
+
+          if (results && results.length > 0) {
+            // Map cents back to dollars for display
+            const mappedResults = results.map(r => ({
+              carrier_id: r.carrier_id,
+              status: r.status,
+              premium: r.premium_cents ? r.premium_cents / 100 : null,
+              uwClass: r.uw_class || "Standard",
+              error: r.error,
+              raw: r.raw_excerpt
+            }));
+
+            // Merge results: live agent results override rate-engine estimates
+            setActiveRequest(prev => {
+              if (!prev || prev.id !== activeRequest.id) return prev;
+              const merged = [...prev.results];
+              mappedResults.forEach(r => {
+                const idx = merged.findIndex(x => x.carrier_id === r.carrier_id);
+                if (idx >= 0) {
+                  // Override with live agent result
+                  merged[idx] = r;
+                } else {
+                  merged.push(r);
+                }
+              });
+              const status = requestRow?.status || prev.status;
+              return { ...prev, results: merged, status };
+            });
+
+            // Also update the requests log
+            setRequests(prev => prev.map(req => {
+              if (req.id !== activeRequest.id) return req;
+              const merged = [...req.results];
+              mappedResults.forEach(r => {
+                const idx = merged.findIndex(x => x.carrier_id === r.carrier_id);
+                if (idx >= 0) {
+                  merged[idx] = r;
+                } else {
+                  merged.push(r);
+                }
+              });
+              const status = requestRow?.status || req.status;
+              return { ...req, results: merged, status };
+            }));
+          }
+
+          if (requestRow?.status === "complete" || requestRow?.status === "failed") {
+            // Stop polling if the RBA agent is done
+            return;
+          }
+        } catch (e) {
+          console.warn("[auto-quoter] results poll failed:", e);
+        }
+      };
+
+      // Poll every 3 seconds while active
+      const iv = setInterval(pollResults, 3000);
+      pollResults(); // run immediately
+
+      return () => {
+        cancelled = true;
+        clearInterval(iv);
+      };
+    }, [activeRequest?.id]);
+
     // ── Capture / inspect dispatch ─────────────────────────────────────────
     const captureSession = async (carrierId) => {
       setCapturingCarrier(carrierId);
@@ -522,6 +608,7 @@
             }).select().single();
             if (data?.id) {
               setRequests(prev => prev.map(r => r.id === reqId ? { ...r, id: data.id, supabaseId: data.id } : r));
+              setActiveRequest(prev => prev && prev.id === reqId ? { ...prev, id: data.id, supabaseId: data.id } : prev);
             }
           }
         } catch (_e) { /* engine results already streaming, no user impact */ }
@@ -626,9 +713,9 @@
     const tokEnvSh  = installToken ? `KOINO_RBA_TOKEN="${installToken}" ` : "";
     const tokEnvPs  = installToken ? `$env:KOINO_RBA_TOKEN="${installToken}"; ` : "";
     const INSTALL_CMDS = {
-      macos:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
-      linux:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://koino-insurance-os.vercel.app/agent/install.sh" | bash`,
-      windows: `${tokEnvPs}$env:KOINO_REP_ID="${repId}"; iwr -useb "https://koino-insurance-os.vercel.app/agent/install.ps1" | iex`,
+      macos:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://repflow.koino.capital/agent/install.sh" | bash`,
+      linux:   `${tokEnvSh}KOINO_REP_ID="${repId}" curl -sSL "https://repflow.koino.capital/agent/install.sh" | bash`,
+      windows: `${tokEnvPs}$env:KOINO_REP_ID="${repId}"; iwr -useb "https://repflow.koino.capital/agent/install.ps1" | iex`,
     };
     const OS_LABELS = {
       macos:   { label: "macOS",   sub: "bash · launchd" },
