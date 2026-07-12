@@ -292,15 +292,81 @@ window.OnboardingWizard = OnboardingWizard;
 
 /* ─── Settings → Team tab — invite list + create ───────────────────────── */
 function SettingsTeam() {
+  const viewer = (window.me && window.me()) || null;
   const [members, setMembers] = React.useState([]);
   const [invites, setInvites] = React.useState([]);
+  const [allReps, setAllReps] = React.useState([]);
   const [agency, setAgency]   = React.useState(undefined); // undefined=loading, null=none
   const [loadErr, setLoadErr] = React.useState(null);
   const [creating, setCreating] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [role, setRole]         = React.useState("rep");
   const [emailHint, setEmailHint] = React.useState("");
+  const [uplineRepId, setUplineRepId] = React.useState("");
   const [lastUrl, setLastUrl]   = React.useState(null);
+
+  const OWNER_LIKE = React.useMemo(() => new Set(["owner", "super_admin", "admin", "imo_owner"]), []);
+  const isOwnerLike = OWNER_LIKE.has(viewer?.role);
+  const repById = React.useMemo(
+    () => Object.fromEntries((allReps || []).map(r => [r.id, r])),
+    [allReps]
+  );
+  const roleByRepId = React.useMemo(
+    () => Object.fromEntries((members || []).filter(m => m.rep_id).map(m => [m.rep_id, m.role])),
+    [members]
+  );
+  const downlineRepIds = React.useMemo(() => {
+    const rootId = viewer?.rep_id;
+    if (!rootId) return new Set();
+    const scoped = new Set();
+    const visit = (repId) => {
+      if (!repId || scoped.has(repId)) return;
+      scoped.add(repId);
+      for (const rep of allReps || []) {
+        if (rep.upline_id === repId) visit(rep.id);
+      }
+    };
+    visit(rootId);
+    return scoped;
+  }, [allReps, viewer?.rep_id]);
+  const eligibleUplines = React.useMemo(() => {
+    if (isOwnerLike) return allReps || [];
+    if (!viewer?.rep_id) return [];
+    return (allReps || []).filter(r => downlineRepIds.has(r.id));
+  }, [allReps, downlineRepIds, isOwnerLike, viewer?.rep_id]);
+  const uplineOptions = React.useMemo(() => {
+    const seen = new Set();
+    const opts = [];
+    if (isOwnerLike) {
+      seen.add("none");
+      opts.push({ v: "none", l: "Top level" });
+    }
+    for (const rep of eligibleUplines) {
+      if (!rep?.id || seen.has(rep.id)) continue;
+      seen.add(rep.id);
+      const roleLabel = roleByRepId[rep.id] ? ` (${roleByRepId[rep.id]})` : "";
+      const selfLabel = rep.id === viewer?.rep_id ? " · you" : "";
+      opts.push({ v: rep.id, l: `${rep.name || rep.id}${roleLabel}${selfLabel}` });
+    }
+    if (!opts.length && viewer?.rep_id) {
+      opts.push({ v: viewer.rep_id, l: `${viewer.full_name || "You"} · you` });
+    }
+    return opts;
+  }, [eligibleUplines, isOwnerLike, roleByRepId, viewer?.full_name, viewer?.rep_id]);
+
+  React.useEffect(() => {
+    if (!createOpen) return;
+    if (uplineOptions.some(o => o.v === uplineRepId)) return;
+    if (viewer?.rep_id && uplineOptions.some(o => o.v === viewer.rep_id)) {
+      setUplineRepId(viewer.rep_id);
+      return;
+    }
+    if (isOwnerLike && uplineOptions.some(o => o.v === "none")) {
+      setUplineRepId("none");
+      return;
+    }
+    setUplineRepId(uplineOptions[0]?.v || "");
+  }, [createOpen, isOwnerLike, uplineOptions, uplineRepId, viewer?.rep_id]);
 
   const load = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -333,26 +399,33 @@ function SettingsTeam() {
     if (err && !ag) setLoadErr(err.message || String(err));
     setAgency(ag || null);
     if (!ag) return;
-    const [m, i] = await Promise.all([
+    const [m, i, reps] = await Promise.all([
       sb.from("agency_members").select("agency_id, user_id, role, rep_id, joined_at, active").eq("agency_id", ag.id),
-      sb.from("agency_invites").select("token, role, email_hint, expires_at, used_at").eq("agency_id", ag.id).order("expires_at", { ascending: false }),
+      sb.from("agency_invites").select("token, role, email_hint, expires_at, used_at, upline_rep_id").eq("agency_id", ag.id).order("expires_at", { ascending: false }),
+      sb.from("reps").select("id, name, user_id, email, upline_id").eq("agency_id", ag.id).order("name", { ascending: true }),
     ]);
     setMembers(m.data || []);
     setInvites(i.data || []);
+    setAllReps(reps.data || []);
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
   const create = async () => {
     if (!agency) return;
+    if (emailHint && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailHint.trim())) {
+      window.toast && window.toast("Email hint looks malformed", "error");
+      return;
+    }
     setCreating(true);
     try {
       const sb = window.getSupabase();
       const { data: session } = await sb.auth.getSession();
       if (!session?.session) { window.toast && window.toast("Sign in required", "error"); return; }
+      const finalUpline = uplineRepId === "none" || !uplineRepId ? null : uplineRepId;
       const r = await fetch("/api/invites/create", {
         method: "POST",
         headers: { "content-type": "application/json", "authorization": `Bearer ${session.session.access_token}` },
-        body: JSON.stringify({ agency_id: agency.id, role, email_hint: emailHint || null })
+        body: JSON.stringify({ agency_id: agency.id, role, email_hint: emailHint || null, upline_rep_id: finalUpline })
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "mint failed");
@@ -391,24 +464,36 @@ function SettingsTeam() {
       <div className="panel" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>Team</h3>
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)}><Icons.Plus size={11}/> Invite producer</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setRole("rep");
+              setEmailHint("");
+              setLastUrl(null);
+              setCreateOpen(true);
+            }}
+          >
+            <Icons.Plus size={11}/> Invite teammate
+          </button>
         </div>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
-            <div>User</div><div>Role</div><div>Joined</div>
+          <div className="list-h" style={{ gridTemplateColumns: "1fr 110px 1fr 130px" }}>
+            <div>User</div><div>Role</div><div>Reports to</div><div>Joined</div>
           </div>
           {members.map(m => {
             // Resolve a friendly name from the linked reps row when available;
             // fall back to a short user_id when the row hasn't been provisioned yet.
-            const repRow = m.rep_id && (window.AppData?.REPS || []).find(r => r.id === m.rep_id);
+            const repRow = m.rep_id ? repById[m.rep_id] : null;
             const label = repRow?.name || (m.user_id ? `user-${String(m.user_id).slice(0, 8)}` : "—");
+            const reportsTo = repRow?.upline_id ? (repById[repRow.upline_id]?.name || repRow.upline_id) : "Top level";
             return (
-              <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 100px 130px" }}>
+              <div key={m.user_id} className="row" style={{ gridTemplateColumns: "1fr 110px 1fr 130px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <span style={{ fontWeight: 500 }}>{label}</span>
                   {!m.rep_id && <span className="chip" style={{ fontSize: 9.5, color: "var(--state-warning)" }}>profile pending</span>}
                 </div>
                 <div><span className="chip">{m.role}</span></div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{reportsTo}</div>
                 <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</div>
               </div>
             );
@@ -420,17 +505,19 @@ function SettingsTeam() {
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: 0, marginBottom: 8 }}>Pending invites</h3>
         <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px" }}>
-            <div>Token</div><div>Role</div><div>Email hint</div><div>Expires</div><div>Status</div>
+          <div className="list-h" style={{ gridTemplateColumns: "1.2fr 100px 1fr 1fr 110px 90px" }}>
+            <div>Token</div><div>Role</div><div>Email hint</div><div>Reports to</div><div>Expires</div><div>Status</div>
           </div>
           {invites.map(i => {
-            const expired = new Date(i.expires_at) < new Date();
+            const expired = !!i.expires_at && new Date(i.expires_at) < new Date();
+            const reportsTo = i.upline_rep_id ? (repById[i.upline_rep_id]?.name || i.upline_rep_id) : "Top level";
             return (
-              <div key={i.token} className="row" style={{ gridTemplateColumns: "1.2fr 100px 1fr 110px 90px" }}>
+              <div key={i.token} className="row" style={{ gridTemplateColumns: "1.2fr 100px 1fr 1fr 110px 90px" }}>
                 <div className="mono" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{i.token.slice(0, 16)}…</div>
                 <div><span className="chip">{i.role}</span></div>
                 <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{i.email_hint || "—"}</div>
-                <div style={{ fontSize: 11.5, color: expired ? "var(--state-danger)" : "var(--text-tertiary)" }}>{new Date(i.expires_at).toLocaleDateString()}</div>
+                <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{reportsTo}</div>
+                <div style={{ fontSize: 11.5, color: expired ? "var(--state-danger)" : "var(--text-tertiary)" }}>{i.expires_at ? new Date(i.expires_at).toLocaleDateString() : "Never"}</div>
                 <div><span className={`chip ${i.used_at ? "chip-money" : expired ? "chip-danger" : "chip-status"}`}>{i.used_at ? "joined" : expired ? "expired" : "pending"}</span></div>
               </div>
             );
@@ -440,25 +527,36 @@ function SettingsTeam() {
       </div>
 
       {createOpen && (
-        <Shared.Modal title="Invite a producer" width={460} onClose={() => setCreateOpen(false)} actions={
+        <Shared.Modal title="Invite teammate" width={520} onClose={() => setCreateOpen(false)} actions={
           <>
             <button className="btn btn-ghost" onClick={() => setCreateOpen(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={create} disabled={creating}><Icons.Plus size={11}/> {creating ? "Generating..." : "Generate invite"}</button>
           </>
         }>
-          <Shared.Field label="Role">
-            <Shared.Select value={role} onChange={setRole} options={[{ v: "rep", l: "Producer (Rep)" }, { v: "manager", l: "Manager" }]}/>
-          </Shared.Field>
+          <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12 }}>
+            <Shared.Field label="Role">
+              <Shared.Select value={role} onChange={setRole} options={[{ v: "rep", l: "Producer (Rep)" }, { v: "manager", l: "Manager" }]}/>
+            </Shared.Field>
+            <Shared.Field label="Reports to" hint="They'll land in this branch of the hierarchy after they redeem the invite">
+              {uplineOptions.length > 0 ? (
+                <Shared.Select value={uplineRepId} onChange={setUplineRepId} options={uplineOptions}/>
+              ) : (
+                <div style={{ minHeight: 36, display: "flex", alignItems: "center", padding: "0 10px", background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, color: "var(--text-tertiary)", fontSize: 12 }}>
+                  No hierarchy nodes available yet
+                </div>
+              )}
+            </Shared.Field>
+          </div>
           <Shared.Field label="Email hint (optional)" hint="Just a label so you remember who this was for">
             <input className="text-input" value={emailHint} onChange={(e) => setEmailHint(e.target.value)} placeholder="alice@atlasimo.com"/>
           </Shared.Field>
           {lastUrl && (
-            <div style={{ marginTop: 12, padding: 10, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 11.5, fontFamily: "var(--font-mono)", wordBreak: "break-all", color: "var(--accent-money)" }}>
+            <div style={{ position: "relative", marginTop: 12, padding: 10, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, fontSize: 11.5, fontFamily: "var(--font-mono)", wordBreak: "break-all", color: "var(--accent-money)" }}>
               {lastUrl}
               <button className="btn btn-ghost" style={{ position: "absolute", top: 8, right: 8, fontSize: 10 }} onClick={() => navigator.clipboard.writeText(lastUrl)}>Copy</button>
             </div>
           )}
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>Link expires in 7 days · single-use · sign-in via magic link required to redeem</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>Link expires in 14 days by default · single-use · sign-in via magic link required to redeem</div>
         </Shared.Modal>
       )}
     </div>

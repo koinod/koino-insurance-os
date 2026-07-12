@@ -4602,7 +4602,7 @@ function PageCalls({ role = "rep" }) {
                   <Icons.FileText size={11}/> Transcript
                 </div>
                 {window.PostCallTranscript
-                  ? (() => { const T = window.PostCallTranscript; return <T recordingId={sel.id}/>; })()
+                  ? (() => { const T = window.PostCallTranscript; return <T recordingId={sel.id} source={sel.source}/>; })()
                   : <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>Transcript module loading…</div>}
               </div>
             )}

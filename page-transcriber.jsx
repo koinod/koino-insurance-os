@@ -41,7 +41,7 @@
 
   /** Mix multiple MediaStreams into one via Web Audio API. Returns the
    *  combined MediaStream. */
-  function mixStreams(streams) {
+  async function mixStreams(streams) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const dest = ctx.createMediaStreamDestination();
     for (const s of streams) {
@@ -50,6 +50,9 @@
         const src = ctx.createMediaStreamSource(s);
         src.connect(dest);
       } catch (_e) {}
+    }
+    if (ctx.state === "suspended") {
+      try { await ctx.resume(); } catch (e) { console.warn("[transcriber.audioCtxResume]", e); }
     }
     return { stream: dest.stream, ctx };
   }
@@ -193,7 +196,7 @@
       }
 
       // 3) Mix every captured stream (mic + remote/system if any) into one.
-      const { stream, ctx } = mixStreams(streamsRef.current);
+      const { stream, ctx } = await mixStreams(streamsRef.current);
       ctxRef.current = ctx;
 
       const mime = pickMimeType();
@@ -296,8 +299,8 @@
   }
   window.LiveTranscriber = LiveTranscriber;
 
-  /** Polls vault_artifacts for a finished recording's transcript metadata. */
-  function PostCallTranscript({ recordingId }) {
+  /** Polls vault_artifacts or call_recordings for a finished recording's transcript. */
+  function PostCallTranscript({ recordingId, source }) {
     const [data, setData] = useState(null);
     const [busy, setBusy] = useState(false);
     useEffect(() => {
@@ -307,16 +310,39 @@
         const sb = window.getSupabase && window.getSupabase();
         if (!sb) return;
         setBusy(true);
-        const { data: rows } = await sb.from("vault_artifacts").select("metadata").eq("id", recordingId).limit(1);
-        if (cancelled) return;
-        const meta = rows?.[0]?.metadata || null;
-        setData(meta);
-        setBusy(false);
-        if (meta?.transcribe_status === "pending") setTimeout(poll, 4000);
+        if (source === "call_recordings") {
+          const { data: rows } = await sb.from("call_recordings").select("transcript_url, transcript_text").eq("id", recordingId).limit(1);
+          if (cancelled) return;
+          const row = rows?.[0];
+          setBusy(false);
+          if (row) {
+            let txt = row.transcript_text;
+            if (!txt && row.transcript_url?.startsWith("data:text/plain;base64,")) {
+              try {
+                txt = decodeURIComponent(escape(atob(row.transcript_url.slice("data:text/plain;base64,".length))));
+              } catch (e) { console.warn("[transcriber.decode]", e); }
+            }
+            if (txt) {
+              setData({ transcript: txt, transcribe_status: "complete" });
+            } else {
+              setData({ transcribe_status: "pending" });
+              setTimeout(poll, 4000);
+            }
+          } else {
+            setData(null);
+          }
+        } else {
+          const { data: rows } = await sb.from("vault_artifacts").select("metadata").eq("id", recordingId).limit(1);
+          if (cancelled) return;
+          const meta = rows?.[0]?.metadata || null;
+          setData(meta);
+          setBusy(false);
+          if (meta?.transcribe_status === "pending") setTimeout(poll, 4000);
+        }
       };
       poll();
       return () => { cancelled = true; };
-    }, [recordingId]);
+    }, [recordingId, source]);
 
     if (!recordingId) return null;
     if (busy && !data) return <div style={{ padding: 12, color: "var(--text-tertiary)", fontSize: 12 }}>Loading transcript…</div>;

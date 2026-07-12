@@ -144,6 +144,9 @@
 
       // Mix every stream into one destination.
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch (e) { console.warn("[recorder.audioCtxResume]", e); }
+      }
       const dest = ctx.createMediaStreamDestination();
       for (const s of streamsRef.current) { try { ctx.createMediaStreamSource(s).connect(dest); } catch {} }
       ctxRef.current = ctx;

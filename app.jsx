@@ -199,27 +199,20 @@ function App() {
       const P = window[key];
       return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
     };
-    // Floor temporarily disabled for non-super_admin accounts (2026-06-05).
-    // Non-super_admin: route falls through to Today (desktop) / MobileRep
-    // (mobile). Sidebar entry is also hidden in shared.jsx Sidebar.
-    const _floorEnabled = !!(window.isSuperAdmin && window.isSuperAdmin());
+    // Floor and Dialing are open to all reps and managers (no super-admin gate).
+    const _floorEnabled = true;
     const canUseAdminRoutes = role === "super_admin" || !!(window.isSuperAdmin && window.isSuperAdmin());
-    if (mobile && role === "rep") return _floorEnabled
-      ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
-      : F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
+    if (mobile && role === "rep") return F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
     if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { role });
       case "recorder":    return F("PageRecorder", { role });
-      case "floor":       return _floorEnabled
-                                 ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
-                                 : F("PageToday", { role });
+      case "dialing":     return F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+      case "floor":       return F("PageFloor", { role });
       // Pipeline + Calls used to mount through Floor; refactored 2026-05-22
       // so they route to their own pages — Floor is dialer-first now.
       case "pipeline":    return F("PagePipeline", { role });
-      case "queue":       return _floorEnabled
-                                 ? F("PageFloor", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
-                                 : F("PageToday", { role });
+      case "queue":       return F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
       case "leaderboard": return (() => {
         // page-leaderboard.jsx was removed — fall through to Performance for
         // owners, or a stub message for non-owner roles.

@@ -226,3 +226,55 @@ export const CAPABILITIES = {
                        "switch_into_agency", "cross_imo_action"],
   },
 };
+
+// In-memory rate limiting state
+const ipLimits = new Map();
+const userLimits = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 invite operations per minute per client
+
+export function checkRateLimit(ip, userId) {
+  const now = Date.now();
+
+  const isRateLimited = (key, limitMap) => {
+    if (!key) return false;
+    let history = limitMap.get(key) || [];
+    // Clean old requests outside of the window
+    history = history.filter(ts => now - ts < RATE_LIMIT_WINDOW_MS);
+    if (history.length >= MAX_REQUESTS_PER_WINDOW) {
+      return true;
+    }
+    history.push(now);
+    limitMap.set(key, history);
+    return false;
+  };
+
+  if (isRateLimited(ip, ipLimits)) return false;
+  if (isRateLimited(userId, userLimits)) return false;
+
+  return true;
+}
+
+export function verifyRequestOrigin(req) {
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      const hostUrl = host ? (host.startsWith("http") ? new URL(host) : { hostname: host.split(":")[0] }) : null;
+
+      const isAllowed =
+        originUrl.hostname === "localhost" ||
+        originUrl.hostname === "127.0.0.1" ||
+        originUrl.hostname.endsWith(".koino.capital") ||
+        (hostUrl && originUrl.hostname === hostUrl.hostname);
+
+      if (!isAllowed) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+

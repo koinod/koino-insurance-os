@@ -69,8 +69,9 @@ const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg })
 const NAV = {
   rep: [
     { id: "today",       label: "Today",        icon: "Home" },
-    { id: "floor",       label: "Floor",        icon: "Phone",    badge: "47" },
-    { id: "recorder",    label: "Recorder",     icon: "Mic" },
+    { id: "dialing",     label: "Dialing",      icon: "Phone",   badge: "47" },
+    { id: "floor",       label: "Floor",        icon: "Mic" },
+    { id: "recorder",    label: "Recorder",     icon: "Headphones" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Leaderboard",  icon: "Trophy" },
     { id: "book",        label: "Book",         icon: "Activity" },
@@ -80,8 +81,9 @@ const NAV = {
   ],
   manager: [
     { id: "today",       label: "Today",        icon: "Home" },
-    { id: "floor",       label: "Floor",        icon: "Phone" },
-    { id: "recorder",    label: "Recorder",     icon: "Mic" },
+    { id: "dialing",     label: "Dialing",      icon: "Phone" },
+    { id: "floor",       label: "Floor",        icon: "Mic" },
+    { id: "recorder",    label: "Recorder",     icon: "Headphones" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "book",        label: "Book",         icon: "Activity" },
     { id: "attribution", label: "Lead Vendors", icon: "ArrowUpRight" },
@@ -239,8 +241,10 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const _isDemo = typeof window !== "undefined" && window.isDemoAgency && window.isDemoAgency();
   const _floorIsSuperOnly = !(typeof window !== "undefined" && window.isSuperAdmin && window.isSuperAdmin());
   const items = itemsRaw.filter(i => {
-    if (i.id === "floor" || (i.pageId || i.id) === "floor") {
-      if (_floorIsSuperOnly || _isDemo) return false;
+    // dialing and floor are open to all non-demo agencies.
+    if (i.id === "dialing" || i.id === "floor" ||
+        (i.pageId || i.id) === "dialing" || (i.pageId || i.id) === "floor") {
+      if (_isDemo) return false;
     }
     const labelLower = (i.label || "").toLowerCase().trim();
     const idLower = (i.id || "").toLowerCase().trim();
