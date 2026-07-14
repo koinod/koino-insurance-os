@@ -6,13 +6,12 @@
 // as the rest of Vault.
 function PageVaultHost({ role = "manager" }) {
   const TABS = [
-    { k: "dashboard",  l: "Dashboard",  icon: "Home"     },
     { k: "resources",  l: "Resources",  icon: "Folder"   },
     { k: "compliance", l: "Compliance", icon: "Shield"   },
     { k: "tree",       l: "Tree",       icon: "Workflow" },
   ];
   const [tab, setTab] = React.useState(() => {
-    try { return sessionStorage.getItem("vault.tab") || "dashboard"; } catch { return "dashboard"; }
+    try { return sessionStorage.getItem("vault.tab") || "resources"; } catch { return "resources"; }
   });
   React.useEffect(() => { try { sessionStorage.setItem("vault.tab", tab); } catch {} }, [tab]);
 
@@ -27,14 +26,13 @@ function PageVaultHost({ role = "manager" }) {
       <div className="page-h">
         <div>
           <div className="page-title">Vault</div>
-          <div className="page-sub">Dashboard · resources · compliance · org tree</div>
+          <div className="page-sub">Resources · compliance · org tree</div>
         </div>
       </div>
 
       <Shared.SectionPill items={TABS} value={tab} onChange={setTab}/>
 
-      {tab === "dashboard"  && <VaultDashboardPane role={role} onJump={setTab}/>}
-      {tab === "resources"  && (() => { const P = window.PageVault;    return P ? <P role={role}/> : null; })()}
+      {tab === "resources"  && (() => { const P = window.PageVault;    return P ? <P role={role} embedded={true}/> : null; })()}
       {tab === "compliance" && <VaultCompliancePane role={role}/>}
       {tab === "tree"       && (() => { const P = window.PageOrgTree; return P ? <P/>          : null; })()}
     </div>

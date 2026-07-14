@@ -1537,21 +1537,28 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
 }
 .coaching-card-grid {
   padding: 6px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 .coaching-card {
   min-width: 0;
-  padding: 6px 8px;
+  padding: 8px 12px;
   background: var(--bg-raised);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
 }
 .coaching-card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  flex: 1 1 180px;
   min-width: 0;
 }
 .coaching-card-name {
@@ -1567,25 +1574,28 @@ select.text-input { appearance: none; padding-right: 26px; background-image: lin
   color: var(--text-tertiary);
 }
 .coaching-card-focus {
-  margin-top: 4px;
+  margin-top: 0;
   color: var(--accent-status);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   line-height: 1.25;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 .coaching-card-evidence {
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.35;
+  flex: 2 1 300px;
+  min-width: 0;
 }
 .coaching-card-actions {
-  margin-top: 4px;
+  margin-top: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .coaching-card-impact span {
   color: var(--accent-money);

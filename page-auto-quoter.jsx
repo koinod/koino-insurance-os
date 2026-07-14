@@ -147,18 +147,29 @@
     return { products: [...supported], wholeLife };
   }
 
-  const CARRIER_ID_MAP = {
-    uhc_aarp: "uhc",
-    mutual_omaha: "moo",
-    aetna_src: "aetna",
-    corebridge: "aig",
-  };
+  function normalizeCarrierId(raw) {
+    return window.repflowCarrierPrefKey
+      ? window.repflowCarrierPrefKey(raw)
+      : String(raw || "").toLowerCase();
+  }
+
+  function normalizeCarrierIds(list) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(list) ? list : []).forEach((raw) => {
+      const id = normalizeCarrierId(raw);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(id);
+    });
+    return out;
+  }
 
   function buildSupportedCarriers() {
     const carriers = (window.AppData && window.AppData.CARRIERS) || [];
     const baseById = new Map(STATIC_CARRIER_META.map(c => [c.id, c]));
     const derived = carriers.map(c => {
-      const shortId = CARRIER_ID_MAP[c.id] || c.id;
+      const shortId = normalizeCarrierId(c.id);
       const base = baseById.get(shortId) || baseById.get(c.id) || { id: shortId, name: c.name, requiresLogin: true, note: c.notes || "DB carrier" };
       const inferred = inferEngineProductsFromDb(c.id);
       const products = inferred.products.length > 0
@@ -187,31 +198,50 @@
   }
 
   function PageAutoQuoter({ role = "owner" }) {
-    const [, force] = useState(0);
+    const [refreshTick, setRefreshTick] = useState(0);
     const [credentials, setCredentials] = useState(() => loadJSON(LS_CREDS, {}));
-    const [settings, setSettings]       = useState(() => loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: ["uhc", "americo"] }));
+    const [settings, setSettings]       = useState(() => {
+      const saved = loadJSON(LS_SETTINGS, { headless: true, enabledCarriers: [] });
+      return { ...saved, enabledCarriers: normalizeCarrierIds(saved.enabledCarriers) };
+    });
     const [requests, setRequests]       = useState(() => loadJSON(LS_REQUESTS, []));
     const [sessions, setSessions]       = useState(() => loadJSON(LS_SESSIONS, {}));
     const [agentLastSeen, setAgentLastSeen] = useState(null);
     const [capturingCarrier, setCapturingCarrier] = useState(null);
+    const [settingsReady, setSettingsReady] = useState(false);
 
     const [tab, setTab] = useState("quote");  // quote | setup | credentials
     const [expandedCarrier, setExpandedCarrier] = useState(null);
     const [credFilter, setCredFilter] = useState("");          // search input — Credentials tab
 
     useEffect(() => {
-      const h = () => force(n => n + 1);
+      const h = () => setRefreshTick(n => n + 1);
       window.addEventListener("data:hydrated", h);
       window.addEventListener("data:mutated", h);
       window.addEventListener("data:realtime", h);
+      window.addEventListener("carrier-prefs:changed", h);
+      window.addEventListener("me:loaded", h);
       return () => {
         window.removeEventListener("data:hydrated", h);
         window.removeEventListener("data:mutated", h);
         window.removeEventListener("data:realtime", h);
+        window.removeEventListener("carrier-prefs:changed", h);
+        window.removeEventListener("me:loaded", h);
       };
     }, []);
 
     const supportedCarriers = buildSupportedCarriers();
+    const carrierAccess = React.useMemo(
+      () => window.repflowCarrierAccess ? window.repflowCarrierAccess("quotes") : null,
+      [refreshTick]
+    );
+    const accessibleCarrierIds = React.useMemo(() => {
+      const ids = new Set();
+      supportedCarriers.forEach((carrier) => {
+        if (!carrierAccess?.ready || carrierAccess.allows(carrier.id)) ids.add(carrier.id);
+      });
+      return ids;
+    }, [supportedCarriers, carrierAccess]);
 
     // Profile form state — same shape as page-quote.jsx for shareability
     const [profile, setProfile] = useState({
@@ -229,6 +259,62 @@
     useEffect(() => saveJSON(LS_SETTINGS, settings), [settings]);
     useEffect(() => saveJSON(LS_REQUESTS, requests), [requests]);
     useEffect(() => saveJSON(LS_SESSIONS, sessions), [sessions]);
+
+    useEffect(() => {
+      if (!window.AppData?.LIVE) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const sb = window.getSupabase && window.getSupabase();
+          const me = window.me && window.me();
+          if (!sb || !me?.rep_id) return;
+          const { data: row } = await sb
+            .from("auto_quoter_settings")
+            .select("headless, enabled_carriers, agent_last_seen")
+            .eq("rep_id", me.rep_id)
+            .maybeSingle();
+          if (cancelled) return;
+          if (row) {
+            setSettings(prev => ({
+              ...prev,
+              headless: typeof row.headless === "boolean" ? row.headless : prev.headless,
+              enabledCarriers: Array.isArray(row.enabled_carriers)
+                ? normalizeCarrierIds(row.enabled_carriers)
+                : prev.enabledCarriers,
+            }));
+            if (row.agent_last_seen) setAgentLastSeen(row.agent_last_seen);
+          }
+        } catch (_e) {
+          // localStorage remains the fallback
+        } finally {
+          if (!cancelled) setSettingsReady(true);
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [refreshTick]);
+
+    const settingsSaveTimer = React.useRef(null);
+    useEffect(() => {
+      if (!window.AppData?.LIVE || !settingsReady) return;
+      const me = window.me && window.me();
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb || !me?.rep_id || !me?.agency_id) return;
+      if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+      settingsSaveTimer.current = setTimeout(async () => {
+        try {
+          await sb.from("auto_quoter_settings").upsert({
+            rep_id: me.rep_id,
+            agency_id: me.agency_id,
+            headless: !!settings.headless,
+            enabled_carriers: normalizeCarrierIds(settings.enabledCarriers),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "rep_id" });
+        } catch (_e) { /* localStorage still has the latest UI state */ }
+      }, 500);
+      return () => {
+        if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+      };
+    }, [settings, settingsReady, refreshTick]);
 
     // ── Server-side cred persistence (2026-05-24) ────────────────────────
     // Carrier portal creds were localStorage-only — disappeared when the
@@ -264,7 +350,8 @@
               carrierId = c.account_metadata?.carrier_id || "americo";
             }
             if (!carrierId) continue;
-            next[carrierId] = {
+            const canon = normalizeCarrierId(carrierId);
+            next[canon] = {
               username: c.account_metadata?.username || "",
               password: "",                 // never rehydrated for security
               _saved_at: c.connected_at,
@@ -284,7 +371,8 @@
     //    we already have one saved (avoid wiping the saved password).
     const credSaveTimers = React.useRef({});
     const saveCredToServer = React.useCallback(async (carrierId, cred) => {
-      if (!cred?.username) return;          // nothing to save
+      const canon = normalizeCarrierId(carrierId);
+      if (!cred?.username || !canon) return;          // nothing to save
       // Skip when user typed username but left password blank AND server
       // already has a password (avoid wiping it).
       if (!cred.password && cred._has_password) return;
@@ -307,8 +395,8 @@
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            provider: `carrier_${carrierId}`,
-            account_label: `Carrier portal · ${carrierId}`,
+            provider: window.repflowCarrierProvider ? window.repflowCarrierProvider(canon) : `carrier_${canon}`,
+            account_label: `Carrier portal · ${canon}`,
             api_key: apiKey,
             metadata: { username: cred.username || "" },
           }),
@@ -455,6 +543,7 @@
       if (window.AppData?.LIVE && sb && me?.rep_id) {
         try {
           await sb.from("auto_quote_requests").insert({
+            agency_id: me.agency_id,
             rep_id: me.rep_id,
             request_type: "capture_session",
             carrier_id: carrierId,
@@ -499,6 +588,7 @@
       if (window.AppData?.LIVE && sb && me?.rep_id) {
         try {
           await sb.from("auto_quote_requests").insert({
+            agency_id: me.agency_id,
             rep_id: me.rep_id,
             request_type: "inspect_form",
             carrier_id: carrierId,
@@ -542,10 +632,13 @@
       try {
         const sb = window.getSupabase && window.getSupabase();
         if (sb) {
+          const providers = window.repflowCarrierProviderAliases
+            ? window.repflowCarrierProviderAliases(carrierId)
+            : [`carrier_${normalizeCarrierId(carrierId)}`];
           const { error } = await sb
             .from("connector_vault")
             .delete()
-            .eq("provider", `carrier_${carrierId}`);
+            .in("provider", providers);
           if (error) throw error;
         }
         window.toast && window.toast(`${carrierName} login cleared`, "success");
@@ -555,6 +648,10 @@
     };
 
     const toggleCarrier = (carrierId) => {
+      if (carrierAccess?.ready && !accessibleCarrierIds.has(carrierId)) {
+        window.toast && window.toast("Mark this carrier Self or Bridge in Carrier Appointments before enabling it here.", "warn");
+        return;
+      }
       setSettings(s => {
         const enabled = new Set(s.enabledCarriers || []);
         enabled.has(carrierId) ? enabled.delete(carrierId) : enabled.add(carrierId);
@@ -567,10 +664,10 @@
       const reqId = "req-" + Date.now();
       const enabled = settings.enabledCarriers.filter(cid =>
         supportedCarriers.find(c => c.id === cid && c.products.includes(profile.product))
-      );
+      ).filter(cid => !carrierAccess?.ready || accessibleCarrierIds.has(cid));
 
       if (enabled.length === 0) {
-        window.toast && window.toast(`No enabled carriers offer ${profile.product}. Enable carriers in the Setup tab.`, "warn");
+        window.toast && window.toast(`No enabled carriers are ready for ${profile.product}. Enable appointed carriers in the Setup tab.`, "warn");
         return;
       }
 
@@ -604,7 +701,11 @@
           if (sb) {
             const me = window.me && window.me();
             const { data } = await sb.from("auto_quote_requests").insert({
-              rep_id: me?.rep_id, profile: profileSnap, carriers: enabled, status: "queued",
+              agency_id: me?.agency_id,
+              rep_id: me?.rep_id,
+              profile: profileSnap,
+              carriers: enabled,
+              status: "queued",
             }).select().single();
             if (data?.id) {
               setRequests(prev => prev.map(r => r.id === reqId ? { ...r, id: data.id, supabaseId: data.id } : r));
@@ -660,9 +761,10 @@
     // ── Helpers ────────────────────────────────────────────────────────────
     const enabledForProduct = supportedCarriers
       .filter(c => c.products.includes(profile.product))
-      .filter(c => settings.enabledCarriers.includes(c.id));
+      .filter(c => settings.enabledCarriers.includes(c.id))
+      .filter(c => !carrierAccess?.ready || accessibleCarrierIds.has(c.id));
     const credsForProduct = enabledForProduct.filter(c =>
-      !c.requiresLogin || (credentials[c.id]?.username && credentials[c.id]?.password)
+      !c.requiresLogin || (credentials[c.id]?.username && (credentials[c.id]?.password || credentials[c.id]?._has_password))
     );
     const missingCredCount = enabledForProduct.length - credsForProduct.length;
 
@@ -1042,11 +1144,14 @@
 
             <div className="panel" style={{ gridColumn: "1 / -1" }}>
               <div className="panel-h"><Icons.Bolt size={13} style={{ color: "var(--accent-heat)" }}/><h3>Enabled carriers</h3>
-                <span className="meta" style={{ marginLeft: "auto" }}>{settings.enabledCarriers.length} of {supportedCarriers.length}</span>
+                <span className="meta" style={{ marginLeft: "auto" }}>
+                  {settings.enabledCarriers.filter(cid => accessibleCarrierIds.has(cid)).length} enabled · {accessibleCarrierIds.size} available
+                </span>
               </div>
               <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 }}>
                 {supportedCarriers.map(c => {
                   const enabled = settings.enabledCarriers.includes(c.id);
+                  const accessBlocked = carrierAccess?.ready && !accessibleCarrierIds.has(c.id);
                   const sess = sessions[c.id];
                   const sessionFresh = sess?.freshness === "fresh";
                   const sessionStale = sess?.freshness === "stale" || sess?.freshness === "expired";
@@ -1065,18 +1170,28 @@
                   return (
                     <div key={c.id} style={{
                       display: "flex", flexDirection: "column", gap: 8, padding: 12,
-                      background: enabled ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)",
-                      border: enabled ? "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)" : "1px solid var(--border-subtle)",
+                      background: accessBlocked
+                        ? "color-mix(in oklch, var(--state-warning) 6%, var(--bg-raised))"
+                        : enabled
+                          ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))"
+                          : "var(--bg-raised)",
+                      border: accessBlocked
+                        ? "1px solid color-mix(in oklch, var(--state-warning) 25%, transparent)"
+                        : enabled
+                          ? "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)"
+                          : "1px solid var(--border-subtle)",
                       borderRadius: 6,
+                      opacity: accessBlocked ? 0.78 : 1,
                     }}>
                       <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                        <input type="checkbox" checked={enabled} onChange={() => toggleCarrier(c.id)} style={{ marginTop: 2 }}/>
+                        <input type="checkbox" checked={enabled} disabled={accessBlocked} onChange={() => toggleCarrier(c.id)} style={{ marginTop: 2 }}/>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 600, fontSize: 12.5 }}>{c.name}</div>
                           <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 2 }}>{c.note}</div>
                           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
                             {c.products.map(p => <span key={p} className="chip" style={{ fontSize: 9.5 }}>{PRODUCT_LABELS[p] || p}</span>)}
                             {c.wholeLife && <span className="chip" style={{ fontSize: 9.5, color: "var(--accent-money)" }}>whole life</span>}
+                            {accessBlocked && <span className="chip" style={{ fontSize: 9.5, color: "var(--state-warning)" }}>appointment needed</span>}
                             <span className="chip" style={{ fontSize: 9.5, color: sessionChipColor }}>{sessionChipText}</span>
                           </div>
                           {sess?.lastFailure && (

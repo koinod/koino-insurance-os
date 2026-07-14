@@ -58,10 +58,10 @@
   const STATUS_OPTIONS = ["unassigned", "self", "bridge", "pending", "not_pursuing"];
 
   function carrierLoginProvider(carrier) {
-    const id = String(carrier?.carrier_id || carrier?.id || "")
-      .toLowerCase()
-      .trim();
-    return `carrier_${id}`;
+    const raw = carrier?.carrier_id || carrier?.id || carrier?.name || "";
+    return window.repflowCarrierProvider
+      ? window.repflowCarrierProvider(raw)
+      : `carrier_${String(raw).toLowerCase().trim()}`;
   }
 
   function statusPillStyle(tone) {
@@ -133,15 +133,19 @@
   async function upsertAppointment(carrier, agencyId, patch) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb || !agencyId) throw new Error("supabase or agency not ready");
+    const lookupIds = window.repflowCarrierKeyInfo
+      ? window.repflowCarrierKeyInfo(carrier.id).aliases
+      : [carrier.id];
 
     // Try to find the existing row first so we can do a precise update.
-    const { data: existing, error: selErr } = await sb
+    const { data: existingRows, error: selErr } = await sb
       .from("agency_carrier_appointments")
-      .select("id")
+      .select("id, carrier_id")
       .eq("agency_id", agencyId)
-      .eq("carrier_id", carrier.id)
-      .maybeSingle();
+      .in("carrier_id", lookupIds)
+      .limit(1);
     if (selErr && selErr.code !== "PGRST116") throw selErr;
+    const existing = Array.isArray(existingRows) ? existingRows[0] : existingRows;
 
     if (existing?.id) {
       const { error } = await sb
@@ -684,7 +688,8 @@
         const next = {};
         for (const c of connectors) {
           if (!c.provider || !c.provider.startsWith("carrier_")) continue;
-          next[c.provider] = {
+          const provider = carrierLoginProvider({ carrier_id: c.provider.slice("carrier_".length) });
+          next[provider] = {
             username: c.account_metadata?.username || "",
             _has_password: true,
             _saved_at: c.connected_at,
@@ -699,7 +704,12 @@
     // Map carrier_id → appt for fast lookup.
     const apptByCarrier = useMemo(() => {
       const m = {};
-      (appts || []).forEach(a => { if (a.carrier_id) m[a.carrier_id] = a; });
+      (appts || []).forEach(a => {
+        const aliases = window.repflowCarrierKeyInfo
+          ? window.repflowCarrierKeyInfo(a.carrier_id || a.carrier_name).aliases
+          : [a.carrier_id];
+        aliases.forEach((alias) => { if (alias && !m[alias]) m[alias] = a; });
+      });
       return m;
     }, [appts]);
 
@@ -707,7 +717,8 @@
     const counts = useMemo(() => {
       const out = { all: (carriers || []).length, self: 0, bridge: 0, pending: 0, not_pursuing: 0 };
       (carriers || []).forEach(c => {
-        const s = apptByCarrier[c.id]?.status;
+        const carrierKey = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id;
+        const s = apptByCarrier[carrierKey]?.status;
         if (!s) return;
         const k = s === "active" ? "self" : (out[s] != null ? s : null);
         if (!k) return;
@@ -722,7 +733,8 @@
       return list.filter(c => {
         if (q && !(c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))) return false;
         if (filter === "all") return true;
-        const s = apptByCarrier[c.id]?.status;
+        const carrierKey = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id;
+        const s = apptByCarrier[carrierKey]?.status;
         if (!s) return false;
         const norm = s === "active" ? "self" : s;
         return norm === filter;
@@ -803,7 +815,10 @@
       if (!sb) return;
       setLoginSaving(true);
       try {
-        const { error } = await sb.from("connector_vault").delete().eq("provider", slug);
+        const providers = window.repflowCarrierProviderAliases
+          ? window.repflowCarrierProviderAliases(carrier?.carrier_id || carrier?.id || carrier?.name)
+          : [slug];
+        const { error } = await sb.from("connector_vault").delete().in("provider", providers);
         if (error) throw error;
         window.toast && window.toast(`${carrier.name} login cleared`, "success");
         await reloadVault();
@@ -916,7 +931,7 @@
               <React.Fragment key={c.id}>
                 <CarrierRow
                   carrier={c}
-                  appt={apptByCarrier[c.id]}
+                  appt={apptByCarrier[window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id]}
                   canEdit={canEdit}
                   agencyId={agencyId}
                   onMutate={reload}

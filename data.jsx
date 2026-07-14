@@ -663,9 +663,15 @@ window.hydrateFromSupabase = async function () {
       window.AppData.AGENCY_APPOINTMENTS = mapRows(agencyApptsR, a => ({
         id: a.id, agencyId: a.agency_id,
         carrierId: a.carrier_id, carrierName: a.carrier_name,
+        category: a.category || null,
+        contactName: a.contact_name || null,
+        contactPhone: a.contact_phone || null,
+        contactEmail: a.contact_email || null,
+        productLines: Array.isArray(a.product_lines) ? a.product_lines : [],
         npn: a.npn, compRatePct: a.comp_rate_pct != null ? Number(a.comp_rate_pct) : null,
         appointedStates: Array.isArray(a.appointed_states) ? a.appointed_states : [],
         notes: a.notes, active: a.active !== false, createdAt: a.created_at,
+        updatedAt: a.updated_at || a.created_at,
         // Bridge tracking + status (migration 0068). Status is the canonical
         // gate consumed by page-quote.jsx / autoquoter: only self|bridge|active
         // count as "writable today." pending|not_pursuing are excluded.
@@ -1292,6 +1298,62 @@ window.addEventListener("data:hydrated", () => { try { window.subscribeRealtime(
 // where false = hide, anything else = show. Pages use:
 //   window.repflowCarrierPrefs("quotes")  → { aetna: false, ... }
 //   window.repflowCarrierPrefs("deals")   → { ... }
+const _carrierCanonMap = {
+  uhc: "uhc",
+  uhc_aarp: "uhc",
+  unitedhealthcare: "uhc",
+  united_healthcare: "uhc",
+  "united-healthcare": "uhc",
+  aetna: "aetna",
+  aetna_src: "aetna",
+  moo: "moo",
+  mutual: "moo",
+  mutual_omaha: "moo",
+  mutual_of_omaha: "moo",
+  "mutual-of-omaha": "moo",
+  aig: "aig",
+  corebridge: "aig",
+  corebridge_financial: "aig",
+  "corebridge-financial": "aig",
+};
+const _carrierCanonAliases = Object.entries(_carrierCanonMap).reduce((acc, [alias, canon]) => {
+  if (!acc[canon]) acc[canon] = new Set();
+  acc[canon].add(alias);
+  return acc;
+}, {});
+function _carrierSlug(raw, sep = "_") {
+  const trimmed = String(raw || "").trim().toLowerCase().replace(/^carrier_/, "");
+  const body = trimmed.replace(/[^a-z0-9]+/g, sep);
+  const edge = new RegExp(`^\\${sep}+|\\${sep}+$`, "g");
+  return body.replace(edge, "");
+}
+function _carrierKeyInfo(raw) {
+  const rawId = String(raw || "").trim().toLowerCase().replace(/^carrier_/, "");
+  const dash = _carrierSlug(raw, "-");
+  const underscore = _carrierSlug(raw, "_");
+  const variants = [rawId, underscore, dash].filter(Boolean);
+  let canon = variants.map(v => _carrierCanonMap[v]).find(Boolean) || underscore || dash || rawId;
+  canon = _carrierCanonMap[canon] || canon;
+  const aliases = new Set([canon]);
+  (_carrierCanonAliases[canon] || []).forEach(v => aliases.add(v));
+  variants.forEach(v => aliases.add(v));
+  Array.from(aliases).forEach(v => {
+    if (v.includes("_")) aliases.add(v.replace(/_/g, "-"));
+    if (v.includes("-")) aliases.add(v.replace(/-/g, "_"));
+  });
+  const providerAliases = Array.from(aliases).filter(Boolean).map(v => `carrier_${v}`);
+  return {
+    raw: rawId,
+    canon,
+    aliases: Array.from(aliases).filter(Boolean),
+    provider: `carrier_${canon}`,
+    providerAliases,
+  };
+}
+function _carrierPrefHidden(prefs, raw) {
+  const info = _carrierKeyInfo(raw);
+  return info.aliases.some(k => prefs && prefs[k] === false);
+}
 let _carrierPrefsCache = {};
 async function _loadCarrierPrefs() {
   try {
@@ -1304,6 +1366,56 @@ async function _loadCarrierPrefs() {
   } catch (_e) { /* keep last cache */ }
 }
 window.repflowCarrierPrefs = (kind) => (_carrierPrefsCache && _carrierPrefsCache[kind]) || {};
+window.repflowCarrierKeyInfo = _carrierKeyInfo;
+window.repflowCarrierProvider = (raw) => _carrierKeyInfo(raw).provider;
+window.repflowCarrierProviderAliases = (raw) => _carrierKeyInfo(raw).providerAliases;
+window.repflowCarrierPrefKey = (raw) => {
+  const key = (raw && typeof raw === "object")
+    ? (raw.carrier_id || raw.carrierId || raw.id || raw.name)
+    : raw;
+  return _carrierKeyInfo(key).canon;
+};
+window.repflowCarrierAccess = function (kind = "quotes", opts = {}) {
+  const allowedStatuses = new Set((opts.allowedStatuses || ["self", "bridge", "active"]).map(s => String(s || "").toLowerCase()));
+  const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs(kind)) || {};
+  const appointments = Array.isArray(window.AppData?.AGENCY_APPOINTMENTS) ? window.AppData.AGENCY_APPOINTMENTS : [];
+  const catalog = Array.isArray(opts.catalog || opts.carriers) ? (opts.catalog || opts.carriers) : (window.AppData?.CARRIERS || []);
+  const allowedAliases = new Set();
+  const canonicalIds = new Set();
+  const appointmentRows = [];
+
+  appointments.forEach((appt) => {
+    const status = String(appt?.status || "").toLowerCase();
+    if (!allowedStatuses.has(status)) return;
+    const idSource = appt?.carrierId || appt?.carrier_id || appt?.carrierName || appt?.carrier_name || appt?.id;
+    if (_carrierPrefHidden(prefs, idSource)) return;
+    const info = _carrierKeyInfo(idSource);
+    canonicalIds.add(info.canon);
+    info.aliases.forEach(a => allowedAliases.add(a));
+    appointmentRows.push(appt);
+  });
+
+  const catalogIds = new Set();
+  catalog.forEach((carrier) => {
+    const idSource = carrier?.id || carrier?.carrierId || carrier?.carrier_id || carrier?.name || carrier?.carrier_name;
+    if (!idSource || _carrierPrefHidden(prefs, idSource)) return;
+    const info = _carrierKeyInfo(idSource);
+    if (info.aliases.some(a => allowedAliases.has(a))) {
+      catalogIds.add(carrier.id || carrier.carrierId || carrier.carrier_id || info.canon);
+    }
+  });
+
+  const ready = !!window.AppData?.LIVE || !!window.AppData?.__demoSeedLoaded;
+  return {
+    ready,
+    appointmentRows,
+    canonicalIds,
+    aliasIds: allowedAliases,
+    catalogIds,
+    hidden: (raw) => _carrierPrefHidden(prefs, raw),
+    allows: (raw) => _carrierKeyInfo(raw).aliases.some(a => allowedAliases.has(a)),
+  };
+};
 window.addEventListener("me:loaded", _loadCarrierPrefs);
 window.addEventListener("carrier-prefs:changed", (e) => { _carrierPrefsCache = (e?.detail) || _carrierPrefsCache; });
 // Also load on first script eval in case me() already resolved.
@@ -2723,6 +2835,11 @@ window.AppData.mutate = {
       id, agencyId,
       carrierId: a.carrierId || null,
       carrierName: a.carrierName || null,
+      category: a.category || null,
+      contactName: a.contactName || null,
+      contactPhone: a.contactPhone || null,
+      contactEmail: a.contactEmail || null,
+      productLines: Array.isArray(a.productLines) ? a.productLines : (existing?.productLines || []),
       npn: a.npn || null,
       compRatePct: a.compRatePct != null ? Number(a.compRatePct) : null,
       appointedStates: Array.isArray(a.appointedStates) ? a.appointedStates : (existing?.appointedStates || []),
@@ -2744,6 +2861,11 @@ window.AppData.mutate = {
         agency_id: agencyId,
         carrier_id: jsRow.carrierId,
         carrier_name: jsRow.carrierName,
+        category: jsRow.category,
+        contact_name: jsRow.contactName,
+        contact_phone: jsRow.contactPhone,
+        contact_email: jsRow.contactEmail,
+        product_lines: jsRow.productLines,
         npn: jsRow.npn,
         comp_rate_pct: jsRow.compRatePct,
         appointed_states: jsRow.appointedStates,

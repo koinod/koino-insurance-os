@@ -55,6 +55,10 @@
     const carriers = AppData.CARRIERS || [];
     const products = AppData.PRODUCTS || [];
     const pipeline = AppData.PIPELINE || [];
+    const dealCarrierAccess = useMemo(
+      () => window.repflowCarrierAccess ? window.repflowCarrierAccess("deals", { carriers }) : null,
+      [carriers]
+    );
     // Eligible leads: anything past first contact (don't write deals for raw News)
     const eligibleLeads = useMemo(() =>
       pipeline.filter(l => l.stage !== "Lost").sort((a,b) =>
@@ -638,7 +642,9 @@
               <option value="">— pick a carrier —</option>
               {carriers.filter(c => {
                 if (c.status === "inactive") return false;
-                // Honor per-rep carrier_prefs.deals — only explicit `false` hides.
+                if (dealCarrierAccess?.ready) return dealCarrierAccess.catalogIds.has(c.id);
+                // Pre-hydrate fallback: honor per-rep carrier_prefs until the
+                // agency appointment roster is available.
                 const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs("deals")) || {};
                 return prefs[c.id] !== false;
               }).map(c => (

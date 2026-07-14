@@ -41,8 +41,8 @@ const Sparkline = ({ data, width = 70, height = 28, color = "var(--accent-money)
   );
 };
 
-const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg }) => (
-  <div className={`kpi ${hero ? "hero" : ""}`}>
+const KpiCard = ({ label, value, prefix, suffix, sub, trend, hero, spark, neg, onClick }) => (
+  <div className={`kpi ${hero ? "hero" : ""}`} onClick={onClick} style={onClick ? { cursor: "pointer" } : undefined}>
     <div className="kpi-label">{label}</div>
     <div className={`kpi-val tabular money`}>
       {prefix}{value}{suffix && <span style={{ fontSize: "0.55em", color: "var(--text-tertiary)", fontWeight: 500, marginLeft: 4 }}>{suffix}</span>}
@@ -241,10 +241,10 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
   const _isDemo = typeof window !== "undefined" && window.isDemoAgency && window.isDemoAgency();
   const _floorIsSuperOnly = !(typeof window !== "undefined" && window.isSuperAdmin && window.isSuperAdmin());
   const items = itemsRaw.filter(i => {
-    // dialing and floor are open to all non-demo agencies.
+    // dialing and floor are WIP and only visible to super_admin (Ian).
     if (i.id === "dialing" || i.id === "floor" ||
         (i.pageId || i.id) === "dialing" || (i.pageId || i.id) === "floor") {
-      if (_isDemo) return false;
+      if (_floorIsSuperOnly || _isDemo) return false;
     }
     const labelLower = (i.label || "").toLowerCase().trim();
     const idLower = (i.id || "").toLowerCase().trim();

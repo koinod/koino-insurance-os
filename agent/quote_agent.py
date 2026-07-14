@@ -98,7 +98,7 @@ def load_credentials() -> dict:
 
 
 def load_settings() -> dict:
-    defaults = {"headless": True, "rep_id": None, "agent_token": None}
+    defaults = {"headless": True, "rep_id": None, "agent_token": None, "agency_id": None, "enabled_carriers": []}
     if not SETTINGS_PATH.exists():
         SETTINGS_PATH.write_text(json.dumps(defaults, indent=2))
         return defaults
@@ -107,6 +107,52 @@ def load_settings() -> dict:
         return {**defaults, **s}
     except json.JSONDecodeError:
         return defaults
+
+
+def sync_remote_settings(local_settings: dict) -> dict:
+    """Pull rep-scoped runtime settings from Supabase into settings.json.
+
+    The web Auto Quoter writes browser mode and enabled carriers to
+    auto_quoter_settings. The local agent still reads settings.json each poll,
+    so we mirror the remote row down before work begins.
+    """
+    rep_id = local_settings.get("rep_id")
+    if not rep_id:
+        return local_settings
+    rows = supabase_get(
+        "auto_quoter_settings",
+        {
+            "rep_id": f"eq.{rep_id}",
+            "select": "agency_id,headless,enabled_carriers",
+            "limit": 1,
+        },
+    )
+    row = rows[0] if rows else None
+    if not isinstance(row, dict):
+        return local_settings
+
+    merged = {**local_settings}
+    changed = False
+    if isinstance(row.get("headless"), bool) and row["headless"] != merged.get("headless"):
+        merged["headless"] = row["headless"]
+        changed = True
+    if isinstance(row.get("enabled_carriers"), list) and row["enabled_carriers"] != merged.get("enabled_carriers"):
+        merged["enabled_carriers"] = row["enabled_carriers"]
+        changed = True
+    if row.get("agency_id") and row["agency_id"] != merged.get("agency_id"):
+        merged["agency_id"] = row["agency_id"]
+        changed = True
+    if changed:
+        try:
+            SETTINGS_PATH.write_text(json.dumps(merged, indent=2))
+            log(
+                "remote settings sync:"
+                f" headless={merged.get('headless')}"
+                f" enabled={len(merged.get('enabled_carriers') or [])}"
+            )
+        except OSError as e:
+            log(f"remote settings sync write failed: {e}")
+    return merged
 
 
 def storage_path_for(carrier: str) -> Path:
@@ -997,14 +1043,19 @@ def process_request(req: dict, scrapers: dict, creds: dict, settings: dict):
 # ─── Heartbeat ─────────────────────────────────────────────────────────────
 
 
-def heartbeat(rep_id: str):
+def heartbeat(rep_id: str, settings: dict | None = None):
     """Update auto_quoter_settings.agent_last_seen so the UI shows online."""
     try:
-        supabase_upsert("auto_quoter_settings", {
+        payload = {
             "rep_id": rep_id,
             "agent_last_seen": now_iso(),
             "agent_version": "0.2.0",
-        }, on_conflict="rep_id")
+        }
+        if settings:
+            payload["headless"] = bool(settings.get("headless", True))
+            payload["agency_id"] = settings.get("agency_id")
+            payload["enabled_carriers"] = settings.get("enabled_carriers") or []
+        supabase_upsert("auto_quoter_settings", payload, on_conflict="rep_id")
     except Exception:
         pass
 
@@ -1106,12 +1157,12 @@ def main():
     last_heartbeat = 0
     while True:
         try:
-            settings = load_settings()
+            settings = sync_remote_settings(load_settings())
             creds = load_credentials()
             rep_id = settings.get("rep_id") or rep_id
 
             if time.time() - last_heartbeat > 30:
-                heartbeat(rep_id)
+                heartbeat(rep_id, settings)
                 last_heartbeat = time.time()
 
             pending = supabase_get(

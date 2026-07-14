@@ -73,7 +73,7 @@ function RoleVisibilityField({ value, onChange, label = "Visible to" }) {
       segments + carriers + quick links, all in one searchable hub.
       Reads from AppData (no mocks). Empty states render `.koino-empty` mono tags.
    ───────────────────────────────────────────────────────────────────────── */
-function PageVault({ role = "owner" }) {
+function PageVault({ role = "owner", embedded = false }) {
   const data = useVaultResources();
   const [tab, setTab] = React.useState("all");
   const [q, setQ]     = React.useState("");
@@ -140,21 +140,42 @@ function PageVault({ role = "owner" }) {
   const subCtx = { lead: null, me: meIdent };
 
   return (
-    <div className="page-pad">
-      <div className="page-h">
-        <div>
-          <div className="page-title">Vault</div>
-          <div className="page-sub">Coaching · courses · scripts · videos · documents · carriers · quick links</div>
+    <div className={embedded ? "" : "page-pad"}>
+      {!embedded && (
+        <div className="page-h">
+          <div>
+            <div className="page-title">Vault</div>
+            <div className="page-sub">Coaching · courses · scripts · videos · documents · carriers · quick links</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <input className="text-input" style={{ width: 260 }}
+              placeholder="Search across everything…"
+              value={q} onChange={(e) => setQ(e.target.value)}/>
+            {q && <button className="btn btn-ghost" onClick={() => setQ("")}>Clear</button>}
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <input className="text-input" style={{ width: 260 }}
-            placeholder="Search across everything…"
-            value={q} onChange={(e) => setQ(e.target.value)}/>
-          {q && <button className="btn btn-ghost" onClick={() => setQ("")}>Clear</button>}
-        </div>
+      )}
+
+      {/* Clickable Vault Dashboard Summary Row */}
+      <div className="kpi-row" style={{ marginBottom: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        <Shared.KpiCard label="Scripts" value={String(counts.scripts)} sub="open library" onClick={() => setTab("scripts")}/>
+        <Shared.KpiCard label="Videos" value={String(counts.videos)} sub="training reels" onClick={() => setTab("videos")}/>
+        <Shared.KpiCard label="Docs" value={String(counts.docs)} sub="forms · policies" onClick={() => setTab("docs")}/>
+        <Shared.KpiCard label="Carriers" value={String(counts.carriers)} sub="appointments" onClick={() => setTab("carriers")}/>
+        <Shared.KpiCard label="Courses" value={String(counts.courses)} sub="active tracks" onClick={() => setTab("courses")}/>
       </div>
 
-      <Shared.SectionPill items={TABS.map(t => ({ ...t, badge: counts[t.k] }))} value={tab} onChange={setTab}/>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <Shared.SectionPill items={TABS.map(t => ({ ...t, badge: counts[t.k] }))} value={tab} onChange={setTab}/>
+        {embedded && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <input className="text-input" style={{ width: 220, fontSize: 12 }}
+              placeholder="Search inside resources…"
+              value={q} onChange={(e) => setQ(e.target.value)}/>
+            {q && <button className="btn btn-ghost btn-sm" onClick={() => setQ("")}>Clear</button>}
+          </div>
+        )}
+      </div>
 
       {tab === "all" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -294,14 +315,6 @@ function VaultScriptsBlock({ scripts, openId, setOpenId, subCtx }) {
 const SCRIPT_CATEGORIES = ["Cold","Warm","Voicemail","Objection","Close","Open","Discovery","Cross-sell","Compliance"];
 
 function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
-  const [addOpen, setAddOpen] = React.useState(false);
-  const [draft, setDraft]     = React.useState(emptyScriptDraft());
-  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
-
-  // Hierarchy (matches RLS in migration 0095):
-  //   canCreate: any signed-in agency member, including reps.
-  //   canModify(s): manager+ on anything, or rep on a rep-created row they own.
-  // Computed per-row because rep ownership depends on createdBy / creatorRole.
   const me        = (typeof window !== "undefined" && window.me && window.me()) || null;
   const myRole    = me?.role || role || "rep";
   const myRepId   = me?.rep_id || null;
@@ -317,13 +330,22 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
     return false;
   };
 
-  function emptyScriptDraft() {
+  const emptyScriptDraft = () => {
     // Reps default to a rep-only visibility so a new personal script doesn't
     // land in the manager / owner Vault. Manager+ defaults to fleet-wide.
     const defaultRoles = isManager ? ["owner","manager","rep"] : ["rep"];
     return { id: null, title: "", cat: "Cold", body: "", description: "",
              segmentId: null, targetRoles: defaultRoles };
-  }
+  };
+
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [draft, setDraft]     = React.useState(emptyScriptDraft());
+  const segments = (window.AppData && window.AppData.SEGMENTS) || [];
+
+  // Hierarchy (matches RLS in migration 0095):
+  //   canCreate: any signed-in agency member, including reps.
+  //   canModify(s): manager+ on anything, or rep on a rep-created row they own.
+  // Computed per-row because rep ownership depends on createdBy / creatorRole.
 
   const openCreate = () => { setDraft(emptyScriptDraft()); setAddOpen(true); };
   const openEdit   = (s) => {
@@ -3156,39 +3178,58 @@ function CallLibraryPane({ role }) {
   }
 
   return (
-    <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14 }}>
-      <div className="panel">
-        <div className="panel-h">
-          <h3>Recordings</h3>
-          <span className="meta">{filtered.length}</span>
-          <button className="btn btn-ghost" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => openRecorder("mic", "library")}>
-            <Icons.Mic size={11}/> Record
-          </button>
-          <input className="text-input" style={{ width: 120, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search lead…" value={q} onChange={(e) => setQ(e.target.value)}/>
+    <div className="calls-grid" style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 14 }}>
+      <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="panel-h" style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10 }}>
+          <h3>Call Library</h3>
+          <span className="meta">{filtered.length} calls</span>
+          <input className="text-input" style={{ width: 140, marginLeft: "auto", fontSize: 11.5 }} placeholder="Search calls…" value={q} onChange={(e) => setQ(e.target.value)}/>
         </div>
-        <div style={{ padding: 8, borderBottom: "1px solid var(--border-subtle)" }}>
+
+        {/* Prominent Quick Actions: Record & Upload Modules */}
+        <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10, borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-base)" }}>
+          {/* Card A: Quick Record */}
+          <div style={{ padding: 10, background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--state-danger)", animation: "spin 2s linear infinite" }} />
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>Record Live Session</div>
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
+              Record microphone and system audio directly from your browser.
+            </div>
+            <button className="btn btn-primary btn-sm" style={{ width: "100%", justifyContent: "center", gap: 6, fontWeight: 700 }} onClick={() => openRecorder("mic", "library")}>
+              <Icons.Mic size={12}/> Start Recording
+            </button>
+          </div>
+
+          {/* Card B: Quick Drop Zone */}
           <div
             onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
             onDragLeave={() => setDragActive(false)}
             onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}
             style={{
-              padding: "6px 10px",
-              border: `1px dashed ${dragActive ? "var(--accent-money)" : "var(--border-subtle)"}`,
-              borderRadius: 6,
+              padding: "12px 10px",
+              border: `2px dashed ${dragActive ? "var(--accent-money)" : "var(--border-subtle)"}`,
+              borderRadius: 8,
               background: dragActive ? "color-mix(in oklch, var(--accent-money) 8%, transparent)" : "var(--bg-raised)",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
               gap: 8,
+              textAlign: "center",
+              cursor: "pointer",
+              transition: "border-color .15s, background .15s",
             }}
+            onClick={() => fileRef.current?.click()}
           >
-            <Icons.ArrowUp size={12} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
-            <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--text-secondary)" }}>
-              <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>Quick drop audio</span>
+            <Icons.Upload size={20} style={{ color: dragActive ? "var(--accent-money)" : "var(--text-tertiary)", transition: "transform 0.2s" }}/>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>Quick Drop Call File</div>
+              <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 2 }}>
+                {uploading ? "Uploading audio/video…" : "Drag audio or video here or click to browse"}
+              </div>
             </div>
-            <button className="btn btn-ghost" style={{ fontSize: 10.5, padding: "3px 6px", minHeight: 22 }} disabled={uploading} onClick={() => fileRef.current?.click()}>
-              {uploading ? "Uploading…" : "Choose"}
-            </button>
-            <input ref={fileRef} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg" style={{ display: "none" }} onChange={(e) => uploadFiles(e.target.files)}/>
+            <input ref={fileRef} type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg" style={{ display: "none" }} onChange={(e) => uploadFiles(e.target.files)}/>
           </div>
         </div>
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto" }}>
@@ -3832,38 +3873,41 @@ function StatusChip({ status }) {
 /* ─── Reusable course list with real progress bars ────────────────────── */
 function CourseList({ courses, store, repId, onOpen, showRequiredFlag }) {
   return (
-    <div style={{ overflowX: "auto", margin: "0 -12px", padding: "0 12px" }}>
-      <div className="list" style={{ minWidth: 680 }}>
-        <div className="list-h" style={{ gridTemplateColumns: "1.6fr 90px 80px 1fr 100px 90px" }}>
-          <div>Course</div><div>Track</div><div className="tabular" style={{ textAlign: "right" }}>Min</div><div>Progress</div><div>Status</div><div></div>
-        </div>
-        {courses.map(c => {
-          const status = ProductTraining.statusFor(repId, c, store.progress, store.assignments);
-          const pct    = ProductTraining.percentFor(repId, c, store.progress);
-          const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
-          return (
-            <div key={c.id} className="row" style={{ gridTemplateColumns: "1.6fr 90px 80px 1fr 100px 90px" }}>
-              <div>
-                <div style={{ fontWeight: 500 }}>{c.title}</div>
-              {showRequiredFlag && c.required && <div style={{ fontSize: 10.5, color: "var(--accent-status)", marginTop: 2 }}>required</div>}
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {courses.map(c => {
+        const status = ProductTraining.statusFor(repId, c, store.progress, store.assignments);
+        const pct    = ProductTraining.percentFor(repId, c, store.progress);
+        const cta    = status === "complete" ? "Review" : (pct > 0 ? "Resume" : "Start");
+        return (
+          <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 14px", background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, flexWrap: "wrap", width: "100%", boxSizing: "border-box" }}>
+            <div style={{ flex: "1.5 1 240px", minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>{c.title}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <span className="chip" style={{ fontSize: 10.5 }}>{c.track}</span>
+                <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>· {c.durMin} min</span>
+                {showRequiredFlag && c.required && <span style={{ fontSize: 10, color: "var(--accent-status)", fontWeight: 600, textTransform: "uppercase" }}>required</span>}
+              </div>
             </div>
-            <div><span className="chip">{c.track}</span></div>
-            <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)" }}>{c.durMin}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingRight: 12 }}>
-              <div style={{ flex: 1, height: 5, background: "var(--bg-raised)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ flex: "1 1 180px", display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, height: 6, background: "var(--bg-base)", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "var(--accent-money)" : "var(--accent-status)" }}></div>
               </div>
-              <span className="tabular" style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 30, textAlign: "right" }}>{pct}%</span>
+              <span className="tabular" style={{ fontSize: 11, color: "var(--text-secondary)", minWidth: 32, textAlign: "right" }}>{pct}%</span>
             </div>
-            <div><StatusChip status={status}/></div>
-            <div><button className="btn btn-ghost" onClick={() => onOpen(c)}><Icons.Play size={11}/> {cta}</button></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+              <StatusChip status={status}/>
+              <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => onOpen(c)}>
+                <Icons.Play size={11} style={{ marginRight: 4 }}/> {cta}
+              </button>
+            </div>
           </div>
         );
       })}
       {courses.length === 0 && (
-        <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5 }}>No courses here.</div>
+        <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12.5, border: "1px dashed var(--border-subtle)", borderRadius: 8 }}>
+          No courses here.
+        </div>
       )}
-    </div>
     </div>
   );
 }
@@ -4131,14 +4175,15 @@ function ProductTrainingManager({ store }) {
 
       <div className="panel">
         <div className="panel-h"><h3>Enrollment matrix</h3><span className="meta">{REPS.length} producers × {store.courses.length} courses</span></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
-            <div>Producer</div>
-            {store.courses.map(c => <div key={c.id} className="cell-truncate" style={{ fontSize: 11 }} title={c.title}>{c.title}</div>)}
-            <div className="tabular" style={{ textAlign: "right" }}>Avg %</div>
-          </div>
-          {REPS.map(rep => (
-            <div key={rep.id} className="row" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
+        <div style={{ overflowX: "auto" }}>
+          <div className="list" style={{ minWidth: Math.max(560, 180 + store.courses.length * 85) }}>
+            <div className="list-h" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
+              <div>Producer</div>
+              {store.courses.map(c => <div key={c.id} className="cell-truncate" style={{ fontSize: 11 }} title={c.title}>{c.title}</div>)}
+              <div className="tabular" style={{ textAlign: "right" }}>Avg %</div>
+            </div>
+            {REPS.map(rep => (
+              <div key={rep.id} className="row" style={{ gridTemplateColumns: `1.4fr repeat(${store.courses.length}, 1fr) 80px` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Shared.Avatar rep={rep} size={20}/>
                 <span style={{ fontWeight: 500 }}>{rep.name}</span>
@@ -4157,6 +4202,7 @@ function ProductTrainingManager({ store }) {
               <div className="tabular" style={{ textAlign: "right", color: repAvg(rep) >= 80 ? "var(--accent-money)" : repAvg(rep) >= 50 ? "var(--text-secondary)" : "var(--state-warning)" }}>{repAvg(rep)}%</div>
             </div>
           ))}
+        </div>
         </div>
       </div>
 
@@ -5001,6 +5047,7 @@ function SettingsAgency({ role }) {
 // Reads agency carrier list + per-user connector_vault (provider = carrier_<slug>).
 function CarrierPortalLogins() {
   const CARRIER_PORTAL_URLS = {
+    moo:                 "https://igoapp.mutualofomaha.com",
     mutual_omaha:      "https://igoapp.mutualofomaha.com",
     transamerica:      "https://agencylink.transamerica.com",
     americo:           "https://agent.americo.com",
@@ -5009,11 +5056,15 @@ function CarrierPortalLogins() {
     foresters:         "https://link.foresters.com",
     sbli:              "https://producer.sbli.com",
     instabrain:        "https://agent.instabrain.io",
+    aig:                "https://aig.myapps.microsoftonline.com",
     corebridge:        "https://aig.myapps.microsoftonline.com",
     fg:                "https://agentservices.fglife.com",
   };
 
-  const carriers = (window.AppData?.CARRIERS || []).filter(c => c.status !== "inactive");
+  const carrierAccess = window.repflowCarrierAccess ? window.repflowCarrierAccess("quotes") : null;
+  const carriers = (window.AppData?.CARRIERS || [])
+    .filter(c => c.status !== "inactive")
+    .filter(c => !carrierAccess?.ready || carrierAccess.catalogIds.has(c.id));
   const [vault, setVault] = React.useState({});
   const [open, setOpen]   = React.useState(null); // carrier object being configured
   const [form, setForm]   = React.useState({ username: "", password: "", portal_url: "", mfa_method: "none", capture_mode: "headless" });
@@ -5032,7 +5083,7 @@ function CarrierPortalLogins() {
       const next = {};
       for (const c of connectors) {
         if (!c.provider?.startsWith("carrier_")) continue;
-        const slug = c.provider.slice(8);
+        const slug = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.provider.slice(8)) : c.provider.slice(8);
         next[slug] = { username: c.account_metadata?.username || "", _has_password: true, _saved_at: c.connected_at };
       }
       setVault(next);
@@ -5040,15 +5091,18 @@ function CarrierPortalLogins() {
   }, []);
   React.useEffect(() => { reloadVault(); }, [reloadVault]);
 
-  const carrierSlug = (c) => (c.id || c.carrier_id || String(c.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48));
+  const carrierSlug = (c) => window.repflowCarrierPrefKey
+    ? window.repflowCarrierPrefKey(c)
+    : (c.id || c.carrier_id || String(c.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48));
 
   const openConnect = (c) => {
     const slug = carrierSlug(c);
     const existing = vault[slug] || {};
+    const rawId = String(c.id || c.carrier_id || "").toLowerCase();
     setForm({
       username:     existing.username || "",
       password:     "",
-      portal_url:   CARRIER_PORTAL_URLS[slug] || "",
+      portal_url:   CARRIER_PORTAL_URLS[slug] || CARRIER_PORTAL_URLS[rawId] || "",
       mfa_method:   "none",
       capture_mode: "headless",
     });
@@ -5081,7 +5135,7 @@ function CarrierPortalLogins() {
           method: "POST",
           headers: { authorization: `Bearer ${session.access_token}`, "content-type": "application/json" },
           body: JSON.stringify({
-            provider:      `carrier_${slug}`,
+            provider:      window.repflowCarrierProvider ? window.repflowCarrierProvider(slug) : `carrier_${slug}`,
             account_label: `Carrier portal · ${open.name}`,
             api_key:       apiKey,
             metadata:      { username: form.username.trim(), portal_url: form.portal_url.trim() || null },
@@ -5115,7 +5169,12 @@ function CarrierPortalLogins() {
     const slug = carrierSlug(c);
     try {
       const sb = window.getSupabase && window.getSupabase();
-      if (sb) { await sb.from("connector_vault").delete().eq("provider", `carrier_${slug}`); }
+      if (sb) {
+        const providers = window.repflowCarrierProviderAliases
+          ? window.repflowCarrierProviderAliases(c?.carrier_id || c?.id || c?.name)
+          : [`carrier_${slug}`];
+        await sb.from("connector_vault").delete().in("provider", providers);
+      }
       window.toast && window.toast(`${c.name} login cleared`, "success");
       await reloadVault();
     } catch (e) { window.toast && window.toast(`Clear failed: ${e.message}`, "error"); }

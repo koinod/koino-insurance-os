@@ -165,10 +165,37 @@
     const [liveSegs, setLiveSegs] = useState([]);
     const [scriptFontSize, setScriptFontSize] = useState(14);
     const [activeTab, setActiveTab] = useState("transcript"); // transcript | script
+    const [micPermission, setMicPermission] = useState("checking"); // checking | granted | denied | prompt
 
     const transcriptEndRef = useRef(null);
     const recRef = useRef(null), ctxRef = useRef(null), streamsRef = useRef([]);
     const chunksRef = useRef([]), mimeRef = useRef(""), timerRef = useRef(null), startedRef = useRef(0);
+
+    // Check microphone permission state on mount
+    useEffect(() => {
+      if (!navigator.permissions || !navigator.permissions.query) {
+        setMicPermission("prompt");
+        return;
+      }
+      navigator.permissions.query({ name: "microphone" })
+        .then(status => {
+          setMicPermission(status.state);
+          status.onchange = () => setMicPermission(status.state);
+        })
+        .catch(() => setMicPermission("prompt"));
+    }, []);
+
+    const requestMicAccess = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+        setMicPermission("granted");
+        setNote(null);
+      } catch {
+        setMicPermission("denied");
+        setNote("Mic access was denied. Please check your system/browser settings and try again.");
+      }
+    };
 
     // Subscribe to live transcript segments for the active call
     useEffect(() => {
@@ -219,9 +246,20 @@
 
     const startRecording = async () => {
       setNote(null);
+      if (!window.MediaRecorder) {
+        setRecStatus("error");
+        setNote("This browser doesn't support audio recording (MediaRecorder missing). Please use Chrome or Firefox.");
+        return;
+      }
       let mic;
       try { mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-      catch { setRecStatus("error"); setNote("Mic permission blocked. Allow microphone access and try again."); return; }
+      catch {
+        setRecStatus("error");
+        setMicPermission("denied");
+        setNote("Mic permission blocked or not found. Check system privacy settings.");
+        return;
+      }
+      setMicPermission("granted");
       streamsRef.current = [mic];
 
       if (source === "mic+system") {
@@ -310,6 +348,20 @@
             ))}
           </div>
         </div>
+
+        {/* Microphone Access and Diagnostic alerts */}
+        {micPermission === "denied" && (
+          <div style={{ padding: "8px 10px", borderRadius: 8, fontSize: 11.5, background: "color-mix(in oklch,var(--state-danger) 12%,transparent)", border: "1px solid var(--state-danger)", color: "var(--state-danger)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0 }}>
+            <span>🎤 Microphone access blocked. Please enable in browser settings.</span>
+            <button className="btn btn-sm" style={{ padding: "2px 8px", background: "var(--state-danger)", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }} onClick={requestMicAccess}>Retry</button>
+          </div>
+        )}
+        {micPermission === "prompt" && (
+          <div style={{ padding: "8px 10px", borderRadius: 8, fontSize: 11.5, background: "color-mix(in oklch,var(--accent-money) 12%,transparent)", border: "1px solid var(--accent-money)", color: "var(--accent-money)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0 }}>
+            <span>🎤 Microphone permission required. Click here to initialize request.</span>
+            <button className="btn btn-sm" style={{ padding: "2px 8px", background: "var(--accent-money)", color: "#06110b", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }} onClick={requestMicAccess}>Allow</button>
+          </div>
+        )}
 
         {/* Record controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: "var(--bg-raised)", border: `1px solid ${isRecording ? "color-mix(in oklch,var(--state-danger) 40%,transparent)" : "var(--border-subtle)"}`, flexShrink: 0 }}>
@@ -430,6 +482,33 @@
     const [saved, setSaved] = useState(false);
     const [section, setSection] = useState("vitals"); // vitals | health | banking | quotes
 
+    // Syntactical validations
+    const isPhoneValid = (p) => {
+      if (!p) return true;
+      const clean = p.replace(/\D/g, "");
+      return clean.length === 10 || clean.length === 11;
+    };
+    const isEmailValid = (e) => {
+      if (!e) return true;
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+    };
+    const isRoutingValid = (r) => {
+      if (!r) return true;
+      const clean = r.replace(/\D/g, "");
+      return clean.length === 9;
+    };
+    const isAccountValid = (a) => {
+      if (!a) return true;
+      const clean = a.replace(/\D/g, "");
+      return clean.length >= 4 && clean.length <= 17;
+    };
+
+    const hasValidationErrors =
+      !isPhoneValid(form.phone) ||
+      !isEmailValid(form.email) ||
+      !isRoutingValid(form.routing_number) ||
+      !isAccountValid(form.account_number);
+
     // Auto-calc age from DOB
     useEffect(() => {
       if (!form.dob) { setAge(""); return; }
@@ -483,6 +562,7 @@
     const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
     const saveClient = async () => {
+      if (hasValidationErrors) { window.toast?.("Please correct the invalid fields first.", "error"); return; }
       if (!form.full_name.trim()) { window.toast?.("Enter a name before saving.", "error"); return; }
       setSaving(true);
       try {
@@ -547,21 +627,27 @@
               {[
                 { k: "full_name", l: "Full Name", type: "text", ph: "Jane Doe" },
                 { k: "dob", l: "Date of Birth", type: "date" },
-                { k: "phone", l: "Phone", type: "tel", ph: "+1 (555) 000-0000" },
-                { k: "email", l: "Email", type: "email", ph: "jane@email.com" },
+                { k: "phone", l: "Phone", type: "tel", ph: "+1 (555) 000-0000", validate: isPhoneValid, err: "Invalid phone (10-11 digits)" },
+                { k: "email", l: "Email", type: "email", ph: "jane@email.com", validate: isEmailValid, err: "Invalid email" },
                 { k: "state", l: "State", type: "text", ph: "FL" },
                 { k: "height_in", l: "Height (inches)", type: "number", ph: "68" },
                 { k: "weight_lbs", l: "Weight (lbs)", type: "number", ph: "160" },
-              ].map(({ k, l, type, ph }) => (
-                <div key={k}>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3, fontWeight: 600 }}>{l}{k === "dob" && age ? <span style={{ marginLeft: 6, color: "var(--accent-money)", fontWeight: 700 }}>Age {age}</span> : null}</div>
-                  <input
-                    type={type} value={form[k]} onChange={e => set(k, e.target.value)}
-                    placeholder={ph}
-                    style={{ width: "100%", padding: "7px 9px", fontSize: 12.5, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, color: "var(--text-primary)", boxSizing: "border-box" }}
-                  />
-                </div>
-              ))}
+              ].map(({ k, l, type, ph, validate, err }) => {
+                const isValid = validate ? validate(form[k]) : true;
+                return (
+                  <div key={k}>
+                    <div style={{ fontSize: 10.5, color: isValid ? "var(--text-tertiary)" : "var(--state-danger)", marginBottom: 3, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+                      <span>{l}{k === "dob" && age ? <span style={{ marginLeft: 6, color: "var(--accent-money)", fontWeight: 700 }}>Age {age}</span> : null}</span>
+                      {!isValid && <span style={{ color: "var(--state-danger)", fontWeight: 700 }}>{err}</span>}
+                    </div>
+                    <input
+                      type={type} value={form[k]} onChange={e => set(k, e.target.value)}
+                      placeholder={ph}
+                      style={{ width: "100%", padding: "7px 9px", fontSize: 12.5, background: "var(--bg-base)", border: `1px solid ${isValid ? "var(--border-subtle)" : "var(--state-danger)"}`, borderRadius: 6, color: "var(--text-primary)", boxSizing: "border-box", outline: "none" }}
+                    />
+                  </div>
+                );
+              })}
               <div>
                 <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3, fontWeight: 600 }}>Gender</div>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -607,21 +693,27 @@
               </div>
               {[
                 { k: "bank_name", l: "Bank Name", ph: "Chase, Wells Fargo…" },
-                { k: "routing_number", l: "Routing Number", ph: "9 digits" },
-                { k: "account_number", l: "Account Number", ph: "Enter carefully" },
+                { k: "routing_number", l: "Routing Number", ph: "9 digits", validate: isRoutingValid, err: "Must be 9 digits" },
+                { k: "account_number", l: "Account Number", ph: "Enter carefully", validate: isAccountValid, err: "Must be 4-17 digits" },
                 { k: "beneficiary", l: "Beneficiary Name", ph: "Full legal name" },
                 { k: "relationship", l: "Beneficiary Relationship", ph: "Spouse, Child, Parent…" },
-              ].map(({ k, l, ph }) => (
-                <div key={k}>
-                  <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 3, fontWeight: 600 }}>{l}</div>
-                  <input
-                    value={form[k]} onChange={e => set(k, e.target.value)} placeholder={ph}
-                    type={k.includes("number") ? "text" : "text"}
-                    autoComplete="off"
-                    style={{ width: "100%", padding: "7px 9px", fontSize: 12.5, background: "var(--bg-base)", border: "1px solid var(--border-subtle)", borderRadius: 6, color: "var(--text-primary)", boxSizing: "border-box" }}
-                  />
-                </div>
-              ))}
+              ].map(({ k, l, ph, validate, err }) => {
+                const isValid = validate ? validate(form[k]) : true;
+                return (
+                  <div key={k}>
+                    <div style={{ fontSize: 10.5, color: isValid ? "var(--text-tertiary)" : "var(--state-danger)", marginBottom: 3, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+                      <span>{l}</span>
+                      {!isValid && <span style={{ color: "var(--state-danger)", fontWeight: 700 }}>{err}</span>}
+                    </div>
+                    <input
+                      value={form[k]} onChange={e => set(k, e.target.value)} placeholder={ph}
+                      type={k.includes("number") ? "text" : "text"}
+                      autoComplete="off"
+                      style={{ width: "100%", padding: "7px 9px", fontSize: 12.5, background: "var(--bg-base)", border: `1px solid ${isValid ? "var(--border-subtle)" : "var(--state-danger)"}`, borderRadius: 6, color: "var(--text-primary)", boxSizing: "border-box", outline: "none" }}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
 

@@ -194,7 +194,8 @@
           for (const c of connectors) {
             if (!c.provider || !c.provider.startsWith("carrier_")) continue;
             const slug = c.provider.slice("carrier_".length);
-            next[slug] = {
+            const canon = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(slug) : slug;
+            next[canon] = {
               username: c.account_metadata?.username || "",
               _has_password: true,
               _saved_at: c.connected_at,
@@ -262,42 +263,21 @@
     // RLS-scoped to the viewer's agency). Migration 0069c adds the public
     // view v_agency_writable_carriers + RPC my_writable_carriers() that this
     // mirrors server-side — keep them in sync.
-    //
-    // Carrier-id normalization: agency_carrier_appointments stores either
-    // short ids (Atlas legacy: aetna/uhc/moo) or long catalog ids (new UI:
-    // aetna_src/uhc_aarp/mutual_omaha). Both must resolve to the same short
-    // niche id used by CARRIER_NICHES.
-    const LONG_TO_SHORT = {
-      uhc_aarp: "uhc", mutual_omaha: "moo", aetna_src: "aetna",
-    };
-    const normalizeNicheId = (raw) => {
-      const id = String(raw || "").toLowerCase();
-      return LONG_TO_SHORT[id] || id;
-    };
 
     const productCarriers = useMemo(
       () => niches.filter(c => c.products.includes(profile.product)),
       [profile.product, niches.length]
     );
 
+    const carrierAccess = useMemo(
+      () => window.repflowCarrierAccess ? window.repflowCarrierAccess("quotes") : null,
+      [prefsVersion]
+    );
+
     const appointmentIds = useMemo(() => {
-      const appts = window.AppData?.AGENCY_APPOINTMENTS || [];
-      // No data hydrated yet → return null = "filter not ready, show all"
-      // (avoids a flash of empty state on initial paint).
-      if (!Array.isArray(appts)) return null;
-      // Per-rep visibility: a rep can hide carriers from THEIR quote tool via
-      // Settings → Carriers (reps.carrier_prefs.quotes). Only an explicit
-      // `false` hides; missing = visible.
-      const prefs = (window.repflowCarrierPrefs && window.repflowCarrierPrefs("quotes")) || {};
-      const writable = appts.filter(a => {
-        const status = String(a.status || "").toLowerCase();
-        if (!["self", "bridge", "active"].includes(status)) return false;
-        if (prefs[a.carrierId] === false) return false; // rep hid this carrier
-        return true;
-      });
-      const ids = new Set(writable.map(a => normalizeNicheId(a.carrierId)));
-      return ids;
-    }, [prefsVersion]);
+      if (!carrierAccess) return null;
+      return carrierAccess.ready ? carrierAccess.canonicalIds : null;
+    }, [carrierAccess]);
 
     const liveCarrierIds = useMemo(() => {
       if (appointmentIds === null) return null;
@@ -347,6 +327,7 @@
         setAgentRunStatus("queued");
         setAgentResults({});
         const { data, error } = await sb.from("auto_quote_requests").insert({
+          agency_id: me.agency_id,
           rep_id: me.rep_id,
           profile: profileForEngine,
           carriers: toRun,

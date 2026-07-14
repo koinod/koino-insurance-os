@@ -585,12 +585,13 @@ const CARRIER_CATEGORIES = [
   { l: "Vision",        v: "vision" },
   { l: "Other",         v: "other" },
 ];
-// carriers_status_check allows only active/pending/inactive — the UI used to
-// expose paused/terminated which 23514'd on save.
+// agency_carrier_appointments.status now drives runtime access. Keep the
+// common workflow vocabulary here instead of the older catalog statuses.
 const CARRIER_STATUSES = [
-  { v: "active",   l: "Active" },
-  { v: "pending",  l: "Pending appointment" },
-  { v: "inactive", l: "Inactive" },
+  { v: "self",          l: "Self / direct" },
+  { v: "bridge",        l: "Bridge" },
+  { v: "pending",       l: "Pending appointment" },
+  { v: "not_pursuing",  l: "Not pursuing" },
 ];
 const CARRIER_PRODUCT_LINES = ["Medicare Supplement", "Medicare Advantage", "Part D", "Final Expense", "Term Life", "Whole Life", "IUL", "Annuity", "ACA", "Dental", "Vision", "Hospital Indemnity"];
 
@@ -606,9 +607,15 @@ function carrierSlugForName(name) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
 }
+function carrierPrefKey(raw) {
+  return window.repflowCarrierPrefKey
+    ? window.repflowCarrierPrefKey(raw)
+    : carrierSlugForName(typeof raw === "object" ? (raw?.carrier_id || raw?.id || raw?.name) : raw);
+}
 
 function SettingsCarriers({ canEdit = true, role = "rep" }) {
   const [carriers, setCarriers] = React.useState(undefined); // undefined = loading
+  const [catalog, setCatalog]   = React.useState([]);
   const [agencyId, setAgencyId] = React.useState(null);
   const [editing, setEditing]   = React.useState(null); // null = closed, {} = new, {id...} = edit
   const [busy, setBusy]         = React.useState(false);
@@ -623,7 +630,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
   const [loginSaving, setLoginSaving]   = React.useState(false);
   const [loginVault, setLoginVault]     = React.useState({});   // { [slug]: { username, _has_password, _saved_at } }
   const loginCarrier = React.useMemo(() => (carriers || []).find(c => c.id === loginEditing) || null, [carriers, loginEditing]);
-  const loginSlug    = loginCarrier ? (loginCarrier.id || loginCarrier.carrier_id || carrierSlugForName(loginCarrier.name)) : null;
+  const loginSlug    = loginCarrier ? carrierPrefKey(loginCarrier) : null;
 
   // Rehydrate per-user vault state for the carriers shown. Same shape as
   // the auto-quoter Credentials tab. Passwords never round-trip.
@@ -641,7 +648,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
       const next = {};
       for (const c of connectors) {
         if (!c.provider || !c.provider.startsWith("carrier_")) continue;
-        const slug = c.provider.slice("carrier_".length);
+        const slug = carrierPrefKey(c.provider.slice("carrier_".length));
         next[slug] = {
           username: c.account_metadata?.username || "",
           _has_password: true,
@@ -654,7 +661,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
   React.useEffect(() => { reloadVault(); }, [reloadVault]);
 
   const openLoginEditor = (c) => {
-    const slug = c.id || c.carrier_id || carrierSlugForName(c.name);
+    const slug = carrierPrefKey(c);
     const existing = loginVault[slug] || {};
     setLoginForm({ username: existing.username || "", password: "" });
     setLoginEditing(c.id);
@@ -698,7 +705,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            provider: `carrier_${loginSlug}`,
+            provider: window.repflowCarrierProvider ? window.repflowCarrierProvider(loginSlug) : `carrier_${loginSlug}`,
             account_label: `Carrier portal · ${loginCarrier.name}`,
             api_key: apiKey,
             metadata: { username: loginForm.username.trim() },
@@ -725,7 +732,10 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
     try {
       const sb = window.getSupabase && window.getSupabase();
       if (sb) {
-        const { error } = await sb.from("connector_vault").delete().eq("provider", `carrier_${loginSlug}`);
+        const providers = window.repflowCarrierProviderAliases
+          ? window.repflowCarrierProviderAliases(loginSlug)
+          : [`carrier_${loginSlug}`];
+        const { error } = await sb.from("connector_vault").delete().in("provider", providers);
         if (error) throw error;
       }
       window.toast && window.toast(`${loginCarrier.name} login cleared`, "success");
@@ -747,74 +757,77 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
     if (!aid && window.me) { const m = window.me(); if (m?.agency_id) aid = m.agency_id; }
     setAgencyId(aid);
 
-    const q = sb.from("carriers").select("*").order("name");
-    const { data, error } = aid ? await q.eq("agency_id", aid) : await q;
-    if (error) { setErr(error.message); setCarriers([]); return; }
-    let rows = data || [];
-    // Fallback: if the legacy `carriers` table is empty for this agency,
-    // pull from the new agency_carrier_appointments table (the schema the
-    // Auto Quoter + agency drill-in editor write to). Project to the same
-    // shape so the rest of this component renders without changes.
-    if (rows.length === 0 && aid) {
-      try {
-        const { data: appts } = await sb.from("agency_carrier_appointments").select("*").eq("agency_id", aid);
-        rows = (appts || []).map(a => ({
-          id: a.id, agency_id: a.agency_id,
-          name: a.carrier_name || a.carrier_id,
-          carrier_id: a.carrier_id,
+    try {
+      const [{ data: catalogRows, error: catalogErr }, { data: appts, error: apptErr }] = await Promise.all([
+        sb.from("carriers").select("*").order("name"),
+        aid
+          ? sb.from("agency_carrier_appointments").select("*").eq("agency_id", aid).order("carrier_name")
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (catalogErr) throw catalogErr;
+      if (apptErr) throw apptErr;
+      const catalogList = catalogRows || [];
+      const catalogById = new Map(catalogList.map(c => [c.id, c]));
+      setCatalog(catalogList);
+      const rows = (appts || []).map((a) => {
+        const ref = catalogById.get(a.carrier_id) || {};
+        return {
+          id: a.id,
+          agency_id: a.agency_id,
+          carrier_id: a.carrier_id || "",
+          name: a.carrier_name || ref.name || a.carrier_id,
+          category: a.category || ref.category || "other",
+          status: a.status || (a.active === false ? "not_pursuing" : "pending"),
+          contact_name: a.contact_name || ref.contact_name || "",
+          contact_phone: a.contact_phone || ref.contact_phone || "",
+          contact_email: a.contact_email || ref.contact_email || "",
+          product_lines: Array.isArray(a.product_lines) ? a.product_lines : (ref.product_lines || []),
           npn: a.npn,
           appointed_states: a.appointed_states || [],
           comp_rate_pct: a.comp_rate_pct,
-          notes: a.notes,
-          active: a.active,
-        }));
-      } catch (_e) { /* keep empty */ }
+          notes: a.notes || "",
+          active: a.active !== false,
+        };
+      });
+      setErr(null);
+      setCarriers(rows);
+    } catch (e) {
+      setErr(e?.message || String(e));
+      setCarriers([]);
     }
-    setCarriers(rows);
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     if (!editing?.name?.trim()) return;
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    // carriers RLS write policy: agency_id IN viewer's memberships. NULL fails
-    // the IN test, so without an agency context the insert is doomed before
-    // it leaves the client. Surface a real error rather than letting the
-    // generic toast hide it.
     if (!agencyId) {
       window.toast && window.toast("Pick an active agency before adding carriers", "error");
       return;
     }
-    // Normalize category/status — selects always return one of our enum
-    // values now, but legacy `editing` rows (loaded from existing DB rows or
-    // older edits) may still have display strings.
+    const ref = catalog.find(c => c.id === editing.carrier_id) || null;
     const VALID_CATS = new Set(["med_supp","medicare_advantage","final_expense","annuity","life","aca","dental","vision","part_d","other"]);
-    const VALID_STATUSES = new Set(["active","pending","inactive"]);
-    const cat = VALID_CATS.has(editing.category) ? editing.category : "med_supp";
-    const stat = VALID_STATUSES.has(editing.status) ? editing.status : "active";
+    const VALID_STATUSES = new Set(["self","bridge","pending","not_pursuing","active","paused","terminated"]);
+    const cat = VALID_CATS.has(editing.category) ? editing.category : (ref?.category || "other");
+    const stat = VALID_STATUSES.has(editing.status) ? editing.status : "pending";
     setBusy(true);
     try {
       const row = {
-        id: editing.id || (editing.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32) + "-" + Math.random().toString(36).slice(2, 6)),
-        name: editing.name.trim(),
+        id: editing.id || undefined,
+        carrierId: editing.carrier_id || null,
+        carrierName: editing.name.trim(),
         category: cat,
         status: stat,
-        contact_name:  editing.contact_name  || null,
-        contact_phone: editing.contact_phone || null,
-        contact_email: editing.contact_email || null,
-        product_lines: editing.product_lines || [],
+        contactName:  editing.contact_name  || ref?.contact_name  || null,
+        contactPhone: editing.contact_phone || ref?.contact_phone || null,
+        contactEmail: editing.contact_email || ref?.contact_email || null,
+        productLines: editing.product_lines || ref?.product_lines || [],
         notes: editing.notes || null,
-        agency_id: agencyId,
+        active: stat !== "not_pursuing",
       };
-      const { error } = editing.id
-        ? await sb.from("carriers").update(row).eq("id", editing.id)
-        : await sb.from("carriers").insert(row);
-      if (error) throw error;
-      window.toast && window.toast(`${editing.id ? "Updated" : "Added"} ${row.name}`, "success");
+      await window.AppData.mutate.agencyAppointmentUpsert(row);
+      window.toast && window.toast(`${editing.id ? "Updated" : "Added"} ${row.carrierName}`, "success");
       setEditing(null);
       await load();
-      // refresh AppData.CARRIERS so Resources page picks up the change
       if (window.hydrateFromSupabase) window.hydrateFromSupabase();
     } catch (e) {
       window.toast && window.toast(`Save failed: ${e.message}`, "error");
@@ -823,13 +836,14 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
 
   const remove = async (c) => {
     if (!confirm(`Remove ${c.name}? Existing policies stay; the carrier just stops appearing in pickers.`)) return;
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb) return;
-    const { error } = await sb.from("carriers").delete().eq("id", c.id);
-    if (error) { window.toast && window.toast(`Delete failed: ${error.message}`, "error"); return; }
-    window.toast && window.toast(`Removed ${c.name}`, "success");
-    await load();
-    if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+    try {
+      await window.AppData.mutate.agencyAppointmentDelete(c.id);
+      window.toast && window.toast(`Removed ${c.name}`, "success");
+      await load();
+      if (window.hydrateFromSupabase) window.hydrateFromSupabase();
+    } catch (e) {
+      window.toast && window.toast(`Delete failed: ${e.message}`, "error");
+    }
   };
 
   const toggleProductLine = (pl) => {
@@ -850,7 +864,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
             </div>
           </div>
           {canEdit && (
-            <button className="btn btn-primary" onClick={() => setEditing({ status: "active", product_lines: [] })}>
+            <button className="btn btn-primary" onClick={() => setEditing({ status: "pending", product_lines: [], carrier_id: "" })}>
               <Icons.Plus size={11}/> Add carrier
             </button>
           )}
@@ -873,7 +887,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
               Add the carriers you're appointed with so reps can quote, write deals, and pre-call scrub against them.
             </div>
             {canEdit && (
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setEditing({ status: "active", product_lines: [] })}>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setEditing({ status: "pending", product_lines: [], carrier_id: "" })}>
                 <Icons.Plus size={11}/> Add your first carrier
               </button>
             )}
@@ -886,7 +900,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
               <div>Carrier</div><div>Category</div><div>Status</div><div>Product lines</div><div>Contact</div><div style={{ textAlign: "right" }}>Actions</div>
             </div>
             {carriers.map(c => {
-              const slug = c.carrier_id || carrierSlugForName(c.name);
+              const slug = carrierPrefKey(c);
               const vault = loginVault[slug] || null;
               const hasLogin = !!vault;
               const isOpen = loginEditing === c.id;
@@ -896,7 +910,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
                     <div style={{ fontWeight: 500 }}>{c.name}</div>
                     <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.category || "—"}</div>
                     <div>
-                      <span className={`chip ${c.status === "active" ? "chip-money" : c.status === "paused" ? "chip-status" : "chip-danger"}`}>{c.status || "active"}</span>
+                      <span className={`chip ${["self", "active"].includes(c.status) ? "chip-money" : ["bridge", "pending"].includes(c.status) ? "chip-status" : "chip-danger"}`}>{c.status || "pending"}</span>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {(c.product_lines && c.product_lines.length) ? c.product_lines.join(", ") : "—"}
@@ -976,7 +990,7 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
                         </div>
                       </div>
                       <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
-                        Saved as <code style={{ fontSize: 10 }}>connector_vault.provider="carrier_{slug}"</code>. Same row the Auto-Quoter Credentials tab reads.
+                        Saved as <code style={{ fontSize: 10 }}>{window.repflowCarrierProvider ? window.repflowCarrierProvider(slug) : `carrier_${slug}`}</code>. Same row the Auto-Quoter Credentials tab reads.
                       </div>
                     </div>
                   )}
@@ -997,14 +1011,33 @@ function SettingsCarriers({ canEdit = true, role = "rep" }) {
           </>
         }>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Shared.Field label="Catalog carrier">
+              <Shared.Select
+                value={editing.carrier_id || ""}
+                onChange={(v) => {
+                  const ref = catalog.find(c => c.id === v) || null;
+                  setEditing({
+                    ...editing,
+                    carrier_id: v || "",
+                    name: ref?.name || editing.name || "",
+                    category: ref?.category || editing.category || "other",
+                    contact_name: ref?.contact_name || editing.contact_name || "",
+                    contact_email: ref?.contact_email || editing.contact_email || "",
+                    contact_phone: ref?.contact_phone || editing.contact_phone || "",
+                    product_lines: ref?.product_lines || editing.product_lines || [],
+                  });
+                }}
+                options={[{ v: "", l: "Custom / manual" }, ...catalog.map(c => ({ v: c.id, l: c.name }))]}
+              />
+            </Shared.Field>
             <Shared.Field label="Carrier name">
               <input className="text-input" value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="UnitedHealthcare" autoFocus/>
             </Shared.Field>
             <Shared.Field label="Category">
-              <Shared.Select value={editing.category || "med_supp"} onChange={(v) => setEditing({ ...editing, category: v })} options={CARRIER_CATEGORIES}/>
+              <Shared.Select value={editing.category || "other"} onChange={(v) => setEditing({ ...editing, category: v })} options={CARRIER_CATEGORIES}/>
             </Shared.Field>
             <Shared.Field label="Status">
-              <Shared.Select value={editing.status || "active"} onChange={(v) => setEditing({ ...editing, status: v })} options={CARRIER_STATUSES}/>
+              <Shared.Select value={editing.status || "pending"} onChange={(v) => setEditing({ ...editing, status: v })} options={CARRIER_STATUSES}/>
             </Shared.Field>
             <Shared.Field label="Contact name">
               <input className="text-input" value={editing.contact_name || ""} onChange={(e) => setEditing({ ...editing, contact_name: e.target.value })} placeholder="Producer rep"/>
@@ -1145,18 +1178,19 @@ function CarrierPrefsTable({ carriers, agencyId }) {
         <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textAlign: "center" }}>Quotes</div>
         <div style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textAlign: "center" }}>Deals</div>
         {carriers.map(c => {
-          const onQ = get("quotes", c.id);
-          const onD = get("deals",  c.id);
+          const key = carrierPrefKey(c);
+          const onQ = get("quotes", key);
+          const onD = get("deals",  key);
           return (
             <React.Fragment key={c.id}>
-              <div style={{ fontSize: 12.5, padding: "6px 0" }}>{c.name || c.id}</div>
+              <div style={{ fontSize: 12.5, padding: "6px 0" }}>{c.name || key}</div>
               <div style={{ textAlign: "center" }}>
-                <button disabled={busy} className={`chip ${onQ ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("quotes", c.id)}>
+                <button disabled={busy} className={`chip ${onQ ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("quotes", key)}>
                   {onQ ? "on" : "off"}
                 </button>
               </div>
               <div style={{ textAlign: "center" }}>
-                <button disabled={busy} className={`chip ${onD ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("deals", c.id)}>
+                <button disabled={busy} className={`chip ${onD ? "chip-money" : ""}`} style={{ cursor: busy ? "wait" : "pointer", border: 0, minWidth: 56 }} onClick={() => toggle("deals", key)}>
                   {onD ? "on" : "off"}
                 </button>
               </div>

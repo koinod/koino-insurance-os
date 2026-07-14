@@ -199,10 +199,12 @@ function App() {
       const P = window[key];
       return P ? <P {...props}/> : <PageStub title={key.replace(/^Page/,'')} sub=""/>;
     };
-    // Floor and Dialing are open to all reps and managers (no super-admin gate).
-    const _floorEnabled = true;
+    // Floor and Dialing are WIP and temporarily locked to super_admin (Ian).
+    const _floorEnabled = role === "super_admin" || !!(window.isSuperAdmin && window.isSuperAdmin());
     const canUseAdminRoutes = role === "super_admin" || !!(window.isSuperAdmin && window.isSuperAdmin());
-    if (mobile && role === "rep") return F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+    if (mobile && role === "rep") return _floorEnabled
+      ? F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
+      : F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     if (mobile) return F("MobileRep", { onExitMobile: () => setTweak("mobile", false) });
     switch (page) {
       case "today":       return F("PageToday", { role });
@@ -212,7 +214,9 @@ function App() {
       // Pipeline + Calls used to mount through Floor; refactored 2026-05-22
       // so they route to their own pages — Floor is dialer-first now.
       case "pipeline":    return F("PagePipeline", { role });
-      case "queue":       return F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" });
+      case "queue":       return _floorEnabled
+                                 ? F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
+                                 : F("PageToday", { role });
       case "leaderboard": return (() => {
         // page-leaderboard.jsx was removed — fall through to Performance for
         // owners, or a stub message for non-owner roles.
