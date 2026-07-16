@@ -1625,7 +1625,7 @@ function TodayManager() {
   // Expenses / NIGO route aliases in index.html so legacy URLs still resolve.
   // Also listens for a `today:subtab` window event so any in-page caller can
   // flip the sub-tab without unmounting (e.g. Pulse's "Open Coaching" link).
-  const VALID_SUBTABS = ["pulse", "team", "coaching", "pay", "expenses", "nigo", "onboarding"];
+  const VALID_SUBTABS = ["team", "coaching", "pay", "expenses", "nigo", "onboarding"];
   const [subTab, setSubTab] = React.useState(() => {
     try {
       const stash = sessionStorage.getItem("repflow.today.subtab");
@@ -1634,7 +1634,7 @@ function TodayManager() {
         if (VALID_SUBTABS.includes(stash)) return stash;
       }
     } catch {}
-    return "pulse";
+    return "team";
   });
   React.useEffect(() => {
     const onSub = (e) => {
@@ -1649,11 +1649,11 @@ function TodayManager() {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Today · {me?.agency_name || "Team"} <AnnouncementChip/></div>
+          <div className="page-title">Manager Today · {me?.agency_name || "Agency"} <AnnouncementChip/></div>
           <div className="page-sub">
             {REPS.length === 0
               ? "No producers in your downline yet"
-              : `${live.length} of ${REPS.length} live · ${totalDials} dials · $${teamToday.toLocaleString()} closed today`}
+              : `${REPS.length} producers · $${teamToday.toLocaleString()} AP closed today · ${totalDials} dials`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1662,37 +1662,25 @@ function TodayManager() {
             onClick={() => { if (window.gotoPage) window.gotoPage("messages"); }}
             title="Open team channel"
           ><Icons.MessageSquare size={13}/> Standup notes</button>
-          <button
-            className="btn btn-primary"
-            onClick={() => { if (window.gotoPage) window.gotoPage("floor"); }}
-            title="Jump to live floor"
-          ><Icons.Phone size={13}/> Power Hour · all hands</button>
         </div>
       </div>
 
-      {(() => { const Hero = window.TodayHero; return Hero ? <Hero role="manager"/> : null; })()}
+      <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
+      <ManagerCounterCalculator REPS={REPS} scopeIds={scopeIds}/>
+      <ManagerCalendarWorkspace/>
 
-      {/* Floor live strip — compact presence-pill row showing which downline
-          reps are dialing right now. Sits ABOVE the spend strip so the
-          manager's first read is "who's working" before "what cost what".
-          Subscribes to Supabase realtime channel `presence:agency_<id>` when
-          available; falls back to AppData.REPS.presence on hydrate. */}
-      <FloorLiveStrip REPS={REPS} agencyId={me?.agency_id}/>
-
-      {/* Spend congruency strip — every value derives from real tables.
-          Empty cells render .koino-empty mono tag, not fake numbers. */}
+      {/* Spend summary stays below the working controls so the page opens on
+          producer activity and scheduling, not internal system telemetry. */}
       <TodaySpendStrip scopeIds={scopeIds} teamToday={teamToday}/>
 
-      <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
-
       <div className="kpi-row">
-        <Shared.KpiCard hero label="Team MTD AP" prefix="$" value={teamMTD.toLocaleString()}
+        <Shared.KpiCard hero label="Downline MTD AP" prefix="$" value={teamMTD.toLocaleString()}
           sub={REPS.length === 0 ? "no producers" : `${REPS.length} producer${REPS.length === 1 ? "" : "s"} in scope`}/>
-        <Shared.KpiCard label="Booked today" prefix="$" value={teamToday.toLocaleString()}
-          sub={`${live.length} producer${live.length === 1 ? "" : "s"} live`}
+        <Shared.KpiCard label="AP closed today" prefix="$" value={teamToday.toLocaleString()}
+          sub={`${REPS.length} producer${REPS.length === 1 ? "" : "s"} in scope`}
           trend={teamToday > 0 ? "up" : undefined}/>
-        <Shared.KpiCard label="Total dials" value={totalDials}
-          sub={dialFloor > 0 ? `floor ${dialFloor}` : "no floor set"}
+        <Shared.KpiCard label="Downline dials today" value={totalDials}
+          sub={dialFloor > 0 ? `${dialFloor} target` : "no target set"}
           trend={dialFloor > 0 && totalDials >= dialFloor ? "up" : undefined}/>
       </div>
 
@@ -1720,7 +1708,6 @@ function TodayManager() {
         />
       </div>
 
-      {subTab === "pulse"      && <TodayManagerPulse REPS={REPS} live={live} idle={idle} scopeIds={scopeIds} setSubTab={setSubTab}/>}
       {subTab === "team"       && (() => { const T = window.PageTeam;        return T ? <T embedded/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Team Board module loading…</div>; })()}
       {subTab === "coaching"   && (() => { const C = window.CoachingManager; return C ? <C embedded/> : <div style={{ padding: 20, color: "var(--text-tertiary)" }}>Coaching module loading…</div>; })()}
       {subTab === "pay"        && <TodayManagerPay scopeIds={scopeIds}/>}
@@ -1731,8 +1718,79 @@ function TodayManager() {
   );
 }
 
-/* Yellow daily tracker for managers. Every value is derived from the
-   manager's visible downline and the hydrated production data layer. */
+function ManagerCounterCalculator({ REPS, scopeIds }) {
+  const visibleReps = REPS.filter(r => !scopeIds || scopeIds.length === 0 || scopeIds.includes(r.id));
+  const [dialTarget, setDialTarget] = React.useState(60);
+  const [appointmentTarget, setAppointmentTarget] = React.useState(4);
+  const dials = visibleReps.reduce((sum, r) => sum + (Number(r.dials) || 0), 0);
+  const appointments = visibleReps.reduce((sum, r) => sum + (Number(r.appts) || 0), 0);
+  const dialGoal = Math.max(0, Number(dialTarget) || 0) * visibleReps.length;
+  const appointmentGoal = Math.max(0, Number(appointmentTarget) || 0) * visibleReps.length;
+  const progress = (actual, target) => target > 0 ? Math.min(100, Math.round(actual / target * 100)) : 0;
+
+  return (
+    <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Icons.Calculator size={14} style={{ color: "var(--accent-money)" }}/>
+        <strong style={{ fontSize: 14 }}>Daily activity plan</strong>
+        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11.5 }}>Set a per-producer target and track the team total</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[
+          { label: "Dials", actual: dials, target: dialGoal, value: dialTarget, set: setDialTarget },
+          { label: "Appointments", actual: appointments, target: appointmentGoal, value: appointmentTarget, set: setAppointmentTarget },
+        ].map(item => {
+          const pct = progress(item.actual, item.target);
+          return (
+            <div key={item.label} style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{item.label}</span>
+                <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, color: "var(--text-tertiary)", fontSize: 10.5 }}>
+                  target / producer
+                  <input className="text-input" type="number" min="0" value={item.value} onChange={e => item.set(Math.max(0, Number(e.target.value) || 0))} style={{ width: 58, padding: "4px 6px", textAlign: "right" }}/>
+                </label>
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 10 }}>
+                <strong style={{ fontSize: 24 }}>{item.actual.toLocaleString()}</strong>
+                <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>of {item.target.toLocaleString()}</span>
+                <span style={{ color: pct >= 100 ? "var(--accent-money)" : "var(--text-secondary)", fontSize: 11, marginLeft: "auto" }}>{pct}%</span>
+              </div>
+              <div style={{ height: 6, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden", marginTop: 8 }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "var(--accent-money)" : "var(--accent-status)", transition: "width .2s ease" }}/></div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ManagerCalendarWorkspace() {
+  const connections = AppData.CONNECTIONS || [];
+  const calendar = connections.find(c => ["calendly", "google_calendar", "outlook_calendar", "calendar"].includes(c.id) || /calendar|calendly/i.test(c.name || ""));
+  const connected = calendar && (calendar.status === "ok" || calendar.status === "connected");
+  const openConnections = () => window.gotoPage && window.gotoPage("connections");
+  const schedule = () => window.dispatchEvent(new CustomEvent("appointment:open", { detail: { lead: null, kind: "appointment" } }));
+
+  return (
+    <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Icons.Calendar size={14} style={{ color: "var(--accent-money)" }}/>
+        <strong style={{ fontSize: 14 }}>Calendar and appointments</strong>
+        <span className={`chip ${connected ? "chip-money" : "chip-status"}`} style={{ marginLeft: "auto", fontSize: 10 }}>{connected ? "Connected" : "Setup needed"}</span>
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.5, maxWidth: 700 }}>
+        {connected ? `${calendar.name} is connected for your agency. Schedule a client appointment or manage the connection.` : "Connect Calendly or another calendar service so appointment links and availability are ready for your team."}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button className="btn btn-primary" onClick={schedule}><Icons.Calendar size={12}/> Set appointment</button>
+        <button className="btn btn-ghost" onClick={openConnections}><Icons.Plug size={12}/> {connected ? "Manage calendar" : "Connect calendar"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* Downline tracker for managers. Every value is derived from the manager's
+   visible downline and the hydrated production data layer. */
 function ManagerActivityTracker({ REPS, scopeIds }) {
   const [selectedId, setSelectedId] = React.useState(null);
   const today = todayDateStr();
@@ -1785,44 +1843,44 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
   ];
 
   return (
-    <div style={{ background: "#12141B", borderRadius: 16, border: "1px solid #1E222D", padding: 18, marginTop: 12, marginBottom: 14, boxShadow: "0 4px 24px rgba(0,0,0,0.22)" }}>
+    <div style={{ background: "var(--bg-elevated)", borderRadius: 12, border: "1px solid var(--border-subtle)", padding: 18, marginTop: 12, marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 8, background: "#F5C242", color: "#111", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: "color-mix(in oklch, var(--accent-money) 20%, transparent)", color: "var(--accent-money)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icons.Activity size={15}/>
         </div>
         <div>
-          <div style={{ color: "#FFF", fontSize: 16, fontWeight: 800 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
-          <div style={{ color: "#8E929E", fontSize: 11.5 }}>{selected ? "Selected producer · live production stats" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in manager scope`}</div>
+          <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{selected ? "Selected producer · current production" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in your scope`}</div>
         </div>
-        {selected && <button className="btn btn-ghost" onClick={() => setSelectedId(null)} style={{ marginLeft: "auto", color: "#F5C242", borderColor: "#3A3320", padding: "5px 9px", fontSize: 11 }}>All downline</button>}
+        {selected && <button className="btn btn-ghost" onClick={() => setSelectedId(null)} style={{ marginLeft: "auto", color: "var(--accent-money)", padding: "5px 9px", fontSize: 11 }}>All downline</button>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
         {metrics.map(metric => (
-          <div key={metric.label} style={{ background: "#F5C242", borderRadius: 10, padding: "10px 11px", color: "#111", minWidth: 0 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: "0.05em", textTransform: "uppercase", color: "#4A3B08", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.value}</div>
+          <div key={metric.label} style={{ background: "color-mix(in oklch, var(--accent-money) 14%, var(--bg-raised))", borderRadius: 8, padding: "10px 11px", color: "var(--text-primary)", minWidth: 0 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.value}</div>
           </div>
         ))}
       </div>
 
-      <div style={{ color: "#8E929E", fontSize: 10.5, marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
-      <div style={{ overflowX: "auto", border: "1px solid #262A36", borderRadius: 10 }}>
+      <div style={{ color: "var(--text-tertiary)", fontSize: 10.5, marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
+      <div style={{ overflowX: "auto", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
         <div style={{ minWidth: 650 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "#8E929E", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid #262A36" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "var(--text-tertiary)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>
             <div>Producer</div><div style={{ textAlign: "right" }}>Dials</div><div style={{ textAlign: "right" }}>Leads</div><div style={{ textAlign: "right" }}>Appts</div><div style={{ textAlign: "right" }}>Today AP</div><div style={{ textAlign: "right" }}>MTD AP</div>
           </div>
-          {visibleReps.length === 0 && <div style={{ padding: 18, color: "#8E929E", fontSize: 12, textAlign: "center" }}>No producers in your downline yet.</div>}
+          {visibleReps.length === 0 && <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>No producers in your downline yet.</div>}
           {visibleReps.map(rep => {
             const s = statsFor(rep);
             return (
-              <button key={rep.id} onClick={() => setSelectedId(rep.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, alignItems: "center", padding: "9px 10px", background: selectedId === rep.id ? "#24231B" : "#1A1C24", color: "#FFF", border: 0, borderBottom: "1px solid #262A36", textAlign: "left", cursor: "pointer" }}>
+              <button key={rep.id} onClick={() => setSelectedId(rep.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, alignItems: "center", padding: "9px 10px", background: selectedId === rep.id ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)", color: "var(--text-primary)", border: 0, borderBottom: "1px solid var(--border-subtle)", textAlign: "left", cursor: "pointer" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Shared.Avatar rep={rep} size={20}/><span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rep.name}</span><span className={`dot dot-${rep.presence === "live" ? "live" : "idle"}`} title={rep.presence || "idle"}></span></div>
-                <div className="tabular" style={{ textAlign: "right", color: "#FFF" }}>{number(s.dials)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "#C8CBD3" }}>{number(s.leads)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "#C8CBD3" }}>{number(s.appts)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: s.todayAP > 0 ? "#F5C242" : "#C8CBD3" }}>{money(s.todayAP)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "#F5C242" }}>{money(s.mtdAP)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-primary)" }}>{number(s.dials)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.leads)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.appts)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: s.todayAP > 0 ? "var(--accent-money)" : "var(--text-secondary)" }}>{money(s.todayAP)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>{money(s.mtdAP)}</div>
               </button>
             );
           })}
@@ -1916,111 +1974,6 @@ function TodayManagerOnboarding({ scopeIds }) {
   );
 }
 
-/* Floor live strip — presence pills for downline reps. Compact strip that
-   answers "who's working right now?" at a glance. Subscribes to Supabase
-   realtime channel `presence:agency_<id>` when the channel is reachable.
-   Falls back to AppData.REPS.presence (hydrated by the regular data sync)
-   when realtime isn't wired or the channel times out. Never blocks paint.
-
-   Status pills (matching koino.capital DS):
-     dialing   → --accent-money + live dot
-     coaching  → --accent-status (info purple)
-     idle      → --text-tertiary
-     off       → --text-quaternary
-*/
-function FloorLiveStrip({ REPS, agencyId }) {
-  // Live overlay: rep_id → presence string (overrides hydrated REPS.presence).
-  const [livePresence, setLivePresence] = React.useState({});
-  // Realtime: try to subscribe; on first message or after 1.5s timeout, mark
-  // realtime "ready" so the UI labels itself accurately. Falls through on any
-  // failure — never blocks paint.
-  const [realtimeOk, setRealtimeOk] = React.useState(false);
-  React.useEffect(() => {
-    if (!agencyId) return;
-    const sb = window.getSupabase && window.getSupabase();
-    if (!sb || typeof sb.channel !== "function") return;
-    let channel;
-    let cancelled = false;
-    try {
-      channel = sb.channel(`presence:agency_${agencyId}`);
-      channel.on("presence", { event: "sync" }, () => {
-        if (cancelled) return;
-        const state = channel.presenceState();
-        const overlay = {};
-        Object.values(state).flat().forEach((p) => {
-          if (p?.rep_id) overlay[p.rep_id] = p.status || "idle";
-        });
-        setLivePresence(overlay);
-        setRealtimeOk(true);
-      });
-      channel.subscribe();
-    } catch (_e) { /* fall back to hydrated REPS.presence */ }
-    return () => { cancelled = true; if (channel) { try { sb.removeChannel(channel); } catch {} } };
-  }, [agencyId]);
-
-  if (REPS.length === 0) {
-    return (
-      <div style={{ padding: "8px 12px", marginBottom: 10, background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: 10 }}>
-        <Icons.Phone size={11} style={{ color: "var(--text-tertiary)" }}/>
-        <span className="koino-empty">today · no producers in scope</span>
-      </div>
-    );
-  }
-
-  const presenceFor = (r) => livePresence[r.id] || r.presence || "idle";
-  const dialing  = REPS.filter(r => presenceFor(r) === "live" || presenceFor(r) === "dialing");
-  const coaching = REPS.filter(r => presenceFor(r) === "coaching");
-
-  const pillColor = (p) => {
-    if (p === "live" || p === "dialing")   return "var(--accent-money)";
-    if (p === "coaching")                   return "var(--accent-status)";
-    if (p === "off")                        return "var(--text-quaternary)";
-    return "var(--text-tertiary)";
-  };
-
-  return (
-    <div style={{
-      padding: "6px 10px",
-      marginBottom: 10,
-      background: "var(--bg-elevated)",
-      border: "1px solid var(--border-subtle)",
-      borderRadius: "var(--radius-md)",
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      flexWrap: "wrap",
-    }}>
-      <span style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>Floor</span>
-      <span className={dialing.length > 0 ? "dot dot-live" : "dot"}></span>
-      <span style={{ fontSize: 11, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
-        {dialing.length} dialing · {coaching.length} coaching · {REPS.length - dialing.length - coaching.length} idle
-      </span>
-      <span style={{ marginLeft: "auto", display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {REPS.map(r => {
-          const p = presenceFor(r);
-          const dials = r.dials || 0;
-          return (
-            <button
-              key={r.id}
-              className="btn btn-ghost"
-              style={{ padding: "2px 6px", fontSize: 10.5, display: "flex", alignItems: "center", gap: 4, border: "1px solid var(--border-subtle)" }}
-              title={`${r.name} · ${p} · ${dials} dials today`}
-              onClick={() => { if (window.gotoPage) window.gotoPage("messages"); }}
-            >
-              <span className="dot" style={{ background: pillColor(p), width: 6, height: 6 }}></span>
-              <span style={{ fontWeight: 500 }}>{r.name.split(" ")[0]}</span>
-              <span className="tabular" style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{dials}</span>
-            </button>
-          );
-        })}
-      </span>
-      {!realtimeOk && (
-        <span className="koino-empty" title="Supabase realtime channel presence:agency_<id> not connected — falling back to AppData hydrate">cached</span>
-      )}
-    </div>
-  );
-}
-
 /* Spend congruency strip — every value computed from real tables.
    Empty cells render `.koino-empty` mono tag instead of fake numbers
    per the 2026-05-12 anti-theater directive.
@@ -2069,132 +2022,6 @@ function TodaySpendStrip({ scopeIds, teamToday }) {
    Stuck-deal panel REPLACES the previous hardcoded "Robert Mendez App In..."
    row set with a real query against AppData.PIPELINE filtered to downline +
    days-in-stage > 3 + stage in ["App In", "Quoted"]. */
-function TodayManagerPulse({ REPS, live, idle, scopeIds, setSubTab }) {
-  const repById = Object.fromEntries(REPS.map(r => [r.id, r]));
-  const pipeline = (AppData.PIPELINE || []);
-  const inScope = (row) => !scopeIds || scopeIds.length === 0 || !row.owner || scopeIds.includes(row.owner);
-
-  // "Needs me" = high-leverage stuck deals: App In or Quoted, > 3 days in stage,
-  // owned by a downline rep. Sorted by AP descending so the biggest at-risk
-  // money rises. Caps at 6 rows.
-  const stuckDeals = pipeline
-    .filter(inScope)
-    .filter(p => (p.stage === "App In" || p.stage === "Quoted") && (p.days || 0) > 3)
-    .sort((a, b) => (b.ap || 0) - (a.ap || 0))
-    .slice(0, 6);
-
-  // Coaching cards: real entries from AppData.COACHING_SESSIONS filtered to scope.
-  // No more "Talk ratio 58%" / "Plan G anchor" placeholder copy.
-  const sessions = (AppData.COACHING_SESSIONS || [])
-    .filter(s => repById[s.repId])
-    .filter(s => !s.completedAt)
-    .slice(0, 4);
-
-  return (
-    <div className="today-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 10 }}>
-      <div className="panel">
-        <div className="panel-h"><Icons.Users size={13}/><h3>Producers · live floor</h3><span className="meta">{REPS.length}</span></div>
-        <div className="list">
-          <div className="list-h" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px" }}>
-            <div>Producer</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Dials</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Appts</div>
-            <div className="tabular" style={{ textAlign: "right" }}>Today</div>
-            <div className="tabular" style={{ textAlign: "right" }}>MTD</div>
-            <div></div>
-          </div>
-          {REPS.length === 0 && (
-            <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>
-              No producers in your downline yet. <a href="#" onClick={(e) => { e.preventDefault(); if (window.gotoPage) window.gotoPage("recruiting"); }} style={{ color: "var(--accent-money)" }}>Invite reps</a>.
-            </div>
-          )}
-          {[...live, ...idle].map(r => (
-            <div key={r.id} className="row" style={{ gridTemplateColumns: "1.4fr 60px 80px 90px 100px 70px", height: 36 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Shared.Avatar rep={r} size={18}/>
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: 12 }}>{r.name}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 5 }}>
-                    <span className={`dot dot-${r.presence === "live" ? "live" : "idle"}`}></span>
-                    {r.presence === "live" ? "on call" : "idle"}
-                  </div>
-                </div>
-              </div>
-              <div className="tabular" style={{ textAlign: "right", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{r.dials || 0}</div>
-              <div className="tabular" style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{r.appts || 0}</div>
-              <div className="tabular" style={{ textAlign: "right", color: (r.today || 0) > 1000 ? "var(--accent-money)" : "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>${(r.today || 0).toLocaleString()}</div>
-              <div className="tabular" style={{ textAlign: "right", fontWeight: 500, fontFamily: "var(--font-mono)" }}>${((r.mtd || 0) / 1000).toFixed(1)}k</div>
-              <button className="btn btn-ghost" title={`DM ${r.name}`} onClick={() => { if (window.gotoPage) window.gotoPage("messages"); window.toast && window.toast(`Open thread with ${r.name}`, "info"); }}><Icons.MessageSquare size={11}/></button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="panel">
-          <div className="panel-h"><Icons.Activity size={13} style={{ color: "var(--accent-money)" }}/><h3>Open coaching cards</h3><span className="meta">{sessions.length}</span></div>
-          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-            {sessions.length === 0 && (
-              <div style={{ padding: 14, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                No active coaching sessions in your downline.<br/>
-                <a href="#" onClick={(e) => { e.preventDefault(); if (setSubTab) setSubTab("coaching"); else window.dispatchEvent(new CustomEvent("today:subtab", { detail: "coaching" })); }} style={{ color: "var(--accent-money)" }}>Open Coaching tab</a> to create one.
-              </div>
-            )}
-            {sessions.map((s, i) => {
-              const rep = repById[s.repId];
-              return (
-                <div key={s.id || i} style={{ padding: 8, background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", display: "flex", gap: 8, alignItems: "center", border: "1px solid var(--border-subtle)" }}>
-                  <Shared.Avatar rep={rep} size={18}/>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>{rep?.name || "—"}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.focusArea || s.notes || "Open focus"}</div>
-                  </div>
-                  <button className="btn btn-ghost" style={{ padding: "2px 6px" }} title={`Coach ${rep?.name || ""}`}
-                    onClick={() => { window.openAISidebar?.(); window.dispatchEvent(new CustomEvent("ai:ask", { detail: { prompt: `Coach ${rep?.name || "this rep"} on: ${s.focusArea || s.notes || "current focus"}`, context: "Coaching · " + (rep?.name || "") } })); }}>
-                    <Icons.Play size={10}/>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h"><Icons.Bell size={13} style={{ color: "var(--state-warning)" }}/><h3>Needs me</h3><span className="meta">stuck &gt; 3d</span></div>
-          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-            {stuckDeals.length === 0 && (
-              <div style={{ padding: 14, textAlign: "center", fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                No stuck deals in your downline. Good day.
-              </div>
-            )}
-            {stuckDeals.map((p) => {
-              const owner = repById[p.owner];
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "4px 2px" }}>
-                  <span className="dot dot-warn"></span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.lead} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {p.stage} · {p.days}d</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
-                      {owner ? owner.name.split(" ")[0] : "unassigned"} · {p.ap ? `$${p.ap.toLocaleString()}` : "—"} AP
-                    </div>
-                  </div>
-                  <button className="btn btn-ghost" style={{ padding: "2px 6px", fontSize: 10.5 }}
-                    title="Open deal in CRM"
-                    onClick={() => { if (window.gotoPage) window.gotoPage("crm"); }}>
-                    Open
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* Pay sub-tab — today's commissions for the manager's downline. Pulls from
    buildStatement() (POLICIES + COMMISSIONS) and filters to rows dated today
    or marked status=pending. Empty state when no comp activity in scope. */
