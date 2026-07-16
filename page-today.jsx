@@ -500,12 +500,12 @@ function TodayRep() {
 
   const [showCustomize, setShowCustomize] = React.useState(false);
   const [widgets, setWidgets] = React.useState(() => {
-    if (typeof window === "undefined" || !myRow?.id) return { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+    if (typeof window === "undefined" || !myRow?.id) return { efficiency: true, activity: true, calculator: true, goals: true, journal: true, leaderboard: true, screenshare: true };
     try {
       const raw = localStorage.getItem(`today_widgets:${myRow.id}`);
-      return raw ? JSON.parse(raw) : { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+      return raw ? JSON.parse(raw) : { efficiency: true, activity: true, calculator: true, goals: true, journal: true, leaderboard: true, screenshare: true };
     } catch {
-      return { efficiency: true, activity: true, calculator: true, goals: true, training: true, journal: true, onboarding: true, leaderboard: true, calls: true, screenshare: true };
+      return { efficiency: true, activity: true, calculator: true, goals: true, journal: true, leaderboard: true, screenshare: true };
     }
   });
 
@@ -520,9 +520,6 @@ function TodayRep() {
       return g ? Number(g) : 15000;
     } catch { return 15000; }
   });
-  const [audioUploadModal, setAudioUploadModal] = React.useState(false);
-  const [uploadingAudio, setUploadingAudio] = React.useState(false);
-  const [audioLeadName, setAudioLeadName] = React.useState("");
 
   const toggleWidget = (key) => {
     const next = { ...widgets, [key]: !widgets[key] };
@@ -532,15 +529,6 @@ function TodayRep() {
     }
   };
 
-  const [onboardingModal, setOnboardingModal] = React.useState(null);
-  const [signingName, setSigningName] = React.useState("");
-  const [npnNumber, setNpnNumber] = React.useState("");
-  const [licenseState, setLicenseState] = React.useState("TX");
-  const [bankRouting, setBankRouting] = React.useState("");
-  const [bankAccount, setBankAccount] = React.useState("");
-  const [bankName, setBankName] = React.useState("");
-  const [kitAddress, setKitAddress] = React.useState("");
-  const [onboardingSubmitting, setOnboardingSubmitting] = React.useState(false);
 
   // --- Screenshare and Recording States & Logic ---
   const [sharing, setSharing] = React.useState(false);
@@ -794,22 +782,6 @@ function TodayRep() {
     }
   };
 
-  const completeOnboardingStep = async (stepKey) => {
-    if (!myRow?.id) return;
-    setOnboardingSubmitting(true);
-    try {
-      if (window.AppData?.mutate?.onboardingStepSet) {
-        await window.AppData.mutate.onboardingStepSet(myRow.id, stepKey, true);
-        window.toast && window.toast("Step marked complete!", "success");
-      }
-    } catch (e) {
-      window.toast && window.toast(`Failed: ${e.message || e}`, "error");
-    } finally {
-      setOnboardingSubmitting(false);
-      setOnboardingModal(null);
-    }
-  };
-
   const topReps = React.useMemo(() => {
     return [...(REPS || [])]
       .filter(r => r.active !== false && r.role === "rep")
@@ -845,12 +817,6 @@ function TodayRep() {
     };
     loadYesterday();
   }, [myRow?.id, yesterdayKey]);
-
-  const latestCall = React.useMemo(() => {
-    const list = [...(RECORDINGS || [])].filter(r => (r.repId || r.rep_id) === myRow?.id);
-    if (list.length === 0) return null;
-    return list.sort((a, b) => new Date(b.recordedAt || b.recorded_at || b.date) - new Date(a.recordedAt || a.recorded_at || a.date))[0];
-  }, [RECORDINGS, myRow?.id]);
 
   const today = todayDateStr();
   const monthPrefix = today.slice(0, 7);
@@ -952,21 +918,6 @@ function TodayRep() {
   const dailyPct   = Math.min(100, (todayCommission / Math.max(1, dailyTarget))   * 100);
   const monthlyPct = Math.min(100, (mtdNum         / Math.max(1, monthlyTarget)) * 100);
 
-  // Onboarding checklist progress. Pulls live from
-  // AppData.ONBOARDING_PROGRESS where available; treats every step as false
-  // when no row exists yet so brand-new reps see a 0/5 banner with all
-  // todos visible. Hides itself once 5/5 complete.
-  const onboardingRow = (AppData.ONBOARDING_PROGRESS || []).find(p => p.repId === myRow?.id) || {};
-  const onboardingSteps = [
-    { k: "licenseSigned", l: "Sign producer agreement",   icon: "Edit"   },
-    { k: "niprVerified",  l: "Verify NIPR license",       icon: "Shield" },
-    { k: "bankingSet",    l: "Set up direct deposit",     icon: "Wallet" },
-    { k: "kitShipped",    l: "Producer kit shipped",      icon: "Folder" },
-    { k: "firstDial",     l: "Make your first dial",      icon: "Phone"  },
-  ];
-  const onboardingDone = onboardingSteps.filter(s => onboardingRow[s.k]).length;
-  const showOnboarding = onboardingDone < onboardingSteps.length;
-
   // DM-your-manager. Resolve upline rep from me().upline_id when
   // available; fall back to first manager-role rep. Click → Messages page
   // with a thread auto-opened to that manager.
@@ -1031,11 +982,8 @@ function TodayRep() {
                   { k: "activity",    l: "Today's Activity Tracker" },
                   { k: "calculator",  l: "Activity & Pace Calculator" },
                   { k: "goals",       l: "My Goals Progress" },
-                  { k: "training",    l: "Training & Call Review" },
-                  { k: "onboarding",  l: "Onboarding Checklist" },
                   { k: "journal",     l: "Focus & Reflection" },
-                  { k: "leaderboard", l: "Mini Leaderboard" },
-                  { k: "calls",       l: "Recent Scored Calls" },
+                  { k: "leaderboard", l: "Team Momentum" },
                   { k: "screenshare", l: "Live Screen Share" }
                 ].map(w => (
                   <label key={w.k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer", userSelect: "none", margin: 0 }}>
@@ -1304,107 +1252,13 @@ function TodayRep() {
         );
       })()}
 
-      {/* ─── 3. TRAINING, CALL RECORDING & AI COACHING QUICK ACCESS HUB ─────────── */}
-      {widgets.training !== false && (
-        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <Icons.Mic size={14} style={{ color: "var(--accent-money)" }}/>
-            <strong style={{ fontSize: 14 }}>Call Review, Audio Upload & Sales Training Hub</strong>
-            <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginLeft: "auto" }}>Refine your script, review scored calls, and get AI critique</span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-            <div
-              onClick={() => setAudioUploadModal(true)}
-              className="interactive-card"
-              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icons.Upload size={16} style={{ color: "var(--accent-money)" }}/>
-                <strong style={{ fontSize: 13 }}>Upload Call Audio</strong>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
-                Upload an .mp3 or .wav call recording to run instant AI scoring, transcript analysis & rebuttal coaching.
-              </div>
-            </div>
-
-            <div
-              onClick={() => window.gotoPage && window.gotoPage("coaching")}
-              className="interactive-card"
-              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icons.Award size={16} style={{ color: "var(--accent-money)" }}/>
-                <strong style={{ fontSize: 13 }}>Sales Training & Scripts</strong>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
-                Review top objection rebuttals, carrier underwriting cheat-sheets, and high-converting pitch scripts.
-              </div>
-            </div>
-
-            <div
-              onClick={() => window.gotoPage && window.gotoPage("floor")}
-              className="interactive-card"
-              style={{ padding: 14, background: "var(--bg-raised)", borderRadius: 8, border: "1px solid var(--border-subtle)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icons.PhoneCall size={16} style={{ color: "var(--accent-money)" }}/>
-                <strong style={{ fontSize: 13 }}>Live Call Recording</strong>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4 }}>
-                Open the Power Dialer floor to record live calls, toggle browser audio capture, and score dials live.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {widgets.onboarding !== false && showOnboarding && (
-        <div className="panel" style={{ marginBottom: 16, padding: 14, background: "var(--bg-elevated)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <Icons.ListChecks size={14} style={{ color: "var(--accent-status)" }}/>
-            <strong style={{ fontSize: 13 }}>Get production-ready</strong>
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-tertiary)" }}>{onboardingDone} / {onboardingSteps.length}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-            {onboardingSteps.map(s => {
-              const Ico = Icons[s.icon] || Icons.Check;
-              const done = !!onboardingRow[s.k];
-              return (
-                <div
-                  key={s.k}
-                  onClick={() => {
-                    if (done) return;
-                    if (s.k === "firstDial") goFloor();
-                    else setOnboardingModal(s.k);
-                  }}
-                  style={{
-                    padding: 10, borderRadius: 6,
-                    background: done ? "color-mix(in oklch, var(--accent-money) 12%, var(--bg-raised))" : "var(--bg-raised)",
-                    border: `1px solid ${done ? "color-mix(in oklch, var(--accent-money) 30%, transparent)" : "var(--border-subtle)"}`,
-                    display: "flex", alignItems: "center", gap: 8,
-                    cursor: done ? "default" : "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                  className={done ? "" : "interactive-card"}
-                >
-                  <Ico size={12} style={{ color: done ? "var(--accent-money)" : "var(--text-tertiary)" }}/>
-                  <span style={{ flex: 1, fontSize: 11.5, color: done ? "var(--text-primary)" : "var(--text-secondary)", textDecoration: done ? "line-through" : "none" }}>{s.l}</span>
-                  {done && <Icons.Check size={11} style={{ color: "var(--accent-money)" }}/>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Customizable Additional Modules (Leaderboard & Scored Calls) */}
+      {/* Customizable Additional Modules (team momentum only) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         {widgets.leaderboard !== false && (
           <div className="panel" style={{ padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <Icons.Trophy size={14} style={{ color: "var(--accent-money)" }}/>
-              <strong style={{ fontSize: 14 }}>Team Leaderboard (MTD AP)</strong>
+              <strong style={{ fontSize: 14 }}>Team Momentum</strong>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {topReps.map((r, idx) => (
@@ -1422,32 +1276,6 @@ function TodayRep() {
           </div>
         )}
 
-        {widgets.calls !== false && (
-          <div className="panel" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <Icons.Volume size={14} style={{ color: "var(--accent-money)" }}/>
-              <strong style={{ fontSize: 14 }}>Last Call Analysis</strong>
-              {latestCall && (
-                <span className={`chip ${latestCall.score >= 80 ? "chip-money" : latestCall.score >= 70 ? "chip-status" : "chip-danger"}`} style={{ fontSize: 11, fontWeight: 600, marginLeft: "auto" }}>
-                  Score: {latestCall.score}
-                </span>
-              )}
-            </div>
-            {!latestCall ? (
-              <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No calls recorded yet.</div>
-            ) : (
-              <div style={{ background: "var(--bg-raised)", padding: 12, borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <strong style={{ fontSize: 13, color: "var(--text-primary)" }}>{latestCall.lead}</strong>
-                  <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{latestCall.date} · {Math.floor(latestCall.durSec/60)}m {latestCall.durSec%60}s</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, borderTop: "1px solid var(--border-subtle)", paddingTop: 8, marginTop: 4 }}>
-                  <strong>AI Feedback:</strong> {latestCall.ai || "Analyzing recording metrics…"}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {widgets.screenshare !== false && (
@@ -1667,7 +1495,7 @@ function TodayRep() {
         <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <Icons.Book size={14} style={{ color: "var(--accent-money)" }}/>
-            <strong style={{ fontSize: 14 }}>Daily Focus & Reflection</strong>
+            <strong style={{ fontSize: 14 }}>Focus & Reflection</strong>
             <button
               className="btn btn-primary"
               onClick={saveJournal}
@@ -1736,295 +1564,6 @@ function TodayRep() {
         </div>
       )}
 
-      {/* Onboarding Modals */}
-      {onboardingModal === "licenseSigned" && (
-        <Shared.Modal title="Sign Producer Agreement" width={560} onClose={() => setOnboardingModal(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
-            <button
-              className="btn btn-primary"
-              disabled={!signingName.trim() || onboardingSubmitting}
-              onClick={() => completeOnboardingStep("license_signed")}
-            >
-              {onboardingSubmitting ? "Signing…" : "Sign & Agree"}
-            </button>
-          </>
-        }>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            <p style={{ marginBottom: 12 }}>Please read and accept the representative contract terms below for KOINO CAPITAL / MARANATHA.GLOBAL:</p>
-            <div style={{
-              height: 180, overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: 6,
-              padding: 10, background: "var(--bg-raised)", fontFamily: "monospace", fontSize: 11, marginBottom: 14
-            }}>
-              1. APPOINTMENT AND RELATIONSHIP: The Agency hereby appoints the Representative to solicit applications for insurance policies...
-              <br/><br/>
-              2. REPRESENTATIONS AND WARRANTIES: Representative warrants compliance with all state licensing, NIPR guidelines, and ethical sales standards...
-              <br/><br/>
-              3. COMPENSATION: Commissions shall be paid in accordance with the Schedule of Commissions, contingent on active carrier contracting...
-              <br/><br/>
-              4. TERM AND TERMINATION: This Agreement remains in effect until terminated by either party upon written notice...
-            </div>
-            <Shared.Field label="Type your full name to sign electronically:">
-              <input
-                className="text-input"
-                placeholder={meIdent?.full_name || "John Doe"}
-                value={signingName}
-                onChange={e => setSigningName(e.target.value)}
-              />
-            </Shared.Field>
-          </div>
-        </Shared.Modal>
-      )}
-
-      {onboardingModal === "niprVerified" && (
-        <Shared.Modal title="NIPR License Verification" width={480} onClose={() => setOnboardingModal(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
-            <button
-              className="btn btn-primary"
-              disabled={!npnNumber.trim() || npnNumber.length < 5 || onboardingSubmitting}
-              onClick={() => completeOnboardingStep("nipr_verified")}
-            >
-              {onboardingSubmitting ? "Verifying…" : "Verify License"}
-            </button>
-          </>
-        }>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            <p style={{ marginBottom: 12 }}>Verify your National Producer Number (NPN) against NIPR database registries:</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12, marginBottom: 10 }}>
-              <Shared.Field label="NPN (National Producer Number)">
-                <input
-                  className="text-input"
-                  placeholder="19876543"
-                  value={npnNumber}
-                  onChange={e => setNpnNumber(e.target.value.replace(/\D/g, ""))}
-                />
-              </Shared.Field>
-              <Shared.Field label="Resident State">
-                <input
-                  className="text-input"
-                  placeholder="TX"
-                  maxLength={2}
-                  value={licenseState}
-                  onChange={e => setLicenseState(e.target.value.toUpperCase())}
-                />
-              </Shared.Field>
-            </div>
-          </div>
-        </Shared.Modal>
-      )}
-
-      {onboardingModal === "bankingSet" && (
-        <Shared.Modal title="Secure Direct Deposit Setup" width={480} onClose={() => setOnboardingModal(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
-            <button
-              className="btn btn-primary"
-              disabled={!bankRouting.trim() || !bankAccount.trim() || onboardingSubmitting}
-              onClick={() => completeOnboardingStep("banking_set")}
-            >
-              {onboardingSubmitting ? "Saving…" : "Save Direct Deposit"}
-            </button>
-          </>
-        }>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            <p style={{ marginBottom: 12 }}>Enter your banking information below to set up direct deposit routing for commission payments:</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
-              <Shared.Field label="Bank Name">
-                <input
-                  className="text-input"
-                  placeholder="Chase Bank, Wells Fargo, etc."
-                  value={bankName}
-                  onChange={e => setBankName(e.target.value)}
-                />
-              </Shared.Field>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 12 }}>
-                <Shared.Field label="Routing Number">
-                  <input
-                    className="text-input"
-                    placeholder="9 digits"
-                    maxLength={9}
-                    value={bankRouting}
-                    onChange={e => setBankRouting(e.target.value.replace(/\D/g, ""))}
-                  />
-                </Shared.Field>
-                <Shared.Field label="Account Number">
-                  <input
-                    className="text-input"
-                    placeholder="Account Number"
-                    value={bankAccount}
-                    onChange={e => setBankAccount(e.target.value.replace(/\D/g, ""))}
-                  />
-                </Shared.Field>
-              </div>
-            </div>
-          </div>
-        </Shared.Modal>
-      )}
-
-      {onboardingModal === "kitShipped" && (
-        <Shared.Modal title="Order Producer Kit" width={480} onClose={() => setOnboardingModal(null)} actions={
-          <>
-            <button className="btn btn-ghost" onClick={() => setOnboardingModal(null)}>Cancel</button>
-            <button
-              className="btn btn-primary"
-              disabled={!kitAddress.trim() || onboardingSubmitting}
-              onClick={() => completeOnboardingStep("kit_shipped")}
-            >
-              {onboardingSubmitting ? "Ordering…" : "Confirm & Order"}
-            </button>
-          </>
-        }>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            <p style={{ marginBottom: 12 }}>Confirm your shipping address to dispatch your MARANATHA.GLOBAL producer kit (polo, bible, notebook, and stickers):</p>
-            <Shared.Field label="Shipping Address">
-              <textarea
-                className="text-input"
-                style={{ height: 80, resize: "none" }}
-                placeholder="123 Devout Way, Suite 100&#10;Dallas, TX 75201"
-                value={kitAddress}
-                onChange={e => setKitAddress(e.target.value)}
-              />
-            </Shared.Field>
-          </div>
-        </Shared.Modal>
-      )}
-
-      {/* ─── LOG SALE ($ AP) MODAL ────────────────────────────────────────── */}
-      {showLogSaleModal && (
-        <Shared.Modal
-          title="Log Closed Sale ($ Annual Premium)"
-          width={480}
-          onClose={() => setShowLogSaleModal(false)}
-          actions={
-            <>
-              <button className="btn btn-ghost" onClick={() => setShowLogSaleModal(false)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                disabled={!saleApAmount || Number(saleApAmount) <= 0}
-                onClick={() => {
-                  const ap = Number(saleApAmount) || 0;
-                  // Increment tap counter for sale ($ AP) and saleCount
-                  const nextSale = (Number(taps.sale) || 0) + ap;
-                  const nextCount = (Number(taps.saleCount) || 0) + 1;
-                  const nextTaps = { ...taps, sale: nextSale, saleCount: nextCount };
-                  setTaps(nextTaps);
-                  try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(nextTaps)); } catch {}
-
-                  // Log policy in AppData / DB if available
-                  if (window.AppData?.mutate?.policyCreate) {
-                    window.AppData.mutate.policyCreate({
-                      client_name: saleClientName || "Direct Sale",
-                      carrier_name: saleCarrier,
-                      annual_premium: ap,
-                      owner_rep_id: myRow.id,
-                      status: "submitted",
-                    }).catch(console.warn);
-                  }
-
-                  window.toast && window.toast(`Log Saved! +$${ap.toLocaleString()} AP booked`, "success");
-                  setShowLogSaleModal(false);
-                  setSaleClientName("");
-                  setSaleApAmount("");
-                  window.dispatchEvent(new CustomEvent("data:mutated"));
-                }}
-              >
-                Log Closed Sale
-              </button>
-            </>
-          }
-        >
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 12 }}>
-            <p style={{ margin: 0 }}>Record a closed policy or written application to update your conversion ratios and goal progress:</p>
-            <Shared.Field label="Annual Premium Amount ($ AP)">
-              <input
-                type="number"
-                className="text-input"
-                placeholder="e.g. 1200"
-                value={saleApAmount}
-                onChange={(e) => setSaleApAmount(e.target.value)}
-                autoFocus
-                style={{ fontSize: 15, fontWeight: 700, color: "var(--accent-money)" }}
-              />
-            </Shared.Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
-              <Shared.Field label="Client / Lead Name (Optional)">
-                <input
-                  type="text"
-                  className="text-input"
-                  placeholder="e.g. Mary Johnson"
-                  value={saleClientName}
-                  onChange={(e) => setSaleClientName(e.target.value)}
-                />
-              </Shared.Field>
-              <Shared.Field label="Carrier">
-                <select
-                  className="text-input"
-                  value={saleCarrier}
-                  onChange={(e) => setSaleCarrier(e.target.value)}
-                >
-                  {["Americo", "Mutual of Omaha", "Aetna", "AIG / Corebridge", "Transamerica", "Ethos", "SBLI", "Other"].map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </Shared.Field>
-            </div>
-          </div>
-        </Shared.Modal>
-      )}
-
-      {/* ─── UPLOAD CALL AUDIO FOR AI COACHING MODAL ──────────────────────── */}
-      {audioUploadModal && (
-        <Shared.Modal
-          title="Upload Audio Recording for AI Review"
-          width={500}
-          onClose={() => setAudioUploadModal(false)}
-          actions={
-            <>
-              <button className="btn btn-ghost" onClick={() => setAudioUploadModal(false)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                disabled={uploadingAudio}
-                onClick={() => {
-                  setUploadingAudio(true);
-                  setTimeout(() => {
-                    setUploadingAudio(false);
-                    setAudioUploadModal(false);
-                    window.toast && window.toast("Call audio uploaded! AI scoring & analysis running in background.", "success");
-                    window.gotoPage && window.gotoPage("coaching");
-                  }, 1200);
-                }}
-              >
-                {uploadingAudio ? "Uploading & Analyzing…" : "Start AI Analysis"}
-              </button>
-            </>
-          }
-        >
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 12 }}>
-            <p style={{ margin: 0 }}>Select a sales call recording file (.mp3, .wav, .m4a, .webm) to run AI transcript analysis and score your pitch:</p>
-            <Shared.Field label="Client / Prospect Name">
-              <input
-                type="text"
-                className="text-input"
-                placeholder="e.g. Robert Smith"
-                value={audioLeadName}
-                onChange={(e) => setAudioLeadName(e.target.value)}
-              />
-            </Shared.Field>
-            <Shared.Field label="Select Recording File">
-              <input
-                type="file"
-                accept="audio/*,video/webm,video/mp4"
-                className="text-input"
-                style={{ padding: 8 }}
-              />
-            </Shared.Field>
-            <div style={{ padding: 10, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)", fontSize: 11.5, color: "var(--text-tertiary)" }}>
-              <strong>AI Analysis Includes:</strong> Rapport building score, objection handling grade, underwriting accuracy, and closing pitch strength feedback.
-            </div>
-          </div>
-        </Shared.Modal>
-      )}
     </div>
   );
 }
