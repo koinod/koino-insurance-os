@@ -49,10 +49,13 @@ function SidebarComposer({ onClose, role }) {
     // Focus search on open (keyboard a11y)
     setTimeout(() => searchRef.current?.focus(), 80);
     const onIdentity = () => refresh();
+    const onHydrated = () => refresh();
     window.addEventListener("me:loaded", onIdentity);
+    window.addEventListener("data:hydrated", onHydrated);
     return () => {
       cancelled = true;
       window.removeEventListener("me:loaded", onIdentity);
+      window.removeEventListener("data:hydrated", onHydrated);
     };
   }, [role]);
 

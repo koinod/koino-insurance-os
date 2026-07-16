@@ -214,12 +214,15 @@ const Sidebar = ({ role, setRole, page, setPage, openCmdK }) => {
       setCustomLayout(e.detail?.layout || []);
     };
     const onIdentity = () => refresh();
+    const onHydrated = () => refresh();
     window.addEventListener("sidebar:updated", onUpdate);
     window.addEventListener("me:loaded", onIdentity);
+    window.addEventListener("data:hydrated", onHydrated);
     return () => {
       cancelled = true;
       window.removeEventListener("sidebar:updated", onUpdate);
       window.removeEventListener("me:loaded", onIdentity);
+      window.removeEventListener("data:hydrated", onHydrated);
     };
   }, [role, isDynamic]);
 
