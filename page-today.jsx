@@ -1683,6 +1683,8 @@ function TodayManager() {
           Empty cells render .koino-empty mono tag, not fake numbers. */}
       <TodaySpendStrip scopeIds={scopeIds} teamToday={teamToday}/>
 
+      <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
+
       <div className="kpi-row">
         <Shared.KpiCard hero label="Team MTD AP" prefix="$" value={teamMTD.toLocaleString()}
           sub={REPS.length === 0 ? "no producers" : `${REPS.length} producer${REPS.length === 1 ? "" : "s"} in scope`}/>
@@ -1725,6 +1727,107 @@ function TodayManager() {
       {subTab === "expenses"   && <TodayManagerExpenses/>}
       {subTab === "nigo"       && <TodayManagerNigo scopeIds={scopeIds}/>}
       {subTab === "onboarding" && <TodayManagerOnboarding scopeIds={scopeIds}/>}
+    </div>
+  );
+}
+
+/* Yellow daily tracker for managers. Every value is derived from the
+   manager's visible downline and the hydrated production data layer. */
+function ManagerActivityTracker({ REPS, scopeIds }) {
+  const [selectedId, setSelectedId] = React.useState(null);
+  const today = todayDateStr();
+  const pipeline = AppData.PIPELINE || [];
+  const policies = AppData.POLICIES || [];
+  const inScope = (rep) => !scopeIds || scopeIds.length === 0 || scopeIds.includes(rep.id);
+  const visibleReps = REPS.filter(inScope);
+  const selected = visibleReps.find(r => r.id === selectedId) || null;
+  const trackedReps = selected ? [selected] : visibleReps;
+
+  const statsFor = (rep) => {
+    const ownedLeads = pipeline.filter(p => p.owner === rep.id);
+    const ownedPolicies = policies.filter(p => p.owner === rep.id);
+    const issued = ownedPolicies.filter(p => p.status === "issued" || p.issuedAt);
+    return {
+      dials: Number(rep.dials) || 0,
+      leads: ownedLeads.length,
+      openLeads: ownedLeads.filter(p => p.stage !== "Issued").length,
+      appts: Number(rep.appts) || 0,
+      todayAP: Number(rep.today) || 0,
+      mtdAP: Number(rep.mtd) || 0,
+      issued: issued.length,
+      issuedToday: issued.filter(p => (p.issuedAt || "").startsWith(today)).length,
+    };
+  };
+
+  const total = trackedReps.reduce((sum, rep) => {
+    const s = statsFor(rep);
+    return {
+      dials: sum.dials + s.dials,
+      leads: sum.leads + s.leads,
+      openLeads: sum.openLeads + s.openLeads,
+      appts: sum.appts + s.appts,
+      todayAP: sum.todayAP + s.todayAP,
+      mtdAP: sum.mtdAP + s.mtdAP,
+      issued: sum.issued + s.issued,
+      issuedToday: sum.issuedToday + s.issuedToday,
+    };
+  }, { dials: 0, leads: 0, openLeads: 0, appts: 0, todayAP: 0, mtdAP: 0, issued: 0, issuedToday: 0 });
+
+  const number = (value) => Number(value || 0).toLocaleString();
+  const money = (value) => `$${number(value)}`;
+  const metrics = [
+    { label: "Dials today", value: number(total.dials) },
+    { label: "Open leads", value: number(total.openLeads) },
+    { label: "Appointments", value: number(total.appts) },
+    { label: "AP closed today", value: money(total.todayAP) },
+    { label: "Policies issued", value: number(total.issued) },
+    { label: "MTD AP", value: money(total.mtdAP) },
+  ];
+
+  return (
+    <div style={{ background: "#12141B", borderRadius: 16, border: "1px solid #1E222D", padding: 18, marginTop: 12, marginBottom: 14, boxShadow: "0 4px 24px rgba(0,0,0,0.22)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: "#F5C242", color: "#111", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icons.Activity size={15}/>
+        </div>
+        <div>
+          <div style={{ color: "#FFF", fontSize: 16, fontWeight: 800 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
+          <div style={{ color: "#8E929E", fontSize: 11.5 }}>{selected ? "Selected producer · live production stats" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in manager scope`}</div>
+        </div>
+        {selected && <button className="btn btn-ghost" onClick={() => setSelectedId(null)} style={{ marginLeft: "auto", color: "#F5C242", borderColor: "#3A3320", padding: "5px 9px", fontSize: 11 }}>All downline</button>}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+        {metrics.map(metric => (
+          <div key={metric.label} style={{ background: "#F5C242", borderRadius: 10, padding: "10px 11px", color: "#111", minWidth: 0 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: "0.05em", textTransform: "uppercase", color: "#4A3B08", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ color: "#8E929E", fontSize: 10.5, marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
+      <div style={{ overflowX: "auto", border: "1px solid #262A36", borderRadius: 10 }}>
+        <div style={{ minWidth: 650 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "#8E929E", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid #262A36" }}>
+            <div>Producer</div><div style={{ textAlign: "right" }}>Dials</div><div style={{ textAlign: "right" }}>Leads</div><div style={{ textAlign: "right" }}>Appts</div><div style={{ textAlign: "right" }}>Today AP</div><div style={{ textAlign: "right" }}>MTD AP</div>
+          </div>
+          {visibleReps.length === 0 && <div style={{ padding: 18, color: "#8E929E", fontSize: 12, textAlign: "center" }}>No producers in your downline yet.</div>}
+          {visibleReps.map(rep => {
+            const s = statsFor(rep);
+            return (
+              <button key={rep.id} onClick={() => setSelectedId(rep.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, alignItems: "center", padding: "9px 10px", background: selectedId === rep.id ? "#24231B" : "#1A1C24", color: "#FFF", border: 0, borderBottom: "1px solid #262A36", textAlign: "left", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Shared.Avatar rep={rep} size={20}/><span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rep.name}</span><span className={`dot dot-${rep.presence === "live" ? "live" : "idle"}`} title={rep.presence || "idle"}></span></div>
+                <div className="tabular" style={{ textAlign: "right", color: "#FFF" }}>{number(s.dials)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "#C8CBD3" }}>{number(s.leads)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "#C8CBD3" }}>{number(s.appts)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: s.todayAP > 0 ? "#F5C242" : "#C8CBD3" }}>{money(s.todayAP)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "#F5C242" }}>{money(s.mtdAP)}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
