@@ -5691,6 +5691,9 @@ function SettingsIntegrations() {
   const [testing, setTesting]     = React.useState(null);
   const [twilioOpen, setTwilioOpen]     = React.useState(false);
   const [genericOpen, setGenericOpen]   = React.useState(null);
+  const [search, setSearch] = React.useState("");
+  const [category, setCategory] = React.useState("All");
+  const [statusFilter, setStatusFilter] = React.useState("all");
 
   const refresh = React.useCallback(async () => {
     const sb = window.getSupabase && window.getSupabase();
@@ -5717,6 +5720,42 @@ function SettingsIntegrations() {
     return m;
   }, [connections]);
 
+  const matches = (c) => {
+    const key = c.connector_key || c.id || "";
+    const label = c.label || c.name || key;
+    const haystack = `${label} ${c.description || ""} ${c.category || ""}`.toLowerCase();
+    const live = byKey.get(key);
+    const status = live?.status || c.status || "not_connected";
+    return (!search.trim() || haystack.includes(search.trim().toLowerCase()))
+      && (category === "All" || (c.category || "Other") === category)
+      && (statusFilter === "all" || (statusFilter === "connected" ? status === "ok" : status !== "ok"));
+  };
+
+  const allCategories = Array.from(new Set([
+    ...catalog.map(c => c.category || "Other"),
+    ...(AppData.CONNECTIONS || []).map(c => c.category || "Other"),
+  ])).sort();
+  const QuickAccess = ({ count }) => (
+    <div className="connector-quick-access">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Icons.Search size={13} style={{ color: "var(--accent-status)" }}/>
+        <strong style={{ fontSize: 13 }}>Find a connector</strong>
+        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11 }}>{count} shown</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input className="text-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services…" aria-label="Search connectors" style={{ flex: "1 1 220px", minWidth: 180 }}/>
+        <select className="select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter connector status" style={{ minWidth: 140 }}>
+          <option value="all">All services</option>
+          <option value="connected">Connected</option>
+          <option value="setup">Needs setup</option>
+        </select>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+        {["All", ...allCategories].map(cat => <button key={cat} className={`chip ${category === cat ? "chip-info" : ""}`} onClick={() => setCategory(cat)} style={{ cursor: "pointer", border: 0 }}>{cat}</button>)}
+      </div>
+    </div>
+  );
+
   const test = async (key, label) => {
     setTesting(key);
     try {
@@ -5741,14 +5780,17 @@ function SettingsIntegrations() {
   const isDemoAgency = !!(window.isDemoAgency && window.isDemoAgency());
   if (isDemoAgency && catalog.length === 0 && (AppData.CONNECTIONS || []).length > 0) {
     const CONNECTIONS = AppData.CONNECTIONS;
+    const visibleConnections = CONNECTIONS.filter(matches);
     return (
-      <div className="panel">
-        <div className="panel-h"><h3>Connected services</h3><span className="meta">demo data · {CONNECTIONS.length} configured</span></div>
-        <div className="list">
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <QuickAccess count={visibleConnections.length}/>
+        <div className="panel">
+          <div className="panel-h"><h3>Connected services</h3><span className="meta">demo data · {CONNECTIONS.length} configured</span></div>
+          <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
             <div>Service</div><div>Category</div><div>Status</div><div>Detail</div><div></div>
           </div>
-          {CONNECTIONS.map(c => (
+          {visibleConnections.map(c => (
             <div key={c.id} className="row" style={{ gridTemplateColumns: "1.4fr 1fr 100px 1.6fr 140px" }}>
               <div style={{ fontWeight: 500 }}>{c.name}</div>
               <div style={{ color: "var(--text-tertiary)" }}>{c.category}</div>
@@ -5759,9 +5801,11 @@ function SettingsIntegrations() {
               </div>
             </div>
           ))}
-        </div>
+          {visibleConnections.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No services match this search.</div>}
+          </div>
         {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => setTwilioOpen(false)}/>; })()}
         {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => setGenericOpen(null)}/>; })()}
+        </div>
       </div>
     );
   }
@@ -5790,7 +5834,8 @@ function SettingsIntegrations() {
   }
 
   // Group by category for legibility
-  const groups = catalog.reduce((acc, c) => {
+  const visibleCatalog = catalog.filter(matches);
+  const groups = visibleCatalog.reduce((acc, c) => {
     const cat = c.category || "Other";
     (acc[cat] = acc[cat] || []).push(c);
     return acc;
@@ -5798,6 +5843,7 @@ function SettingsIntegrations() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <QuickAccess count={visibleCatalog.length}/>
       {Object.entries(groups).map(([cat, items]) => (
         <div className="panel" key={cat}>
           <div className="panel-h"><h3>{cat}</h3><span className="meta">{items.filter(c => byKey.get(c.connector_key || c.id)?.status === "ok").length}/{items.length} connected</span></div>
@@ -5841,6 +5887,7 @@ function SettingsIntegrations() {
           </div>
         </div>
       ))}
+      {visibleCatalog.length === 0 && <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 12 }}>No connectors match this search. Try another service or category.</div>}
       {twilioOpen && window.TwilioConfigModal && (() => { const M = window.TwilioConfigModal; return <M onClose={() => { setTwilioOpen(false); refresh(); }}/>; })()}
       {genericOpen && window.ConnectorConfigModal && (() => { const M = window.ConnectorConfigModal; return <M connectorId={genericOpen} onClose={() => { setGenericOpen(null); refresh(); }}/>; })()}
     </div>

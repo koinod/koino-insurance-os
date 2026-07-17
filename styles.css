@@ -695,6 +695,13 @@ html[data-sidebar-collapsed="1"] .app[data-mobile="on"]{ grid-template-columns: 
   background: var(--bg-overlay);
 }
 
+.connector-quick-access {
+  padding: 11px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
 /* Tier chip */
 .tier {
   display: inline-flex;
