@@ -1,11 +1,10 @@
-/* page-performance.jsx — Owner: combined Leaderboard + Tiering + Forecast.
+/* page-performance.jsx — Owner: combined Team Progress + Tiering + Forecast.
    One scrollable, uncrowded page that answers three owner questions at a glance:
      1. Who's winning right now? (standings)
      2. What's coming? (weighted forecast curve)
      3. Are tiers honest? (rules + recent overrides)
 
-   Rep + manager keep the original PageLeaderboard with podium/badges/war-room.
-   This page is wired only when role === "owner". */
+   This page is the shared production progress view for leaderboard routes. */
 
 (function () {
 
@@ -187,8 +186,8 @@ function PagePerformance() {
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Performance</div>
-          <div className="page-sub">Standings · forecast · tiering — one view, owner cockpit</div>
+          <div className="page-title">Team Progress</div>
+          <div className="page-sub">Production pace · forecast · tier movement</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Shared.SectionPill items={[{k:"WTD",l:"WTD"},{k:"MTD",l:"MTD"},{k:"T12",l:"T12"},{k:"AEP",l:"AEP"}]} value={period} onChange={setPeriod} dense/>
@@ -201,24 +200,24 @@ function PagePerformance() {
 
       {/* ─── Hero KPIs ─────────────────────────────────────────────────── */}
       <div className="kpi-row">
-        <Shared.KpiCard hero
-          label="Top performer"
+        <Shared.KpiCard
+          label="Leading producer"
           value={top?.name?.split(" ")[0] || "—"}
           sub={top ? `$${(top.mtd || 0).toLocaleString()} · ${top.streak || 0}d streak` : "no producers yet"}
           trend={top ? "up" : undefined}/>
         <Shared.KpiCard
-          label="Weighted pipeline"
+          label="Pipeline outlook"
           prefix={pipeline.length > 0 ? "$" : ""}
           value={pipeline.length > 0 ? Math.round(weightedAP).toLocaleString() : "—"}
           sub={pipeline.length > 0 ? `${pipeline.length} deals · all stages × prob` : "no pipeline yet"}/>
         <Shared.KpiCard
-          label="Coverage"
+          label="Goal coverage"
           value={pipeline.length > 0 && weightedAP > 0 ? coverage.toFixed(2) + "x" : "—"}
           sub={pipeline.length > 0 ? `vs $${forecastGoal.toLocaleString()} goal` : "set a goal in the panel below"}
           trend={pipeline.length > 0 ? (coverage >= 1 ? "up" : "down") : undefined}
           neg={pipeline.length > 0 && coverage < 1}/>
         <Shared.KpiCard
-          label="Tier movement"
+          label="Tier changes"
           value={`+${promoted} / -${demoted}`}
           sub={`${history.length} adjustments this month`}/>
       </div>
@@ -229,8 +228,8 @@ function PagePerformance() {
         <div className="panel">
           <div className="panel-h">
             <Icons.Trophy size={13}/>
-            <h3>Standings · {period}</h3>
-            <span className="meta">click rep for scorecard</span>
+            <h3>Production standings · {period}</h3>
+            <span className="meta">select a producer to view progress</span>
           </div>
           <div className="list">
             <div className="list-h" style={{ gridTemplateColumns: "32px 1.5fr 90px 100px 60px 1fr" }}>
@@ -277,7 +276,7 @@ function PagePerformance() {
         <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
           <div className="panel-h">
             <Icons.TrendingUp size={13}/>
-            <h3>30-day forecast</h3>
+            <h3>30-day outlook</h3>
             <span className="meta">weighted</span>
           </div>
           <div style={{ padding: 14, paddingBottom: 6 }}>

@@ -1665,8 +1665,8 @@ function TodayManager() {
         </div>
       </div>
 
-      <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
       <ManagerCounterCalculator REPS={REPS} scopeIds={scopeIds}/>
+      <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
       <ManagerCalendarWorkspace/>
 
       {/* Spend summary stays below the working controls so the page opens on
@@ -1720,46 +1720,52 @@ function TodayManager() {
 
 function ManagerCounterCalculator({ REPS, scopeIds }) {
   const visibleReps = REPS.filter(r => !scopeIds || scopeIds.length === 0 || scopeIds.includes(r.id));
-  const [dialTarget, setDialTarget] = React.useState(60);
-  const [appointmentTarget, setAppointmentTarget] = React.useState(4);
+  const [dealsTarget, setDealsTarget] = React.useState(1);
+  const [contactRate, setContactRate] = React.useState(20);
+  const [appointmentRate, setAppointmentRate] = React.useState(25);
+  const [showRate, setShowRate] = React.useState(70);
+  const [closeRate, setCloseRate] = React.useState(30);
   const dials = visibleReps.reduce((sum, r) => sum + (Number(r.dials) || 0), 0);
   const appointments = visibleReps.reduce((sum, r) => sum + (Number(r.appts) || 0), 0);
-  const dialGoal = Math.max(0, Number(dialTarget) || 0) * visibleReps.length;
-  const appointmentGoal = Math.max(0, Number(appointmentTarget) || 0) * visibleReps.length;
-  const progress = (actual, target) => target > 0 ? Math.min(100, Math.round(actual / target * 100)) : 0;
+  const rate = (value) => Math.max(1, Math.min(100, Number(value) || 0)) / 100;
+  const dialsPerDeal = Math.max(1, Math.round(1 / (rate(contactRate) * rate(appointmentRate) * rate(showRate) * rate(closeRate))));
+  const teamDialGoal = dialsPerDeal * Math.max(1, Number(dealsTarget) || 1) * Math.max(1, visibleReps.length);
+  const progress = teamDialGoal > 0 ? Math.min(100, Math.round(dials / teamDialGoal * 100)) : 0;
 
   return (
-    <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+    <div className="panel" style={{ padding: "10px 12px", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Icons.Calculator size={14} style={{ color: "var(--accent-money)" }}/>
-        <strong style={{ fontSize: 14 }}>Daily activity plan</strong>
-        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11.5 }}>Set a per-producer target and track the team total</span>
+        <strong style={{ fontSize: 13.5 }}>Dialing and deal math</strong>
+        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11 }}>What the team needs for the next deal</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {[
-          { label: "Dials", actual: dials, target: dialGoal, value: dialTarget, set: setDialTarget },
-          { label: "Appointments", actual: appointments, target: appointmentGoal, value: appointmentTarget, set: setAppointmentTarget },
-        ].map(item => {
-          const pct = progress(item.actual, item.target);
-          return (
-            <div key={item.label} style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{item.label}</span>
-                <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, color: "var(--text-tertiary)", fontSize: 10.5 }}>
-                  target / producer
-                  <input className="text-input" type="number" min="0" value={item.value} onChange={e => item.set(Math.max(0, Number(e.target.value) || 0))} style={{ width: 58, padding: "4px 6px", textAlign: "right" }}/>
-                </label>
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 10 }}>
-                <strong style={{ fontSize: 24 }}>{item.actual.toLocaleString()}</strong>
-                <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>of {item.target.toLocaleString()}</span>
-                <span style={{ color: pct >= 100 ? "var(--accent-money)" : "var(--text-secondary)", fontSize: 11, marginLeft: "auto" }}>{pct}%</span>
-              </div>
-              <div style={{ height: 6, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden", marginTop: 8 }}><div style={{ height: "100%", width: `${pct}%`, background: pct >= 100 ? "var(--accent-money)" : "var(--accent-status)", transition: "width .2s ease" }}/></div>
-            </div>
-          );
-        })}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, alignItems: "stretch" }}>
+        <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "8px 10px" }}>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dials logged</div>
+          <div className="tabular" style={{ fontSize: 20, fontWeight: 700, marginTop: 3 }}>{dials.toLocaleString()}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}>of {teamDialGoal.toLocaleString()} target</div>
+        </div>
+        <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "8px 10px" }}>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dials / deal</div>
+          <div className="tabular" style={{ fontSize: 20, fontWeight: 700, marginTop: 3 }}>{dialsPerDeal}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}>{progress}% of team target</div>
+        </div>
+        <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "8px 10px" }}>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Appointments</div>
+          <div className="tabular" style={{ fontSize: 20, fontWeight: 700, marginTop: 3 }}>{appointments.toLocaleString()}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}>{dealsTarget} deal target / producer</div>
+        </div>
+        <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "7px 9px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+            <label style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>Deals / producer<input className="text-input" type="number" min="1" value={dealsTarget} onChange={e => setDealsTarget(Math.max(1, Number(e.target.value) || 1))} style={{ width: "100%", padding: "3px 5px", marginTop: 2 }}/></label>
+            <label style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>Close %<input className="text-input" type="number" min="1" max="100" value={closeRate} onChange={e => setCloseRate(e.target.value)} style={{ width: "100%", padding: "3px 5px", marginTop: 2 }}/></label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, marginTop: 4 }}>
+            {[["Contact %", contactRate, setContactRate], ["Appt %", appointmentRate, setAppointmentRate], ["Show %", showRate, setShowRate]].map(([label, value, setter]) => <label key={label} style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>{label}<input className="text-input" type="number" min="1" max="100" value={value} onChange={e => setter(e.target.value)} style={{ width: "100%", padding: "3px 5px", marginTop: 2 }}/></label>)}
+          </div>
+        </div>
       </div>
+      <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden", marginTop: 8 }}><div style={{ height: "100%", width: `${progress}%`, background: progress >= 100 ? "var(--accent-money)" : "var(--accent-status)", transition: "width .2s ease" }}/></div>
     </div>
   );
 }
@@ -1793,9 +1799,19 @@ function ManagerCalendarWorkspace() {
    visible downline and the hydrated production data layer. */
 function ManagerActivityTracker({ REPS, scopeIds }) {
   const [selectedId, setSelectedId] = React.useState(null);
+  const [range, setRange] = React.useState("today");
   const today = todayDateStr();
   const pipeline = AppData.PIPELINE || [];
   const policies = AppData.POLICIES || [];
+  const recordings = AppData.RECORDINGS || [];
+  const rangeStart = React.useMemo(() => {
+    const d = new Date();
+    if (range === "7d") d.setDate(d.getDate() - 6);
+    if (range === "30d") d.setDate(d.getDate() - 29);
+    if (range === "mtd") d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [range]);
   const inScope = (rep) => !scopeIds || scopeIds.length === 0 || scopeIds.includes(rep.id);
   const visibleReps = REPS.filter(inScope);
   const selected = visibleReps.find(r => r.id === selectedId) || null;
@@ -1805,15 +1821,21 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
     const ownedLeads = pipeline.filter(p => p.owner === rep.id);
     const ownedPolicies = policies.filter(p => p.owner === rep.id);
     const issued = ownedPolicies.filter(p => p.status === "issued" || p.issuedAt);
+    const datedIssued = issued.filter(p => {
+      const ts = p.issuedAt || p.effectiveAt || p.submissionDate;
+      return ts && new Date(ts) >= rangeStart;
+    });
+    const loggedCalls = recordings.filter(r => r.repId === rep.id && r.recordedAt && new Date(r.recordedAt) >= rangeStart);
+    const ap = range === "today" ? Number(rep.today) || 0 : datedIssued.reduce((sum, p) => sum + (Number(p.ap) || 0), 0);
     return {
-      dials: Number(rep.dials) || 0,
+      dials: range === "today" ? Number(rep.dials) || 0 : loggedCalls.length,
       leads: ownedLeads.length,
       openLeads: ownedLeads.filter(p => p.stage !== "Issued").length,
-      appts: Number(rep.appts) || 0,
-      todayAP: Number(rep.today) || 0,
-      mtdAP: Number(rep.mtd) || 0,
-      issued: issued.length,
-      issuedToday: issued.filter(p => (p.issuedAt || "").startsWith(today)).length,
+      appts: range === "today" ? Number(rep.appts) || 0 : null,
+      todayAP: ap,
+      mtdAP: range === "today" ? Number(rep.mtd) || 0 : ap,
+      issued: range === "today" ? issued.filter(p => (p.issuedAt || "").startsWith(today)).length : datedIssued.length,
+      issuedToday: datedIssued.length,
     };
   };
 
@@ -1831,40 +1853,43 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
     };
   }, { dials: 0, leads: 0, openLeads: 0, appts: 0, todayAP: 0, mtdAP: 0, issued: 0, issuedToday: 0 });
 
-  const number = (value) => Number(value || 0).toLocaleString();
+  const number = (value) => value == null ? "—" : Number(value || 0).toLocaleString();
   const money = (value) => `$${number(value)}`;
   const metrics = [
-    { label: "Dials today", value: number(total.dials) },
+    { label: range === "today" ? "Dials today" : "Calls logged", value: number(total.dials) },
     { label: "Open leads", value: number(total.openLeads) },
-    { label: "Appointments", value: number(total.appts) },
-    { label: "AP closed today", value: money(total.todayAP) },
+    { label: range === "today" ? "Appointments" : "Appointments live", value: number(total.appts) },
+    { label: range === "today" ? "AP closed today" : "AP in range", value: money(total.todayAP) },
     { label: "Policies issued", value: number(total.issued) },
-    { label: "MTD AP", value: money(total.mtdAP) },
+    { label: range === "today" ? "MTD AP" : "AP total", value: money(total.mtdAP) },
   ];
 
   return (
-    <div style={{ background: "var(--bg-elevated)", borderRadius: 12, border: "1px solid var(--border-subtle)", padding: 18, marginTop: 12, marginBottom: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+    <div style={{ background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "11px 12px", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}>
         <div style={{ width: 28, height: 28, borderRadius: 8, background: "color-mix(in oklch, var(--accent-money) 20%, transparent)", color: "var(--accent-money)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icons.Activity size={15}/>
         </div>
         <div>
-          <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
-          <div style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{selected ? "Selected producer · current production" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in your scope`}</div>
+          <div style={{ color: "var(--text-primary)", fontSize: 14, fontWeight: 700 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{selected ? "Selected producer" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in your scope`} · {range === "today" ? "Today" : range === "mtd" ? "This month" : `Last ${range === "7d" ? "7" : "30"} days`}</div>
         </div>
+        <select className="select" value={range} onChange={e => setRange(e.target.value)} style={{ marginLeft: "auto", minWidth: 112, padding: "5px 8px", fontSize: 11 }} aria-label="Downline activity date range">
+          <option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="mtd">Month to date</option>
+        </select>
         {selected && <button className="btn btn-ghost" onClick={() => setSelectedId(null)} style={{ marginLeft: "auto", color: "var(--accent-money)", padding: "5px 9px", fontSize: 11 }}>All downline</button>}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 6, marginBottom: 9 }}>
         {metrics.map(metric => (
-          <div key={metric.label} style={{ background: "color-mix(in oklch, var(--accent-money) 14%, var(--bg-raised))", borderRadius: 8, padding: "10px 11px", color: "var(--text-primary)", minWidth: 0 }}>
+          <div key={metric.label} style={{ background: "color-mix(in oklch, var(--accent-money) 14%, var(--bg-raised))", borderRadius: 7, padding: "7px 9px", color: "var(--text-primary)", minWidth: 0 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.value}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{metric.value}</div>
           </div>
         ))}
       </div>
 
-      <div style={{ color: "var(--text-tertiary)", fontSize: 10.5, marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
+      <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
       <div style={{ overflowX: "auto", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
         <div style={{ minWidth: 650 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "var(--text-tertiary)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>

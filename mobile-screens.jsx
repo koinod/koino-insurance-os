@@ -329,7 +329,7 @@ function MScreenLeaderboard({ onNav }) {
   const ranked = [...AppData.REPS].sort((a, b) => b.mtd - a.mtd);
   return (
     <div className="m-screen">
-      <MHeader title="Leaderboard" sub="MTD premium · Atlanta office" />
+      <MHeader title="Team Progress" sub="MTD premium · team view" />
 
       <div style={{ padding: "0 16px 8px", display: "flex", gap: 6 }}>
         {["Office", "All teams", "Personal"].map((t, i) => (

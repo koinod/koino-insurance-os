@@ -72,12 +72,16 @@ function PageLeaderboard({ role = "rep" }) {
   const displayMtdTone = (r, rank) => (masksOthers && r.id !== myId)
     ? bandFor(rank, sorted.length).tone
     : "var(--text-primary)";
+  const totalAp = sorted.reduce((sum, r) => sum + periodValue(r), 0);
+  const totalDials = sorted.reduce((sum, r) => sum + (Number(r.dials) || 0), 0);
+  const totalStreak = sorted.reduce((sum, r) => sum + (Number(r.streak) || 0), 0);
+  const leader = sorted[0] || null;
 
   return (
     <div className="page-pad">
       <div className="page-h">
         <div>
-          <div className="page-title">Leaderboard</div>
+          <div className="page-title">Team Progress</div>
           <div className="page-sub">{agencyName} · {period} · {sorted.length} producer{sorted.length === 1 ? "" : "s"}{role === "manager" ? " in your downline" : " active"}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -105,12 +109,12 @@ function PageLeaderboard({ role = "rep" }) {
           <button
             className="btn"
             onClick={() => window.dispatchEvent(new CustomEvent("ai:ask", { detail: {
-              prompt: `Draft a 1-day challenge for my ${role === "manager" ? "downline" : "team"} — pick the highest-impact metric (dials, appts, AP, or persistency) based on current standings, frame it as a one-line goal, and suggest a small win for whoever leads at end of day.`,
-              context: "Leaderboard · issue challenge",
+              prompt: `Set a practical one-day focus for my ${role === "manager" ? "downline" : "team"} based on current production: choose the clearest next action from dials, appointments, AP, or persistency.`,
+              context: "Team Progress · set focus",
             }}))}
             title="Draft a challenge with the AI co-pilot"
           >
-            <Icons.Calendar size={13}/> Issue challenge
+            <Icons.Calendar size={13}/> Set team focus
           </button>
         </div>
       </div>
@@ -123,42 +127,27 @@ function PageLeaderboard({ role = "rep" }) {
         </div>
       )}
 
-      {/* Podium — tighter packing, koino.capital green-accent for the leader */}
-      {sorted.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "1fr 1.15fr 1fr", gap: 10, marginBottom: 12 }}>
-        {[1, 0, 2].filter(i => sorted[i]).map(i => {
-          const r = sorted[i];
-          const podium = i === 0;
-          return (
-            <div key={r.id} className="panel" style={{
-              padding: 0,
-              position: "relative",
-              overflow: "hidden",
-              background: podium ? "linear-gradient(180deg, rgba(0,212,170,0.06), var(--bg-elevated))" : undefined,
-              borderColor: podium ? "rgba(0,212,170,0.35)" : undefined,
-            }}>
-              <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-                <div className="mono tabular" style={{ fontSize: 10, color: "var(--text-tertiary)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Rank</div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: podium ? 44 : 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: podium ? "var(--accent-money)" : "var(--text-secondary)" }}>{i + 1}</div>
-                <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Shared.Avatar rep={r} size={24}/>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{r.handle}</div>
-                  </div>
-                </div>
-                <div style={{ marginTop: 8 }}><Shared.TierChip tier={r.tier} compact/></div>
-                <div className="tabular" style={{ marginTop: 8, fontFamily: "var(--font-mono)", fontSize: podium ? 26 : 20, fontWeight: 700, letterSpacing: "-0.02em", color: displayMtdTone(r, i) }}>{displayMtd(r, i)}</div>
-                <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(masksOthers && r.id !== myId) ? "Relative band" : "MTD AP"} · streak {r.streak}d</div>
+      {sorted.length > 0 && (
+        <div className="panel" style={{ padding: "11px 14px", marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr repeat(3, 1fr)", gap: 14, alignItems: "center" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: "var(--text-tertiary)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>Current leader</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, minWidth: 0 }}>
+                {leader && <Shared.Avatar rep={leader} size={22}/>}<strong style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{leader?.name || "No leader yet"}</strong>
+                {leader && <Shared.TierChip tier={leader.tier} compact/>}
               </div>
             </div>
-          );
-        })}
-      </div>}
+            <div><div style={{ color: "var(--text-tertiary)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>{period} AP</div><div className="tabular" style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>{masksOthers && leader?.id !== myId ? "—" : formatMoney(totalAp)}</div></div>
+            <div><div style={{ color: "var(--text-tertiary)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>Dials today</div><div className="tabular" style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>{totalDials.toLocaleString()}</div></div>
+            <div><div style={{ color: "var(--text-tertiary)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>Streak days</div><div className="tabular" style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>{totalStreak.toLocaleString()}</div></div>
+          </div>
+        </div>
+      )}
 
       <div className="panel">
         <div className="panel-h">
-          <h3>Full standings</h3>
-          <span className="meta">click rep for scorecard</span>
+          <h3>Production standings</h3>
+          <span className="meta">select a producer to view progress</span>
         </div>
         <div className="list">
           <div className="list-h" style={{ gridTemplateColumns: "32px 1.4fr 90px 110px 60px 1fr" }}>
@@ -189,7 +178,7 @@ function PageLeaderboard({ role = "rep" }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
         <div className="panel">
-          <div className="panel-h"><Icons.Award size={12}/><h3>Recent badges</h3></div>
+          <div className="panel-h"><Icons.Award size={12}/><h3>Team highlights</h3></div>
           {(() => {
             // Derive badges from real signals in scope. Falls back to an empty
             // state if no rep has earned anything yet — was a hardcoded list of
@@ -240,7 +229,7 @@ function PageLeaderboard({ role = "rep" }) {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><Icons.Bolt size={12} style={{ color: "var(--accent-money)" }}/><h3>Live floor</h3><span className="meta">presence</span></div>
+          <div className="panel-h"><Icons.Users size={12} style={{ color: "var(--accent-money)" }}/><h3>Team availability</h3><span className="meta">today</span></div>
           <div style={{ padding: "8px 12px 10px" }}>
             {(() => {
               const live = sorted.filter(r => r.presence === "live").length;

@@ -218,8 +218,8 @@ function App() {
                                  ? F("PageDialing", { role, onCall: () => setCallOpen(true), defaultMode: "live" })
                                  : F("PageToday", { role });
       case "leaderboard": return (() => {
-        // page-leaderboard.jsx was removed — fall through to Performance for
-        // owners, or a stub message for non-owner roles.
+        // Team Progress uses the shared performance route so owners and
+        // managers see the same compact standings surface.
         const P = window.PagePerformance;
         if (P) return <P/>;
         return <div style={{ padding: 30, color: "var(--text-tertiary)", fontSize: 13 }}>Leaderboard view not available — open P&L → Performance instead.</div>;
