@@ -133,6 +133,15 @@
   async function upsertAppointment(carrier, agencyId, patch) {
     const sb = window.getSupabase && window.getSupabase();
     if (!sb || !agencyId) throw new Error("supabase or agency not ready");
+    if (carrier._custom) {
+      const { error } = await sb
+        .from("agency_carrier_appointments")
+        .update(patch)
+        .eq("id", carrier._customAppointmentId)
+        .eq("agency_id", agencyId);
+      if (error) throw error;
+      return carrier._customAppointmentId;
+    }
     const lookupIds = window.repflowCarrierKeyInfo
       ? window.repflowCarrierKeyInfo(carrier.id).aliases
       : [carrier.id];
@@ -620,6 +629,51 @@
     );
   }
 
+  function AddCarrierModal({ agencyId, onClose, onSaved }) {
+    const [name, setName] = useState("");
+    const [category, setCategory] = useState("life");
+    const [notes, setNotes] = useState("");
+    const [saving, setSaving] = useState(false);
+    const save = async () => {
+      if (!name.trim() || !agencyId) return;
+      setSaving(true);
+      try {
+        const sb = window.getSupabase && window.getSupabase();
+        const { error } = await sb.from("agency_carrier_appointments").insert({
+          agency_id: agencyId,
+          carrier_id: null,
+          carrier_name: name.trim(),
+          category,
+          status: "pending",
+          notes: notes.trim() || null,
+        });
+        if (error) throw error;
+        window.toast && window.toast(`${name.trim()} added to your carrier directory`, "success");
+        onSaved && onSaved();
+        onClose();
+      } catch (e) {
+        window.toast && window.toast(`Could not add carrier: ${e.message || e}`, "error");
+      } finally { setSaving(false); }
+    };
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }} onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)", borderRadius: 8, padding: 20, width: 440, maxWidth: "90vw" }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Add a carrier</div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>Add a carrier specific to this agency. It will start as Pending until you update its appointment status.</div>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>Carrier name *</label>
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Liberty Bankers Life" style={{ width: "100%", padding: "6px 8px", borderRadius: 4, background: "var(--bg-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", fontSize: 13, marginBottom: 12 }}/>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>Category</label>
+          <select value={category} onChange={e => setCategory(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, background: "var(--bg-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", fontSize: 13, marginBottom: 12 }}>
+            <option value="life">Life</option><option value="final_expense">Final Expense</option><option value="med_supp">Med Supp</option><option value="annuity">Annuity</option><option value="other">Other</option>
+          </select>
+          <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 4 }}>Notes</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Products, portal URL, or appointment notes" rows={3} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, background: "var(--bg-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", fontSize: 13, marginBottom: 16, fontFamily: "inherit", resize: "vertical" }}/>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving || !name.trim()}>{saving ? "Adding…" : "Add carrier"}</button></div>
+        </div>
+      </div>
+    );
+  }
+
   function CarrierRequestStrip({ requests }) {
     const pending = requests.filter(r => r.status === "pending");
     const recent  = requests.filter(r => r.status !== "pending").slice(0, 3);
@@ -668,6 +722,7 @@
     const [filter, setFilter] = useState("all"); // all | self | bridge | pending | not_pursuing
     const [search, setSearch] = useState("");
     const [showRequestModal, setShowRequestModal] = useState(false);
+    const [showAddModal, setShowAddModal] = useState(false);
     const [requests, reloadRequests] = useCarrierRequests(agencyId);
     const [loginVault, setLoginVault] = useState({});
     const [loginEditing, setLoginEditing] = useState(null);
@@ -701,13 +756,34 @@
 
     useEffect(() => { reloadVault(); }, [reloadVault]);
 
+    // Keep the global catalog intact, but show a small agency-friendly working
+    // set by default. Search still reaches the full catalog when needed.
+    const directoryCarriers = useMemo(() => {
+      const custom = (appts || []).filter(a => !a.carrier_id).map(a => ({
+        id: `custom:${a.id}`,
+        name: a.carrier_name,
+        category: a.category || "other",
+        _custom: true,
+        _customAppointmentId: a.id,
+      }));
+      const customNames = new Set(custom.map(c => c.name.toLowerCase()));
+      const global = (carriers || []).filter(c => !customNames.has(String(c.name || "").toLowerCase()));
+      return [...custom, ...global];
+    }, [carriers, appts]);
+
+    const visibleDirectory = useMemo(() => {
+      const limit = 6;
+      return search.trim() ? directoryCarriers : directoryCarriers.slice(0, limit);
+    }, [directoryCarriers, search]);
+
     // Map carrier_id → appt for fast lookup.
     const apptByCarrier = useMemo(() => {
       const m = {};
       (appts || []).forEach(a => {
-        const aliases = window.repflowCarrierKeyInfo
+        const normalized = window.repflowCarrierKeyInfo
           ? window.repflowCarrierKeyInfo(a.carrier_id || a.carrier_name).aliases
-          : [a.carrier_id];
+          : [];
+        const aliases = [a.carrier_id, a.carrier_name, a.id && `custom:${a.id}`, ...normalized].filter(Boolean);
         aliases.forEach((alias) => { if (alias && !m[alias]) m[alias] = a; });
       });
       return m;
@@ -715,9 +791,9 @@
 
     // Rollup counts for the filter chips.
     const counts = useMemo(() => {
-      const out = { all: (carriers || []).length, self: 0, bridge: 0, pending: 0, not_pursuing: 0 };
-      (carriers || []).forEach(c => {
-        const carrierKey = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id;
+      const out = { all: visibleDirectory.length, self: 0, bridge: 0, pending: 0, not_pursuing: 0 };
+      visibleDirectory.forEach(c => {
+        const carrierKey = c.id;
         const s = apptByCarrier[carrierKey]?.status;
         if (!s) return;
         const k = s === "active" ? "self" : (out[s] != null ? s : null);
@@ -725,21 +801,20 @@
         out[k] = (out[k] || 0) + 1;
       });
       return out;
-    }, [carriers, apptByCarrier]);
+    }, [visibleDirectory, apptByCarrier]);
 
     const rows = useMemo(() => {
-      const list = carriers || [];
+      const list = visibleDirectory;
       const q = search.trim().toLowerCase();
       return list.filter(c => {
         if (q && !(c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))) return false;
         if (filter === "all") return true;
-        const carrierKey = window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id;
-        const s = apptByCarrier[carrierKey]?.status;
+        const s = apptByCarrier[c.id]?.status;
         if (!s) return false;
         const norm = s === "active" ? "self" : s;
         return norm === filter;
       });
-    }, [carriers, apptByCarrier, search, filter]);
+    }, [visibleDirectory, apptByCarrier, search, filter]);
 
     const openLoginEditor = (carrier) => {
       const slug = carrierLoginProvider(carrier);
@@ -884,6 +959,12 @@
             Refresh
           </button>
           {canEdit && (
+            <button className="btn btn-primary" onClick={() => setShowAddModal(true)}
+              title="Add an agency-specific carrier" style={{ fontSize: 11, padding: "4px 10px" }}>
+              + Add carrier
+            </button>
+          )}
+          {canEdit && (
             <button className="btn btn-primary" onClick={() => setShowRequestModal(true)}
               title="Request a carrier that isn't in the catalog yet"
               style={{ fontSize: 11, padding: "4px 10px" }}>
@@ -922,7 +1003,7 @@
           </div>
           {rows.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
-              {(carriers || []).length === 0
+              {directoryCarriers.length === 0
                 ? "No carriers in catalog yet."
                 : "No carriers match this filter."}
             </div>
@@ -931,7 +1012,7 @@
               <React.Fragment key={c.id}>
                 <CarrierRow
                   carrier={c}
-                  appt={apptByCarrier[window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id]}
+                  appt={apptByCarrier[c.id] || apptByCarrier[window.repflowCarrierPrefKey ? window.repflowCarrierPrefKey(c.id) : c.id]}
                   canEdit={canEdit}
                   agencyId={agencyId}
                   onMutate={reload}
@@ -1003,6 +1084,7 @@
 
         {/* Footer helper */}
         <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-tertiary)" }}>
+          {!search.trim() && directoryCarriers.length > 6 && <>Showing {visibleDirectory.length} of {directoryCarriers.length} carriers. Search to find another. · </>}
           Schema: <code>public.agency_carrier_appointments</code> · upsert by
           (agency_id, carrier_id) · RLS scoped via <code>viewer_agency_ids()</code>.
           Carrier missing? Use <strong>+ Request carrier</strong> — adds to
@@ -1014,6 +1096,12 @@
             agencyId={agencyId}
             onClose={() => setShowRequestModal(false)}
             onSaved={reloadRequests}/>
+        )}
+        {showAddModal && (
+          <AddCarrierModal
+            agencyId={agencyId}
+            onClose={() => setShowAddModal(false)}
+            onSaved={reload}/>
         )}
       </div>
     );
