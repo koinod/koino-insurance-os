@@ -642,6 +642,38 @@ html[data-sidebar-collapsed="1"] .app[data-mobile="on"]{ grid-template-columns: 
 .kpi.hero .kpi-val { font-size: 56px; line-height: 1; margin-top: 10px; letter-spacing: -0.04em; }
 .kpi.hero .kpi-spark { width: 130px; height: 56px; }
 
+/* Vault is a scanning surface: keep resource counts compact so the
+   library and course content remain in the first viewport. */
+.vault-summary-grid .kpi {
+  padding: 9px 11px 8px;
+  border-radius: 8px;
+}
+.vault-summary-grid .kpi-val {
+  font-size: 22px;
+  margin-top: 3px;
+}
+.vault-summary-grid .kpi-meta {
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+.vault-course-card {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.vault-course-card:hover {
+  border-color: var(--accent-status);
+  background: var(--bg-overlay);
+}
+
 /* Tier chip */
 .tier {
   display: inline-flex;

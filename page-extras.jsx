@@ -157,7 +157,7 @@ function PageVault({ role = "owner", embedded = false }) {
       )}
 
       {/* Clickable Vault Dashboard Summary Row */}
-      <div className="kpi-row" style={{ marginBottom: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+      <div className="kpi-row vault-summary-grid" style={{ marginBottom: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
         <Shared.KpiCard label="Scripts" value={String(counts.scripts)} sub="open library" onClick={() => setTab("scripts")}/>
         <Shared.KpiCard label="Videos" value={String(counts.videos)} sub="training reels" onClick={() => setTab("videos")}/>
         <Shared.KpiCard label="Docs" value={String(counts.docs)} sub="forms · policies" onClick={() => setTab("docs")}/>
@@ -321,7 +321,7 @@ function VaultScriptsPane({ scripts, openId, setOpenId, subCtx, role }) {
   const isManager = myRole === "owner" || myRole === "manager"
                  || myRole === "imo_owner" || myRole === "admin"
                  || myRole === "super_admin";
-  const canCreate = !!me;
+  const canCreate = true;
   const canModify = (s) => {
     if (isManager) return true;
     if (myRole === "rep") {
@@ -4096,6 +4096,8 @@ function ProductTrainingManager({ store }) {
   const { REPS } = AppData;
   const [showAssign, setShowAssign] = React.useState(false);
   const [editing, setEditing]       = React.useState(null);
+  const [openCourse, setOpenCourse] = React.useState(null);
+  const meId = (window.me && window.me()?.rep_id) || REPS[0]?.id || null;
 
   const newCourse = () => setEditing({
     id: "c-" + Date.now(),
@@ -4141,6 +4143,38 @@ function ProductTrainingManager({ store }) {
       </div>
 
       {editing && <CourseBuilderModal course={editing} setCourse={setEditing} onSave={saveCourse} onCancel={() => setEditing(null)}/>}
+
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-h">
+          <Icons.Book size={13}/><h3>Course library</h3>
+          <span className="meta">{store.courses.length} available</span>
+        </div>
+        <div style={{ padding: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 8 }}>
+          {store.courses.map(course => {
+            const lessonCount = (course.sections || []).reduce((sum, section) => sum + (section.lessons || []).length, 0);
+            const pct = meId ? ProductTraining.percentFor(meId, course, store.progress) : 0;
+            return (
+              <button key={course.id} className="vault-course-card" onClick={() => setOpenCourse(course)}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="cell-truncate" style={{ fontWeight: 600, fontSize: 12.5 }}>{course.title || "Untitled course"}</div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, color: "var(--text-tertiary)", fontSize: 10.5 }}>
+                      <span className="chip" style={{ fontSize: 9.5 }}>{course.track || "Training"}</span>
+                      <span>{course.durMin || 0} min · {lessonCount} lesson{lessonCount === 1 ? "" : "s"}</span>
+                    </div>
+                  </div>
+                  <Icons.ArrowUpRight size={12} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8 }}>
+                  <div style={{ flex: 1, height: 4, background: "var(--bg-base)", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "var(--accent-money)" : "var(--accent-status)" }}/></div>
+                  <span className="tabular" style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{pct}%</span>
+                </div>
+              </button>
+            );
+          })}
+          {store.courses.length === 0 && <div style={{ gridColumn: "1 / -1", padding: 18, color: "var(--text-tertiary)", textAlign: "center", fontSize: 12 }}>No courses created yet. Use New course to add the first one.</div>}
+        </div>
+      </div>
 
       {atRisk.length > 0 && (
         <div className="panel" style={{ marginBottom: 12 }}>
@@ -4207,6 +4241,9 @@ function ProductTrainingManager({ store }) {
       </div>
 
       {showAssign && <AssignCourseModal store={store} onClose={() => setShowAssign(false)}/>}
+      {openCourse && meId && (
+        <CourseViewerModal course={openCourse} repId={meId} store={store} onClose={() => setOpenCourse(null)}/>
+      )}
     </>
   );
 }
