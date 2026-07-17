@@ -194,7 +194,11 @@ function PageVault({ role = "owner", embedded = false }) {
             </div>
           )}
           {fScripts.length  > 0 && <VaultScriptsBlock  scripts={fScripts}  openId={openScript} setOpenId={setOpenScript} subCtx={subCtx}/>}
-          {fCourses.length  > 0 && <VaultCoursesBlock  courses={fCourses}  role={role}/>}
+          {fCourses.length  > 0 && <VaultCoursesBlock courses={fCourses} role={role} onOpen={(course) => {
+            try { sessionStorage.setItem("repflow.training.course", course?.id || ""); } catch {}
+            setTab("courses");
+            setTimeout(() => window.dispatchEvent(new CustomEvent("training:open-course", { detail: { courseId: course?.id } })), 0);
+          }}/>}
           {fVideos.length   > 0 && <VaultVideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
           {fDocs.length     > 0 && <VaultDocsBlock     docs={fDocs}/>}
           {fCarriers.length > 0 && <VaultCarriersBlock carriers={fCarriers}/>}
@@ -742,7 +746,7 @@ function VaultDocsBlock({ docs }) {
 }
 
 /* ── Vault: Courses block (compact preview, full pane lives on Courses tab) ── */
-function VaultCoursesBlock({ courses, role }) {
+function VaultCoursesBlock({ courses, role, onOpen }) {
   if (!courses.length) {
     return (
       <div className="panel" style={{ padding: 32, textAlign: "center" }}>
@@ -752,10 +756,10 @@ function VaultCoursesBlock({ courses, role }) {
   }
   return (
     <div className="panel">
-      <div className="panel-h"><Icons.Book size={13}/><h3>Courses</h3><span className="meta">{courses.length}</span></div>
+      <div className="panel-h"><Icons.Book size={13}/><h3>Courses</h3><span className="meta">{courses.length}</span><span className="meta" style={{ marginLeft: "auto" }}>{role === "manager" ? "View and manage" : "Open a course"}</span></div>
       <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
         {courses.map(c => (
-          <div key={c.id} style={{ padding: 12, background: "var(--bg-raised)", borderRadius: 6, border: "1px solid var(--border-subtle)" }}>
+          <button key={c.id} type="button" onClick={() => onOpen?.(c)} className="vault-course-card" style={{ padding: 12 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ flex: 1 }}>{c.title}</span>
               {c.isStarter && <span className="chip" style={{ fontSize: 9, color: "var(--text-tertiary)" }}>starter</span>}
@@ -763,7 +767,8 @@ function VaultCoursesBlock({ courses, role }) {
             {c.track && <div style={{ marginTop: 4 }}><span className="chip" style={{ fontSize: 9.5 }}>{c.track}</span></div>}
             {c.description && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }} className="cell-truncate">{c.description}</div>}
             {c.required && <div style={{ marginTop: 6 }}><span className="chip chip-status" style={{ fontSize: 9.5 }}>required</span></div>}
-          </div>
+            <div style={{ marginTop: 8, fontSize: 10.5, color: "var(--accent-status)", fontWeight: 600 }}>Open course <Icons.ArrowUpRight size={11} style={{ verticalAlign: "-2px" }}/></div>
+          </button>
         ))}
       </div>
     </div>
@@ -1172,6 +1177,54 @@ function VaultSegmentsListBlock({ segments, onOpen }) {
   );
 }
 
+function openTrainingLibrary() {
+  try { sessionStorage.setItem("repflow.training.tab", "library"); } catch {}
+  window.gotoPage?.("training");
+}
+
+/* Small shared entry point so Coaching, Floor, and Call Library all land on
+   the same persisted call_recordings pipeline. */
+function VaultRecordingActions({ onUploaded }) {
+  const fileRef = React.useRef(null);
+  const [uploading, setUploading] = React.useState(false);
+  const upload = async (files) => {
+    const file = Array.from(files || [])[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const sb = window.getSupabase?.();
+      const { data } = await (sb?.auth.getSession?.() || Promise.resolve({ data: {} }));
+      const jwt = data?.session?.access_token;
+      const fd = new FormData();
+      fd.append("file", file, file.name || "call-recording");
+      fd.append("mime", file.type || "audio/webm");
+      fd.append("channels", "uploaded");
+      fd.append("lead_name", file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
+      const res = await fetch("/api/call-recording-upload", { method: "POST", headers: jwt ? { "x-supabase-auth": `Bearer ${jwt}` } : {}, body: fd });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `upload failed (${res.status})`);
+      window.toast?.("Recording uploaded — coaching will appear here after processing.", "success");
+      onUploaded?.();
+      window.dispatchEvent(new CustomEvent("data:hydrated"));
+      setTimeout(() => window.hydrateFromSupabase?.(), 1200);
+    } catch (e) { window.toast?.(`Recording upload failed: ${e.message || e}`, "error"); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const start = () => {
+    try {
+      sessionStorage.setItem("repflow.recorder.mode", "mic");
+      sessionStorage.setItem("repflow.recorder.returnPage", "training");
+      sessionStorage.setItem("repflow.recorder.returnTab", "coaching");
+    } catch {}
+    window.gotoPage?.("recorder");
+  };
+  return <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+    <button className="btn btn-primary btn-sm" onClick={start}><Icons.Mic size={12}/> Record call</button>
+    <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading}><Icons.Upload size={12}/> {uploading ? "Uploading…" : "Upload recording"}</button>
+    <input ref={fileRef} type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg" hidden onChange={e => upload(e.target.files)}/>
+  </div>;
+}
+
 /* ── Vault: Coaching pane — recordings / notes / sessions ──────────────── */
 function VaultCoachingPane({ role }) {
   const [sub, setSub] = React.useState("recordings");
@@ -1191,8 +1244,14 @@ function VaultCoachingPane({ role }) {
   const sessions = (window.AppData && window.AppData.COACHING_SESSIONS) || [];
 
   const SUBS = [["recordings","Call Recordings"],["notes","Coaching Notes"],["sessions","Sessions"]];
+  const latest = recordings[0];
   return (
     <div>
+      <div className="panel" style={{ marginBottom: 12, padding: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}><strong style={{ fontSize: 13 }}>Call coaching</strong><div style={{ color: "var(--text-tertiary)", fontSize: 11.5, marginTop: 3 }}>Record a roleplay, upload a call, or review the latest recording.</div></div>
+        <VaultRecordingActions />
+        {latest && <button className="btn btn-ghost btn-sm" onClick={openTrainingLibrary}><Icons.Headset size={12}/> View last</button>}
+      </div>
       <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
         {SUBS.map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} className="btn btn-ghost"
@@ -4025,6 +4084,19 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
   const [tab, setTab] = React.useState("courses");
   const [openCourse, setOpenCourse] = React.useState(null);
 
+  React.useEffect(() => {
+    let courseId = null;
+    try { courseId = sessionStorage.getItem("repflow.training.course"); } catch {}
+    const open = (id) => {
+      const course = store.courses.find(c => c.id === id);
+      if (course) { setTab("courses"); setOpenCourse(course); try { sessionStorage.removeItem("repflow.training.course"); } catch {} }
+    };
+    if (courseId) open(courseId);
+    const onOpen = e => open(e.detail?.courseId);
+    window.addEventListener("training:open-course", onOpen);
+    return () => window.removeEventListener("training:open-course", onOpen);
+  }, [store.courses]);
+
   const required = ProductTraining.requiredCoursesFor(meId, store.courses, store.progress, store.assignments);
   const optional = store.courses.filter(c => !required.includes(c));
   const activeCount = store.courses.filter(c => ProductTraining.statusFor(meId, c, store.progress, store.assignments) !== "complete")?.length;
@@ -4083,8 +4155,8 @@ function ProductTrainingRep({ store, meId, requiredOpen }) {
         </>
       )}
 
-      {tab === "videos"  && <VideoLibrary canEdit={role !== "rep"}/>}
-      {tab === "scripts" && <ScriptsLibrary canEdit={role !== "rep"}/>}
+      {tab === "videos"  && <VideoLibrary canEdit={false}/>}
+      {tab === "scripts" && <ScriptsLibrary canEdit={false}/>}
 
       {openCourse && <CourseViewerModal course={openCourse} repId={meId} store={store} onClose={() => setOpenCourse(null)}/>}
     </>
@@ -4098,6 +4170,19 @@ function ProductTrainingManager({ store }) {
   const [editing, setEditing]       = React.useState(null);
   const [openCourse, setOpenCourse] = React.useState(null);
   const meId = (window.me && window.me()?.rep_id) || REPS[0]?.id || null;
+
+  React.useEffect(() => {
+    let courseId = null;
+    try { courseId = sessionStorage.getItem("repflow.training.course"); } catch {}
+    const open = (id) => {
+      const course = store.courses.find(c => c.id === id);
+      if (course) { setOpenCourse(course); try { sessionStorage.removeItem("repflow.training.course"); } catch {} }
+    };
+    if (courseId) open(courseId);
+    const onOpen = e => open(e.detail?.courseId);
+    window.addEventListener("training:open-course", onOpen);
+    return () => window.removeEventListener("training:open-course", onOpen);
+  }, [store.courses]);
 
   const newCourse = () => setEditing({
     id: "c-" + Date.now(),
@@ -4154,7 +4239,7 @@ function ProductTrainingManager({ store }) {
             const lessonCount = (course.sections || []).reduce((sum, section) => sum + (section.lessons || []).length, 0);
             const pct = meId ? ProductTraining.percentFor(meId, course, store.progress) : 0;
             return (
-              <button key={course.id} className="vault-course-card" onClick={() => setOpenCourse(course)}>
+              <div key={course.id} className="vault-course-card" role="button" tabIndex={0} onClick={() => setOpenCourse(course)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenCourse(course); } }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="cell-truncate" style={{ fontWeight: 600, fontSize: 12.5 }}>{course.title || "Untitled course"}</div>
@@ -4163,13 +4248,13 @@ function ProductTrainingManager({ store }) {
                       <span>{course.durMin || 0} min · {lessonCount} lesson{lessonCount === 1 ? "" : "s"}</span>
                     </div>
                   </div>
-                  <Icons.ArrowUpRight size={12} style={{ color: "var(--text-tertiary)", flexShrink: 0 }}/>
+                  <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "2px 5px" }} title="Edit course" onClick={e => { e.stopPropagation(); setEditing(course); }}><Icons.Edit size={11}/></button>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8 }}>
                   <div style={{ flex: 1, height: 4, background: "var(--bg-base)", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "var(--accent-money)" : "var(--accent-status)" }}/></div>
                   <span className="tabular" style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{pct}%</span>
                 </div>
-              </button>
+              </div>
             );
           })}
           {store.courses.length === 0 && <div style={{ gridColumn: "1 / -1", padding: 18, color: "var(--text-tertiary)", textAlign: "center", fontSize: 12 }}>No courses created yet. Use New course to add the first one.</div>}

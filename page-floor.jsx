@@ -311,7 +311,7 @@
       if (!blob.size) { setRecStatus("idle"); setNote("Nothing captured (empty recording)."); return; }
       try {
         const sb = window.getSupabase?.();
-        const { data } = await sb.auth.getSession();
+        const { data } = await (sb?.auth?.getSession?.() || Promise.resolve({ data: {} }));
         const jwt = data?.session?.access_token;
         const fd = new FormData();
         fd.append("file", blob, `call.${mimeRef.current.includes("ogg") ? "ogg" : mimeRef.current.includes("mp4") ? "m4a" : "webm"}`);
@@ -323,6 +323,8 @@
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `upload failed (${r.status})`);
         window.toast?.("Recording saved — transcript + coaching will appear in Recorder.", "success");
+        window.dispatchEvent(new CustomEvent("data:hydrated"));
+        setTimeout(() => window.hydrateFromSupabase?.(), 1200);
         setRecStatus("idle"); setSeconds(0); setNote("Saved! Transcript + coaching appear in the Recorder tab within a few minutes.");
       } catch (e) {
         setRecStatus("idle"); setNote("Upload failed: " + (e.message || "unknown"));
@@ -798,6 +800,10 @@
           <div>
             <div className="page-title">Floor</div>
             <div className="page-sub">In-call assistant — scripts, live transcription, client capture & live quotes.</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { try { sessionStorage.setItem("repflow.training.tab", "coaching"); } catch {} window.gotoPage?.("training"); }}><Icons.Activity size={12}/> Coaching</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { try { sessionStorage.setItem("repflow.training.tab", "library"); } catch {} window.gotoPage?.("training"); }}><Icons.Headset size={12}/> Last recordings</button>
           </div>
           {activeCallInfo && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 20, background: "color-mix(in oklch,var(--accent-money) 15%,var(--bg-raised))", border: "1px solid color-mix(in oklch,var(--accent-money) 40%,transparent)" }}>
