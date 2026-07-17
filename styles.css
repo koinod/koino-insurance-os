@@ -674,6 +674,27 @@ html[data-sidebar-collapsed="1"] .app[data-mobile="on"]{ grid-template-columns: 
   background: var(--bg-overlay);
 }
 
+.recruiting-setup-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.recruiting-setup-card:hover,
+.recruiting-setup-card[aria-pressed="true"] {
+  border-color: var(--accent-status);
+  background: var(--bg-overlay);
+}
+
 /* Tier chip */
 .tier {
   display: inline-flex;

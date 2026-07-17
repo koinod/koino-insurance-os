@@ -111,6 +111,11 @@
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {(scope.isOwner || isManager) && (
+              <button className="btn btn-ghost" onClick={() => setTab("invite")}>
+                <Icons.UserPlus size={13}/> Invite team
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={() => setShowAddApplicant(true)}>
               <Icons.Plus size={13}/> Add applicant
             </button>
@@ -137,12 +142,11 @@
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid var(--border-subtle)" }}>
           {[
-            { id: "invite",        label: "Invite team",   icon: "Plus" },
-            { id: "funnel",        label: "Funnel",        icon: "Pipeline" },
-            { id: "conversations", label: "Conversations", icon: "MessageSquare" },
-            { id: "programs",      label: "Programs",      icon: "Sparkles" },
+            { id: "funnel",        label: "Pipeline",      icon: "Pipeline" },
+            { id: "conversations", label: "Inbox",         icon: "MessageSquare" },
+            { id: "programs",      label: "Campaigns",     icon: "Sparkles" },
             ...(scope.isOwner || isManager
-              ? [{ id: "settings", label: "Settings", icon: "Settings" }]
+              ? [{ id: "settings", label: "Setup", icon: "Settings" }]
               : []),
           ].map(t => {
             const I = Icons[t.icon] || Icons.Circle;
@@ -165,7 +169,7 @@
 
         {tab === "invite" && (
           window.InviteTeamPanel
-            ? <window.InviteTeamPanel/>
+            ? <div><button className="btn btn-ghost" style={{ marginBottom: 10 }} onClick={() => setTab("funnel")}><Icons.ArrowRight size={12} style={{ transform: "rotate(180deg)" }}/> Back to pipeline</button><window.InviteTeamPanel/></div>
             : <div className="panel" style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 12.5 }}>Invite UI not loaded — refresh the page.</div>
         )}
         {tab === "funnel" && (
@@ -1165,11 +1169,40 @@
 
   /* ─── Settings tab — Local Agent · Hosted sites · Platform creds ─────── */
   function SettingsTab({ role, me }) {
+    const [section, setSection] = useState(null);
+    const sites = (window.AppData && window.AppData.AGENCY_SITES) || [];
+    const connections = (window.AppData && window.AppData.CONNECTIONS) || [];
+    const liveConnections = connections.filter(c => c.status === "ok" || c.status === "connected").length;
+    const options = [
+      { id: "site", icon: "ArrowUpRight", title: "Career page and forms", sub: `${sites.length} hosted site${sites.length === 1 ? "" : "s"} · capture applicants from the web` },
+      { id: "post", icon: "Plug", title: "Posting and connections", sub: `${liveConnections} connected service${liveConnections === 1 ? "" : "s"} · job posts and messages` },
+      { id: "automation", icon: "Sparkles", title: "Automation", sub: "Agent status · posting and inbox sync" },
+    ];
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <LocalAgentPanel/>
-        <HostedSitesPanel agencyId={me?.agency_id} role={role}/>
-        <PlatformCredsPanel/>
+      <div className="recruiting-setup">
+        <div style={{ marginBottom: 10, color: "var(--text-tertiary)", fontSize: 12 }}>
+          Keep recruiting connected in one place. Choose an area to manage it without leaving this workflow.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, marginBottom: 12 }}>
+          {options.map(option => {
+            const I = Icons[option.icon] || Icons.Circle;
+            return (
+              <button key={option.id} className="recruiting-setup-card" onClick={() => setSection(section === option.id ? null : option.id)} aria-pressed={section === option.id}>
+                <I size={14}/>
+                <span style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
+                  <strong style={{ display: "block", fontSize: 12.5 }}>{option.title}</strong>
+                  <span style={{ display: "block", color: "var(--text-tertiary)", fontSize: 10.5, marginTop: 3 }}>{option.sub}</span>
+                </span>
+                <Icons.ChevronRight size={12} style={{ transform: section === option.id ? "rotate(90deg)" : "none" }}/>
+              </button>
+            );
+          })}
+        </div>
+        {section === "site" && (
+          <HostedSitesPanel agencyId={me?.agency_id} role={role}/>
+        )}
+        {section === "post" && <PlatformCredsPanel/>}
+        {section === "automation" && <LocalAgentPanel/>}
       </div>
     );
   }
