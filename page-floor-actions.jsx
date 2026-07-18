@@ -207,6 +207,27 @@
       });
       downloadIcs(`${kind}-${(lead?.lead || "lead").replace(/\s+/g, "-").toLowerCase()}.ics`, ics);
 
+      try {
+        if (AppData.mutate?.salesAppointmentCreate) {
+          await AppData.mutate.salesAppointmentCreate({
+            leadId: typeof lead?.id === "string" ? lead.id : null,
+            ownerRepId: myRow?.id || me?.rep_id || null,
+            source: "manual",
+            title: summary,
+            startsAt: start.toISOString(),
+            endsAt: end.toISOString(),
+            attendeeEmail: lead?.email || null,
+            attendeeName: lead?.lead || null,
+            attendeePhone: lead?.phone || null,
+            status: "scheduled",
+            payload: { kind, notes },
+          });
+        }
+      } catch (e) {
+        window.toast?.(`Appointment save failed: ${e?.message || e}`, "error");
+        console.error("[floor.salesAppointmentCreate]", e);
+      }
+
       // Log a task for follow-through
       try {
         if (AppData.mutate?.taskCreate) {

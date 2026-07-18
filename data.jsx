@@ -65,6 +65,7 @@ const RECORDINGS_SEED = [
 
 const CONNECTIONS_SEED = [
   { id: "twilio", name: "Twilio", category: "Comms", status: "ok", meta: "A2P 10DLC verified · 4 numbers" },
+  { id: "calendly", name: "Calendly", category: "Booking", status: "ok", meta: "Booking links synced · reminders ready" },
   { id: "convoso", name: "Convoso", category: "Dialer", status: "ok", meta: "Auto-dial · 124 dials/hr avg" },
   { id: "vapi", name: "Vapi", category: "Voice AI", status: "ok", meta: "3 agents deployed" },
   { id: "ipipe", name: "iPipeline iGO", category: "E-app", status: "ok", meta: "Last sync 2m ago" },
@@ -132,6 +133,8 @@ window.AppData = {
   TRAINING_COURSES: [], TRAINING_ASSIGNMENTS: [], TRAINING_PROGRESS: {},
   SEGMENTS: [],
   AGENCY_APPOINTMENTS: [],
+  SALES_APPOINTMENTS: [],
+  REP_ACTIVITY_ROLLUPS: [],
   LIVE: false,
 };
 
@@ -408,14 +411,41 @@ window.hydrateFromSupabase = async function () {
         const meIdent = window.me && window.me();
         const agencyId = meIdent && meIdent.agency_id;
         if (agencyId && !meIdent.is_demo) {
-          // Parallel: dials_today + revenue_today + mtd
-          const [dr, rr] = await Promise.all([
+          const now = new Date();
+          const end = now.toISOString().slice(0, 10);
+          const start30 = new Date(now);
+          start30.setDate(start30.getDate() - 29);
+          const start = start30.toISOString().slice(0, 10);
+          const today = end;
+          // Parallel: durable activity rollup + legacy dials fallback + revenue.
+          const [ar, dr, rr] = await Promise.all([
+            sb.rpc("rep_activity_rollup", { p_agency: agencyId, p_start: start, p_end: end, p_rep_ids: null }),
             sb.rpc("dials_today_by_rep",          { p_agency: agencyId }),
             sb.rpc("revenue_today_and_mtd_by_rep",{ p_agency: agencyId }),
           ]);
-          const dialsByRep = {}, revByRep = {};
+          const dialsByRep = {}, apptsByRep = {}, revByRep = {};
+          if (!ar.error && Array.isArray(ar.data)) {
+            window.AppData.REP_ACTIVITY_ROLLUPS = ar.data.map(row => ({
+              repId: row.rep_id,
+              date: row.activity_date,
+              dials: Number(row.dials) || 0,
+              contacts: Number(row.contacts) || 0,
+              leads: Number(row.leads) || 0,
+              appointments: Number(row.appointments) || 0,
+              presentations: Number(row.presentations) || 0,
+              deals: Number(row.deals) || 0,
+              ap: Math.round((Number(row.ap_cents) || 0) / 100),
+              leadSpend: Math.round((Number(row.lead_spend_cents) || 0) / 100),
+            }));
+            window.AppData.REP_ACTIVITY_ROLLUPS
+              .filter(row => row.date === today)
+              .forEach(row => {
+                dialsByRep[row.repId] = row.dials;
+                apptsByRep[row.repId] = row.appointments;
+              });
+          }
           if (!dr.error && Array.isArray(dr.data))
-            dr.data.forEach(row => { dialsByRep[row.rep_id] = row.dials_today; });
+            dr.data.forEach(row => { if (dialsByRep[row.rep_id] == null) dialsByRep[row.rep_id] = row.dials_today; });
           if (!rr.error && Array.isArray(rr.data))
             rr.data.forEach(row => { revByRep[row.rep_id] = { today: row.today_dollars, mtd: row.mtd_dollars }; });
           window.AppData.REPS = window.AppData.REPS.map(r => {
@@ -423,6 +453,7 @@ window.hydrateFromSupabase = async function () {
             return {
               ...r,
               dials: dialsByRep[r.id] || 0,
+              appts: apptsByRep[r.id] || r.appts || 0,
               today: rev.today != null ? Number(rev.today) : 0,
               mtd:   rev.mtd   != null ? Number(rev.mtd)   : 0,
             };
@@ -517,7 +548,7 @@ window.hydrateFromSupabase = async function () {
     // ────────────────────────────────────────────────────────────────────────
     try {
       const [
-        carriersR, productsR, productFeaturesLifeR, productFeaturesAnnuityR, apptsR, agencyApptsR,
+        carriersR, productsR, productFeaturesLifeR, productFeaturesAnnuityR, apptsR, agencyApptsR, salesApptsR,
         policiesR, commissionsR, payoutsR, clawbacksR,
         leadSourcesR, agencyLeadSourcesR, attributionsR, touchpointsR,
         nigoReasonsR, nigosR,
@@ -547,6 +578,7 @@ window.hydrateFromSupabase = async function () {
         sb.from("product_features_annuity").select("*"),
         sb.from("carrier_appointments").select("*"),
         scope(sb.from("agency_carrier_appointments").select("*")),
+        scope(sb.from("appointments").select("*").order("starts_at", { ascending: false }).limit(500)),
         // Tenant-specific tables — GAP-X2 — scope by viewer's agency_id:
         scope(sb.from("policies").select("*").order("issued_at", { ascending: false })),
         scope(sb.from("commissions").select("*").order("earned_at", { ascending: false }).limit(500)),
@@ -680,6 +712,23 @@ window.hydrateFromSupabase = async function () {
         bridgeUnderNpn: a.bridge_under_npn || null,
         contractedAt: a.contracted_at || null,
         transferredAt: a.transferred_at || null,
+      }));
+      window.AppData.SALES_APPOINTMENTS = mapRows(salesApptsR, a => ({
+        id: a.id,
+        agencyId: a.agency_id || null,
+        leadId: a.lead_id || null,
+        ownerRepId: a.owner_rep_id || null,
+        source: a.source || "manual",
+        externalId: a.external_id || null,
+        title: a.title || "Appointment",
+        startsAt: a.starts_at,
+        endsAt: a.ends_at || null,
+        attendeeEmail: a.attendee_email || null,
+        attendeeName: a.attendee_name || null,
+        attendeePhone: a.attendee_phone || null,
+        meetingUrl: a.meeting_url || null,
+        status: a.status || "scheduled",
+        createdAt: a.created_at,
       }));
       window.AppData.POLICIES = mapRows(policiesR, p => ({
         id: p.id, leadId: p.lead_pipeline_id, carrierId: p.carrier_id,
@@ -1186,6 +1235,8 @@ window.subscribeRealtime = function () {
     thread_members:          "THREAD_MEMBERS_RT",
     carriers:                "CARRIERS_RT",
     carrier_appointments:    "CARRIER_APPOINTMENTS_RT",
+    appointments:            "SALES_APPOINTMENTS",
+    rep_activity_events:     "REP_ACTIVITY_EVENTS_RT",
   };
 
   // Same DB→JS shape mapper used by hydrate, narrowed per table
@@ -1212,6 +1263,8 @@ window.subscribeRealtime = function () {
     if (table === "commissions")   return { id: r.id, policyId: r.policy_id, repId: r.rep_id, amount: Math.round((r.amount_cents||0)/100), kind: r.kind, period: r.period_text, earnedAt: r.earned_at, paidAt: r.paid_at, source: r.source };
     if (table === "training_courses") return { id: r.id, slug: r.slug, title: r.title, track: r.track, description: r.description, durMin: r.dur_min, required: r.required, sections: Array.isArray(r.sections) ? r.sections : [], targetRoles: r.target_roles || ["owner","manager","rep"], coverUrl: r.cover_url || null, isStarter: !!r.is_starter, displayOrder: r.display_order, isPublished: r.is_published, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at };
     if (table === "lead_vendor_webhooks") return { id: r.id, agencyId: r.agency_id, vendorName: r.vendor_name, slug: r.endpoint_slug, secret: r.hmac_secret, isActive: r.is_active, costPerLead: Math.round((r.cost_per_lead_cents || 0) / 100), notes: r.notes, createdAt: r.created_at };
+    if (table === "appointments") return { id: r.id, agencyId: r.agency_id || null, leadId: r.lead_id || null, ownerRepId: r.owner_rep_id || null, source: r.source || "manual", externalId: r.external_id || null, title: r.title || "Appointment", startsAt: r.starts_at, endsAt: r.ends_at || null, attendeeEmail: r.attendee_email || null, attendeeName: r.attendee_name || null, attendeePhone: r.attendee_phone || null, meetingUrl: r.meeting_url || null, status: r.status || "scheduled", createdAt: r.created_at };
+    if (table === "rep_activity_events") return { id: r.id, agencyId: r.agency_id || null, repId: r.rep_id, date: r.activity_date, metric: r.metric, deltaCount: Number(r.delta_count) || 0, amountCents: Number(r.amount_cents) || 0, source: r.source || "manual", createdAt: r.created_at };
     return r;
   };
 
@@ -2817,6 +2870,140 @@ window.AppData.mutate = {
     const { data, error } = await sb.storage.from("vault").createSignedUrl(path, ttlSec);
     if (error) { console.warn("[vault] sign failed:", error.message); return null; }
     return data?.signedUrl || null;
+  },
+
+  async activityAdjust({ repId, metric, delta = 1, amount = 0, date, source = "manual", payload = {} } = {}) {
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    const effectiveRepId = repId || me?.rep_id;
+    if (!agencyId) throw new Error("no active agency");
+    if (!effectiveRepId) throw new Error("no rep selected");
+    const metricMap = { set: "appointment", sale: "deal", saleCount: "deal", leadSpend: "lead_spend" };
+    const dbMetric = metricMap[metric] || metric;
+    const countMetrics = new Set(["dial", "contact", "lead", "appointment", "presentation", "deal"]);
+    const activityDate = date || new Date().toISOString().slice(0, 10);
+    const countDelta = countMetrics.has(dbMetric) ? Math.round(Number(delta) || 0) : 0;
+    const amountCents = dbMetric === "lead_spend" || dbMetric === "ap"
+      ? Math.round(Number(amount || delta || 0) * 100)
+      : 0;
+
+    const rollups = (window.AppData.REP_ACTIVITY_ROLLUPS = window.AppData.REP_ACTIVITY_ROLLUPS || []);
+    let row = rollups.find(r => r.repId === effectiveRepId && r.date === activityDate);
+    if (!row) {
+      row = { repId: effectiveRepId, date: activityDate, dials: 0, contacts: 0, leads: 0, appointments: 0, presentations: 0, deals: 0, ap: 0, leadSpend: 0 };
+      rollups.unshift(row);
+    }
+    const uiKey = dbMetric === "appointment" ? "appointments" : dbMetric === "deal" ? "deals" : dbMetric === "lead_spend" ? "leadSpend" : dbMetric === "ap" ? "ap" : `${dbMetric}s`;
+    if (dbMetric === "lead_spend" || dbMetric === "ap") row[uiKey] = Math.max(0, Number(row[uiKey] || 0) + Math.round(Number(amount || delta || 0)));
+    else row[uiKey] = Math.max(0, Number(row[uiKey] || 0) + countDelta);
+    const today = new Date().toISOString().slice(0, 10);
+    if (activityDate === today) {
+      const rep = (window.AppData.REPS || []).find(r => r.id === effectiveRepId);
+      if (rep) {
+        if (dbMetric === "dial") rep.dials = Math.max(0, Number(rep.dials || 0) + countDelta);
+        if (dbMetric === "appointment") rep.appts = Math.max(0, Number(rep.appts || 0) + countDelta);
+      }
+    }
+    _emitMutation("rep_activity_events", "insert", `${effectiveRepId}:${activityDate}:${dbMetric}`);
+
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return row;
+      const { error } = await sb.from("rep_activity_events").insert({
+        agency_id: agencyId,
+        rep_id: effectiveRepId,
+        activity_date: activityDate,
+        metric: dbMetric,
+        delta_count: countDelta,
+        amount_cents: amountCents,
+        source,
+        payload,
+      });
+      if (error) { window.toast && window.toast(`Activity save failed: ${error.message}`, "error"); throw error; }
+    }
+    return row;
+  },
+
+  async activityRollup({ start, end, repIds = null } = {}) {
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    if (!agencyId) return [];
+    const sb = window.getSupabase && window.getSupabase();
+    if (!sb || !window.AppData.LIVE) return window.AppData.REP_ACTIVITY_ROLLUPS || [];
+    const today = new Date().toISOString().slice(0, 10);
+    const pStart = start || today;
+    const pEnd = end || pStart;
+    const { data, error } = await sb.rpc("rep_activity_rollup", { p_agency: agencyId, p_start: pStart, p_end: pEnd, p_rep_ids: repIds });
+    if (error) throw error;
+    const rows = (data || []).map(row => ({
+      repId: row.rep_id,
+      date: row.activity_date,
+      dials: Number(row.dials) || 0,
+      contacts: Number(row.contacts) || 0,
+      leads: Number(row.leads) || 0,
+      appointments: Number(row.appointments) || 0,
+      presentations: Number(row.presentations) || 0,
+      deals: Number(row.deals) || 0,
+      ap: Math.round((Number(row.ap_cents) || 0) / 100),
+      leadSpend: Math.round((Number(row.lead_spend_cents) || 0) / 100),
+    }));
+    window.AppData.REP_ACTIVITY_ROLLUPS = rows;
+    _emitMutation("rep_activity_rollup", "refresh", pEnd);
+    return rows;
+  },
+
+  async salesAppointmentCreate(appt = {}) {
+    const me = window.me && window.me();
+    const agencyId = (me && me.agency_id) || (window.getActiveAgencyId && window.getActiveAgencyId());
+    if (!agencyId) throw new Error("no active agency");
+    if (!appt.startsAt) throw new Error("appointment start required");
+    const jsRow = {
+      id: "tmp-appt-" + Date.now(),
+      agencyId,
+      leadId: appt.leadId || null,
+      ownerRepId: appt.ownerRepId || me?.rep_id || null,
+      source: appt.source || "manual",
+      externalId: appt.externalId || null,
+      title: appt.title || "Appointment",
+      startsAt: appt.startsAt,
+      endsAt: appt.endsAt || null,
+      attendeeEmail: appt.attendeeEmail || null,
+      attendeeName: appt.attendeeName || null,
+      attendeePhone: appt.attendeePhone || null,
+      meetingUrl: appt.meetingUrl || null,
+      status: appt.status || "scheduled",
+      createdAt: new Date().toISOString(),
+    };
+    const list = (window.AppData.SALES_APPOINTMENTS = window.AppData.SALES_APPOINTMENTS || []);
+    list.unshift(jsRow);
+    _emitMutation("appointments", "insert", jsRow.id);
+
+    if (window.AppData.LIVE) {
+      const sb = window.getSupabase && window.getSupabase();
+      if (!sb) return jsRow;
+      const { data, error } = await sb.from("appointments").insert({
+        agency_id: agencyId,
+        lead_id: jsRow.leadId,
+        owner_rep_id: jsRow.ownerRepId,
+        source: jsRow.source,
+        external_id: jsRow.externalId,
+        title: jsRow.title,
+        starts_at: jsRow.startsAt,
+        ends_at: jsRow.endsAt,
+        attendee_email: jsRow.attendeeEmail,
+        attendee_name: jsRow.attendeeName,
+        attendee_phone: jsRow.attendeePhone,
+        meeting_url: jsRow.meetingUrl,
+        status: jsRow.status,
+        payload: appt.payload || {},
+      }).select().single();
+      if (error) { window.toast && window.toast(`Appointment save failed: ${error.message}`, "error"); throw error; }
+      if (data?.id) {
+        jsRow.id = data.id;
+        list[0] = jsRow;
+      }
+    }
+    return jsRow;
   },
 
   /* ── Agency carrier appointments (the agency-level institutional record) ── */

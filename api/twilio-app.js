@@ -75,6 +75,20 @@ export default async function handler(req) {
       lead = rows[0] || null;
     }
   }
+  let initialEvent = null;
+  if (callSid) {
+    const r = await fetch(
+      `${SUPA_URL}/rest/v1/call_events?select=rep_id,agency_id,lead_id&call_sid=eq.${encodeURIComponent(callSid)}&order=created_at.asc&limit=1`,
+      { headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` } }
+    ).catch(() => null);
+    if (r?.ok) {
+      const rows = await r.json().catch(() => []);
+      initialEvent = rows[0] || null;
+    }
+  }
+  const repId = lead?.owner_rep_id || initialEvent?.rep_id || null;
+  const agencyId = lead?.agency_id || initialEvent?.agency_id || null;
+  const leadId = lead?.id || initialEvent?.lead_id || null;
 
   // Persist the call event (best-effort)
   await fetch(`${SUPA_URL}/rest/v1/call_events`, {
@@ -83,35 +97,35 @@ export default async function handler(req) {
     body: JSON.stringify({
       call_sid: callSid, status, duration_sec: duration, direction,
       to_number: to, from_number: fromNum,
-      lead_id: lead?.id || null, agency_id: lead?.agency_id || null,
+      lead_id: leadId, agency_id: agencyId, rep_id: repId,
     }),
   }).catch(() => {});
 
-  if (lead && lead.owner_rep_id && lead.agency_id && duration > 0) {
+  if (lead && repId && agencyId && duration > 0) {
     // Fire automation_rules: call_completed
     await fetch(`${SUPA_URL}/rest/v1/rpc/automation_fire`, {
       method: "POST",
       headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json", prefer: "return=minimal" },
       body: JSON.stringify({
-        p_agency_id: lead.agency_id,
+        p_agency_id: agencyId,
         p_trigger: "call_completed",
-        p_rep_id: lead.owner_rep_id,
+        p_rep_id: repId,
         p_context: {
-          lead_id: lead.id, call_sid: callSid, duration_sec: duration,
+          lead_id: leadId, call_sid: callSid, duration_sec: duration,
           direction, to_number: to, from_number: fromNum,
         },
       }),
     }).catch(() => {});
-  } else if (lead && lead.agency_id && duration === 0) {
+  } else if (lead && agencyId && duration === 0) {
     // Missed-call / no-answer triggers
     await fetch(`${SUPA_URL}/rest/v1/rpc/automation_fire`, {
       method: "POST",
       headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json", prefer: "return=minimal" },
       body: JSON.stringify({
-        p_agency_id: lead.agency_id,
+        p_agency_id: agencyId,
         p_trigger: "call_missed",
-        p_rep_id: lead.owner_rep_id,
-        p_context: { lead_id: lead.id, call_sid: callSid, direction, to_number: to, from_number: fromNum },
+        p_rep_id: repId,
+        p_context: { lead_id: leadId, call_sid: callSid, direction, to_number: to, from_number: fromNum },
       }),
     }).catch(() => {});
   }

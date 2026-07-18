@@ -428,29 +428,56 @@ function TodayRep() {
   React.useEffect(() => {
     const onMe = () => force(n => n + 1);
     window.addEventListener("me:loaded", onMe);
-    return () => window.removeEventListener("me:loaded", onMe);
+    window.addEventListener("data:hydrated", onMe);
+    window.addEventListener("data:mutated", onMe);
+    return () => {
+      window.removeEventListener("me:loaded", onMe);
+      window.removeEventListener("data:hydrated", onMe);
+      window.removeEventListener("data:mutated", onMe);
+    };
   }, []);
 
   const dateKey = todayDateStr();
-  const [taps, setTaps] = React.useState({ dial: 0, lead: 0, contact: 0, set: 0, presentation: 0, sale: 0, saleCount: 0, leadSpend: 1580 });
+  const emptyTaps = { dial: 0, lead: 0, contact: 0, set: 0, presentation: 0, sale: 0, saleCount: 0, leadSpend: 0 };
+  const [taps, setTaps] = React.useState(emptyTaps);
   const [journal, setJournal] = React.useState({ focus: "", reflection: "" });
   const [journalSaving, setJournalSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (!myRow?.id) return;
-    try {
-      const raw = localStorage.getItem(`taps:${dateKey}:${myRow.id}`);
-      if (raw) setTaps({ dial: 0, lead: 0, contact: 0, set: 0, presentation: 0, sale: 0, saleCount: 0, leadSpend: 1580, ...JSON.parse(raw) });
-    } catch {}
+    const rollup = (AppData.REP_ACTIVITY_ROLLUPS || []).find(r => r.repId === myRow.id && r.date === dateKey);
+    if (rollup) {
+      setTaps({
+        ...emptyTaps,
+        dial: rollup.dials || 0,
+        lead: rollup.leads || 0,
+        contact: rollup.contacts || 0,
+        set: rollup.appointments || 0,
+        presentation: rollup.presentations || 0,
+        sale: rollup.ap || 0,
+        saleCount: rollup.deals || 0,
+        leadSpend: rollup.leadSpend || 0,
+      });
+      return;
+    }
+    setTaps(emptyTaps);
   }, [myRow?.id, dateKey]);
 
-  const addTap = (key, count = 1) => {
+  const addTap = async (key, count = 1) => {
     if (!myRow?.id) return;
     const cur = Number(taps[key]) || 0;
     const next = { ...taps, [key]: Math.max(0, cur + count) };
     setTaps(next);
-    try { localStorage.setItem(`taps:${dateKey}:${myRow.id}`, JSON.stringify(next)); } catch {}
-    window.dispatchEvent(new CustomEvent("data:mutated"));
+    try {
+      if (window.AppData?.mutate?.activityAdjust) {
+        await window.AppData.mutate.activityAdjust({ repId: myRow.id, metric: key, delta: count, date: dateKey });
+      } else {
+        window.dispatchEvent(new CustomEvent("data:mutated"));
+      }
+    } catch (e) {
+      setTaps(taps);
+      window.toast && window.toast(`Activity save failed: ${e?.message || e}`, "error");
+    }
   };
 
   const incrementTap = (key) => addTap(key, 1);
@@ -1037,8 +1064,8 @@ function TodayRep() {
         const apptsPerSale = sVal > 0 ? (aVal / sVal) : 1.2;
         const presPerSale = sVal > 0 ? (pVal / sVal) : 2.2;
 
-        const apVal = displayAP > 0 ? displayAP : 9387;
-        const spendVal = taps.leadSpend || 1580;
+        const apVal = displayAP > 0 ? displayAP : 0;
+        const spendVal = taps.leadSpend || 0;
 
         const apPerDial = dVal > 0 ? Math.round(apVal / dVal) : 19;
         const apPerContact = cVal > 0 ? Math.round(apVal / cVal) : 469;
@@ -1665,8 +1692,8 @@ function TodayManager() {
         </div>
       </div>
 
-      <ManagerCounterCalculator REPS={REPS} scopeIds={scopeIds}/>
       <ManagerActivityTracker REPS={REPS} scopeIds={scopeIds}/>
+      <ManagerCounterCalculator REPS={REPS} scopeIds={scopeIds}/>
       <ManagerCalendarWorkspace/>
 
       {/* Spend summary stays below the working controls so the page opens on
@@ -1725,12 +1752,28 @@ function ManagerCounterCalculator({ REPS, scopeIds }) {
   const [appointmentRate, setAppointmentRate] = React.useState(25);
   const [showRate, setShowRate] = React.useState(70);
   const [closeRate, setCloseRate] = React.useState(30);
-  const dials = visibleReps.reduce((sum, r) => sum + (Number(r.dials) || 0), 0);
-  const appointments = visibleReps.reduce((sum, r) => sum + (Number(r.appts) || 0), 0);
+  const today = todayDateStr();
+  const rollups = AppData.REP_ACTIVITY_ROLLUPS || [];
+  const todayRows = rollups.filter(row => row.date === today && visibleReps.some(r => r.id === row.repId));
+  const sumRows = (key) => todayRows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+  const dials = sumRows("dials") || visibleReps.reduce((sum, r) => sum + (Number(r.dials) || 0), 0);
+  const contacts = sumRows("contacts");
+  const appointments = sumRows("appointments") || visibleReps.reduce((sum, r) => sum + (Number(r.appts) || 0), 0);
+  const presentations = sumRows("presentations");
+  const deals = sumRows("deals");
   const rate = (value) => Math.max(1, Math.min(100, Number(value) || 0)) / 100;
-  const dialsPerDeal = Math.max(1, Math.round(1 / (rate(contactRate) * rate(appointmentRate) * rate(showRate) * rate(closeRate))));
+  const actualContactRate = dials > 0 && contacts > 0 ? Math.round((contacts / dials) * 100) : null;
+  const actualAppointmentRate = contacts > 0 && appointments > 0 ? Math.round((appointments / contacts) * 100) : null;
+  const actualShowRate = appointments > 0 && presentations > 0 ? Math.round((presentations / appointments) * 100) : null;
+  const actualCloseRate = presentations > 0 && deals > 0 ? Math.round((deals / presentations) * 100) : null;
+  const projectedContactRate = actualContactRate || contactRate;
+  const projectedAppointmentRate = actualAppointmentRate || appointmentRate;
+  const projectedShowRate = actualShowRate || showRate;
+  const projectedCloseRate = actualCloseRate || closeRate;
+  const dialsPerDeal = Math.max(1, Math.round(1 / (rate(projectedContactRate) * rate(projectedAppointmentRate) * rate(projectedShowRate) * rate(projectedCloseRate))));
   const teamDialGoal = dialsPerDeal * Math.max(1, Number(dealsTarget) || 1) * Math.max(1, visibleReps.length);
   const progress = teamDialGoal > 0 ? Math.min(100, Math.round(dials / teamDialGoal * 100)) : 0;
+  const createDeal = () => window.dispatchEvent(new CustomEvent("quicklog:deal"));
 
   return (
     <div className="panel" style={{ padding: "10px 12px", marginBottom: 10 }}>
@@ -1738,8 +1781,9 @@ function ManagerCounterCalculator({ REPS, scopeIds }) {
         <Icons.Calculator size={14} style={{ color: "var(--accent-money)" }}/>
         <strong style={{ fontSize: 13.5 }}>Dialing and deal math</strong>
         <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 11 }}>What the team needs for the next deal</span>
+        <button className="btn btn-primary" onClick={createDeal} style={{ padding: "5px 9px", fontSize: 11 }}><Icons.Wallet size={11}/> Create deal</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 1fr 1.4fr", gap: 8, alignItems: "stretch" }}>
         <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "8px 10px" }}>
           <div style={{ color: "var(--text-tertiary)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dials logged</div>
           <div className="tabular" style={{ fontSize: 20, fontWeight: 700, marginTop: 3 }}>{dials.toLocaleString()}</div>
@@ -1753,7 +1797,7 @@ function ManagerCounterCalculator({ REPS, scopeIds }) {
         <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "8px 10px" }}>
           <div style={{ color: "var(--text-tertiary)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Appointments</div>
           <div className="tabular" style={{ fontSize: 20, fontWeight: 700, marginTop: 3 }}>{appointments.toLocaleString()}</div>
-          <div style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}>{dealsTarget} deal target / producer</div>
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}>{contacts.toLocaleString()} contacts · {deals.toLocaleString()} deals</div>
         </div>
         <div style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)", borderRadius: 7, padding: "7px 9px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
@@ -1764,6 +1808,12 @@ function ManagerCounterCalculator({ REPS, scopeIds }) {
             {[["Contact %", contactRate, setContactRate], ["Appt %", appointmentRate, setAppointmentRate], ["Show %", showRate, setShowRate]].map(([label, value, setter]) => <label key={label} style={{ color: "var(--text-tertiary)", fontSize: 9.5 }}>{label}<input className="text-input" type="number" min="1" max="100" value={value} onChange={e => setter(e.target.value)} style={{ width: "100%", padding: "3px 5px", marginTop: 2 }}/></label>)}
           </div>
         </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, color: "var(--text-tertiary)", fontSize: 10.5 }}>
+        <span className="chip">Actual: {actualContactRate || contactRate}% contact</span>
+        <span className="chip">{actualAppointmentRate || appointmentRate}% appointment</span>
+        <span className="chip">{actualShowRate || showRate}% show</span>
+        <span className="chip">{actualCloseRate || closeRate}% close</span>
       </div>
       <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 4, overflow: "hidden", marginTop: 8 }}><div style={{ height: "100%", width: `${progress}%`, background: progress >= 100 ? "var(--accent-money)" : "var(--accent-status)", transition: "width .2s ease" }}/></div>
     </div>
@@ -1800,42 +1850,76 @@ function ManagerCalendarWorkspace() {
 function ManagerActivityTracker({ REPS, scopeIds }) {
   const [selectedId, setSelectedId] = React.useState(null);
   const [range, setRange] = React.useState("today");
+  const [rows, setRows] = React.useState(AppData.REP_ACTIVITY_ROLLUPS || []);
+  const [loading, setLoading] = React.useState(false);
   const today = todayDateStr();
   const pipeline = AppData.PIPELINE || [];
   const policies = AppData.POLICIES || [];
-  const recordings = AppData.RECORDINGS || [];
-  const rangeStart = React.useMemo(() => {
+  const rangeBounds = React.useMemo(() => {
     const d = new Date();
     if (range === "7d") d.setDate(d.getDate() - 6);
     if (range === "30d") d.setDate(d.getDate() - 29);
     if (range === "mtd") d.setDate(1);
     d.setHours(0, 0, 0, 0);
-    return d;
+    return { start: d.toISOString().slice(0, 10), end: today };
   }, [range]);
   const inScope = (rep) => !scopeIds || scopeIds.length === 0 || scopeIds.includes(rep.id);
   const visibleReps = REPS.filter(inScope);
   const selected = visibleReps.find(r => r.id === selectedId) || null;
   const trackedReps = selected ? [selected] : visibleReps;
 
+  React.useEffect(() => {
+    let cancelled = false;
+    const fallbackRows = AppData.REP_ACTIVITY_ROLLUPS || [];
+    setRows(fallbackRows);
+    const load = async () => {
+      if (!window.AppData?.mutate?.activityRollup) return;
+      setLoading(true);
+      try {
+        const next = await window.AppData.mutate.activityRollup({
+          start: rangeBounds.start,
+          end: rangeBounds.end,
+          repIds: scopeIds && scopeIds.length ? scopeIds : null,
+        });
+        if (!cancelled) setRows(next || []);
+      } catch (e) {
+        console.warn("[today.manager.activityRollup]", e);
+        if (!cancelled && window.toast) window.toast(`Activity range failed: ${e?.message || e}`, "error");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [rangeBounds.start, rangeBounds.end, JSON.stringify(scopeIds || [])]);
+
+  const rowsForRep = (repId) => (rows || []).filter(row =>
+    row.repId === repId
+    && row.date >= rangeBounds.start
+    && row.date <= rangeBounds.end
+  );
+  const sum = (list, key) => list.reduce((total, row) => total + (Number(row[key]) || 0), 0);
+
   const statsFor = (rep) => {
+    const activity = rowsForRep(rep.id);
     const ownedLeads = pipeline.filter(p => p.owner === rep.id);
     const ownedPolicies = policies.filter(p => p.owner === rep.id);
-    const issued = ownedPolicies.filter(p => p.status === "issued" || p.issuedAt);
-    const datedIssued = issued.filter(p => {
-      const ts = p.issuedAt || p.effectiveAt || p.submissionDate;
-      return ts && new Date(ts) >= rangeStart;
-    });
-    const loggedCalls = recordings.filter(r => r.repId === rep.id && r.recordedAt && new Date(r.recordedAt) >= rangeStart);
-    const ap = range === "today" ? Number(rep.today) || 0 : datedIssued.reduce((sum, p) => sum + (Number(p.ap) || 0), 0);
+    const issued = ownedPolicies.filter(p => p.status === "issued" || p.issuedAt || p.createdAt);
+    const ap = sum(activity, "ap") || (range === "today" ? Number(rep.today) || 0 : 0);
     return {
-      dials: range === "today" ? Number(rep.dials) || 0 : loggedCalls.length,
+      dials: sum(activity, "dials") || (range === "today" ? Number(rep.dials) || 0 : 0),
+      contacts: sum(activity, "contacts"),
       leads: ownedLeads.length,
       openLeads: ownedLeads.filter(p => p.stage !== "Issued").length,
-      appts: range === "today" ? Number(rep.appts) || 0 : null,
+      appts: sum(activity, "appointments") || (range === "today" ? Number(rep.appts) || 0 : 0),
+      presentations: sum(activity, "presentations"),
       todayAP: ap,
       mtdAP: range === "today" ? Number(rep.mtd) || 0 : ap,
-      issued: range === "today" ? issued.filter(p => (p.issuedAt || "").startsWith(today)).length : datedIssued.length,
-      issuedToday: datedIssued.length,
+      issued: sum(activity, "deals") || issued.filter(p => {
+        const ts = p.createdAt || p.issuedAt || p.effectiveAt || p.submissionDate;
+        return ts && String(ts).slice(0, 10) >= rangeBounds.start && String(ts).slice(0, 10) <= rangeBounds.end;
+      }).length,
+      issuedToday: sum(activity, "deals"),
     };
   };
 
@@ -1848,19 +1932,21 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
       appts: sum.appts + s.appts,
       todayAP: sum.todayAP + s.todayAP,
       mtdAP: sum.mtdAP + s.mtdAP,
+      contacts: sum.contacts + s.contacts,
+      presentations: sum.presentations + s.presentations,
       issued: sum.issued + s.issued,
       issuedToday: sum.issuedToday + s.issuedToday,
     };
-  }, { dials: 0, leads: 0, openLeads: 0, appts: 0, todayAP: 0, mtdAP: 0, issued: 0, issuedToday: 0 });
+  }, { dials: 0, contacts: 0, leads: 0, openLeads: 0, appts: 0, presentations: 0, todayAP: 0, mtdAP: 0, issued: 0, issuedToday: 0 });
 
   const number = (value) => value == null ? "—" : Number(value || 0).toLocaleString();
   const money = (value) => `$${number(value)}`;
   const metrics = [
     { label: range === "today" ? "Dials today" : "Calls logged", value: number(total.dials) },
-    { label: "Open leads", value: number(total.openLeads) },
+    { label: "Contacts", value: number(total.contacts) },
     { label: range === "today" ? "Appointments" : "Appointments live", value: number(total.appts) },
     { label: range === "today" ? "AP closed today" : "AP in range", value: money(total.todayAP) },
-    { label: "Policies issued", value: number(total.issued) },
+    { label: "Deals written", value: number(total.issued) },
     { label: range === "today" ? "MTD AP" : "AP total", value: money(total.mtdAP) },
   ];
 
@@ -1874,6 +1960,7 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
           <div style={{ color: "var(--text-primary)", fontSize: 14, fontWeight: 700 }}>{selected ? `${selected.name}'s activity` : "Downline activity"}</div>
           <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{selected ? "Selected producer" : `${visibleReps.length} producer${visibleReps.length === 1 ? "" : "s"} in your scope`} · {range === "today" ? "Today" : range === "mtd" ? "This month" : `Last ${range === "7d" ? "7" : "30"} days`}</div>
         </div>
+        {loading && <span className="chip" style={{ marginLeft: "auto", fontSize: 10 }}>Refreshing</span>}
         <select className="select" value={range} onChange={e => setRange(e.target.value)} style={{ marginLeft: "auto", minWidth: 112, padding: "5px 8px", fontSize: 11 }} aria-label="Downline activity date range">
           <option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="mtd">Month to date</option>
         </select>
@@ -1891,19 +1978,20 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
 
       <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Producer detail · click a row to drill in</div>
       <div style={{ overflowX: "auto", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
-        <div style={{ minWidth: 650 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "var(--text-tertiary)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>
-            <div>Producer</div><div style={{ textAlign: "right" }}>Dials</div><div style={{ textAlign: "right" }}>Leads</div><div style={{ textAlign: "right" }}>Appts</div><div style={{ textAlign: "right" }}>Today AP</div><div style={{ textAlign: "right" }}>MTD AP</div>
+        <div style={{ minWidth: 720 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 70px 70px 80px 90px 105px 105px", gap: 8, padding: "8px 10px", color: "var(--text-tertiary)", fontSize: 9.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", borderBottom: "1px solid var(--border-subtle)" }}>
+            <div>Producer</div><div style={{ textAlign: "right" }}>Dials</div><div style={{ textAlign: "right" }}>Contacts</div><div style={{ textAlign: "right" }}>Appts</div><div style={{ textAlign: "right" }}>Deals</div><div style={{ textAlign: "right" }}>Range AP</div><div style={{ textAlign: "right" }}>MTD AP</div>
           </div>
           {visibleReps.length === 0 && <div style={{ padding: 18, color: "var(--text-tertiary)", fontSize: 12, textAlign: "center" }}>No producers in your downline yet.</div>}
           {visibleReps.map(rep => {
             const s = statsFor(rep);
             return (
-              <button key={rep.id} onClick={() => setSelectedId(rep.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1.8fr 70px 70px 90px 105px 105px", gap: 8, alignItems: "center", padding: "9px 10px", background: selectedId === rep.id ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)", color: "var(--text-primary)", border: 0, borderBottom: "1px solid var(--border-subtle)", textAlign: "left", cursor: "pointer" }}>
+              <button key={rep.id} onClick={() => setSelectedId(rep.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1.8fr 70px 70px 80px 90px 105px 105px", gap: 8, alignItems: "center", padding: "9px 10px", background: selectedId === rep.id ? "color-mix(in oklch, var(--accent-money) 8%, var(--bg-raised))" : "var(--bg-raised)", color: "var(--text-primary)", border: 0, borderBottom: "1px solid var(--border-subtle)", textAlign: "left", cursor: "pointer" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Shared.Avatar rep={rep} size={20}/><span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rep.name}</span><span className={`dot dot-${rep.presence === "live" ? "live" : "idle"}`} title={rep.presence || "idle"}></span></div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--text-primary)" }}>{number(s.dials)}</div>
-                <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.leads)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.contacts)}</div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.appts)}</div>
+                <div className="tabular" style={{ textAlign: "right", color: "var(--text-secondary)" }}>{number(s.issued)}</div>
                 <div className="tabular" style={{ textAlign: "right", color: s.todayAP > 0 ? "var(--accent-money)" : "var(--text-secondary)" }}>{money(s.todayAP)}</div>
                 <div className="tabular" style={{ textAlign: "right", color: "var(--accent-money)" }}>{money(s.mtdAP)}</div>
               </button>
