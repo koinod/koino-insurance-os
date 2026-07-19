@@ -312,7 +312,17 @@ const TIER_TARGETS = new Proxy({}, {
 });
 
 function todayDateStr() {
-  const d = new Date(); d.setHours(0,0,0,0);
+  if (window.repflowBusinessDateStr) return window.repflowBusinessDateStr();
+  const d = new Date();
+  d.setHours(d.getHours() + 2);
+  return d.toISOString().slice(0, 10);
+}
+
+function businessDateOffset(days) {
+  if (window.repflowBusinessDateStr) return window.repflowBusinessDateStr(days);
+  const d = new Date();
+  d.setHours(d.getHours() + 2);
+  d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
@@ -817,9 +827,7 @@ function TodayRep() {
   }, [REPS]);
 
   const yesterdayKey = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
+    return businessDateOffset(-1);
   })();
 
   const [yesterdayJournal, setYesterdayJournal] = React.useState(null);
@@ -891,11 +899,8 @@ function TodayRep() {
   const SPARK_DAYS = 8;
   const dayKeys = (() => {
     const out = [];
-    const base = new Date();
     for (let i = SPARK_DAYS - 1; i >= 0; i--) {
-      const d = new Date(base);
-      d.setDate(base.getDate() - i);
-      out.push(d.toISOString().slice(0, 10));
+      out.push(businessDateOffset(-i));
     }
     return out;
   })();
@@ -904,7 +909,7 @@ function TodayRep() {
     if (!s) return null;
     if (typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
     const d = new Date(s);
-    return isNaN(d.valueOf()) ? null : d.toISOString().slice(0, 10);
+    return isNaN(d.valueOf()) ? null : (window.repflowBusinessDateStr ? window.repflowBusinessDateStr(0, d) : d.toISOString().slice(0, 10));
   };
   const bucket = () => Array.from({ length: SPARK_DAYS }, () => 0);
   const spark1 = bucket();
@@ -1100,7 +1105,7 @@ function TodayRep() {
                 </div>
               </div>
               <div style={{ fontSize: 12.5, color: "#8E929E", marginBottom: 20 }}>
-                Tap as you go. Everything you log here updates your dashboard, projections, and analytics in real time.
+                Tap as you go. Saved by production day, resetting at 10 PM Eastern.
               </div>
 
               {/* HERO GOLD BOX FOR DIALS TODAY */}
@@ -1856,12 +1861,10 @@ function ManagerActivityTracker({ REPS, scopeIds }) {
   const pipeline = AppData.PIPELINE || [];
   const policies = AppData.POLICIES || [];
   const rangeBounds = React.useMemo(() => {
-    const d = new Date();
-    if (range === "7d") d.setDate(d.getDate() - 6);
-    if (range === "30d") d.setDate(d.getDate() - 29);
-    if (range === "mtd") d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return { start: d.toISOString().slice(0, 10), end: today };
+    if (range === "7d") return { start: businessDateOffset(-6), end: today };
+    if (range === "30d") return { start: businessDateOffset(-29), end: today };
+    if (range === "mtd") return { start: `${today.slice(0, 8)}01`, end: today };
+    return { start: today, end: today };
   }, [range]);
   const inScope = (rep) => !scopeIds || scopeIds.length === 0 || scopeIds.includes(rep.id);
   const visibleReps = REPS.filter(inScope);

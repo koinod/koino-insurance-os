@@ -14,6 +14,28 @@
 const TIERS = ["bronze", "silver", "gold", "platinum", "diamond"];
 const TIER_LABELS = { bronze: "BRONZE", silver: "SILVER", gold: "GOLD", platinum: "PLAT", diamond: "DIAMOND" };
 
+function repflowBusinessDateStr(offsetDays = 0, inputDate = new Date()) {
+  const date = inputDate instanceof Date ? inputDate : new Date(inputDate);
+  if (isNaN(date.valueOf())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  const base = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  if (Number(parts.hour) >= 22) base.setUTCDate(base.getUTCDate() + 1);
+  if (offsetDays) base.setUTCDate(base.getUTCDate() + offsetDays);
+  return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(base.getUTCDate()).padStart(2, "0")}`;
+}
+
+window.repflowBusinessDateStr = repflowBusinessDateStr;
+
 const REPS_SEED = [
   { id: "marc", name: "Marcus Avila", handle: "@marc", tier: "platinum", mtd: 42310, today: 2840, streak: 18, dials: 87, presence: "live", appts: 4, color: "linear-gradient(135deg,#5b86e5,#36d1dc)" },
   { id: "dani", name: "Dani Rivera", handle: "@dani", tier: "diamond", mtd: 58920, today: 3120, streak: 31, dials: 102, presence: "live", appts: 6, color: "linear-gradient(135deg,#ee0979,#ff6a00)" },
@@ -411,11 +433,8 @@ window.hydrateFromSupabase = async function () {
         const meIdent = window.me && window.me();
         const agencyId = meIdent && meIdent.agency_id;
         if (agencyId && !meIdent.is_demo) {
-          const now = new Date();
-          const end = now.toISOString().slice(0, 10);
-          const start30 = new Date(now);
-          start30.setDate(start30.getDate() - 29);
-          const start = start30.toISOString().slice(0, 10);
+          const end = repflowBusinessDateStr();
+          const start = repflowBusinessDateStr(-29);
           const today = end;
           // Parallel: durable activity rollup + legacy dials fallback + revenue.
           const [ar, dr, rr] = await Promise.all([
@@ -2881,7 +2900,7 @@ window.AppData.mutate = {
     const metricMap = { set: "appointment", sale: "deal", saleCount: "deal", leadSpend: "lead_spend" };
     const dbMetric = metricMap[metric] || metric;
     const countMetrics = new Set(["dial", "contact", "lead", "appointment", "presentation", "deal"]);
-    const activityDate = date || new Date().toISOString().slice(0, 10);
+    const activityDate = date || repflowBusinessDateStr();
     const countDelta = countMetrics.has(dbMetric) ? Math.round(Number(delta) || 0) : 0;
     const amountCents = dbMetric === "lead_spend" || dbMetric === "ap"
       ? Math.round(Number(amount || delta || 0) * 100)
@@ -2896,7 +2915,7 @@ window.AppData.mutate = {
     const uiKey = dbMetric === "appointment" ? "appointments" : dbMetric === "deal" ? "deals" : dbMetric === "lead_spend" ? "leadSpend" : dbMetric === "ap" ? "ap" : `${dbMetric}s`;
     if (dbMetric === "lead_spend" || dbMetric === "ap") row[uiKey] = Math.max(0, Number(row[uiKey] || 0) + Math.round(Number(amount || delta || 0)));
     else row[uiKey] = Math.max(0, Number(row[uiKey] || 0) + countDelta);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = repflowBusinessDateStr();
     if (activityDate === today) {
       const rep = (window.AppData.REPS || []).find(r => r.id === effectiveRepId);
       if (rep) {
@@ -2930,7 +2949,7 @@ window.AppData.mutate = {
     if (!agencyId) return [];
     const sb = window.getSupabase && window.getSupabase();
     if (!sb || !window.AppData.LIVE) return window.AppData.REP_ACTIVITY_ROLLUPS || [];
-    const today = new Date().toISOString().slice(0, 10);
+    const today = repflowBusinessDateStr();
     const pStart = start || today;
     const pEnd = end || pStart;
     const { data, error } = await sb.rpc("rep_activity_rollup", { p_agency: agencyId, p_start: pStart, p_end: pEnd, p_rep_ids: repIds });
