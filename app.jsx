@@ -238,10 +238,10 @@ function App() {
       // page-book-host.jsx). Old direct routes below still resolve for
       // deep-link back-compat.
       case "vault":       return F("PageVaultHost", { role });
-      case "book":        return F("PageBookHost");
+      case "book":        return F("PageCrmWorkspace", { role });
       case "leaddrip":    return F("PageLeadDrip",   { role });
       case "resources":   return F("PageResources",  { role });
-      case "crm":         return F("PageCrm",        { role });
+      case "crm":         return F("PageCrmWorkspace", { role });
       case "messages":    return F("PageMessages",   { role });
       case "quote":       return F("PageQuote",      { role });
       case "auto-quoter": return F("PageAutoQuoter", { role });

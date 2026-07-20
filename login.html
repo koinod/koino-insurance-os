@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <!-- Anti-FOUC: set data-theme before first paint so CSS vars resolve correctly -->
-<script>!function(){try{var t=localStorage.getItem('repflow_theme')||'dark';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}}();</script>
+<script>!function(){try{var t=localStorage.getItem('repflow_theme')||'light';if(t==='system')t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='light';}}();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <!-- Stash a plan chosen on the marketing page so onboarding's Billing step can preselect it. -->
 <script>try{var _q=new URLSearchParams(location.search);var _pp=_q.get('plan');if(_pp&&/^(rep_solo|agency_trial_7d|agency_setup)$/.test(_pp))sessionStorage.setItem('repflow.pending_plan',_pp);var _b=_q.get('billing');if(_b==='annual'||_b==='monthly')sessionStorage.setItem('repflow.pending_billing',_b);}catch(e){}</script>
@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="styles.css?v=97"/>
+<link rel="stylesheet" href="styles.css?v=98"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
 <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
@@ -52,11 +52,11 @@
 <script src="lib/dial-rules.js?v=75"></script>
 <script src="lib/rate-engine.js?v=99"></script>
 <script src="lib/call-recorder.js?v=95"></script>
-<script src="lib/sidebar-widgets.js?v=9"></script>
+<script src="lib/sidebar-widgets.js?v=10"></script>
 <script src="dist/tweaks-panel.js?v=75"></script>
-<script src="dist/data.js?v=106"></script>
+<script src="dist/data.js?v=107"></script>
 <script src="dist/icons.js?v=94"></script>
-<script src="dist/shared.js?v=118"></script>
+<script src="dist/shared.js?v=119"></script>
 <script src="dist/sidebar-composer.js?v=7"></script>
 <script src="dist/ai-sidebar.js?v=86"></script>
 <script src="dist/page-today-hero.js?v=1"></script>
@@ -82,6 +82,7 @@
 <script src="dist/page-performance.js?v=81"></script>
 <script src="dist/page-resources.js?v=86"></script>
 <script src="dist/page-crm.js?v=99"></script>
+<script src="dist/page-crm-workspace.js?v=1"></script>
 <script src="dist/page-client-book.js?v=2"></script>
 <script src="dist/page-messages.js?v=79"></script>
 <script src="dist/page-library.js?v=85"></script>
@@ -100,7 +101,7 @@
 <script src="dist/page-admin-hub.js?v=2"></script>
 <script src="dist/page-billing.js?v=76"></script>
 <script src="dist/page-autodialer.js?v=79"></script>
-<script src="dist/page-deal-write.js?v=105"></script>
+<script src="dist/page-deal-write.js?v=106"></script>
 <script src="dist/page-floor.js?v=114"></script>
 <script src="dist/page-dialing.js?v=1"></script>
 <script src="dist/page-floor-actions.js?v=79"></script>
@@ -121,7 +122,7 @@
      PageDeposits, PageVault, PageOrgTree) and BEFORE app.js which routes to them. -->
 <script src="dist/page-book-host.js?v=4"></script>
 <script src="dist/page-vault-host.js?v=1"></script>
-<script src="dist/app.js?v=115"></script>
+<script src="dist/app.js?v=116"></script>
 <!-- rba-dial.js loads LAST so its hijack of window.repflowCall wins
      against any earlier definitions in app.js / page-*.js. -->
 <script src="dist/rba-dial.js?v=7"></script>

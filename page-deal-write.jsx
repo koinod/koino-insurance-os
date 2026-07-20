@@ -310,6 +310,40 @@
 
       setBusy(true);
       const sb = window.getSupabase && window.getSupabase();
+      // CRM v2 owns the multi-table write when its RPC is available. Keep the
+      // legacy path as a temporary compatibility fallback for agencies whose
+      // migration has not landed yet; real RPC errors must surface instead of
+      // silently splitting a deal across tables.
+      if (sb && typeof sb.rpc === "function") {
+        const displayName = newLead
+          ? [newLead.firstName.trim(), newLead.lastName.trim()].filter(Boolean).join(" ")
+          : (leadId ? pipeline.find(l => String(l.id) === String(leadId))?.lead : null);
+        const crmPayload = {
+          agency_id: meIdent.agency_id,
+          policy_id: isEdit ? policyId : null,
+          lead_pipeline_id: leadId || null,
+          lead_name: displayName || null,
+          phone: newLead?.phone || (leadId ? pipeline.find(l => String(l.id) === String(leadId))?.phone : null),
+          email: newLead?.email || (leadId ? pipeline.find(l => String(l.id) === String(leadId))?.email : null),
+          state: newLead?.state || (leadId ? pipeline.find(l => String(l.id) === String(leadId))?.state : null),
+          carrier_id: carrierId, product_id: productId, product: product?.name || null,
+          policy_number: policyNumber || null, ap_cents: cents(ap),
+          expected_commission_cents: expectedComm ? cents(expectedComm) : null,
+          comp_rate_pct: compRate ? Number(compRate) : null,
+          status, stage: status === "submitted" ? "App In" : "New",
+          owner_rep_id: meIdent.rep_id || (me ? me.id : null),
+        };
+        const { data: crmData, error: crmError } = await sb.rpc("crm_write_deal", { p_payload: crmPayload });
+        const missingRpc = crmError && /function .*crm_write_deal|does not exist|could not find/i.test(crmError.message || "");
+        if (crmError && !missingRpc) throw crmError;
+        if (!crmError && crmData) {
+          window.toast && window.toast(`${isEdit ? "Deal updated" : "Deal written"} · ${product?.name || "policy"}`, "success");
+          window.dispatchEvent(new CustomEvent("data:hydrated"));
+          onWritten && onWritten(crmData);
+          setBusy(false);
+          return;
+        }
+      }
       // New-lead path: materialize the pipeline row first so the policy can
       // reference a real id. Pre-fill product + AP from this deal so the
       // kanban row matches what the producer just sold.

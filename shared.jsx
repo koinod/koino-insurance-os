@@ -74,9 +74,8 @@ const NAV = {
     { id: "recorder",    label: "Recorder",     icon: "Headphones" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
     { id: "leaderboard", label: "Team Progress", icon: "Trophy" },
-    { id: "book",        label: "Book",         icon: "Activity" },
+    { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
-    { id: "pnl",         label: "My P&L",       icon: "Wallet" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
   ],
   manager: [
@@ -85,12 +84,9 @@ const NAV = {
     { id: "floor",       label: "Floor",        icon: "Mic" },
     { id: "recorder",    label: "Recorder",     icon: "Headphones" },
     { id: "messages",    label: "Messages",     icon: "MessageSquare" },
-    { id: "book",        label: "Book",         icon: "Activity" },
-    { id: "attribution", label: "Lead Vendors", icon: "ArrowUpRight" },
+    { id: "crm",         label: "CRM",          icon: "Users" },
     { id: "quote",       label: "Quote",        icon: "Sparkles" },
-    { id: "pnl",         label: "P&L",          icon: "Wallet" },
     { id: "vault",       label: "Vault",        icon: "Folder" },
-    { id: "carrier-appointments", label: "Carriers", icon: "Shield" },
     { id: "recruiting",  label: "Recruiting",   icon: "Users" },
     { id: "licensing",   label: "Licensing",    icon: "GraduationCap" },
   ],
@@ -102,7 +98,6 @@ const NAV = {
 // Owner = manager + Expenses + Invite Team.
 NAV.owner = [
   ...NAV.manager,
-  { id: "expenses",     label: "Expenses",     icon: "Wallet" },
   { id: "invite-team",  label: "Invite Team",  icon: "Users" },
 ];
 NAV.admin     = NAV.owner;  // legacy alias

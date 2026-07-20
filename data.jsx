@@ -485,6 +485,7 @@ window.hydrateFromSupabase = async function () {
         id: p.id, lead: p.lead_name, age: p.age, state: p.state, stage: p.stage,
         product: p.product, ap: Math.round(p.ap_cents / 100), days: p.days_in_stage,
         last: p.last_activity_text, next: p.next_action, source: p.source,
+        createdAt: p.created_at || null,
         agencyId: p.agency_id || null,
         leadSourceId: p.lead_source_id || null,
         owner: p.owner_rep_id, consent: p.consent, heat: p.heat,

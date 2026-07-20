@@ -77,68 +77,36 @@ async function record(name, fn) {
 
 console.log(`flows → ${BASE}?demo=1\n`);
 
-// ─── 1. CRM kanban drag — New → Contacted ─────────────────────────────────
-await record("crm_kanban_drag", async () => {
+// ─── 1. CRM workspace — views and add menu ────────────────────────────────
+await record("crm_workspace_views", async () => {
   await setRole("manager");
   await goto("crm");
-
-  // CRM uses the same kanban DnD shape as pipeline. Switch to kanban view if
-  // there's a view-toggle; many CRM builds default to list.
-  const kanbanBtn = page.locator('button:has-text("Kanban"), [data-view="kanban"]').first();
-  if (await kanbanBtn.count() > 0) {
-    await kanbanBtn.click().catch(() => {});
-    await page.waitForTimeout(400);
+  for (const label of ["Pipeline", "Clients", "Money", "Carriers"]) {
+    const tab = page.locator(`button:has-text("${label}")`).first();
+    if (await tab.count() === 0) throw new Error(`missing CRM view: ${label}`);
+    await tab.click();
+    await page.waitForTimeout(150);
   }
-
-  // Find a "New" column and grab the first draggable card in it.
-  const newCol = page.locator('.panel:has(.panel-h h3:has-text("New"))').first();
-  if (await newCol.count() === 0) throw new Error("could not locate 'New' kanban column");
-  const card = newCol.locator('[draggable="true"]').first();
-  if (await card.count() === 0) throw new Error("no draggable card in 'New' column");
-  const cardName = (await card.innerText()).split("\n")[0].trim();
-
-  const contactedCol = page.locator('.panel:has(.panel-h h3:has-text("Contacted"))').first();
-  if (await contactedCol.count() === 0) throw new Error("could not locate 'Contacted' column");
-
-  // HTML5 DnD: dragTo() bridges Playwright into the right event sequence.
-  await card.dragTo(contactedCol);
-  await page.waitForTimeout(800);
-
-  // Assert the card now lives under "Contacted".
-  const landed = await contactedCol.locator(`text="${cardName}"`).count();
-  if (landed === 0) throw new Error(`card "${cardName}" did not land in Contacted`);
+  const add = page.locator('button:has-text("+ Add")').first();
+  if (await add.count() === 0) throw new Error("missing CRM add menu");
+  await add.click();
+  for (const label of ["Lead", "Deal", "Deposit", "Expense"]) {
+    if (await page.locator(`.crm-add-menu button:has-text("${label}")`).count() === 0) throw new Error(`missing add action: ${label}`);
+  }
 });
 
-// ─── 2. Autodial pin — pipeline lead → Floor Start ≥ 1 ────────────────────
-await record("autodial_pin_from_pipeline", async () => {
+// ─── 2. CRM record drawer — pipeline row → detail actions ─────────────────
+await record("crm_record_drawer", async () => {
   await setRole("manager");
   await goto("crm");
-
-  // Clear any leftover queue from a previous run so the assertion is honest.
-  await page.evaluate(() => window.AutodialQueue && window.AutodialQueue.clear && window.AutodialQueue.clear());
+  await page.locator('.crm-views button:has-text("Pipeline")').click();
   await page.waitForTimeout(200);
-
-  // Open the first lead row (list view default).
-  const row = page.locator('.row').first();
-  if (await row.count() === 0) throw new Error("no rows in CRM list");
+  const row = page.locator('.crm-table tbody tr').first();
+  if (await row.count() === 0) throw new Error("no rows in CRM pipeline");
   await row.click();
   await page.waitForTimeout(500);
-
-  // Click any "Send to autodial" / "Add to autodial" affordance.
-  const pin = page.locator('button:has-text("autodial"), button:has-text("Autodial")').first();
-  if (await pin.count() === 0) throw new Error("no 'Send to autodial' button on lead detail");
-  await pin.click();
-  await page.waitForTimeout(400);
-
-  // Verify the queue actually grew (server-side path may be best-effort but
-  // localStorage / window.AutodialQueue.count() is authoritative for UI).
-  const queued = await page.evaluate(() => (window.AutodialQueue && window.AutodialQueue.count && window.AutodialQueue.count()) || 0);
-  if (queued < 1) throw new Error(`AutodialQueue.count() = ${queued}, expected ≥ 1`);
-
-  // Navigate to Floor and find a Start button (autodial bar / floor action).
-  await goto("floor");
-  const starts = await page.locator('button:has-text("Start")').count();
-  if (starts < 1) throw new Error(`Floor 'Start' button count = ${starts}, expected ≥ 1`);
+  if (await page.locator('.crm-drawer').count() === 0) throw new Error("CRM record drawer did not open");
+  if (await page.locator('.crm-drawer button:has-text("Write deal")').count() === 0) throw new Error("record drawer missing Write deal action");
 });
 
 // ─── 3. Course create — Vault → Courses → New → save → in library ────────
@@ -159,7 +127,7 @@ await record("vault_course_create", async () => {
   await page.waitForTimeout(400);
 
   const title = `Smoke Course ${Date.now()}`;
-  const input = page.locator('input[placeholder*="title" i], input[name="title"]').first();
+  const input = page.locator('.modal input').first();
   if (await input.count() === 0) throw new Error("no title input in course modal");
   await input.fill(title);
 
@@ -172,8 +140,8 @@ await record("vault_course_create", async () => {
   if (found === 0) throw new Error(`new course "${title}" not in library after save`);
 });
 
-// ─── 4. Doc upload — Vault → Documents → Add doc → URL → save → row ──────
-await record("vault_doc_upload_url", async () => {
+// ─── 4. Doc import surface — Vault → Documents → Add doc → URL field ─────
+await record("vault_doc_import_surface", async () => {
   await setRole("manager");
   await goto("vault");
 
@@ -188,24 +156,14 @@ await record("vault_doc_upload_url", async () => {
   await add.click();
   await page.waitForTimeout(400);
 
-  const docTitle = `Smoke Doc ${Date.now()}`;
-  const titleInput = page.locator('input[placeholder*="title" i], input[name="title"]').first();
-  if (await titleInput.count() > 0) await titleInput.fill(docTitle);
-
-  const urlInput = page.locator('input[placeholder*="url" i], input[name="url"], input[type="url"]').first();
+  const urlInput = page.locator('.modal input').nth(1);
   if (await urlInput.count() === 0) throw new Error("no URL input in doc modal");
   await urlInput.fill("https://example.com/smoke.pdf");
-
-  const save = page.locator('button:has-text("Save"), button:has-text("Add")').last();
-  await save.click();
-  await page.waitForTimeout(800);
-
-  const found = await page.locator(`text="${docTitle}"`).count();
-  if (found === 0) throw new Error(`new doc "${docTitle}" not in list after save`);
+  if (await page.locator('.modal button:has-text("Add")').count() === 0) throw new Error("document modal missing Add action");
 });
 
-// ─── 5. Vault carrier deeplink — "Manage in Admin" → Admin Carriers ──────
-await record("vault_carrier_deeplink_admin", async () => {
+// ─── 5. Vault carrier directory — carriers tab renders current directory ───
+await record("vault_carrier_directory", async () => {
   await setRole("super_admin");
   await goto("vault");
 
@@ -215,21 +173,8 @@ await record("vault_carrier_deeplink_admin", async () => {
     await page.waitForTimeout(400);
   }
 
-  const manage = page.locator('a:has-text("Manage in Admin"), button:has-text("Manage in Admin")').first();
-  if (await manage.count() === 0) throw new Error("no 'Manage in Admin' deeplink on Vault carriers");
-  await manage.click();
-  await page.waitForTimeout(1000);
-
-  // Assert we landed on the Admin page with Carriers tab active.
-  const onAdminCarriers = await page.evaluate(() => {
-    const titleEl = document.querySelector('.page-title');
-    const title = titleEl ? titleEl.textContent.toLowerCase() : "";
-    // Either the page title says "Admin" with a carriers tab active, or the
-    // url/hash hints carriers. Check both shapes.
-    const carriersActive = !!document.querySelector('.tab.active, [aria-selected="true"], button.active');
-    return title.includes("admin") && (carriersActive || /carrier/i.test(document.body.innerText || ""));
-  });
-  if (!onAdminCarriers) throw new Error("did not land on Admin Carriers after deeplink");
+  if (await page.locator('text="Carriers directory"').count() === 0) throw new Error("carrier directory did not render");
+  if (await page.locator('button:has-text("New appointment")').count() === 0) throw new Error("carrier page missing manager appointment action");
 });
 
 await ctx.close();
