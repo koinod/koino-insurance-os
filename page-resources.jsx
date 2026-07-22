@@ -417,7 +417,6 @@ function PageResources({ role = "owner" }) {
   const TABS = [
     { k: "overview", l: "Overview",     icon: "Activity" },
     !isRep && { k: "vendors",  l: "Lead vendors", icon: "Wallet",   badge: vendors.length },
-    { k: "carriers", l: "Carriers",     icon: "Shield",   badge: carriers.length },
     { k: "scripts",  l: "Scripts & docs", icon: "FileText", badge: scripts.length + docs.length },
     { k: "links",    l: "Quick links",  icon: "Bookmark", badge: links.length },
   ].filter(Boolean);
@@ -452,7 +451,6 @@ function PageResources({ role = "owner" }) {
 
       {tab === "overview"  && <OverviewSection {...{ totals, blendedRoas, blendedCpl, blendedCpa, closeRate, carrierAvgPersist, carrierAvgNigo, topVendor, worstVendor, topCarrier, vendors, useSample, realDataAvailable, setTab, isRep }}/>}
       {tab === "vendors"   && <VendorsSection  {...{ vendors, totals, blendedRoas, blendedCpl, blendedCpa, logDraft, setLogDraft, logSpend, spendLog }}/>}
-      {tab === "carriers"  && <CarriersSection {...{ carriers, phone, setPhone, age, setAge, zip, setZip, scrubResults, runScrub }}/>}
       {tab === "scripts"   && <ScriptsDocsSection {...{ scripts: filteredScripts, scriptOpen, setScriptOpen, scriptCat, setScriptCat, scriptQ, setScriptQ, copyScript, docs, docAdd, setDocAdd, docDraft, setDocDraft, addDoc, removeDoc, handleFiles, gdocUrl, setGdocUrl, importGoogleDoc, importing, uploads, docPreview, setDocPreview }}/>}
       {tab === "links"     && <QuickLinksSection {...{ groupedLinks, links, linkAdd, linkEditId, linkDraft, setLinkDraft, startLinkAdd, startLinkEdit, cancelLink, saveLink, removeLink }}/>}
     </div>
@@ -484,16 +482,14 @@ function OverviewSection({ totals, blendedRoas, blendedCpl, blendedCpa, closeRat
         <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <LeaderCard tone="money" title="Top ROAS vendor" value={topVendor?.name || "—"} sub={topVendor ? `${topVendor.roas.toFixed(2)}x · ${fmtMoney(topVendor.spend)} spend → ${fmtMoney(topVendor.ap)} AP` : "no spend yet"} onClick={() => setTab("vendors")}/>
           <LeaderCard tone="danger" title="Worst ROAS vendor" value={worstVendor?.name || "—"} sub={worstVendor ? `${worstVendor.roas.toFixed(2)}x · cut budget?` : "—"} onClick={() => setTab("vendors")}/>
-          <LeaderCard tone="info" title="Top carrier (persistency)" value={topCarrier?.name || "—"} sub={topCarrier?.persistency != null ? `${fmtPct(topCarrier.persistency, 0)} retention · ${topCarrier.appts || 0} appts` : "no policies yet"} onClick={() => setTab("carriers")}/>
         </div>
       </div>
 
       {/* Quick-jump strip */}
       <div className="panel">
         <div className="panel-h"><Icons.Bolt size={13}/><h3>Quick jump</h3></div>
-        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           <QuickJump icon="Wallet"   label="Buy leads + log spend"   sub="Vendor portals + spend tracker"     onClick={() => setTab("vendors")}/>
-          <QuickJump icon="Shield"   label="Pre-call scrub"           sub="DNC · age · license · appointment"   onClick={() => setTab("carriers")}/>
           <QuickJump icon="FileText" label="Pull a call script"        sub="Plan G · FE · TPMO · rebuttals"     onClick={() => setTab("scripts")}/>
           <QuickJump icon="Bookmark" label="Open a portal"             sub="UHC · Humana · Aetna · AHIP"        onClick={() => setTab("links")}/>
         </div>
