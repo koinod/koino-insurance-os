@@ -602,17 +602,6 @@ const Topbar = ({ crumbs, aep, openCmdK, toggleRail, railOn, openMobile, openNot
 // etc.) is left to the worker that picks up the job — keeping the panel a
 // thin trigger surface.
 const AGENT_ACTIONS = [
-  // Built-in flows (composite worker logic, kind matches role_actions in 0026)
-  { kind: "recruiting_scan",     roles: ["manager","owner","imo_owner","admin","super_admin"], label: "Run recruiting scan",                        icon: "ArrowUpRight" },
-  { kind: "pull_carrier_appts",  roles: ["manager","owner","imo_owner","admin","super_admin"], label: "Sync carrier appointments",                  icon: "Shield"       },
-  { kind: "pull_comp_statement", roles: ["owner","imo_owner","admin","super_admin"],           label: "Pull latest commission statement",           icon: "Wallet"       },
-  { kind: "transcribe_call",     roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Transcribe my most recent call",       icon: "Headset",     payload: { latest: true } },
-  { kind: "nigo_followup",       roles: ["rep"],                                               label: "Send NIGO follow-up to top stalled deal",     icon: "Bell",        payload: { latest: true } },
-  { kind: "coaching_drop",       roles: ["manager","imo_owner"],                               label: "Drop coaching note on a rep",                 icon: "Users",       payload: { latest: true } },
-  { kind: "quote_carrier",       roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Quote current carrier rate sheet",     icon: "Wallet"       },
-  { kind: "send_sms",            roles: ["rep","manager"],                                     label: "Send SMS to current lead",                    icon: "Phone",       payload: { latest: true } },
-  { kind: "mint_install_token",  roles: ["admin","owner","imo_owner","super_admin"],           label: "Generate local agent install token",          icon: "Plug",        policy: { requires_approval: true } },
-
   // Direct-mapped agent tool kinds (one-to-one with runtime/tools/<kind>.py; seeded in 0031)
   { kind: "create_lead",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Capture this lead into pipeline",      icon: "Sparkles",   group: "intake" },
   { kind: "draft_email",         roles: ["rep","manager","owner","imo_owner","admin","super_admin"], label: "Draft an email (local LLM)",           icon: "FileText",   group: "compose" },
@@ -685,7 +674,8 @@ async function enqueueAgentJob(action, extraContext) {
 window.enqueueAgentJob = enqueueAgentJob;
 
 const CMD_ITEMS = {
-  Actions: AGENT_ACTIONS.map(a => ({ label: a.label, icon: a.icon, _kind: "agent_action", _action: a })),
+  // Agent actions require typed inputs and are exposed in the agent panel.
+  // Cmd+K stays focused on navigation and record search.
   Navigate: [
     { label: "Today",              icon: "Home",         nav: "today" },
     { label: "Pipeline",           icon: "Pipeline",     nav: "pipeline" },
@@ -727,15 +717,9 @@ const CmdK = ({ open, onClose, goto }) => {
     const role = (typeof window !== "undefined" && window.me && window.me()?.role) || null;
     Object.entries(CMD_ITEMS).forEach(([sec, list]) => {
       list.forEach(i => {
-        // Carry the source _kind through (agent_action / page) but tag with sec.
+        // Carry the source kind through while tagging each item with its section.
         const base = { ...i, sec };
-        if (i._kind === "agent_action") {
-          // Role-filter: hide actions the caller's role can't dispatch.
-          if (role && Array.isArray(i._action?.roles) && !i._action.roles.includes(role)) return;
-          items.push(base);
-        } else {
-          items.push({ ...base, _kind: "page" });
-        }
+        items.push({ ...base, _kind: "page" });
       });
     });
     if (q && q.length >= 2) {
@@ -795,7 +779,6 @@ const CmdK = ({ open, onClose, goto }) => {
 
   const run = (it) => {
     if (!it) return onClose();
-    if (it._kind === "agent_action") { enqueueAgentJob(it._action); onClose(); return; }
     if (it._kind === "page" && it.nav && goto) { goto(it.nav); onClose(); return; }
     if (it._kind === "lead")    { goto && goto("crm");     window.dispatchEvent(new CustomEvent("crm:focusLead", { detail: it._payload })); onClose(); return; }
     if (it._kind === "rep")     { goto && goto("team");                                                                                    onClose(); return; }

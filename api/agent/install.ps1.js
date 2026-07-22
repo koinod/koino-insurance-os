@@ -8,7 +8,7 @@
 //   2. Creates venv at $env:USERPROFILE\.repflow\agent\venv
 //   3. pip-installs runtime deps + playwright chromium
 //   4. Installs Ollama for Windows if missing
-//   5. Pulls qwen2.5:1.5b (always) + qwen2.5:3b on 8GB+ / qwen2.5:7b on 16GB+
+//   5. Pulls one fast local model (qwen2.5:1.5b)
 //   6. Downloads runtime + scrapers from this deploy
 //   7. Redeems install token → writes config.yaml (NTFS perms locked to current user)
 //   8. Registers a Scheduled Task to run python -m runtime.agent at logon
@@ -87,10 +87,9 @@ Write-Host "[rba] os=windows cpu='$Cpu' ram_gb=$RamGB"
 
 # Planned models — computed from RAM up front so we can redeem the token
 # before any slow downloads. Actual ollama pull happens later.
-$Models = @('qwen2.5:1.5b')
-$Smart  = 'qwen2.5:3b'
-if ($RamGB -ge 16) { $Smart = 'qwen2.5:7b' }
-if ($RamGB -ge 8)  { $Models += $Smart }
+$FastModel = 'qwen2.5:1.5b'
+$Smart = $FastModel
+$Models = @($FastModel)
 $ModelsJson = ($Models | ConvertTo-Json -Compress)
 
 # ── 2. Redeem install token FIRST ─────────────────────────────────────
@@ -207,8 +206,7 @@ if (-not (Get-Process -Name ollama -ErrorAction SilentlyContinue)) {
   Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden
   Start-Sleep -Seconds 2
 }
-& ollama pull qwen2.5:1.5b
-if ($RamGB -ge 8) { & ollama pull $Smart }
+& ollama pull $FastModel
 
 # ── 5. Pull runtime files ─────────────────────────────────────────────
 $Files = @(

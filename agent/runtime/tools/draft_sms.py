@@ -60,7 +60,7 @@ def run(payload: dict, ctx: dict) -> dict:
     )
 
     cfg = ctx.get("cfg") or {}
-    model = cfg.get("default_model") or "qwen2.5:3b"
+    model = cfg.get("default_model") or "qwen2.5:1.5b"
     base = cfg.get("ollama_url") or "http://127.0.0.1:11434"
     text = _ollama(prompt, model, base)
     text = text[:160]  # hard cap; carriers reject longer SMS

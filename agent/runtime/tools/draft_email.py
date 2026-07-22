@@ -28,7 +28,7 @@ def run(payload, ctx):
     intent = payload.get("intent") or "follow_up"
     persona = payload.get("persona_hint") or ""
     cfg = ctx.get("cfg") or {}
-    model = cfg.get("default_model") or "qwen2.5:3b"
+    model = cfg.get("default_model") or "qwen2.5:1.5b"
 
     prompt = PROMPT.format(intent=intent,
                            persona=f"Voice: {persona}" if persona else "",

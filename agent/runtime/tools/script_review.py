@@ -24,7 +24,7 @@ SCRIPT:
 Return JSON-ish: 'critique_md' = bullet list of issues, then 'top_3_fixes' = 3 most impactful changes (one line each).
 """
     cfg = ctx.get("cfg") or {}
-    model = cfg.get("smart_model") or cfg.get("default_model") or "qwen2.5:3b"
+    model = cfg.get("smart_model") or cfg.get("default_model") or "qwen2.5:1.5b"
     r = _r.post((ctx.get("cfg",{}).get("ollama_url") or "http://127.0.0.1:11434") + "/api/generate",
                 json={"model": model, "prompt": prompt, "stream": False,
                       "options": {"temperature": 0.3, "num_predict": 600}}, timeout=90)

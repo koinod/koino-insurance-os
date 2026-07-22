@@ -46,6 +46,8 @@ const ACTIONS_NEEDING_INPUT = {
                    { key: "body", label: "Message", required: true }],
   script_review:  [{ key: "filename", label: "File in workspace", required: true }],
   file_review:    [{ key: "filename", label: "File in workspace", required: true }],
+  browser_run:    [{ key: "url", label: "Approved URL", required: true },
+                   { key: "action", label: "open, screenshot, or extract_text", required: false }],
   ig_dm_reply:    [{ key: "auto_send", label: "Auto-send (true/false)", required: false }],
 };
 
@@ -62,6 +64,16 @@ const ACTION_GROUP_LABELS = {
   browser: "Browser",
   _legacy: "Flows",
 };
+
+// Keep only commands backed by a shipped runtime tool. Older composite flow
+// names remained visible after their worker was removed, so clicks could only
+// end in a denial or "no tool registered" result.
+const FUNCTIONAL_AGENT_KINDS = new Set([
+  "create_lead", "draft_email", "draft_sms", "script_review", "file_review",
+  "twilio_dial", "phone_link_dial", "phone_link_inspect", "sendblue_send",
+  "ig_dm_reply", "meta_dm_send", "linkedin_send", "linkedin_inbox_scan",
+  "fathom_pull_notes", "fb_pull_lead_forms", "auto_quote", "browser_run",
+]);
 
 const StatusPill = ({ status }) => {
   const map = {
@@ -473,6 +485,7 @@ const AISidebar = ({ open, onClose }) => {
   const visibleActions = useMemo(() => {
     const q = filter.toLowerCase();
     return (typeof AGENT_ACTIONS !== "undefined" ? AGENT_ACTIONS : [])
+      .filter(a => FUNCTIONAL_AGENT_KINDS.has(a.kind))
       .filter(a => !role || (a.roles || []).includes(role) || (a.roles || []).includes("super_admin"))
       .filter(a => !q || a.kind.includes(q) || a.label.toLowerCase().includes(q));
   }, [filter, role]);

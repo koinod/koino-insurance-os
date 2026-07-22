@@ -6,8 +6,7 @@
 // What it does:
 //   1. Verifies Python 3.10+, installs venv at ~/.repflow/agent/venv
 //   2. pip-installs runtime deps (requests, scrapling[fetchers], playwright)
-//   3. Installs Ollama if missing; pulls fast (qwen2.5:1.5b) + smart (qwen2.5:3b
-//      on 8GB+ / qwen2.5:7b on 16GB+)
+//   3. Installs Ollama if missing; pulls one fast local model (qwen2.5:1.5b)
 //   4. Downloads the agent runtime + scrapers from this deploy (raw static
 //      files served from the repo root)
 //   5. Redeems the install token → writes config.yaml (chmod 600)
@@ -97,13 +96,9 @@ echo "[rba] os=\$OS cpu=\$CPU ram_gb=\$RAM_GB"
 
 # Planned models — computed from RAM up front so we can redeem the token
 # before any slow downloads. Actual ollama pull happens later.
-SMART="qwen2.5:3b"
-if [ "\$RAM_GB" -ge 16 ]; then SMART="qwen2.5:7b"; fi
-if [ "\$RAM_GB" -ge 8 ]; then
-  MODELS=\$(printf '["qwen2.5:1.5b","%s"]' "\$SMART")
-else
-  MODELS='["qwen2.5:1.5b"]'
-fi
+FAST_MODEL="qwen2.5:1.5b"
+SMART="\$FAST_MODEL"
+MODELS='["qwen2.5:1.5b"]'
 
 # ─── 2. Redeem install token FIRST ──────────────────────────────────────
 # The token expires 5 minutes after issue (migration 0030). Pip install,
@@ -221,10 +216,7 @@ if ! pgrep -x ollama >/dev/null 2>&1; then
   nohup ollama serve >>"\$RBA_HOME/ollama.log" 2>&1 &
   sleep 2
 fi
-ollama pull qwen2.5:1.5b
-if [ "\$RAM_GB" -ge 8 ]; then
-  ollama pull "\$SMART"
-fi
+ollama pull "\$FAST_MODEL"
 
 # ─── 5. Pull runtime files ─────────────────────────────────────────────
 FILES=(${fileList})

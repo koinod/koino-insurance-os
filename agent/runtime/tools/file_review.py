@@ -19,7 +19,7 @@ def run(payload, ctx):
     text = target.read_text(errors="replace")[:20000]
 
     cfg = ctx.get("cfg") or {}
-    model = cfg.get("smart_model") or cfg.get("default_model") or "qwen2.5:3b"
+    model = cfg.get("smart_model") or cfg.get("default_model") or "qwen2.5:1.5b"
     r = _r.post((ctx.get("cfg",{}).get("ollama_url") or "http://127.0.0.1:11434") + "/api/generate",
                 json={"model": model, "prompt": f"Summarize this file in 3-5 bullets, then list any action items:\n\n{text}",
                       "stream": False, "options": {"num_predict": 600}}, timeout=90)
