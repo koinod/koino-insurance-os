@@ -29,6 +29,25 @@
     return "neutral";
   };
 
+  const policyAllocations = (policyId, allocations) => (allocations || []).filter(a => a.policy_id === policyId);
+  const allocatedCents = (policyId, allocations) => policyAllocations(policyId, allocations).reduce((n, a) => n + (Number(a.amount_cents) || 0), 0);
+  const policyTags = (policy, allocations) => {
+    if (!policy) return [];
+    const tags = [];
+    if (policy.issuedAt) tags.push({ label: `Issued ${dateLabel(policy.issuedAt)}`, tone: "good" });
+    if (policy.initialDraftDate) tags.push({ label: `Draft ${dateLabel(policy.initialDraftDate)}`, tone: "neutral" });
+    const paid = allocatedCents(policy.id, allocations);
+    if (paid > 0) tags.push({ label: `Deposited ${money(paid / 100)}`, tone: "good" });
+    else if (policy.expectedCommission > 0) tags.push({ label: "Awaiting deposit", tone: "warn" });
+    if (policy.effectiveAt) tags.push({ label: `Effective ${dateLabel(policy.effectiveAt)}`, tone: "neutral" });
+    return tags;
+  };
+
+  function PolicyTags({ policy, allocations }) {
+    const tags = policyTags(policy, allocations);
+    return tags.length ? <div className="crm-row-tags">{tags.map(tag => <Badge key={tag.label} tone={tag.tone}>{tag.label}</Badge>)}</div> : null;
+  }
+
   function Badge({ children, tone }) {
     return <span className={`crm-badge crm-badge-${tone || statusTone(children)}`}>{children}</span>;
   }
@@ -223,15 +242,108 @@
     </Modal>;
   }
 
-  function ClientDrawer({ record, onClose, carriers }) {
+  function PolicyMilestoneModal({ policy, onClose, onSaved }) {
+    const [form, setForm] = useState({
+      status: policy.status || "pending",
+      issuedAt: policy.issuedAt || "",
+      initialDraftDate: policy.initialDraftDate || "",
+      effectiveAt: policy.effectiveAt || "",
+    });
+    const [saving, setSaving] = useState(false);
+    const save = async (e) => {
+      e.preventDefault();
+      const sb = window.getSupabase?.();
+      if (!sb || !window.AppData?.LIVE) return window.toast?.("Milestones require a live agency session.", "error");
+      setSaving(true);
+      try {
+        const { error } = await sb.from("policies").update({
+          status: form.status,
+          issued_at: form.issuedAt || null,
+          initial_draft_date: form.initialDraftDate || null,
+          effective_at: form.effectiveAt || null,
+          updated_at: new Date().toISOString(),
+        }).eq("id", policy.id);
+        if (error) throw error;
+        window.toast?.("Deal milestones saved.", "success");
+        window.dispatchEvent(new Event("data:hydrated"));
+        onSaved?.(); onClose();
+      } catch (err) { window.toast?.(err.message || "Milestones could not be saved.", "error"); }
+      finally { setSaving(false); }
+    };
+    return <Modal title="Deal milestones" onClose={onClose}>
+      <form className="crm-form" onSubmit={save}>
+        <div className="crm-form-context"><strong>{policy.product || "Policy"}</strong><span>{policy.policyNumber || "No policy number"}</span></div>
+        <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option value="pending">Pending</option><option value="app_in">App in</option><option value="issued">Issued</option><option value="active">Active</option><option value="lapsed">Lapsed</option><option value="cancelled">Cancelled</option></select></label>
+        <div className="crm-form-grid"><label>Issue / pay date<input type="date" value={form.issuedAt} onChange={e => setForm({ ...form, issuedAt: e.target.value })} /></label><label>First draft date<input type="date" value={form.initialDraftDate} onChange={e => setForm({ ...form, initialDraftDate: e.target.value })} /></label></div>
+        <label>Effective date<input type="date" value={form.effectiveAt} onChange={e => setForm({ ...form, effectiveAt: e.target.value })} /></label>
+        <div className="crm-form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save milestones"}</button></div>
+      </form>
+    </Modal>;
+  }
+
+  function PolicyDepositModal({ policy, carrier, agencyId, deposits, allocations, onClose, onSaved }) {
+    const me = (window.me && window.me()) || {};
+    const matching = deposits.filter(d => d.carrier_id === policy.carrierId);
+    const [depositId, setDepositId] = useState(matching[0]?.id || "new");
+    const [amount, setAmount] = useState(policy.expectedCommission ? String(policy.expectedCommission) : String(policy.ap || ""));
+    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [kind, setKind] = useState("advance");
+    const [saving, setSaving] = useState(false);
+    const save = async (e) => {
+      e.preventDefault();
+      const amountCents = Math.round(Number(amount) * 100);
+      if (!amountCents) return window.toast?.("Enter the deposited amount.", "error");
+      const sb = window.getSupabase?.();
+      if (!sb || !window.AppData?.LIVE) return window.toast?.("Deposits require a live agency session.", "error");
+      const existing = matching.find(d => d.id === depositId);
+      const prior = existing ? allocations.filter(a => a.deposit_id === existing.id && a.policy_id !== policy.id).map(a => ({ policy_id: a.policy_id, rep_id: a.rep_id, kind: a.kind, amount_cents: a.amount_cents, notes: a.notes })) : [];
+      const samePolicy = existing ? allocations.filter(a => a.deposit_id === existing.id && a.policy_id === policy.id).reduce((n, a) => n + (Number(a.amount_cents) || 0), 0) : 0;
+      setSaving(true);
+      try {
+        const payload = {
+          id: existing?.id || null,
+          agency_id: agencyId,
+          carrier_id: carrier?.id || policy.carrierId,
+          rep_id: policy.owner || me.rep_id || null,
+          deposit_date: existing?.deposit_date || date,
+          gross_cents: existing ? existing.gross_cents : amountCents,
+          statement_ref: existing?.statement_ref || null,
+          notes: existing?.notes || null,
+          allocations: [...prior, { policy_id: policy.id, rep_id: policy.owner || me.rep_id || null, kind, amount_cents: samePolicy + amountCents, notes: "Marked from CRM" }],
+        };
+        const { error } = await sb.rpc("crm_save_deposit", { p_payload: payload });
+        if (error) throw error;
+        window.toast?.("Deposit allocated to this deal.", "success");
+        window.dispatchEvent(new Event("data:hydrated"));
+        onSaved?.(); onClose();
+      } catch (err) { window.toast?.(err.message || "Deposit could not be allocated.", "error"); }
+      finally { setSaving(false); }
+    };
+    return <Modal title="Mark deposited" onClose={onClose}>
+      <form className="crm-form" onSubmit={save}>
+        <div className="crm-form-context"><strong>{policy.product || "Policy"}</strong><span>{carrier?.name || "Carrier pending"}</span></div>
+        <label>Carrier deposit<select value={depositId} onChange={e => setDepositId(e.target.value)}><option value="new">New deposit record</option>{matching.map(d => <option key={d.id} value={d.id}>{dateLabel(d.deposit_date)} · {money((Number(d.gross_cents) || 0) / 100)}</option>)}</select></label>
+        <div className="crm-form-grid"><label>Amount allocated<input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></label><label>Commission type<select value={kind} onChange={e => setKind(e.target.value)}><option value="advance">Advance</option><option value="as_earned">As earned</option><option value="trail">Trail</option><option value="other">Other</option></select></label></div>
+        {depositId === "new" && <label>Deposit date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>}
+        <div className="crm-form-note">Deposited tags are based on the actual deposit allocation ledger.</div>
+        <div className="crm-form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Mark deposited"}</button></div>
+      </form>
+    </Modal>;
+  }
+
+  function ClientDrawer({ record, onClose, carriers, agencyId, moneyRows, onSaved }) {
     if (!record) return null;
+    const [milestonePolicy, setMilestonePolicy] = React.useState(null);
+    const [depositPolicy, setDepositPolicy] = React.useState(null);
     return <div className="crm-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <aside className="crm-drawer"><div className="crm-drawer-head"><div><div className="crm-eyebrow">Client</div><h2>{record.client?.name || record.lead?.lead || "Unnamed"}</h2><div className="crm-muted">{record.client?.phone || record.lead?.phone || "No phone"}{record.client?.email ? ` · ${record.client.email}` : ""}</div></div><button className="crm-icon-btn" onClick={onClose} aria-label="Close">×</button></div>
         <div className="crm-drawer-actions"><button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("crm:write-deal", { detail: { lead: record.lead } }))}>Write deal</button><button className="btn" onClick={() => window.dispatchEvent(new CustomEvent("incall:open", { detail: { lead: record.lead } }))}>Call</button></div>
         <div className="crm-detail-section"><div className="crm-detail-label">Pipeline</div><div className="crm-detail-row"><span>Status</span><Badge>{record.lead?.stage || record.policy?.status || "Lead"}</Badge></div><div className="crm-detail-row"><span>Owner</span><strong>{record.owner?.name || "Unassigned"}</strong></div><div className="crm-detail-row"><span>Next action</span><strong>{record.lead?.next || "—"}</strong></div></div>
-        <div className="crm-detail-section"><div className="crm-detail-label">Policies</div>{record.policies.length ? record.policies.map(p => <div className="crm-policy-row" key={p.id}><div><strong>{p.product || "Policy"}</strong><div className="crm-muted">{(carriers.find(c => c.id === p.carrierId) || {}).name || "Carrier pending"} · {p.policyNumber || "No number"}</div></div><div className="crm-policy-right"><Badge>{p.status || "pending"}</Badge><strong>{money(p.ap)}</strong></div></div>) : <div className="crm-empty-inline">No policies yet.</div>}</div>
+        <div className="crm-detail-section"><div className="crm-detail-label">Policies</div>{record.policies.length ? record.policies.map(p => <div className="crm-policy-row" key={p.id}><div><strong>{p.product || "Policy"}</strong><div className="crm-muted">{(carriers.find(c => c.id === p.carrierId) || {}).name || "Carrier pending"} · {p.policyNumber || "No number"}</div><PolicyTags policy={p} allocations={moneyRows?.allocations} /></div><div className="crm-policy-right"><Badge>{p.status || "pending"}</Badge><strong>{money(p.ap)}</strong><div className="crm-policy-actions"><button className="crm-row-action" onClick={() => setMilestonePolicy(p)}>Milestones</button><button className="crm-row-action" onClick={() => setDepositPolicy(p)}>Deposit</button></div></div></div>) : <div className="crm-empty-inline">No policies yet.</div>}</div>
         <div className="crm-detail-section"><div className="crm-detail-label">Financial snapshot</div><div className="crm-detail-stats"><div><span>AP</span><strong>{money(record.ap)}</strong></div><div><span>Expected comp</span><strong>{money(record.expectedComp)}</strong></div><div><span>Policies</span><strong>{record.policies.length}</strong></div></div></div>
       </aside>
+      {milestonePolicy && <PolicyMilestoneModal policy={milestonePolicy} onClose={() => setMilestonePolicy(null)} onSaved={onSaved} />}
+      {depositPolicy && <PolicyDepositModal policy={depositPolicy} carrier={carriers.find(c => c.id === depositPolicy.carrierId)} agencyId={agencyId} deposits={moneyRows?.deposits || []} allocations={moneyRows?.allocations || []} onClose={() => setDepositPolicy(null)} onSaved={onSaved} />}
     </div>;
   }
 
@@ -322,11 +434,11 @@
       <div className="crm-kpis"><div><span>Needs action</span><strong>{metrics.needs}</strong></div><div><span>Active AP</span><strong>{money(metrics.ap)}</strong></div><div><span>Expected comp</span><strong>{money(metrics.expected)}</strong></div><div><span>Paid comp</span><strong className="crm-good-text">{money(metrics.paid)}</strong></div><div><span>Net cash</span><strong>{money(metrics.net)}</strong></div></div>
       <div className="crm-toolbar"><div className="crm-views">{[["pipeline", "Pipeline"], ["clients", "Clients"], ["money", "Money"], ["carriers", "Carriers"]].map(([k, label]) => <button key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}</div><div className="crm-filters"><select value={scope} onChange={e => setScope(e.target.value)}><option value="all">{role === "rep" ? "My work" : "Mine + downline"}</option><option value="mine">Mine only</option></select><select value={dateRange} onChange={e => setDateRange(e.target.value)}><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search CRM…" /></div></div>
       <div className="crm-view-head"><div><h2>{title}</h2><span>{view === "pipeline" ? `${filtered.length} active records` : view === "clients" ? `${filtered.filter(r => r.client).length} clients` : view === "money" ? `${moneyRows.deposits.length + moneyRows.expenses.length} ledger entries` : `${appts.length || carriers.length} carriers available`}</span></div>{view === "carriers" && <button className="btn" onClick={() => window.gotoPage?.("carrier-appointments")}>Manage appointments</button>}</div>
-      {view === "pipeline" && <PipelineView rows={filtered} carrierById={carrierById} onSelect={setActive} onDeal={r => { setActive(r); setModal("deal"); }} />}
-      {view === "clients" && <ClientsView rows={filtered.filter(r => r.client)} onSelect={setActive} />}
+      {view === "pipeline" && <PipelineView rows={filtered} carrierById={carrierById} allocations={moneyRows.allocations} onSelect={setActive} onDeal={r => { setActive(r); setModal("deal"); }} />}
+      {view === "clients" && <ClientsView rows={filtered.filter(r => r.client)} allocations={moneyRows.allocations} onSelect={setActive} />}
       {view === "money" && <MoneyView rows={moneyRows} carrierById={carrierById} policyById={Object.fromEntries(policies.map(p => [p.id, p]))} loading={loadingMoney} dateRange={dateRange} />}
       {view === "carriers" && <CarriersView carriers={carriers} appts={appts} />}
-      {active && <ClientDrawer record={active} onClose={() => setActive(null)} carriers={carriers} />}
+      {active && <ClientDrawer record={active} onClose={() => setActive(null)} carriers={carriers} agencyId={agencyId} moneyRows={moneyRows} onSaved={() => { setActive(null); refresh(); }} />}
       {modal === "lead" && <LeadModal onClose={() => setModal(null)} onSaved={refresh} />}
       {modal === "deal" && <DealModal lead={active?.lead} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal === "deposit" && <DepositModal carriers={carriers.filter(c => appts.some(a => a.carrierId === c.id) || !appts.length)} agencyId={agencyId} onClose={() => setModal(null)} onSaved={refresh} />}
@@ -334,12 +446,12 @@
     </div>;
   }
 
-  function PipelineView({ rows, carrierById, onSelect, onDeal }) {
-    return <div className="crm-table-wrap"><table className="crm-table"><thead><tr><th>Lead / client</th><th>Stage</th><th>Owner</th><th>Product / carrier</th><th>Next action</th><th className="num">AP</th><th></th></tr></thead><tbody>{rows.map(r => <tr key={r.id} onClick={() => onSelect(r)}><td><strong>{r.client?.name || r.lead.lead || "Unnamed"}</strong><small>{r.lead.phone || r.lead.email || "No contact info"}</small></td><td><Badge>{r.lead.stage || "New"}</Badge></td><td>{r.owner?.name || "Unassigned"}</td><td>{r.lead.product || r.policies[0]?.product || "—"}<small>{r.policies[0]?.carrierId ? carrierById[r.policies[0].carrierId]?.name || "Carrier" : "No policy yet"}</small></td><td>{r.lead.next || "—"}</td><td className="num">{money(r.ap)}</td><td><button className="crm-row-action" onClick={e => { e.stopPropagation(); onDeal(r); }}>Write deal</button></td></tr>)}</tbody></table>{!rows.length && <div className="crm-empty">No pipeline records match this view.</div>}</div>;
+  function PipelineView({ rows, carrierById, allocations, onSelect, onDeal }) {
+    return <div className="crm-table-wrap"><table className="crm-table"><thead><tr><th>Lead / client</th><th>Stage</th><th>Owner</th><th>Product / carrier</th><th>Next action</th><th className="num">AP</th><th></th></tr></thead><tbody>{rows.map(r => <tr key={r.id} onClick={() => onSelect(r)}><td><strong>{r.client?.name || r.lead.lead || "Unnamed"}</strong><small>{r.lead.phone || r.lead.email || "No contact info"}</small><PolicyTags policy={r.policies[0]} allocations={allocations} /></td><td><Badge>{r.lead.stage || "New"}</Badge></td><td>{r.owner?.name || "Unassigned"}</td><td>{r.lead.product || r.policies[0]?.product || "—"}<small>{r.policies[0]?.carrierId ? carrierById[r.policies[0].carrierId]?.name || "Carrier" : "No policy yet"}</small></td><td>{r.lead.next || "—"}</td><td className="num">{money(r.ap)}</td><td><button className="crm-row-action" onClick={e => { e.stopPropagation(); onDeal(r); }}>Write deal</button></td></tr>)}</tbody></table>{!rows.length && <div className="crm-empty">No pipeline records match this view.</div>}</div>;
   }
 
-  function ClientsView({ rows, onSelect }) {
-    return <div className="crm-table-wrap"><table className="crm-table"><thead><tr><th>Client</th><th>Policies</th><th>Status</th><th>Owner</th><th className="num">AP</th><th className="num">Expected comp</th></tr></thead><tbody>{rows.map(r => <tr key={r.id} onClick={() => onSelect(r)}><td><strong>{r.client.name}</strong><small>{r.client.phone || r.client.email || "No contact info"}</small></td><td>{r.policies.length}</td><td><Badge>{r.policies[0]?.status || r.lead.stage || "Lead"}</Badge></td><td>{r.owner?.name || "Unassigned"}</td><td className="num">{money(r.ap)}</td><td className="num">{money(r.expectedComp)}</td></tr>)}</tbody></table>{!rows.length && <div className="crm-empty">No clients match this view.</div>}</div>;
+  function ClientsView({ rows, allocations, onSelect }) {
+    return <div className="crm-table-wrap"><table className="crm-table"><thead><tr><th>Client</th><th>Policies</th><th>Status / tags</th><th>Owner</th><th className="num">AP</th><th className="num">Expected comp</th></tr></thead><tbody>{rows.map(r => <tr key={r.id} onClick={() => onSelect(r)}><td><strong>{r.client.name}</strong><small>{r.client.phone || r.client.email || "No contact info"}</small></td><td>{r.policies.length}</td><td><Badge>{r.policies[0]?.status || r.lead.stage || "Lead"}</Badge><PolicyTags policy={r.policies[0]} allocations={allocations} /></td><td>{r.owner?.name || "Unassigned"}</td><td className="num">{money(r.ap)}</td><td className="num">{money(r.expectedComp)}</td></tr>)}</tbody></table>{!rows.length && <div className="crm-empty">No clients match this view.</div>}</div>;
   }
 
   function MoneyView({ rows, carrierById, policyById, loading, dateRange }) {
