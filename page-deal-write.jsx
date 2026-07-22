@@ -332,8 +332,12 @@
           state: newLead?.state || (leadId ? pipeline.find(l => String(l.id) === String(leadId))?.state : null),
           carrier_id: carrierId, product_id: productId, product: product?.name || null,
           policy_number: policyNumber || null, ap_cents: cents(ap),
+          target_premium_cents: showTarget && targetPremium ? cents(targetPremium) : null,
           expected_commission_cents: expectedComm ? cents(expectedComm) : null,
           comp_rate_pct: compRate ? Number(compRate) : null,
+          submission_date: submissionDate || null,
+          initial_draft_date: draftDate || null,
+          lead_source_id: leadSourceId || null,
           status, stage: status === "submitted" ? "App In" : "New",
           owner_rep_id: meIdent.rep_id || (me ? me.id : null),
         };
@@ -914,52 +918,43 @@
   }
 
   // ──────────────────────────────────────────────────────────────────────
-  // <DealWriteModal/> — floating shell for the topbar Deal button. Mounts
+  // <DealWriteModal/> — universal shell used by the topbar, CRM, and edit flow.
   // the SAME DealWriteForm used inside Floor → Deals so the carrier-/state-
   // /comp-rate logic stays single-sourced. Replaces the deprecated
   // QuickLogDeal modal (2026-05-24) whose 5-field stripped UX caused
   // divergent comp defaults (100% vs product-base) and missed lead/carrier
   // validation.
   // ──────────────────────────────────────────────────────────────────────
-  function DealWriteModal({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, onClose }) {
-    const Modal = (window.Shared && window.Shared.Modal) || null;
-    if (!Modal) {
-      // Should never happen post-hydrate; render the form bare as a
-      // last-ditch fallback.
-      return <DealWriteForm
-        defaultLeadId={defaultLeadId}
-        defaultCarrierId={defaultCarrierId}
-        defaultAp={defaultAp}
-        defaultNewLead={defaultNewLead}
-        prefillSource={prefillSource}
-        onWritten={onClose}
-      />;
-    }
+  function DealWriteModal({ defaultLeadId, defaultCarrierId, defaultAp, defaultNewLead, prefillSource, policyId, onClose, onWritten }) {
+    const done = onWritten || onClose;
+    const title = policyId ? "Edit deal" : "Write deal";
+    const closeOnBackdrop = (e) => { if (e.target === e.currentTarget) onClose?.(); };
     return (
-      <Modal title="Write deal" width={860} onClose={onClose}>
-        <DealWriteForm
-          defaultLeadId={defaultLeadId}
-          defaultCarrierId={defaultCarrierId}
-          defaultAp={defaultAp}
-          defaultNewLead={defaultNewLead}
-          prefillSource={prefillSource}
-          onWritten={onClose}
-        />
-      </Modal>
+      <div className="crm-deal-backdrop" onMouseDown={closeOnBackdrop}>
+        <div className="crm-deal-modal" role="dialog" aria-modal="true" aria-labelledby="crm-deal-title">
+          <div className="crm-deal-modal-head">
+            <div><div className="crm-eyebrow">CRM · Policy record</div><h2 id="crm-deal-title">{title}</h2></div>
+            <button type="button" className="crm-icon-btn" onClick={onClose} aria-label="Close deal form">×</button>
+          </div>
+          <DealWriteForm
+            defaultLeadId={defaultLeadId}
+            defaultCarrierId={defaultCarrierId}
+            defaultAp={defaultAp}
+            defaultNewLead={defaultNewLead}
+            prefillSource={prefillSource}
+            policyId={policyId}
+            onWritten={done}
+          />
+        </div>
+      </div>
     );
   }
 
   // ──────────────────────────────────────────────────────────────────────
-  // <DealEditModal/> — same form, edit mode. Mounts inside Shared.Modal
-  // and forwards onClose to the form's onWritten so save/delete dismisses.
+  // <DealEditModal/> — same universal shell in edit mode.
   // ──────────────────────────────────────────────────────────────────────
   function DealEditModal({ policyId, onClose }) {
-    const Modal = (window.Shared && window.Shared.Modal) || null;
-    const form = <DealWriteForm policyId={policyId} onWritten={onClose}/>;
-    if (!Modal) return form;
-    return (
-      <Modal title="Edit deal" width={860} onClose={onClose}>{form}</Modal>
-    );
+    return <DealWriteModal policyId={policyId} onClose={onClose}/>;
   }
 
   window.DealWriteForm  = DealWriteForm;
