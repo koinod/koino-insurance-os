@@ -28,6 +28,10 @@
   const cents = (n) => Math.round((Number(n) || 0) * 100);
   const dollars = (c) => (Number(c) || 0) / 100;
   const fmt$ = Shared.fmtMoneyExact;
+  const withTimeout = (promise, ms = 15000) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Deal save timed out. Check your connection and try again.")), ms)),
+  ]);
 
   function isIULProduct(p) {
     if (!p) return false;
@@ -333,14 +337,20 @@
           status, stage: status === "submitted" ? "App In" : "New",
           owner_rep_id: meIdent.rep_id || (me ? me.id : null),
         };
-        const { data: crmData, error: crmError } = await sb.rpc("crm_write_deal", { p_payload: crmPayload });
-        const missingRpc = crmError && /function .*crm_write_deal|does not exist|could not find/i.test(crmError.message || "");
-        if (crmError && !missingRpc) throw crmError;
-        if (!crmError && crmData) {
-          window.toast && window.toast(`${isEdit ? "Deal updated" : "Deal written"} · ${product?.name || "policy"}`, "success");
-          window.dispatchEvent(new CustomEvent("data:hydrated"));
-          onWritten && onWritten(crmData);
+        try {
+          const { data: crmData, error: crmError } = await withTimeout(sb.rpc("crm_write_deal", { p_payload: crmPayload }));
+          const missingRpc = crmError && /function .*crm_write_deal|does not exist|could not find/i.test(crmError.message || "");
+          if (crmError && !missingRpc) throw crmError;
+          if (!crmError && crmData) {
+            window.toast && window.toast(`${isEdit ? "Deal updated" : "Deal written"} · ${product?.name || "policy"}`, "success");
+            window.dispatchEvent(new CustomEvent("data:hydrated"));
+            onWritten && onWritten(crmData);
+            setBusy(false);
+            return;
+          }
+        } catch (rpcError) {
           setBusy(false);
+          setError(rpcError?.message || "Deal could not be saved.");
           return;
         }
       }
@@ -953,4 +963,5 @@
   window.DealWriteModal = DealWriteModal;
   window.DealEditModal  = DealEditModal;
   window.RecentDeals    = RecentDeals;
+  window.dispatchEvent(new Event("deal-write:ready"));
 })();

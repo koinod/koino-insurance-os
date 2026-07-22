@@ -129,9 +129,22 @@
   }
 
   function DealModal({ lead, onClose, onSaved }) {
-    const Form = window.DealWriteForm;
-    if (!Form) return <Modal title="Write deal" onClose={onClose}><div className="crm-empty">Deal form is still loading.</div></Modal>;
-    return <Modal title={lead ? `Write deal · ${lead.lead}` : "Write deal"} onClose={onClose} wide><Form defaultLeadId={lead?.id || ""} onWritten={() => { onSaved?.(); onClose(); }} /></Modal>;
+    const [Form, setForm] = useState(() => window.DealWriteForm || null);
+    const [loadTimedOut, setLoadTimedOut] = useState(false);
+    useEffect(() => {
+      if (Form) return;
+      let attempts = 0;
+      const ready = () => { if (window.DealWriteForm) setForm(() => window.DealWriteForm); };
+      const timer = setInterval(() => {
+        ready();
+        attempts += 1;
+        if (attempts >= 100) { clearInterval(timer); setLoadTimedOut(true); }
+      }, 50);
+      window.addEventListener("deal-write:ready", ready);
+      return () => { clearInterval(timer); window.removeEventListener("deal-write:ready", ready); };
+    }, [Form]);
+    if (!Form) return <Modal title="Write deal" onClose={onClose}><div className="crm-empty">{loadTimedOut ? "Deal form could not load. Close and try again." : "Loading deal form…"}</div></Modal>;
+    return <Modal title={lead ? `Write deal · ${lead.lead}` : "Write deal"} onClose={onClose} wide>{React.createElement(Form, { defaultLeadId: lead?.id || "", onWritten: () => { onSaved?.(); onClose(); } })}</Modal>;
   }
 
   function DepositModal({ carriers, agencyId, onClose, onSaved }) {
