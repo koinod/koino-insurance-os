@@ -376,6 +376,25 @@ def list_ollama_models() -> list[str]:
         return []
 
 
+def normalize_local_models(cfg: dict) -> dict:
+    """Keep older installs usable when their config names an uninstalled model."""
+    installed = set(list_ollama_models())
+    if not installed:
+        return cfg
+    fallback = "qwen2.5:1.5b" if "qwen2.5:1.5b" in installed else next(iter(installed), None)
+    if not fallback:
+        return cfg
+    default = cfg.get("default_model") or fallback
+    smart = cfg.get("smart_model") or default
+    if default not in installed:
+        default = fallback
+    if smart not in installed:
+        smart = default
+    cfg["default_model"] = default
+    cfg["smart_model"] = smart
+    return cfg
+
+
 def clear_workspace() -> int:
     """Delete everything under workspace/ except top-level dir markers. Returns
     count of files removed. Cannot escape WORKSPACE due to relative-resolve."""
@@ -421,6 +440,7 @@ def main():
     signal.signal(signal.SIGINT, _signal_stop)
 
     cfg = load_config()
+    cfg = normalize_local_models(cfg)
     api_base = cfg.get("api_base") or "https://repflow.koino.capital"
     token = cfg["agent_token"]
     version = cfg.get("version") or "0.1.0"
