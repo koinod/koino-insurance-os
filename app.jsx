@@ -246,7 +246,6 @@ function App() {
       case "quote":       return F("PageQuote",      { role });
       case "auto-quoter": return F("PageAutoQuoter", { role });
       case "recruiting":  return F("PageRecruiting", { role });
-      case "recruits":    return F("PageRecruits",   { role });
       case "licensing":   return F("PageLicensing",  { role });
       case "carrier-appointments":
                           return F("PageCarrierAppointments", { role });

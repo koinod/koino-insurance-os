@@ -75,6 +75,7 @@
     useMutationListener();
     const [tab, setTab] = useState("funnel");
     const [activeApplicant, setActiveApplicant] = useState(null);
+    const [activeCampaign, setActiveCampaign] = useState(null);
     const [showAddApplicant, setShowAddApplicant] = useState(false);
     const [showAddCampaign, setShowAddCampaign] = useState(false);
 
@@ -97,12 +98,22 @@
     const campaigns  = filterByScope(allCampaigns,  "ownerRepId");
     const applicants = filterByScope(allApplicants, "recruiterId");
 
+    useEffect(() => {
+      const open = (e) => {
+        const applicant = applicants.find(a => a.id === e.detail?.id) || e.detail;
+        if (applicant) { setActiveApplicant(applicant); setTab("conversations"); }
+      };
+      window.addEventListener("recruiting:open-applicant", open);
+      return () => window.removeEventListener("recruiting:open-applicant", open);
+    }, [applicants]);
+
     return (
-      <div className="page-pad">
-        <div className="page-h">
+      <div className="page-pad recruiting-workbench">
+        <div className="recruiting-hero">
           <div>
+            <div className="recruiting-kicker">People workspace</div>
             <div className="page-title">Recruiting</div>
-            <div className="page-sub">
+            <div className="page-sub recruiting-sub">
               {isManager ? "My downline" : agencyName}
               {" · "}
               {applicants.length} applicants
@@ -110,7 +121,7 @@
               {campaigns.filter(c => c.status === "live").length} live campaigns
             </div>
           </div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <div className="recruiting-hero-actions">
             {(scope.isOwner || isManager) && (
               <button className="btn btn-ghost" onClick={() => setTab("invite")}>
                 <Icons.UserPlus size={13}/> Invite team
@@ -120,7 +131,7 @@
               <Icons.Plus size={13}/> Add applicant
             </button>
             <button className="btn btn-primary" onClick={() => setShowAddCampaign(true)}>
-              <Icons.Plus size={13}/> New campaign
+              <Icons.Sparkles size={13}/> Start a playbook
             </button>
           </div>
         </div>
@@ -140,7 +151,7 @@
           />
         )}
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="recruiting-tabs">
           {[
             { id: "funnel",        label: "Pipeline",      icon: "Pipeline" },
             { id: "conversations", label: "Inbox",         icon: "MessageSquare" },
@@ -153,14 +164,7 @@
             return (
               <button key={t.id}
                 onClick={() => setTab(t.id)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "10px 14px", fontSize: 13,
-                  background: "transparent", border: "none",
-                  borderBottom: tab === t.id ? "2px solid var(--accent-action)" : "2px solid transparent",
-                  color: tab === t.id ? "var(--text-primary)" : "var(--text-tertiary)",
-                  cursor: "pointer", marginBottom: -1,
-                }}>
+                className={tab === t.id ? "active" : ""}>
                 {I && <I size={13}/>} {t.label}
               </button>
             );
@@ -192,10 +196,12 @@
         )}
         {tab === "programs" && (
           <ProgramsTab
-            campaigns={allCampaigns}
+            campaigns={campaigns}
             applicants={allApplicants}
             isManager={isManager}
             myRepIds={scope.repIds}
+            activeCampaign={activeCampaign}
+            onOpenCampaign={setActiveCampaign}
           />
         )}
         {tab === "settings" && (scope.isOwner || isManager) && (
@@ -217,13 +223,15 @@
       : 0;
 
     return (
-      <div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+      <div className="recruiting-funnel">
+        <div className="recruiting-kpis">
           <Shared.KpiCard label="Active applicants" value={total - dropped} sub={`${total} total · ${dropped} dropped`} />
           <Shared.KpiCard label="Conversion" value={`${conversionPct}%`} sub={`${advancing} of ${total} contracted+`} trend={conversionPct >= 35 ? "up" : "down"} />
           <Shared.KpiCard label="Live campaigns" value={liveCampaigns} sub={`${campaigns.length} total`} />
           <Shared.KpiCard label="Avg CPA" value={fmt$(avgCpa)} sub="cost per acquisition" />
         </div>
+
+        {applicants.length > 0 && <RecruitingActionQueue applicants={applicants} messages={messages} onOpen={onOpen}/>}
 
         {applicants.length === 0 && campaigns.length === 0 ? (
           <div className="panel" style={{ padding: 36, textAlign: "center" }}>
@@ -258,6 +266,21 @@
         )}
       </div>
     );
+  }
+
+  function RecruitingActionQueue({ applicants, messages, onOpen }) {
+    const lastByApplicant = new Map();
+    (messages || []).forEach(m => {
+      const current = lastByApplicant.get(m.applicantId);
+      if (!current || String(m.sentAt || "") > String(current.sentAt || "")) lastByApplicant.set(m.applicantId, m);
+    });
+    const needsAction = applicants.filter(a => {
+      if (["dropped", "producing", "first_app"].includes(a.status)) return false;
+      const last = lastByApplicant.get(a.id);
+      return !last || last.direction === "in";
+    }).sort((a, b) => String(a.updatedAt || a.createdAt || "").localeCompare(String(b.updatedAt || b.createdAt || ""))).slice(0, 5);
+    if (!needsAction.length) return null;
+    return <section className="recruiting-action-queue"><div className="recruiting-section-head"><div><div className="recruiting-kicker">Next moves</div><h2>People waiting on you</h2></div><span>{needsAction.length} ready</span></div><div className="recruiting-action-list">{needsAction.map(a => { const last = lastByApplicant.get(a.id); return <button key={a.id} className="recruiting-action-row" onClick={() => onOpen(a)}><span className="recruiting-action-avatar">{String(a.name || "?").slice(0, 1).toUpperCase()}</span><span className="recruiting-action-copy"><strong>{a.name}</strong><small>{last ? `Replied ${ago(last.sentAt)}` : "No outreach logged yet"} · {STAGES.find(s => s.id === a.status)?.label || a.status}</small></span><span className="recruiting-action-cta">Open <Icons.ArrowUpRight size={12}/></span></button>; })}</div></section>;
   }
 
   function ApplicantCard({ a, campaigns, messages, onOpen }) {
@@ -322,7 +345,7 @@
     };
 
     return (
-      <div onClick={onOpen} style={{
+      <div className="recruiting-applicant-card" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }} onClick={onOpen} style={{
         background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", padding: "8px 10px",
         cursor: "pointer", border: "1px solid var(--border-subtle)",
         transition: "border-color 120ms var(--ease-out)",
@@ -898,18 +921,20 @@
   }
 
   // ─── Programs (campaigns) ───────────────────────────────────────────────
-  function ProgramsTab({ campaigns, applicants, isManager, myRepIds }) {
+  function ProgramsTab({ campaigns, applicants, isManager, myRepIds, activeCampaign, onOpenCampaign }) {
+    const selected = activeCampaign && campaigns.find(c => c.id === activeCampaign.id);
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
-        {campaigns.length === 0 && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>No campaigns yet.</div>}
-        {campaigns.map(c => (
-          <CampaignCard key={c.id} c={c} applicants={applicants} isManager={isManager} myRepIds={myRepIds}/>
-        ))}
+      <div className="recruiting-campaigns-layout">
+        <div className="recruiting-campaign-grid">
+          {campaigns.length === 0 && <div className="recruiting-empty-inline">No playbooks yet. Start one when you have a specific recruiting motion to run.</div>}
+          {campaigns.map(c => <CampaignCard key={c.id} c={c} applicants={applicants} isManager={isManager} myRepIds={myRepIds} onOpen={() => onOpenCampaign(c)}/>) }
+        </div>
+        {selected && <CampaignDetail campaign={selected} applicants={applicants} isManager={isManager} myRepIds={myRepIds}/>}
       </div>
     );
   }
 
-  function CampaignCard({ c, applicants, isManager, myRepIds }) {
+  function CampaignCard({ c, applicants, isManager, myRepIds, onOpen }) {
     const owner = repById(c.ownerRepId);
     const visibleToMe = !isManager || !myRepIds || myRepIds.includes(c.ownerRepId);
     const ownApplicants = applicants.filter(a => a.campaignId === c.id);
@@ -917,18 +942,11 @@
     const contracted = ownApplicants.filter(a => ["contracted","first_app","producing"].includes(a.status))?.length;
     const conv = inFunnel ? Math.round((contracted / inFunnel) * 100) : 0;
 
-    const toggle = async () => {
-      const next = c.status === "live" ? "paused" : "live";
-      try {
-        await window.AppData.mutate.recruitingCampaignToggle(c.id, next);
-        window.toast && window.toast(`${c.name} → ${next}`, "success");
-      } catch (e) { window.toast?.(`Campaign toggle failed: ${e?.message || e}`, "error"); console.error("[recruiting.campaignToggle]", e); }
-    };
-    // Managers can only toggle campaigns they own (in their downline scope).
+    // Managers can only activate playbooks they own (in their downline scope).
     const canEdit = !isManager || visibleToMe;
 
     return (
-      <div className="panel" style={{ padding: 12 }}>
+      <button className="panel recruiting-campaign-card" onClick={onOpen}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</div>
@@ -963,16 +981,28 @@
               {owner ? owner.name : "unowned"} · {conv}% conversion
             </span>
           </div>
-          <button className="btn btn-ghost"
+          <span className="btn btn-ghost recruiting-campaign-open"
             disabled={!canEdit}
-            onClick={toggle}
             title={canEdit ? "" : "Only the campaign owner can change status"}
             style={{ fontSize: 11 }}>
-            {c.status === "live" ? <><Icons.Pause size={11}/> Pause</> : <><Icons.Play size={11}/> Activate</>}
-          </button>
+            {c.status === "live" ? <><Icons.Pause size={11}/> Live</> : <><Icons.Play size={11}/> {c.status}</>}
+          </span>
+          <span className="recruiting-campaign-chevron"><Icons.ArrowUpRight size={13}/></span>
         </div>
-      </div>
+      </button>
     );
+  }
+
+  function CampaignDetail({ campaign, applicants, isManager, myRepIds }) {
+    const ownApplicants = applicants.filter(a => a.campaignId === campaign.id);
+    const canEdit = !isManager || !myRepIds || myRepIds.includes(campaign.ownerRepId);
+    const [showPause, setShowPause] = useState(false);
+    const toggle = async () => {
+      const next = campaign.status === "live" ? "paused" : "live";
+      try { await window.AppData.mutate.recruitingCampaignToggle(campaign.id, next); window.toast?.(`${campaign.name} → ${next}`, "success"); setShowPause(false); }
+      catch (e) { window.toast?.(`Campaign update failed: ${e?.message || e}`, "error"); }
+    };
+    return <aside className="recruiting-campaign-detail"><div className="recruiting-section-head"><div><div className="recruiting-kicker">Playbook</div><h2>{campaign.name}</h2></div><span className={`recruiting-status recruiting-status-${campaign.status}`}>{campaign.status}</span></div><p className="recruiting-detail-copy">Use this playbook to work a specific source. Applicants are the work queue; this page keeps the source, ownership, and next actions together.</p><div className="recruiting-detail-stats"><div><strong>{ownApplicants.length}</strong><span>Applicants</span></div><div><strong>{ownApplicants.filter(a => ["contracted", "first_app", "producing"].includes(a.status)).length}</strong><span>Advancing</span></div><div><strong>{fmt$(campaign.budget || 0)}</strong><span>Budget</span></div></div><div className="recruiting-detail-actions"><button className="btn btn-primary" disabled={!canEdit} onClick={() => setShowPause(true)}>{campaign.status === "live" ? "Pause playbook" : "Activate playbook"}</button><span className="recruiting-detail-hint">{canEdit ? (campaign.status === "live" ? "Keep working the applicant queue below." : "Activation only changes this internal status.") : "Only the playbook owner can change its status."}</span></div><div className="recruiting-detail-list"><div className="recruiting-kicker">Applicants in playbook</div>{ownApplicants.length ? ownApplicants.map(a => <button key={a.id} className="recruiting-detail-person" onClick={() => window.dispatchEvent(new CustomEvent("recruiting:open-applicant", { detail: a }))}><span><strong>{a.name}</strong><small>{STAGES.find(s => s.id === a.status)?.label || a.status}</small></span><Icons.ArrowUpRight size={12}/></button>) : <div className="recruiting-empty-inline">No applicants assigned yet.</div>}</div>{showPause && <div className="recruiting-confirm"><span>{campaign.status === "live" ? "Pause this playbook?" : "Activate this playbook?"}</span><button className="btn btn-primary" onClick={toggle}>Confirm</button><button className="btn btn-ghost" onClick={() => setShowPause(false)}>Cancel</button></div>}</aside>;
   }
 
   function Stat({ label, value }) {

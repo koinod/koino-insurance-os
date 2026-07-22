@@ -220,8 +220,8 @@
               <Icons.FileText size={12}/> NIPR
             </a>
             {typeof window !== "undefined" && typeof window.gotoPage === "function" && (
-              <button className="btn btn-ghost" onClick={() => window.gotoPage("recruits")}>
-                <Icons.Users size={12}/> Recruits
+              <button className="btn btn-ghost" onClick={() => window.gotoPage("recruiting")}>
+                <Icons.Users size={12}/> Recruiting
               </button>
             )}
           </div>
