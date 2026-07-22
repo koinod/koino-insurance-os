@@ -512,11 +512,14 @@
     const noProducts = (products || []).length === 0;
 
     return (
-      <div className="panel" style={{ padding: 18, maxWidth: 720 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 14, fontSize: 16 }}>
-          {isEdit ? "Edit deal" : "Write deal"}
-          {isEdit && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-tertiary)", fontWeight: 400 }}>id · {String(policyId).slice(0, 8)}</span>}
-        </h3>
+      <div className="crm-deal-form">
+        <div className="crm-deal-intro">
+          <div>
+            <div className="crm-eyebrow">{isEdit ? "Policy record" : "New policy record"}</div>
+            <h3>{isEdit ? "Edit deal" : "Write deal"}</h3>
+          </div>
+          <div className="crm-deal-intro-meta">{isEdit ? `ID ${String(policyId).slice(0, 8)}` : "Lead → policy → cash"}</div>
+        </div>
 
         {prefillSource && (
           <div style={{ padding: "8px 12px", marginBottom: 12, background: "color-mix(in oklch, var(--accent-money) 10%, transparent)", border: "1px solid color-mix(in oklch, var(--accent-money) 30%, transparent)", borderRadius: 6, fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -532,7 +535,7 @@
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="crm-deal-grid">
           {/* Linked Lead — typeahead. Type a name → existing matches +
               "Add new" inline. New leads get materialized into the pipeline
               on submit so the producer doesn't have to go through CRM first. */}
@@ -602,7 +605,7 @@
 
           {/* Inline new-lead fields — only shown when "Add new" was picked. */}
           {newLead && (
-            <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr 90px 1fr", gap: 10, padding: 12, background: "color-mix(in oklch, var(--accent-status) 5%, transparent)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+            <div className="crm-deal-new-lead">
               <div>
                 <Lbl required>First name</Lbl>
                 <input style={inp} type="text" value={newLead.firstName} autoFocus
@@ -634,7 +637,7 @@
 
           {/* Lead vendor — optional attribution. Tagging here is what lets
               the Attribution page roll realized AP up per source (ROAS). */}
-          <div style={{ gridColumn: "1 / -1" }}>
+          <div className="crm-deal-full">
             <Lbl>🏷️ Lead vendor <span style={{ color: "var(--text-quaternary)", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(optional · powers per-vendor ROAS)</span></Lbl>
             {addingVendor ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -800,7 +803,7 @@
           </div>
         )}
 
-        <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div className="crm-deal-actions">
           {isEdit && (
             <button className="btn" style={{ marginRight: "auto", color: "var(--state-danger)" }} disabled={busy}
               onClick={async () => {
@@ -825,7 +828,7 @@
             setCompRate(""); setExpectedComm(""); setDraftDate(""); setPolNum(""); setStatus("submitted"); setError(null);
             setLeadSourceId(""); setAddingVendor(false); setNewVendorName("");
           }} disabled={busy}>Clear</button>
-          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>
             {busy ? "Saving…" : (isEdit ? "Save changes" : "Write deal")}
           </button>
         </div>
@@ -933,7 +936,7 @@
       />;
     }
     return (
-      <Modal title="Write deal" width={780} onClose={onClose}>
+      <Modal title="Write deal" width={860} onClose={onClose}>
         <DealWriteForm
           defaultLeadId={defaultLeadId}
           defaultCarrierId={defaultCarrierId}
@@ -955,7 +958,7 @@
     const form = <DealWriteForm policyId={policyId} onWritten={onClose}/>;
     if (!Modal) return form;
     return (
-      <Modal title="Edit deal" width={780} onClose={onClose}>{form}</Modal>
+      <Modal title="Edit deal" width={860} onClose={onClose}>{form}</Modal>
     );
   }
 

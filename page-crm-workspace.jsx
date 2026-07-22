@@ -132,6 +132,7 @@
     const [Form, setForm] = useState(() => window.DealWriteForm || null);
     const [loadTimedOut, setLoadTimedOut] = useState(false);
     useEffect(() => {
+      if (window.DealWriteForm && !Form) setForm(() => window.DealWriteForm);
       if (Form) return;
       let attempts = 0;
       const ready = () => { if (window.DealWriteForm) setForm(() => window.DealWriteForm); };
@@ -143,8 +144,8 @@
       window.addEventListener("deal-write:ready", ready);
       return () => { clearInterval(timer); window.removeEventListener("deal-write:ready", ready); };
     }, [Form]);
-    if (!Form) return <Modal title="Write deal" onClose={onClose}><div className="crm-empty">{loadTimedOut ? "Deal form could not load. Close and try again." : "Loading deal form…"}</div></Modal>;
-    return <Modal title={lead ? `Write deal · ${lead.lead}` : "Write deal"} onClose={onClose} wide>{React.createElement(Form, { defaultLeadId: lead?.id || "", onWritten: () => { onSaved?.(); onClose(); } })}</Modal>;
+    if (!Form) return <Modal title="Write deal" onClose={onClose}><div className="crm-deal-loader"><strong>{loadTimedOut ? "Deal form could not load" : "Loading deal form…"}</strong><span>{loadTimedOut ? "The form script did not register. Retry before leaving CRM." : "Preparing the policy workspace."}</span>{loadTimedOut && <button className="btn btn-primary" onClick={() => { setLoadTimedOut(false); setForm(window.DealWriteForm || null); }}>Retry</button>}</div></Modal>;
+    return <Modal title={lead ? `Write deal · ${lead.lead}` : "Write deal"} onClose={onClose} wide>{React.createElement(Form, { key: lead?.id || "new-deal", defaultLeadId: lead?.id || "", onWritten: () => { onSaved?.(); onClose(); } })}</Modal>;
   }
 
   function DepositModal({ carriers, agencyId, onClose, onSaved }) {
