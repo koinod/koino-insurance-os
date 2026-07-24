@@ -47,7 +47,6 @@ function VaultDashboardPane({ role, onJump }) {
     scripts:   A("SCRIPTS_LIB").length,
     videos:    A("VIDEOS").length,
     docs:      A("DOCS").length,
-    carriers:  A("CARRIERS").length,
     courses:   A("TRAINING_COURSES").length,
     reps:      A("REPS").length,
   };
@@ -64,7 +63,6 @@ function VaultDashboardPane({ role, onJump }) {
         <Card label="Scripts"  value={counts.scripts}  sub="open library" onClick={() => onJump("resources")}/>
         <Card label="Videos"   value={counts.videos}   sub="training reels" onClick={() => onJump("resources")}/>
         <Card label="Docs"     value={counts.docs}     sub="forms · policies" onClick={() => onJump("resources")}/>
-        <Card label="Carriers" value={counts.carriers} sub="appointments" onClick={() => onJump("resources")}/>
         <Card label="Courses"  value={counts.courses}  sub="active tracks" onClick={() => onJump("resources")}/>
         <Card label="Team"     value={counts.reps}     sub="view org tree" onClick={() => onJump("tree")}/>
       </div>

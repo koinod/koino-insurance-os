@@ -714,6 +714,7 @@ window.hydrateFromSupabase = async function () {
       // the individual producer). Vault → Carriers reads from this list.
       window.AppData.AGENCY_APPOINTMENTS = mapRows(agencyApptsR, a => ({
         id: a.id, agencyId: a.agency_id,
+        repId: a.rep_id || null,
         carrierId: a.carrier_id, carrierName: a.carrier_name,
         category: a.category || null,
         contactName: a.contact_name || null,
@@ -1801,11 +1802,12 @@ window.AppData.mutate = {
           source: row.source, owner_rep_id: row.owner, consent: row.consent, heat: row.heat,
           phone: row.phone || null, email: row.email || null,
           lead_source_id: row.lead_source_id || row.leadSourceId || null,
+          import_batch_id: row.import_batch_id || row.importBatchId || null,
         };
         // Tolerant insert — strip newer columns if the migration hasn't landed yet.
         let { data, error } = await sb.from("pipeline").insert(dbRow).select().single();
         if (error && /column.*does not exist/i.test(error.message || "")) {
-          const { phone, email, lead_source_id, ...legacy } = dbRow;
+          const { phone, email, lead_source_id, import_batch_id, ...legacy } = dbRow;
           ({ data, error } = await sb.from("pipeline").insert(legacy).select().single());
         }
         if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }
@@ -3040,6 +3042,7 @@ window.AppData.mutate = {
     const keep = (k, def) => (a[k] !== undefined ? a[k] : (existing ? existing[k] : def));
     const jsRow = {
       id, agencyId,
+      repId: a.repId !== undefined ? a.repId : (existing?.repId || null),
       carrierId: a.carrierId || null,
       carrierName: a.carrierName || null,
       category: a.category || null,
@@ -3066,6 +3069,7 @@ window.AppData.mutate = {
       const sb = window.getSupabase(); if (!sb) return jsRow;
       const dbRow = {
         agency_id: agencyId,
+        rep_id: jsRow.repId || null,
         carrier_id: jsRow.carrierId,
         carrier_name: jsRow.carrierName,
         category: jsRow.category,
@@ -3089,6 +3093,17 @@ window.AppData.mutate = {
         resp = await sb.from("agency_carrier_appointments").update(dbRow).eq("id", a.id).select().single();
       } else {
         resp = await sb.from("agency_carrier_appointments").insert(dbRow).select().single();
+      }
+      // Keep the pre-0113 deployment usable while the nullable producer
+      // overlay column is being rolled out. The new row still remains in the
+      // local cache; the next save will retry with the scoped field available.
+      if (resp.error && /rep_id|column .* does not exist|schema cache/i.test(resp.error.message || "")) {
+        const { rep_id: _repId, ...legacyDbRow } = dbRow;
+        if (a.id && !String(a.id).startsWith("tmp-")) {
+          resp = await sb.from("agency_carrier_appointments").update(legacyDbRow).eq("id", a.id).select().single();
+        } else {
+          resp = await sb.from("agency_carrier_appointments").insert(legacyDbRow).select().single();
+        }
       }
       const { data, error } = resp;
       if (error) { window.toast && window.toast(`Save failed: ${error.message}`, "error"); throw error; }

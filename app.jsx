@@ -248,7 +248,7 @@ function App() {
       case "recruiting":  return F("PageRecruiting", { role });
       case "licensing":   return F("PageLicensing",  { role });
       case "carrier-appointments":
-                          return F("PageCarrierAppointments", { role });
+                          return F("PageCrmWorkspace", { role, defaultView: "carriers" });
       case "settings":    return F("PageSettings",   { role });
       // admin-*: super_admin sidebar fans these out as 1 entry per surface.
       // HQ should land on the Mission Control shell so the horizontal admin

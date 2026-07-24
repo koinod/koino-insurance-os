@@ -195,7 +195,7 @@ function normalizePhone(raw) {
   return "";
 }
 
-function CSVImport({ onClose }) {
+function CSVImport({ onClose, onImported, batchMeta = {} }) {
   const [text, setText]       = React.useState("");
   const [parsedHeaders, setParsedHeaders] = React.useState([]);
   const [parsedRows, setParsedRows]       = React.useState([]);
@@ -213,7 +213,7 @@ function CSVImport({ onClose }) {
   // Lead-vendor attribution: tag every imported lead to the source that
   // produced it (agency_lead_sources). Carries through to deal-write so
   // per-vendor lead/contact/close rates + ROAS roll up on Attribution.
-  const [vendorId, setVendorId] = React.useState("");
+  const [vendorId, setVendorId] = React.useState(batchMeta.leadSourceId || "");
   const [vendors, setVendors]   = React.useState([]);
   React.useEffect(() => {
     if (!agencyId) return;
@@ -249,6 +249,7 @@ function CSVImport({ onClose }) {
       const phone = normalizePhone(get("phone"));
       const owner = get("owner")
         || (REPS.find(r => r.handle === get("owner") || r.id === get("owner") || r.name === get("owner"))?.id)
+        || batchMeta.owner
         || myRepId;
       // AP preference: monthly × 12 when monthly column mapped, else AP column.
       const monthlyRaw = get("monthly");
@@ -264,8 +265,9 @@ function CSVImport({ onClose }) {
         stage:   "New",
         product: get("product") || null,
         ap,
-        source:  get("source") || "CSV import",
+        source:  batchMeta.source || get("source") || "CSV import",
         lead_source_id: vendorId || null,
+        import_batch_id: batchMeta.batchId || null,
         owner,
         consent: "verified",
         heat:    "fresh",
@@ -274,7 +276,7 @@ function CSVImport({ onClose }) {
         next:    "First dial",
       };
     });
-  }, [parsedRows, mapping, myRepId, vendorId]);
+  }, [parsedRows, mapping, myRepId, vendorId, batchMeta]);
 
   // Validation + dedup against existing pipeline (by phone)
   const validation = React.useMemo(() => {
@@ -318,6 +320,7 @@ function CSVImport({ onClose }) {
     setErrors(errs);
     setStep("done");
     window.toast && window.toast(`Imported ${done} of ${toImport.length} leads${failed ? ` · ${failed} failed` : ""}${skipped.length ? ` · ${skipped.length} skipped (dupes)` : ""}`, failed ? "warn" : "success");
+    onImported && onImported({ imported: done, skipped: skipped.length, failed });
   };
 
   const onDrop = (e) => {

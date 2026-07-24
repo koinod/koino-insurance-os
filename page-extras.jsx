@@ -106,12 +106,11 @@ function PageVault({ role = "owner", embedded = false }) {
   const fVideos   = data.videos.filter(v => match(v.title) || match(v.cat));
   const fDocs     = visDocs.filter(d => match(d.title) || match(d.cat) || (d.text && match(d.text)));
   const fLinks    = data.links.filter(l => match(l.label) || match(l.cat));
-  const fCarriers = data.carriers.filter(c => match(c.name) || match(c.category || ""));
   const fCourses  = visCourses.filter(c => match(c.title) || match(c.track || "") || match(c.description || ""));
 
   const totalSearch =
     fScripts.length + fVideos.length + fDocs.length +
-    fLinks.length + fCarriers.length + fCourses.length;
+    fLinks.length + fCourses.length;
 
   const counts = {
     all: totalSearch,
@@ -120,7 +119,6 @@ function PageVault({ role = "owner", embedded = false }) {
     scripts:   fScripts.length,
     videos:    fVideos.length,
     docs:      fDocs.length,
-    carriers:  fCarriers.length,
     links:     fLinks.length,
   };
 
@@ -131,7 +129,6 @@ function PageVault({ role = "owner", embedded = false }) {
     { k: "scripts",   l: "Scripts",    icon: "FileText"  },
     { k: "videos",    l: "Videos",     icon: "Video"     },
     { k: "docs",      l: "Documents",  icon: "Folder"    },
-    { k: "carriers",  l: "Carriers",   icon: "Shield"    },
     { k: "links",     l: "Quick links",icon: "ArrowUpRight" },
   ];
 
@@ -161,7 +158,6 @@ function PageVault({ role = "owner", embedded = false }) {
         <Shared.KpiCard label="Scripts" value={String(counts.scripts)} sub="open library" onClick={() => setTab("scripts")}/>
         <Shared.KpiCard label="Videos" value={String(counts.videos)} sub="training reels" onClick={() => setTab("videos")}/>
         <Shared.KpiCard label="Docs" value={String(counts.docs)} sub="forms · policies" onClick={() => setTab("docs")}/>
-        <Shared.KpiCard label="Carriers" value={String(counts.carriers)} sub="appointments" onClick={() => setTab("carriers")}/>
         <Shared.KpiCard label="Courses" value={String(counts.courses)} sub="active tracks" onClick={() => setTab("courses")}/>
       </div>
 
@@ -201,7 +197,6 @@ function PageVault({ role = "owner", embedded = false }) {
           }}/>}
           {fVideos.length   > 0 && <VaultVideosBlock   videos={fVideos}    onOpen={setOpenVideo}/>}
           {fDocs.length     > 0 && <VaultDocsBlock     docs={fDocs}/>}
-          {fCarriers.length > 0 && <VaultCarriersBlock carriers={fCarriers}/>}
           {fLinks.length    > 0 && <VaultLinksBlock    links={fLinks}/>}
         </div>
       )}
@@ -211,7 +206,6 @@ function PageVault({ role = "owner", embedded = false }) {
       {tab === "scripts"  && <VaultScriptsPane scripts={fScripts} openId={openScript} setOpenId={setOpenScript} subCtx={subCtx} role={role}/>}
       {tab === "videos"   && <VaultVideosPane   videos={fVideos}   onOpen={setOpenVideo} canEdit={canEdit}/>}
       {tab === "docs"     && <VaultDocsPane     canEdit={canEdit}/>}
-      {tab === "carriers" && <VaultCarriersPane carriers={fCarriers} canEdit={canEdit}/>}
       {tab === "links"    && <VaultLinksPane    links={fLinks}    canEdit={canEdit}/>}
 
       {openVideo && (
