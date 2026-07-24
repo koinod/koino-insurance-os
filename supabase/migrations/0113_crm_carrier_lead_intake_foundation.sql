@@ -73,7 +73,7 @@ alter table public.carrier_appointment_requirements enable row level security;
 drop policy if exists "carrier requirements read agency" on public.carrier_appointment_requirements;
 create policy "carrier requirements read agency" on public.carrier_appointment_requirements
   for select to authenticated
-  using (public.is_super_admin() or agency_id = any(public.viewer_agency_ids()));
+  using (public.is_super_admin() or agency_id in (select public.viewer_agency_ids()));
 drop policy if exists "carrier requirements write role aware" on public.carrier_appointment_requirements;
 create policy "carrier requirements write role aware" on public.carrier_appointment_requirements
   for all to authenticated
@@ -117,7 +117,7 @@ alter table public.lead_import_batches enable row level security;
 drop policy if exists "lead import batches read role aware" on public.lead_import_batches;
 create policy "lead import batches read role aware" on public.lead_import_batches
   for select to authenticated
-  using (public.is_super_admin() or agency_id = any(public.viewer_agency_ids()));
+  using (public.is_super_admin() or agency_id in (select public.viewer_agency_ids()));
 drop policy if exists "lead import batches write role aware" on public.lead_import_batches;
 create policy "lead import batches write role aware" on public.lead_import_batches
   for all to authenticated
